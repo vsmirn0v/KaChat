@@ -160,9 +160,6 @@ final class NextcloudService: ObservableObject {
 
     /// The user flipped the Automatic Sync toggle: persist the value AND the explicit-choice
     /// marker, so this wallet's decision survives every future default resolution.
-    ///
-    /// One cloud at a time: turning Automatic Sync ON also turns iCloud message storage off
-    /// (see `disableICloudMessageSync`); the two sync services are mutually exclusive.
     func setAutoSyncEnabled(_ enabled: Bool) {
         if let key = scopedKey(Self.autoBackupKey) {
             UserDefaults.standard.set(enabled, forKey: key)
@@ -171,40 +168,6 @@ final class NextcloudService: ObservableObject {
             UserDefaults.standard.set(true, forKey: markerKey)
         }
         autoBackupEnabled = enabled
-        if enabled {
-            disableICloudMessageSync()
-        }
-    }
-
-    /// Turns iCloud message storage off through the same persisted-settings path the iCloud
-    /// toggle uses (`AppSettings.save` + change notification), so every service that watches
-    /// the setting sees the flip. The CloudKit store keeps running until its next reload,
-    /// exactly as a manual toggle-off does today. The extra nil-object post makes live
-    /// `SettingsViewModel` instances reload, so an on-screen iCloud toggle animates off
-    /// immediately (saves post WITH the settings object, which those instances deliberately
-    /// ignore as their own writes).
-    private func disableICloudMessageSync() {
-        var settings = AppSettings.load()
-        guard settings.storeMessagesInICloud else { return }
-        settings.storeMessagesInICloud = false
-        AppSettings.save(settings)
-        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
-        AppLog.log("%@", "[Nextcloud] Automatic Sync enabled; iCloud message storage turned off (one cloud service at a time)")
-    }
-
-    /// One-cloud-at-a-time reconciliation for STORED state: if a wallet loads (or connects)
-    /// with Nextcloud Automatic Sync on while iCloud message storage is also on - old installs,
-    /// or state written before this rule existed - iCloud, the platform default, wins and the
-    /// Nextcloud toggle is persisted off. Runs after every `resolveAndMigrateAutoSyncEnabled`
-    /// assignment; the explicit-choice marker is left as-is (this is a conflict resolution,
-    /// not a user choice).
-    private func reconcileOneCloudAtATime() {
-        guard autoBackupEnabled, AppSettings.load().storeMessagesInICloud else { return }
-        if let key = scopedKey(Self.autoBackupKey) {
-            UserDefaults.standard.set(false, forKey: key)
-        }
-        autoBackupEnabled = false
-        AppLog.log("%@", "[Nextcloud] iCloud message storage and Nextcloud Automatic Sync were both enabled; keeping iCloud and turning Nextcloud Automatic Sync off (one cloud service at a time)")
     }
 
     /// When the active wallet's archive last uploaded automatically (nil = never). Mirrors the
@@ -403,7 +366,6 @@ final class NextcloudService: ObservableObject {
             account = nil
         }
         autoBackupEnabled = resolveAndMigrateAutoSyncEnabled()
-        reconcileOneCloudAtATime()
         mediaSendEnabled = scopedKey(Self.mediaSendKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
         pendingSyncDirty = scopedKey(Self.pendingSyncKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
         let lastStamp = scopedKey(Self.lastAutoBackupKey).map { UserDefaults.standard.double(forKey: $0) } ?? 0
@@ -497,11 +459,9 @@ final class NextcloudService: ObservableObject {
                   defaults.double(forKey: stampKey) > 0 {
             resolved = false
         } else {
-            // No real choice on record: the connected default is ON - unless iCloud message
-            // storage is already on. One cloud at a time: having iCloud on is an implicit
-            // choice against Nextcloud Automatic Sync, so the migration must never silently
-            // default it on underneath iCloud.
-            resolved = !AppSettings.load().storeMessagesInICloud
+            // No real choice on record: the connected default is ON. Nextcloud is the only
+            // cross-device sync the app has, so a connected server syncs unless told not to.
+            resolved = true
         }
         defaults.set(resolved, forKey: key)
         defaults.set(true, forKey: markerKey)
@@ -748,7 +708,7 @@ final class NextcloudService: ObservableObject {
             if let etagAtDownload {
                 setLastKnownBackupETag(etagAtDownload, walletAddress: walletAtStart)
             }
-            // Fully silent by design: sync is invisible background plumbing, like iCloud.
+            // Fully silent by design: sync is invisible background plumbing.
             // The log line is the only trace.
             AppLog.log("%@", "[Nextcloud] Automatic restore finished: \(summary.messageCount) messages in \(summary.conversationCount) chats")
         } catch NextcloudError.backupNotFound {
@@ -1023,7 +983,6 @@ final class NextcloudService: ObservableObject {
         // below are both gated on it, so nothing uploads or restores until the user turns it on
         // in Settings.
         autoBackupEnabled = resolveAutoSyncForConnect()
-        reconcileOneCloudAtATime()
         noteMessageActivity()
         scheduleAutoRestoreIfNeeded()
         startChangeWatcherIfNeeded()
@@ -1653,7 +1612,7 @@ private final class DavMultistatusParser: NSObject, XMLParserDelegate {
 /// CryptoKit; the key is SHA-256(identity private key raw 32 bytes || "kachat-backup-v1"), so
 /// any device holding the seed derives the same key and nothing else can read the archive.
 /// Writers ALWAYS encrypt; readers detect the envelope and fall back to legacy plaintext
-/// parsing, so old backups stay restorable indefinitely. iCloud/CloudKit is untouched.
+/// parsing, so old backups stay restorable indefinitely.
 enum BackupEnvelope {
     struct Envelope: Codable {
         let kachatEncryptedBackup: Int

@@ -4,7 +4,7 @@ import UIKit
 import UserNotifications
 import CryptoKit
 
-// MARK: - Data persistence, UI helpers, aliases, CloudKit, badges
+// MARK: - Data persistence, UI helpers, aliases, badges
 
 /// Serial on purpose: chat-list snapshot writes must land in the order they were requested, and
 /// a multi-MB encode for one can outlive the debounce that requests the next.
@@ -70,7 +70,7 @@ extension ChatService {
     }
 
     /// Public method to reload messages from the message store.
-    /// Call this after CloudKit sync to pick up messages from other devices.
+    /// Call this after an archive restore to pick up messages written to the store.
     /// - Parameter forceReload: If true, reloads even if conversations are not empty
     func loadChatListSnapshot(for walletAddress: String) {
         guard conversations.isEmpty else { return }
@@ -162,7 +162,7 @@ extension ChatService {
         }
         guard let key = messageEncryptionKey() else { return }
         // Only what the merge below keeps anyway (see `fetchConversationWindows`): this runs on
-        // every debounced CloudKit tick, and fetching the wallet's whole history to trim it to
+        // every reload, and fetching the wallet's whole history to trim it to
         // a window per chat was a recurring multi-second spike while texting, not a launch cost.
         let messages = await messageStore.fetchConversationWindows(
             decryptionKey: key,
@@ -197,8 +197,8 @@ extension ChatService {
             }
         }
 
-        // Deletion tombstones win over stored/CloudKit history: without this filter, a chat
-        // the user deleted would quietly resurrect from Core Data or a CloudKit sync because
+        // Deletion tombstones win over stored history: without this filter, a chat the user
+        // deleted would quietly resurrect from Core Data or an archive restore because
         // getOrCreateContact() below does not consult the tombstone list.
         let allContactAddresses = Set(grouped.keys).union(meta.keys)
             .filter { !contactsManager.isAddressDeleted($0) }
@@ -221,8 +221,7 @@ extension ChatService {
         let currentActiveConversationAddress = activeConversationAddress
 
         // The actual O(total messages in the wallet) sort/dedupe/trim/merge work used to run
-        // synchronously right here on the main actor, on every debounced CloudKit remote-change
-        // tick - not just for the one conversation that changed, the *entire* wallet's history,
+        // synchronously right here on the main actor, on every reload - not just for the one conversation that changed, the *entire* wallet's history,
         // every time. That's what caused a multi-second UI freeze while actively texting. It's
         // pure computation (no actor-isolated state), so it's safe to run off the main actor via
         // `Task.detached`; only assigning the result back to `conversations` needs to happen here.
@@ -300,8 +299,7 @@ extension ChatService {
             let dedupedFull = dedupeMessages(sorted)
             let dedupedWindow = trimMessagesForMemory(dedupedFull)
 
-            // Compute unread count from lastReadBlockTime if available (CloudKit-synced)
-            // This ensures read status from other devices is honored
+            // Compute unread count from the persisted read cursor when there is one
             let convMeta = meta[contactAddress]
             let pendingReadBlockTime = pendingReadBlockTimeByAddress[contactAddress] ?? 0
             let lastReadBlockTime = max(convMeta?.lastReadBlockTime ?? 0, pendingReadBlockTime)
@@ -344,19 +342,19 @@ extension ChatService {
                     : mergedMessages
 
                 // Determine unread count:
-                // - If CloudKit has a read status (lastReadBlockTime > 0), use computed count from loaded
+                // - If the store has a read cursor (lastReadBlockTime > 0), use computed count from loaded
                 // - Otherwise prefer in-memory value to prevent race conditions
                 let convMeta = meta[address]
                 let pendingReadBlockTime = pendingReadBlockTimeByAddress[address] ?? 0
-                let cloudKitLastReadBlockTime = max(convMeta?.lastReadBlockTime ?? 0, pendingReadBlockTime)
+                let storedLastReadBlockTime = max(convMeta?.lastReadBlockTime ?? 0, pendingReadBlockTime)
                 let unreadCount: Int
-                if cloudKitLastReadBlockTime > 0 {
-                    // CloudKit has read status - recompute unread from combined messages
+                if storedLastReadBlockTime > 0 {
+                    // Stored read cursor - recompute unread from combined messages
                     unreadCount = combinedMessages.filter { msg in
-                        !msg.isOutgoing && Int64(msg.blockTime) > cloudKitLastReadBlockTime
+                        !msg.isOutgoing && Int64(msg.blockTime) > storedLastReadBlockTime
                     }.count
                 } else {
-                    // No CloudKit read status - prefer in-memory value
+                    // No stored read cursor - prefer in-memory value
                     unreadCount = existing.unreadCount
                 }
 
@@ -493,80 +491,10 @@ extension ChatService {
         }
     }
 
-    func observeRemoteStoreChanges() {
-        remoteChangeObserver = messageStore.observeRemoteChanges { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleCloudKitImport()
-            }
-        }
-    }
-
-    /// Record when we do a local save to avoid triggering import right after
+    /// Record when we do a local save. The store is device-local, so this is bookkeeping only;
+    /// it used to gate a remote-change import that no longer exists.
     func recordLocalSave() {
         lastLocalSaveAt = Date()
-    }
-
-    func scheduleCloudKitImport() {
-        // Ignore remote-change notifications while app is inactive to avoid
-        // background import churn and CoreData CloudKit background task pressure.
-        guard UIApplication.shared.applicationState == .active else { return }
-
-        // Skip if this notification is likely from our own recent save
-        if let lastSave = lastLocalSaveAt,
-           Date().timeIntervalSince(lastSave) < 15.0 {
-            return  // Likely our own save, skip
-        }
-
-        // Cancel any pending timer
-        cloudKitImportTimer?.invalidate()
-
-        // If already have a timer pending, this is a burst - import now
-        if cloudKitImportTimer != nil {
-            cloudKitImportTimer = nil
-            performCloudKitImport()
-            return
-        }
-
-        // First notification - wait 500ms for more to arrive
-        cloudKitImportTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.cloudKitImportTimer = nil
-                self.performCloudKitImport()
-            }
-        }
-    }
-
-    func performCloudKitImport() {
-        // Avoid competing with initial CloudKit setup/import. Let MessageStore
-        // complete initial sync first, then remote-change imports can run.
-        switch messageStore.cloudKitSyncStatus {
-        case .syncing, .notStarted, .disabled, .failed:
-            return
-        default:
-            break
-        }
-
-        // Remote-change notifications mean Core Data already has new transactions.
-        // Do not force a new CloudKit import cycle here; just refresh and reload.
-        if UIApplication.shared.applicationState != .active {
-            return
-        }
-
-        // Check minimum interval
-        if let lastImport = lastCloudKitImportAt,
-           Date().timeIntervalSince(lastImport) < cloudKitImportMinInterval {
-            return  // Too soon
-        }
-
-        lastCloudKitImportAt = Date()
-        AppLog.log("[ChatService] Processing remote store change")
-
-        Task {
-            await messageStore.refreshFromCloudKit()
-            messageStore.processRemoteChanges()
-            await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-        }
     }
 
     func observeContacts() {
@@ -845,68 +773,6 @@ extension ChatService {
         lastPushReregisterAt = now
         persistPushReliabilityState()
         await PushNotificationManager.shared.forceReregister(reason: reason)
-    }
-
-    func handleCloudKitImportResult(txId: String, didImport: Bool) async {
-        guard await messageStore.hasMessageWithContent(txId: txId) == false else {
-            cloudKitImportFirstAttemptAt.removeValue(forKey: txId)
-            cloudKitImportLastObservedAt.removeValue(forKey: txId)
-            cloudKitImportRetryTokenByTxId.removeValue(forKey: txId)
-            return
-        }
-
-        let firstAttempt = cloudKitImportFirstAttemptAt[txId] ?? Date()
-        cloudKitImportFirstAttemptAt[txId] = firstAttempt
-        let elapsed = Date().timeIntervalSince(firstAttempt)
-        if elapsed >= cloudKitImportMaxWaitSeconds {
-            AppLog.log("[ChatService] CloudKit import wait exhausted for %@ after %.0fs",
-                  String(txId.prefix(12)), elapsed)
-            cloudKitImportFirstAttemptAt.removeValue(forKey: txId)
-            cloudKitImportLastObservedAt.removeValue(forKey: txId)
-            cloudKitImportRetryTokenByTxId.removeValue(forKey: txId)
-            return
-        }
-
-        var delaySeconds: TimeInterval = didImport ? 6.0 : 2.0
-        var retryAfterDate = cloudKitImportLastObservedAt[txId] ?? firstAttempt
-        var retryReason = didImport ? "observed but content missing" : "timed out"
-
-        if didImport, let latestImport = messageStore.latestCloudKitImportEndDate {
-            if let previousImport = cloudKitImportLastObservedAt[txId], latestImport <= previousImport {
-                // We only saw the same import watermark again; wait a bit longer and
-                // require a newer import cycle on retry.
-                delaySeconds = 8.0
-                retryAfterDate = previousImport
-                retryReason = "observed stale import"
-            } else {
-                cloudKitImportLastObservedAt[txId] = latestImport
-                retryAfterDate = latestImport
-            }
-        }
-
-        AppLog.log("[ChatService] CloudKit import %@ for %@ - retrying in %.1fs (elapsed %.0fs, after=%@)",
-              retryReason,
-              String(txId.prefix(12)),
-              delaySeconds,
-              elapsed,
-              retryAfterDate.description)
-
-        let retryToken = UUID()
-        cloudKitImportRetryTokenByTxId[txId] = retryToken
-
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
-            guard let self else { return }
-            guard self.cloudKitImportRetryTokenByTxId[txId] == retryToken else { return }
-            let didRetryImport = await MessageStore.shared.fetchCloudKitChanges(
-                reason: "self-stash-retry-\(String(txId.prefix(12)))",
-                after: retryAfterDate,
-                timeout: 12.0
-            )
-            guard self.cloudKitImportRetryTokenByTxId[txId] == retryToken else { return }
-            await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-            await self.handleCloudKitImportResult(txId: txId, didImport: didRetryImport)
-        }
     }
 
     func syncConversationContacts(with contacts: [Contact]) {
@@ -1329,14 +1195,10 @@ extension ChatService {
         return key
     }
 
-    func scheduleMessageStoreSync(triggerExport: Bool = false) {
-        if triggerExport {
-            pendingCloudKitExport = true
-        }
+    func scheduleMessageStoreSync() {
         if let lastScheduled = lastMessageStoreSyncScheduledAt,
            !isSyncInProgress,
-           Date().timeIntervalSince(lastScheduled) < messageStoreSyncMinInterval,
-           !pendingCloudKitExport {
+           Date().timeIntervalSince(lastScheduled) < messageStoreSyncMinInterval {
             return
         }
         // The active wallet at schedule time. If the user switches/imports a different account
@@ -1352,12 +1214,8 @@ extension ChatService {
             // stale Core Data reloads before save completes
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard let self else { return }
-            guard let owner = scheduledOwner, self.isActiveWallet(owner) else {
-                self.pendingCloudKitExport = false
-                return
-            }
+            guard let owner = scheduledOwner, self.isActiveWallet(owner) else { return }
             guard let key = self.messageEncryptionKey() else { return }
-            let shouldExport = self.pendingCloudKitExport
             let conversationsSnapshot = await MainActor.run { self.conversations }
             let dirtyAddresses = await MainActor.run { () -> Set<String> in
                 let snapshot = self.dirtyConversationAddresses
@@ -1379,19 +1237,7 @@ extension ChatService {
                 performMaintenance = false
             }
 
-            if conversationsToSync.isEmpty {
-                if shouldExport {
-                    await MainActor.run {
-                        self.messageStore.triggerCloudKitExport()
-                        self.pendingCloudKitExport = false
-                    }
-                } else {
-                    await MainActor.run {
-                        self.pendingCloudKitExport = false
-                    }
-                }
-                return
-            }
+            if conversationsToSync.isEmpty { return }
 
             let didWrite = await self.messageStore.syncFromConversations(
                 conversationsToSync,
@@ -1406,30 +1252,15 @@ extension ChatService {
             }
 
             if didWrite {
-                // Record that we just did a local save (to avoid triggering import from our own changes)
                 await MainActor.run {
                     self.recordLocalSave()
-                }
-            }
-
-            // Trigger CloudKit export for outgoing content (debounced)
-            if shouldExport && didWrite {
-                await MainActor.run {
-                    AppLog.log("[ChatService] Triggering CloudKit export after message store sync")
-                    AppLog.log("[ChatService] Requesting CloudKit export after message store sync")
-                    self.messageStore.triggerCloudKitExport()
-                    self.pendingCloudKitExport = false
-                }
-            } else if shouldExport {
-                await MainActor.run {
-                    self.pendingCloudKitExport = false
                 }
             }
         }
     }
 
-    func saveMessages(triggerExport: Bool = false) {
-        scheduleMessageStoreSync(triggerExport: triggerExport)
+    func saveMessages() {
+        scheduleMessageStoreSync()
     }
 
     func markConversationDirty(_ contactAddress: String) {

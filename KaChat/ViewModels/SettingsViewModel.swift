@@ -301,14 +301,6 @@ final class SettingsViewModel: ObservableObject {
     }
 
     // MARK: - Convenience Methods
-    var storeMessagesInICloud: Bool {
-        get { settings.storeMessagesInICloud }
-        set {
-            settings.storeMessagesInICloud = newValue
-            saveSettings()
-        }
-    }
-
     var networkType: NetworkType {
         get { settings.networkType }
         set {

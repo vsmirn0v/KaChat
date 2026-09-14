@@ -445,8 +445,6 @@ extension ChatService {
         // if it already is). It self-gates on app-active and on the initial sync having finished,
         // so starting it here is safe on every startPolling() call, including tab re-entry.
         startForegroundContactSweep()
-        // Same for the 5-minute CloudKit store refresh: no-op if it is already running.
-        startCloudRefreshTimerIfNeeded()
 
         // If initial sync already completed (e.g. Mac Catalyst window reopen),
         // just ensure subscription/polling is running — skip the heavy 4-phase sync.
@@ -487,8 +485,6 @@ extension ChatService {
         initialSyncTask?.cancel()
         initialSyncTask = Task {
             AppLog.log("[ChatService] Sync task started")
-            let settings = currentSettings
-            let cloudKitEnabled = settings.storeMessagesInICloud
 
             AppLog.log("[ChatService] Configuring API...")
             await configureAPIIfNeeded()
@@ -502,41 +498,25 @@ extension ChatService {
             AppLog.log("[ChatService] Phase 1 complete")
 
             // Phase 2: Setup UTXO subscription for real-time updates
-            // This can run while CloudKit syncs
             AppLog.log("[ChatService] Phase 2: Setting up UTXO subscription...")
             setInitialSyncPhase(.subscribing)
             await setupUtxoSubscription()
             AppLog.log("[ChatService] Phase 2 complete, isUtxoSubscribed=%d", isUtxoSubscribed ? 1 : 0)
 
-            // Phase 3: Wait for CloudKit to complete (no timeout)
-            // CloudKit may have all our messages already
-            if cloudKitEnabled {
-                AppLog.log("[ChatService] Phase 3: Waiting for CloudKit sync to complete...")
-                setInitialSyncPhase(.cloud)
-                await messageStore.waitForCloudKitSync(timeout: 0) // 0 = no timeout
-                AppLog.log("[ChatService] Phase 3 complete - CloudKit sync done")
-            } else {
-                AppLog.log("[ChatService] Phase 3 skipped - CloudKit disabled")
-            }
-
-            // Phase 3.5: Hydrate memory from the LOCAL store before the indexer re-sync - ALWAYS,
-            // not just when iCloud is on. The local Core Data store holds existing messages and,
-            // critically, their persisted read cursors (`CDConversation.lastReadBlockTime`). Loading
-            // it first means Phase 4's full re-fetch short-circuits on already-known messages
-            // (`addMessageToConversation`'s txId check) instead of recounting every historical
-            // message as unread from an empty list. Skipping this when iCloud message storage was
-            // OFF is exactly why previously-read chats reappeared unread after logout->login.
-            AppLog.log("[ChatService] Phase 3.5: Loading messages from local store...")
+            // Phase 3: Hydrate memory from the local store before the indexer re-sync. The Core
+            // Data store holds existing messages and, critically, their persisted read cursors
+            // (`CDConversation.lastReadBlockTime`). Loading it first means Phase 4's full
+            // re-fetch short-circuits on already-known messages (`addMessageToConversation`'s
+            // txId check) instead of recounting every historical message as unread from an empty
+            // list - skipping this is exactly why previously-read chats once reappeared unread
+            // after logout->login.
+            AppLog.log("[ChatService] Phase 3: Loading messages from local store...")
             setInitialSyncPhase(.localStore)
             await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-            if cloudKitEnabled {
-                // Brief pause to allow any in-flight CloudKit syncs to complete.
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-            }
-            AppLog.log("[ChatService] Phase 3.5 complete")
+            AppLog.log("[ChatService] Phase 3 complete")
 
             // Phase 4: Full indexer sync (diff-only writes to reduce DB churn)
-            // NOTE: syncFromConversations() will preserve CloudKit content and not
+            // NOTE: syncFromConversations() will preserve stored content and not
             // overwrite with placeholders thanks to the !isPlaceholder check
             AppLog.log("[ChatService] Phase 4: Full indexer sync...")
             setInitialSyncPhase(.indexer)

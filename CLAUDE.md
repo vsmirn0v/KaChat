@@ -49,7 +49,7 @@ The app uses MVVM architecture with global singleton services injected via Swift
 | `UtxoSubscriptionManager` | UTXO subscriptions with failover and keepalive |
 | `KasiaAPIClient` | REST HTTP client for Kasia Indexer |
 | `KeychainService` | Device-specific Secure Enclave credential storage |
-| `MessageStore` | Core Data + CloudKit message persistence with per-wallet zones |
+| `MessageStore` | Core Data message persistence, device-local, one SQLite store per wallet |
 | `ContactsManager` | Address book persistence, KNS domain integration |
 | `KNSService` | Kaspa Name Service API client for domain resolution |
 | `KasiaTransactionBuilder` | Constructs signed Kaspa transactions |
@@ -192,16 +192,15 @@ Remote push notifications are implemented for background/terminated delivery. `P
 ### Data Storage
 
 - **Keychain + Secure Enclave**: Seed phrases and private keys wrapped with device-specific SE keys (see Multi-Device section)
-- **Core Data + CloudKit**: Messages synced via `NSPersistentCloudKitContainer` with per-wallet zones
+- **Core Data (local only)**: Messages in a plain `NSPersistentContainer`, one SQLite store per wallet. No iCloud/CloudKit anywhere in the app - the only cross-device channel is the encrypted Nextcloud archive (`NextcloudService`)
 - **UserDefaults**: Settings, contact aliases (fallback for wallet)
 
-### Multi-Device & CloudKit Architecture
+### Multi-Device Architecture
 
-The app supports multiple devices with the same iCloud account, potentially using different wallets.
+A seed can be entered on several devices; each keeps its own local message store, and the encrypted Nextcloud archive (Settings > Storage > Nextcloud, Automatic Sync) is what carries history between them. The app never uses iCloud or CloudKit - removed in 4.1 - so there is no iCloud container entitlement and nothing about a wallet reaches Apple.
 
 **Bundle Identifiers:**
 - Bundle ID: `com.kachat.app`
-- CloudKit Container: `iCloud.com.kachat.app`
 - App Group: `group.com.kachat.app`
 - Keychain Access Group: `$(AppIdentifierPrefix)com.kachat.app`
 
@@ -224,23 +223,19 @@ let deviceId = SHA256.hash(data: publicKeyData).prefix(8).hexString  // e.g., "a
 - SE-wrapped data cannot be decrypted on other devices
 - `hasSeedPhrase()` and `hasPrivateKey()` check for device-specific keys
 
-**Per-Wallet CloudKit Zones (`MessageStore`):**
+**Per-Wallet Stores (`MessageStore`):**
 
-Messages are partitioned by wallet address using separate CKRecordZones and SQLite files:
+Messages are partitioned by wallet address using separate SQLite files:
 
 ```swift
-// Zone name derived from wallet address hash
-let zoneId = "wallet-\(SHA256(walletAddress).prefix(8).hexString)"
-
-// SQLite file per wallet
+// SQLite file per wallet, suffix = SHA256(walletAddress).prefix(8) hex
 "KasiaMessages-a1b2c3d4.sqlite"  // Wallet 1
 "KasiaMessages-e5f6g7h8.sqlite"  // Wallet 2
 ```
 
-- User can use different wallets on different devices with same iCloud account
 - Switching wallets reloads the appropriate message store
-- `purgeCurrentWalletCloudKitData()` only affects current wallet's zone
 - All Core Data queries filter by `walletAddress` field
+- Persistent history tracking stays enabled on the store (Core Data refuses to open a store that had it and lost it); `purgeOldHistory()` trims it on every load
 
 ## Code Organization
 

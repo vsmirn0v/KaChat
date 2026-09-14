@@ -1,13 +1,9 @@
 import Foundation
 import CoreData
 import CryptoKit
-import CloudKit
 import OSLog
 #if canImport(SQLite3)
 import SQLite3
-#endif
-#if !targetEnvironment(macCatalyst)
-import UIKit
 #endif
 
 struct StoredMessage {
@@ -32,58 +28,20 @@ final class MessageStore {
     static let dpiCorruptionWarningEndpointKey = "messageStoreDpiCorruptionEndpoint"
     static let dpiCorruptionWarningDateKey = "messageStoreDpiCorruptionDate"
 
-    private let containerId = "iCloud.com.kachat.app"
-    private let container: NSPersistentCloudKitContainer
+    /// Device-local Core Data. Messages never leave this store on their own: cross-device
+    /// history is Nextcloud's job (an encrypted archive the user's own server carries - see
+    /// `NextcloudService`), and this used to be an `NSPersistentCloudKitContainer` mirroring
+    /// every wallet into its own iCloud zone as well. That path is gone: no container, no
+    /// zones, no import/export cycles to wait on, and nothing about the wallet reaches Apple.
+    private let container: NSPersistentContainer
     private var isLoaded = false
     private var didLogMissingStore = false
     private let inMemoryMode: Bool
 
-    /// Current wallet address. Each wallet has its own SQLite store and CloudKit zone.
+    /// Current wallet address. Each wallet has its own SQLite store.
     /// Call `setCurrentWallet()` to switch wallets - this reloads the persistent store.
     private(set) var currentWalletAddress: String?
 
-    /// CloudKit initial sync status
-    enum CloudKitSyncStatus {
-        case notStarted
-        case syncing
-        case synced
-        case disabled
-        case failed
-    }
-
-    /// Current CloudKit sync status. Becomes `.synced` after first import event or timeout.
-    private(set) var cloudKitSyncStatus: CloudKitSyncStatus = .notStarted
-
-    /// Continuations for waitForCloudKitSync() callers, keyed by UUID
-    private var cloudKitSyncContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
-    private var cloudKitEventObserver: NSObjectProtocol?
-
-    /// Continuations waiting for a CloudKit import event after a given date
-    private struct CloudKitImportWaiter {
-        let after: Date?
-        let continuation: CheckedContinuation<Bool, Never>
-        let timeoutTask: Task<Void, Never>?
-    }
-    private var cloudKitImportWaiters: [UUID: CloudKitImportWaiter] = [:]
-    private var lastCloudKitImportEndDate: Date?
-    @MainActor private var cloudKitImportCallInFlight = false
-    @MainActor private var cloudKitImportCallWaiters: [CheckedContinuation<Bool, Never>] = []
-    @MainActor private var lastCloudKitImportKickAt: Date?
-    private let cloudKitImportKickMinInterval: TimeInterval = 3.0
-
-    /// Background task identifiers for CloudKit export operations (iOS only)
-    /// Keyed by event start date to match export start/end events
-    #if !targetEnvironment(macCatalyst)
-    private var cloudKitExportTasks: [Date: UIBackgroundTaskIdentifier] = [:]
-    #endif
-
-    /// Last CloudKit import request time (for request coalescing)
-    private var lastCloudKitImportRequestAt: Date?
-    #if targetEnvironment(macCatalyst)
-    private let cloudKitImportRequestMinInterval: TimeInterval = 8.0
-    #else
-    private let cloudKitImportRequestMinInterval: TimeInterval = 2.0
-    #endif
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.kachat.app",
         category: "MessageStore"
@@ -113,47 +71,7 @@ final class MessageStore {
         defaults.removeObject(forKey: MessageStore.dpiCorruptionWarningDateKey)
     }
 
-    func clearCloudKitHistoryAndVacuum() async -> Bool {
-        guard let store = container.persistentStoreCoordinator.persistentStores.first else {
-            self.logInfo("[MessageStore] Clear history failed: no persistent store")
-            return false
-        }
-        let storeURL = store.url
-        do {
-            let context = container.newBackgroundContext()
-            try await context.perform {
-                let request = NSPersistentHistoryChangeRequest.deleteHistory(before: Date())
-                request.resultType = .statusOnly
-                try context.execute(request)
-            }
-            UserDefaults.standard.removeObject(forKey: historyTokenKey())
-            if let storeURL {
-                vacuumSQLite(at: storeURL)
-            }
-            self.logInfo("[MessageStore] Cleared CloudKit history and vacuumed store")
-            return true
-        } catch {
-            self.logInfo("[MessageStore] Clear history failed: %@", error.localizedDescription)
-            return false
-        }
-    }
-
-    private func vacuumSQLite(at url: URL) {
-#if canImport(SQLite3)
-        var db: OpaquePointer?
-        if sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE, nil) != SQLITE_OK {
-            self.logInfo("[MessageStore] Vacuum failed to open DB")
-            return
-        }
-        defer { sqlite3_close(db) }
-        _ = sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE);", nil, nil, nil)
-        _ = sqlite3_exec(db, "VACUUM;", nil, nil, nil)
-        self.logInfo("[MessageStore] Vacuum completed")
-#endif
-    }
-
     func destroyLocalStoreFiles() async {
-        stopCloudKitSyncObservation()
         resetViewContextBeforeStoreRemoval()
         let coordinator = container.persistentStoreCoordinator
         for store in coordinator.persistentStores {
@@ -183,16 +101,6 @@ final class MessageStore {
         didLogMissingStore = false
     }
 
-    /// UserDefaults key for persistent history token, keyed by store URL hash
-    private func historyTokenKey() -> String {
-        guard let storeURL = container.persistentStoreCoordinator.persistentStores.first?.url else {
-            return "MessageStore.historyToken.default"
-        }
-        let hash = SHA256.hash(data: storeURL.absoluteString.data(using: .utf8) ?? Data())
-        let hashPrefix = hash.prefix(8).map { String(format: "%02x", $0) }.joined()
-        return "MessageStore.historyToken.\(hashPrefix)"
-    }
-
     private func resetViewContextBeforeStoreRemoval() {
         viewContext.performAndWait {
             if viewContext.hasChanges {
@@ -202,34 +110,11 @@ final class MessageStore {
         }
     }
 
-    /// Last processed persistent history token (for delta processing)
-    private var lastHistoryToken: NSPersistentHistoryToken? {
-        get {
-            guard let data = UserDefaults.standard.data(forKey: historyTokenKey()) else { return nil }
-            return try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSPersistentHistoryToken.self, from: data)
-        }
-        set {
-            if let token = newValue,
-               let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) {
-                UserDefaults.standard.set(data, forKey: historyTokenKey())
-            } else {
-                UserDefaults.standard.removeObject(forKey: historyTokenKey())
-            }
-        }
-    }
-
     var viewContext: NSManagedObjectContext { container.viewContext }
     var isStoreLoaded: Bool { isLoaded }
 
-    /// Returns the CloudKit zone name for a wallet address
-    func zoneNameForWallet(_ walletAddress: String) -> String {
-        // Use first 16 chars of SHA256 hash for zone name (privacy + uniqueness)
-        let hash = SHA256.hash(data: walletAddress.data(using: .utf8) ?? Data())
-        let hashPrefix = hash.prefix(8).map { String(format: "%02x", $0) }.joined()
-        return "wallet-\(hashPrefix)"
-    }
-
-    /// Returns the store file URL for a wallet address
+    /// Returns the store file URL for a wallet address. The 8-byte hash suffix is the same
+    /// scheme every other per-wallet scope in the app keys on (see KeychainService).
     private func storeURLForWallet(_ walletAddress: String?) -> URL {
         guard let walletAddress = walletAddress else {
             // Legacy/default store for when no wallet is set
@@ -244,25 +129,20 @@ final class MessageStore {
     init(inMemory: Bool = false) {
         self.inMemoryMode = inMemory
         let model = Self.makeModel()
-        container = NSPersistentCloudKitContainer(name: "KasiaMessages", managedObjectModel: model)
+        container = NSPersistentContainer(name: "KasiaMessages", managedObjectModel: model)
 
         // Start with no stores - will be loaded when setCurrentWallet is called
         container.persistentStoreDescriptions = []
 
         // Load a temporary default store for initial state (will be replaced when wallet is set)
-        // IMPORTANT: Don't enable CloudKit on this temporary store to avoid race condition
-        // when setCurrentWallet() removes the store while CloudKit is still setting up
         let description = NSPersistentStoreDescription()
-        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
         if inMemory {
             description.url = URL(fileURLWithPath: "/dev/null")
         } else {
             description.url = Self.defaultStoreURL()
         }
 
-        // Disable CloudKit on temporary store - it will be enabled on wallet-specific store
-        configureStoreDescription(description, walletAddress: nil, enableCloud: false)
+        configureStoreDescription(description)
         container.persistentStoreDescriptions = [description]
         loadPersistentStores(primaryDescription: description, completion: nil)
     }
@@ -270,7 +150,7 @@ final class MessageStore {
     // MARK: - Wallet Switching
 
     /// Switch to a different wallet's message store.
-    /// Each wallet has its own SQLite file and CloudKit zone for complete isolation.
+    /// Each wallet has its own SQLite file for complete isolation.
     /// - Parameter walletAddress: The wallet's public address, or nil to use default store
     func setCurrentWallet(_ walletAddress: String?) {
         // Skip if already on this wallet
@@ -278,8 +158,6 @@ final class MessageStore {
 
         self.logInfo("[MessageStore] Switching wallet store: \(currentWalletAddress ?? "none") → \(walletAddress ?? "none")")
 
-        // Stop CloudKit sync observation before removing stores
-        stopCloudKitSyncObservation()
         resetViewContextBeforeStoreRemoval()
 
         // Remove existing stores
@@ -300,16 +178,12 @@ final class MessageStore {
         // Create new store description for this wallet
         let storeURL = inMemoryMode ? URL(fileURLWithPath: "/dev/null") : storeURLForWallet(walletAddress)
         let description = NSPersistentStoreDescription(url: storeURL)
-        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
-
-        let settings = AppSettings.load()
-        configureStoreDescription(description, walletAddress: walletAddress, enableCloud: settings.storeMessagesInICloud)
+        configureStoreDescription(description)
 
         container.persistentStoreDescriptions = [description]
         loadPersistentStores(primaryDescription: description, completion: nil)
 
-        self.logInfo("[MessageStore] Wallet store loaded: \(storeURL.lastPathComponent), zone: \(walletAddress.map { zoneNameForWallet($0) } ?? "default")")
+        self.logInfo("[MessageStore] Wallet store loaded: \(storeURL.lastPathComponent)")
     }
 
     /// Switch wallet store asynchronously with completion callback
@@ -321,8 +195,6 @@ final class MessageStore {
 
         self.logInfo("[MessageStore] Switching wallet store async: \(currentWalletAddress ?? "none") → \(walletAddress ?? "none")")
 
-        // Stop CloudKit sync observation before removing stores
-        stopCloudKitSyncObservation()
         resetViewContextBeforeStoreRemoval()
 
         let coordinator = container.persistentStoreCoordinator
@@ -340,25 +212,19 @@ final class MessageStore {
 
         let storeURL = inMemoryMode ? URL(fileURLWithPath: "/dev/null") : storeURLForWallet(walletAddress)
         let description = NSPersistentStoreDescription(url: storeURL)
-        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
-
-        let settings = AppSettings.load()
-        configureStoreDescription(description, walletAddress: walletAddress, enableCloud: settings.storeMessagesInICloud)
+        configureStoreDescription(description)
 
         container.persistentStoreDescriptions = [description]
         loadPersistentStores(primaryDescription: description, completion: completion)
     }
 
     /// Switch wallet store asynchronously. `container.loadPersistentStores` (invoked inside the
-    /// completion-based overload below) has no built-in timeout - CloudKit schema initialization
-    /// on a fresh install/first-ever launch can genuinely take a very long time, or effectively
-    /// hang, waiting on Apple's servers under degraded network conditions. Without a cap here,
-    /// this `await` (and everything downstream of it, e.g. `WalletManager.importWallet` during
-    /// account creation) blocks indefinitely with no visible error - matching reports of account
-    /// creation "hanging on loading" on a fresh install until the app is force-quit and reopened.
-    /// The store keeps loading in the background regardless of the timeout; this only stops
-    /// making the caller wait on it past a point where something is clearly wrong.
+    /// completion-based overload below) has no built-in timeout, and a store load that stalls -
+    /// a WAL recovery after a jetsam, a migration on a large file - would otherwise block this
+    /// `await` (and everything downstream of it, e.g. `WalletManager.importWallet` during
+    /// account creation) indefinitely with no visible error. The store keeps loading in the
+    /// background regardless of the timeout; this only stops making the caller wait on it past
+    /// a point where something is clearly wrong.
     func setCurrentWallet(_ walletAddress: String?) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let resumeLock = NSLock()
@@ -382,18 +248,6 @@ final class MessageStore {
                 timeoutWorkItem.cancel()
                 resumeOnce()
             }
-        }
-    }
-
-    func observeRemoteChanges(_ handler: @escaping () -> Void) -> NSObjectProtocol {
-        NotificationCenter.default.addObserver(
-            forName: .NSPersistentStoreRemoteChange,
-            object: container.persistentStoreCoordinator,
-            queue: .main
-        ) { _ in
-            // Note: This fires on ALL store changes including our own saves
-            // Handler should debounce to avoid feedback loops
-            handler()
         }
     }
 
@@ -483,8 +337,8 @@ final class MessageStore {
     /// The messages the conversation list actually keeps in memory, fetched as that set instead
     /// of as everything.
     ///
-    /// `_loadMessagesFromStoreIfNeeded` runs on every debounced CloudKit remote-change tick and
-    /// on a five-minute timer, and it called `fetchAllMessages` - every row for the wallet,
+    /// `_loadMessagesFromStoreIfNeeded` runs after every store write that matters to the list,
+    /// and it called `fetchAllMessages` - every row for the wallet,
     /// decrypted, photos and voice notes inline as base64 - only for `buildMergedConversations`
     /// to trim each conversation down to `inMemoryConversationWindowSize` plus its sticky
     /// messages afterwards. A two-year wallet decrypted tens of MB of history to keep 160
@@ -736,8 +590,7 @@ final class MessageStore {
     /// `@MainActor`, and the UTXO-notification burst calls this once per incoming UTXO. The old
     /// synchronous `newBackgroundContext().performAndWait { fetch }` blocked the MAIN thread (a
     /// `performAndWait` blocks its *calling* thread no matter which context runs the block), and
-    /// each fetch contended the persistent-store coordinator that `NSPersistentCloudKitContainer`
-    /// holds during its initial mirroring import - N UTXOs -> N serialized main-thread stalls ->
+    /// each fetch contended the persistent-store coordinator during a large import - N UTXOs -> N serialized main-thread stalls ->
     /// the app froze ~15s into sync. `performBackgroundTask` + a continuation suspends the awaiting
     /// main actor instead of blocking it, so the run loop stays live.
     func fetchMessage(txId: String, decryptionKey: SymmetricKey) async -> ChatMessage? {
@@ -760,9 +613,9 @@ final class MessageStore {
         }
     }
 
-    /// Check if a message exists with actual content (not placeholder) in CloudKit-synced store
-    /// This is useful to determine if CloudKit has delivered the content for an outgoing message
-    /// sent from another device. Runs on a background context - see `fetchConversationMeta` for
+    /// Check if a message exists with actual content (not placeholder) in the store - i.e.
+    /// whether an archive restore has delivered the text of an outgoing message sent from
+    /// another device. Runs on a background context - see `fetchConversationMeta` for
     /// why blocking `viewContext` here used to be able to freeze the UI.
     func hasMessageWithContent(txId: String) async -> Bool {
         guard ensureStoreLoaded() else { return false }
@@ -792,7 +645,7 @@ final class MessageStore {
     /// entirely for a transaction that was always a reaction, never a message.
     /// `async` for the same reason as `fetchMessage` above: it's on the per-UTXO / push catch-up
     /// path off `@MainActor` code, and a synchronous `performAndWait` here blocked the main thread
-    /// while contending the CloudKit-held store coordinator.
+    /// while contending the store coordinator.
     func isReactionTransaction(txId: String) async -> Bool {
         guard ensureStoreLoaded() else { return false }
         return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
@@ -815,7 +668,7 @@ final class MessageStore {
     /// in-memory conversation state it's already loaded (this only touches Core Data).
     /// `async`: called on the main actor at every launch, and the old synchronous `performAndWait`
     /// scanned the whole reaction + message tables and blocked the main thread while contending the
-    /// CloudKit-held store coordinator - the same freeze class as the per-UTXO fetch. Now suspends
+    /// store coordinator - the same freeze class as the per-UTXO fetch. Now suspends
     /// via `performBackgroundTask` + continuation instead of blocking.
     @discardableResult
     func deleteStuckReactionPlaceholderMessages() async -> [String] {
@@ -848,202 +701,6 @@ final class MessageStore {
                 continuation.resume(returning: deletedTxIds)
             }
         }
-    }
-
-    /// Refresh the view context to pick up any CloudKit changes.
-    /// Call this when you expect CloudKit to have new data.
-    ///
-    /// This has to specifically touch `viewContext` (refreshing any *other* context wouldn't
-    /// affect what `viewContext` has cached), so it can't be moved to a background context like
-    /// the other functions here - but `performAndWait` blocked whatever thread called this
-    /// (frequently the main actor, since this is invoked reactively off CloudKit/push remote-change
-    /// notifications - e.g. right when a notification arrives while a chat is open) for however
-    /// long the refresh took. `perform` + continuation still runs the refresh on `viewContext`'s
-    /// queue, but as a proper suspension point instead of a hard synchronous block, so the run
-    /// loop can interleave other work (touch/scroll handling, rendering) around it.
-    func refreshFromCloudKit() async {
-        guard ensureStoreLoaded() else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            viewContext.perform {
-                self.viewContext.refreshAllObjects()
-                continuation.resume()
-            }
-        }
-        self.logInfo("[MessageStore] Refreshed view context for CloudKit changes")
-    }
-
-    /// Await CloudKit import and refresh view context.
-    /// - Parameters:
-    ///   - reason: Optional log reason for diagnostics.
-    ///   - after: If provided, waits for an import event after this timestamp.
-    ///            If nil, reuses the most recent import (if any).
-    ///   - timeout: Maximum time to wait for an import event.
-    /// - Returns: true if an import event was observed (or already available), false on timeout.
-    @discardableResult
-    @MainActor
-    func fetchCloudKitChanges(reason: String? = nil, after: Date? = nil, timeout: TimeInterval = 6.0) async -> Bool {
-        guard ensureStoreLoaded() else { return false }
-        guard currentWalletAddress != nil else {
-            self.logInfo("[MessageStore] No wallet set, skipping CloudKit import")
-            return false
-        }
-
-        let settings = AppSettings.load()
-        guard settings.storeMessagesInICloud else {
-            self.logInfo("[MessageStore] CloudKit sync disabled, skipping import")
-            return false
-        }
-
-        if cloudKitImportCallInFlight {
-            self.logInfo("[MessageStore] CloudKit import request coalesced (reason: %@)",
-                  reason ?? "unspecified")
-            let didImport = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                cloudKitImportCallWaiters.append(continuation)
-            }
-            await refreshFromCloudKit()
-            return didImport
-        }
-
-        cloudKitImportCallInFlight = true
-        var didImport = false
-        defer {
-            cloudKitImportCallInFlight = false
-            let waiters = cloudKitImportCallWaiters
-            cloudKitImportCallWaiters.removeAll()
-            for waiter in waiters {
-                waiter.resume(returning: didImport)
-            }
-        }
-
-        let now = Date()
-        if let lastRequest = lastCloudKitImportRequestAt,
-           now.timeIntervalSince(lastRequest) < cloudKitImportRequestMinInterval {
-            self.logInfo("[MessageStore] CloudKit import request throttled (reason: %@)",
-                  reason ?? "unspecified")
-
-            // Request arrived too soon after a prior one. Avoid kicking another
-            // CloudKit cycle; reuse known import state when possible.
-            if let after = after {
-                if let lastImport = lastCloudKitImportEndDate, lastImport > after {
-                    await refreshFromCloudKit()
-                    return true
-                }
-                return false
-            }
-
-            if lastCloudKitImportEndDate != nil {
-                await refreshFromCloudKit()
-                return true
-            }
-            return false
-        }
-        lastCloudKitImportRequestAt = now
-
-        self.logInfo("[MessageStore] CloudKit import requested (reason: %@, after: %@, timeout: %.1fs)",
-              reason ?? "unspecified",
-              after?.description ?? "none",
-              timeout)
-
-        // If we already have a recent import and caller didn't require a newer one,
-        // refresh immediately without waiting for a new event.
-        let lastImport = lastCloudKitImportEndDate
-        if after == nil, let lastImport = lastImport {
-            // If we saw a recent import, reuse it instead of waiting for a new event.
-            if now.timeIntervalSince(lastImport) < 5.0 {
-                self.logInfo("[MessageStore] CloudKit import already available at %@ (reason: %@)",
-                      lastImport.description, reason ?? "unspecified")
-                await refreshFromCloudKit()
-                return true
-            }
-        }
-
-        if shouldKickCloudKitMirroring(for: reason) {
-            kickCloudKitMirroringIfNeeded(reason: reason)
-        }
-
-        didImport = await waitForCloudKitImport(after: after, timeout: timeout)
-        if didImport {
-            self.logInfo("[MessageStore] CloudKit import observed (reason: %@)", reason ?? "unspecified")
-        } else {
-            self.logInfo("[MessageStore] CloudKit import wait timed out (reason: %@)", reason ?? "unspecified")
-        }
-
-        await refreshFromCloudKit()
-        return didImport
-    }
-
-    /// Wait for a CloudKit import event after a given timestamp.
-    /// Returns true if an import event was observed, false on timeout or disabled.
-    @MainActor
-    func waitForCloudKitImport(after: Date? = nil, timeout: TimeInterval = 6.0) async -> Bool {
-        guard ensureStoreLoaded() else { return false }
-
-        let hasCloudKit = container.persistentStoreDescriptions.first?.cloudKitContainerOptions != nil
-        guard hasCloudKit else { return false }
-
-        return await withCheckedContinuation { continuation in
-            // If we already have a matching import, return immediately.
-            if let lastImport = self.lastCloudKitImportEndDate {
-                if let after = after {
-                    // For explicit "after", require a strictly newer import to avoid
-                    // reusing stale import cycles for self-stash retries.
-                    if lastImport > after {
-                        continuation.resume(returning: true)
-                        return
-                    }
-                } else {
-                    continuation.resume(returning: true)
-                    return
-                }
-            }
-
-            let waiterId = UUID()
-            let timeoutTask: Task<Void, Never>? = timeout > 0 ? Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                await MainActor.run {
-                    guard let self = self, let waiter = self.cloudKitImportWaiters.removeValue(forKey: waiterId) else { return }
-                    waiter.continuation.resume(returning: false)
-                }
-            } : nil
-
-            self.cloudKitImportWaiters[waiterId] = CloudKitImportWaiter(
-                after: after,
-                continuation: continuation,
-                timeoutTask: timeoutTask
-            )
-        }
-    }
-
-    @MainActor
-    var isCloudKitImportRequestInFlight: Bool {
-        cloudKitImportCallInFlight
-    }
-
-    @MainActor
-    var latestCloudKitImportEndDate: Date? {
-        lastCloudKitImportEndDate
-    }
-
-    @MainActor
-    private func shouldKickCloudKitMirroring(for reason: String?) -> Bool {
-        guard let reason else { return false }
-        if reason == "app-active" { return true }
-        if reason.hasPrefix("self-stash-retry-") {
-            return false
-        }
-        return reason.hasPrefix("self-stash")
-    }
-
-    @MainActor
-    private func kickCloudKitMirroringIfNeeded(reason: String?) {
-        let now = Date()
-        if let lastKick = lastCloudKitImportKickAt,
-           now.timeIntervalSince(lastKick) < cloudKitImportKickMinInterval {
-            return
-        }
-        lastCloudKitImportKickAt = now
-        self.logInfo("[MessageStore] Kicking CloudKit mirroring cycle (reason: %@)", reason ?? "unspecified")
-        touchCloudKitExportMarker(useViewContext: false)
     }
 
     /// `onConversationProgress` (optional) fires after each conversation's records are staged
@@ -1160,9 +817,9 @@ final class MessageStore {
                                 record.walletAddress = walletAddr
                             }
 
-                            // Content update logic for CloudKit sync robustness:
+                            // Content update rules:
                             // - If new content is placeholder ("📤 Sent via another device"), NEVER overwrite
-                            // - If existing record has content (likely from CloudKit), preserve it unless
+                            // - If existing record has content (e.g. from an archive restore), preserve it unless
                             //   new content is meaningfully different (not a placeholder)
                             // Only update content if:
                             // 1. New content is NOT a placeholder, AND
@@ -1173,8 +830,8 @@ final class MessageStore {
                             if shouldUpdateContent, let encrypted = self.encryptContent(message.content, key: encryptionKey) {
                                 record.contentEncrypted = encrypted
                             } else if isPlaceholder && existingHasContent {
-                                // Log when we preserve CloudKit content over placeholder
-                                self.logInfo("[MessageStore] Preserving CloudKit content for %@", message.txId)
+                                // Log when we preserve stored content over a placeholder
+                                self.logInfo("[MessageStore] Preserving stored content for %@", message.txId)
                             }
 
                             updatedCount += 1
@@ -1198,7 +855,6 @@ final class MessageStore {
                         let totalTime = Date().timeIntervalSince(startTime) * 1000
                         self.logInfo("[MessageStore] Sync saved: %d updated, %d unchanged (skipped) | save: %.0fms, total: %.0fms",
                               updatedCount, skippedCount, saveTime, totalTime)
-                        // Note: CloudKit exports automatically on save, no explicit trigger needed
                     } catch {
                         self.logInfo("[MessageStore] Failed to save messages: \(error)")
                     }
@@ -1268,18 +924,17 @@ final class MessageStore {
     ///
     /// Deletes via plain `context.delete(...)` + `save()` rather than `NSBatchDeleteRequest`:
     /// a batch delete executes directly against the SQLite store and bypasses the managed object
-    /// context's save cycle, so `NSPersistentCloudKitContainer` never captures it in persistent
-    /// history and never mirrors it to CloudKit - the "deleted" chat would silently reappear via
-    /// iCloud sync on this or other devices. A normal delete+save is what lets deletions propagate
-    /// to iCloud (same pattern already used by `dedupeMessagesIfNeeded`).
+    /// context's save cycle, so the view context never learns of it and the "deleted" chat
+    /// lingers on screen until the next full reload. A normal delete+save merges into the view
+    /// context at once (same pattern already used by `dedupeMessagesIfNeeded`).
     func deleteConversation(contactAddress: String) async {
         guard ensureStoreLoaded() else { return }
         let walletAddr = currentWalletAddress
         let context = container.newBackgroundContext()
         // `perform`, not `performAndWait`: the only caller is `ContactsManager.deleteContact` on
         // the main actor, and `performAndWait` blocks the CALLING thread for the whole delete -
-        // an unbounded fetch of every message for the contact, deleted one by one so CloudKit
-        // sees each deletion. A chat with 20k messages froze the UI for the duration. The
+        // an unbounded fetch of every message for the contact, deleted one by one so the view
+        // context sees each deletion. A chat with 20k messages froze the UI for the duration. The
         // sibling paths in this file already had this fixed; this one was missed.
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
           context.perform {
@@ -1346,7 +1001,7 @@ final class MessageStore {
     ///   - lastReadTxId: txId of the last read message
     ///   - lastReadBlockTime: blockTime of the last read message
     ///   - lastReadAt: When the message was read
-    ///   - forceUpdate: If true, skip the blockTime comparison (used for CloudKit sync when remote is authoritative)
+    ///   - forceUpdate: If true, skip the blockTime comparison (an archive restore is authoritative)
     /// Fire-and-forget wrapper, kept for callers that don't need the write durably committed
     /// before continuing - see `updateReadStatusAndWait` for callers that do (e.g.
     /// `ChatService.markConversationAsRead`, where a force-quit racing this write used to be
@@ -1505,7 +1160,7 @@ final class MessageStore {
         }
     }
 
-    /// Fetch all read statuses for CloudKit sync. Runs on a background context - see
+    /// Fetch all read statuses. Runs on a background context - see
     /// `fetchConversationMeta` for why blocking `viewContext` here used to be able to freeze the UI.
     func fetchAllReadStatuses() async -> [ReadStatus] {
         guard ensureStoreLoaded() else { return [] }
@@ -1535,9 +1190,6 @@ final class MessageStore {
     }
 
     // MARK: - Per-Device Read Markers (CDReadMarker)
-
-    /// Notification posted when read status changes are processed from remote (CloudKit)
-    static let readStatusDidChangeNotification = Notification.Name("MessageStoreReadStatusDidChange")
 
     /// Upsert a read marker for the current device. Only updates if blockTime advances (monotonic).
     /// - Parameters:
@@ -1741,92 +1393,6 @@ final class MessageStore {
         }
     }
 
-    /// Process remote changes from CloudKit using persistent history tracking.
-    /// Call this when app becomes active to pick up changes from other devices.
-    /// Posts readStatusDidChangeNotification if read markers were updated.
-    func processRemoteChanges() {
-        processRemoteChanges(allowHistoryTokenReset: true)
-    }
-
-    private func processRemoteChanges(allowHistoryTokenReset: Bool) {
-        guard ensureStoreLoaded() else { return }
-
-        let context = container.newBackgroundContext()
-        context.perform { [weak self] in
-            guard let self = self else { return }
-            // Fetch history since last token
-            let historyRequest = NSPersistentHistoryChangeRequest.fetchHistory(after: self.lastHistoryToken)
-            historyRequest.fetchRequest = NSPersistentHistoryTransaction.fetchRequest
-
-            do {
-                guard let result = try context.execute(historyRequest) as? NSPersistentHistoryResult,
-                      let transactions = result.result as? [NSPersistentHistoryTransaction] else {
-                    return
-                }
-
-                guard !transactions.isEmpty else { return }
-
-                var readMarkersChanged = false
-                var affectedConversations = Set<String>()
-
-                for transaction in transactions {
-                    guard let changes = transaction.changes else { continue }
-
-                    for change in changes {
-                        // Check if this is a CDReadMarker change
-                        guard change.changedObjectID.entity.name == CDReadMarker.entityName else { continue }
-
-                        // Try to load the object safely
-                        if change.changeType == .insert || change.changeType == .update {
-                            do {
-                                let marker = try context.existingObject(with: change.changedObjectID) as? CDReadMarker
-                                if let conversationId = marker?.conversationId {
-                                    affectedConversations.insert(conversationId)
-                                    readMarkersChanged = true
-                                }
-                            } catch {
-                                // Object may have been deleted, skip
-                                self.logInfo("[MessageStore] Could not load changed object: \(error.localizedDescription)")
-                            }
-                        } else if change.changeType == .delete {
-                            readMarkersChanged = true
-                        }
-                    }
-                }
-
-                // Update token to latest
-                if let lastTransaction = transactions.last {
-                    self.lastHistoryToken = lastTransaction.token
-                }
-
-                self.logInfo("[MessageStore] Processed %d history transactions, read markers changed: %@, affected: %d conversations",
-                      transactions.count, readMarkersChanged ? "yes" : "no", affectedConversations.count)
-
-                // Recompute effective read status for affected conversations
-                if readMarkersChanged {
-                    DispatchQueue.main.async {
-                        NotificationCenter.default.post(
-                            name: MessageStore.readStatusDidChangeNotification,
-                            object: self,
-                            userInfo: ["conversations": affectedConversations]
-                        )
-                    }
-                }
-            } catch {
-                let nsError = error as NSError
-                if allowHistoryTokenReset,
-                   nsError.domain == NSCocoaErrorDomain,
-                   nsError.code == 134301 {
-                    self.logInfo("[MessageStore] Persistent history token expired (134301); resetting token and retrying remote changes")
-                    self.lastHistoryToken = nil
-                    self.processRemoteChanges(allowHistoryTokenReset: false)
-                    return
-                }
-                self.logInfo("[MessageStore] Failed to process remote changes: \(error)")
-            }
-        }
-    }
-
     /// Purge persistent history older than specified days
     /// - Parameter days: Age threshold in days (default 7)
     func purgeOldHistory(olderThan days: Int = 7) {
@@ -1941,9 +1507,9 @@ final class MessageStore {
                 record.walletAddress = walletAddr
             }
 
-            // Content update logic for CloudKit sync robustness:
+            // Content update rules:
             // - If new content is placeholder, NEVER overwrite existing content
-            // - Preserve existing CloudKit-synced content unless we are explicitly importing
+            // - Preserve existing content unless we are explicitly importing
             //   outgoing content that should replace placeholders.
             let shouldUpdateContent = !isPlaceholder && (shouldForceOutgoingContent || !existingHasContent || isNewRecord)
 
@@ -1953,7 +1519,6 @@ final class MessageStore {
 
             do {
                 try context.save()
-                // Note: CloudKit exports automatically on save, no explicit trigger needed
             } catch {
                 self.logInfo("[MessageStore] Failed to upsert message: \(error)")
             }
@@ -1988,7 +1553,6 @@ final class MessageStore {
 
     /// Clears all messages and conversations for the CURRENT wallet only.
     /// Each wallet has its own SQLite store, so this only affects the current store.
-    /// Note: This also affects CloudKit sync - cleared data will be deleted from iCloud.
     /// IMPORTANT: This is synchronous - it blocks until deletion completes to prevent
     /// race conditions where the store is removed before deletion finishes.
     func clearAll() {
@@ -2159,8 +1723,12 @@ final class MessageStore {
 
     // MARK: - Helpers
 
-    private func configureStoreDescription(_ description: NSPersistentStoreDescription, walletAddress: String?, enableCloud: Bool) {
-        // Performance optimizations for WAL mode to reduce checkpoint contention
+    private func configureStoreDescription(_ description: NSPersistentStoreDescription) {
+        // Persistent history tracking stays ON. Every existing store on every device was
+        // created with it (the CloudKit mirror required it), and Core Data refuses to open a
+        // store whose history tracking was enabled and is later turned off. Nothing reads the
+        // history any more, so `purgeOldHistory` trims it on every load instead of letting it
+        // grow for the life of the store as it silently did before.
         description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
 
@@ -2168,7 +1736,6 @@ final class MessageStore {
         let pragmas = [
             "journal_mode": "WAL",           // Enable WAL mode (already default for Core Data)
             "synchronous": "NORMAL",         // Faster commits while maintaining safety with WAL
-            // Allow periodic checkpointing so CloudKit can see changes without waiting for background
             "wal_autocheckpoint": "1000",    // ~1000 pages before checkpoint (approx a few MB)
             "cache_size": "-20000"           // 20MB cache (negative = KB, positive = pages)
         ]
@@ -2178,50 +1745,6 @@ final class MessageStore {
         description.shouldAddStoreAsynchronously = false
         description.shouldMigrateStoreAutomatically = true
         description.shouldInferMappingModelAutomatically = true
-
-        if enableCloud {
-            let options = NSPersistentCloudKitContainerOptions(containerIdentifier: containerId)
-            options.databaseScope = .private
-
-            // Configure wallet-specific CloudKit zone
-            if let walletAddress = walletAddress {
-                let zoneName = zoneNameForWallet(walletAddress)
-                let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
-
-                // Create the zone before using it
-                createZoneIfNeeded(zoneID: zoneID)
-
-                self.logInfo("[MessageStore] Configured CloudKit zone: \(zoneName) for wallet")
-            }
-
-            description.cloudKitContainerOptions = options
-        } else {
-            description.cloudKitContainerOptions = nil
-        }
-    }
-
-    /// Creates a CloudKit zone if it doesn't exist (fire and forget)
-    private func createZoneIfNeeded(zoneID: CKRecordZone.ID) {
-        let zone = CKRecordZone(zoneID: zoneID)
-        let database = CKContainer(identifier: containerId).privateCloudDatabase
-
-        // Check if zone exists
-        database.fetch(withRecordZoneID: zoneID) { existingZone, error in
-            if let existingZone = existingZone {
-                self.logInfo("[MessageStore] Zone already exists: \(existingZone.zoneID.zoneName)")
-                return
-            }
-
-            // Create the zone
-            database.save(zone) { savedZone, saveError in
-                if let savedZone = savedZone {
-                    self.logInfo("[MessageStore] Created CloudKit zone: \(savedZone.zoneID.zoneName)")
-                } else if let saveError = saveError {
-                    // Zone creation is best-effort - store will still work locally
-                    self.logInfo("[MessageStore] Failed to create zone (will use default): \(saveError.localizedDescription)")
-                }
-            }
-        }
     }
 
     /// Indexes for the columns every read filters and sorts on. See `CoreDataIndexBuilder` for
@@ -2251,28 +1774,8 @@ final class MessageStore {
                 return
             }
             if let error {
-                if primaryDescription.cloudKitContainerOptions != nil {
-                    self.logInfo("[MessageStore] CloudKit store load failed: \(error). Falling back to local store.")
-                    let fallbackUrl = primaryDescription.url ?? Self.defaultStoreURL()
-                    let fallback = NSPersistentStoreDescription(url: fallbackUrl)
-                    fallback.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-                    fallback.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
-                    // Fallback to local store without CloudKit
-                    self.configureStoreDescription(fallback, walletAddress: self.currentWalletAddress, enableCloud: false)
-                    self.container.persistentStoreDescriptions = [fallback]
-                    self.container.loadPersistentStores { _, fallbackError in
-                        if let fallbackError {
-                            self.logInfo("[MessageStore] Failed to load local store: \(fallbackError)")
-                            completion?()
-                            return
-                        }
-                        self.finishStoreLoad()
-                        completion?()
-                    }
-                } else {
-                    self.logInfo("[MessageStore] Failed to load store: \(error)")
-                    completion?()
-                }
+                self.logInfo("[MessageStore] Failed to load store: \(error)")
+                completion?()
                 return
             }
             self.finishStoreLoad()
@@ -2298,532 +1801,8 @@ final class MessageStore {
         // Batch processing hint for large saves
         container.viewContext.stalenessInterval = 0.0  // Always use latest data
 
-        // Start CloudKit sync observation
-        startCloudKitSyncObservation()
-    }
-
-    // MARK: - CloudKit Sync Coordination
-
-    /// Start observing CloudKit import events to track sync status
-    private func startCloudKitSyncObservation() {
-        // Remove previous observer if any
-        if let observer = cloudKitEventObserver {
-            NotificationCenter.default.removeObserver(observer)
-            cloudKitEventObserver = nil
-        }
-
-        // Check if CloudKit is enabled
-        let hasCloudKit = container.persistentStoreDescriptions.first?.cloudKitContainerOptions != nil
-        if !hasCloudKit {
-            cloudKitSyncStatus = .disabled
-            self.logInfo("[MessageStore] CloudKit disabled, skipping sync observation")
-            resumeCloudKitWaiters()
-            Task { @MainActor in
-                self.resumeCloudKitImportWaiters(success: false, endDate: nil)
-            }
-            return
-        }
-
-        cloudKitSyncStatus = .syncing
-        self.logInfo("[MessageStore] CloudKit enabled, starting sync observation")
-        lastCloudKitImportEndDate = nil
-
-        // Observe CloudKit import events
-        cloudKitEventObserver = NotificationCenter.default.addObserver(
-            forName: NSPersistentCloudKitContainer.eventChangedNotification,
-            object: container,
-            queue: .main
-        ) { [weak self] notification in
-            self?.handleCloudKitEvent(notification)
-        }
-
-        // Set a timeout - if no import event within 5 seconds, consider initial sync done
-        // CloudKit may have nothing to import, or sync may be very fast
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
-            guard let self = self, self.cloudKitSyncStatus == .syncing else { return }
-            self.logInfo("[MessageStore] CloudKit sync timeout, proceeding (may have no data to sync)")
-            self.cloudKitSyncStatus = .synced
-            self.resumeCloudKitWaiters()
-        }
-    }
-
-    /// Stop observing CloudKit events (call before removing stores)
-    private func stopCloudKitSyncObservation() {
-        if let observer = cloudKitEventObserver {
-            NotificationCenter.default.removeObserver(observer)
-            cloudKitEventObserver = nil
-            self.logInfo("[MessageStore] CloudKit sync observation stopped")
-        }
-
-        // Reset CloudKit sync status
-        cloudKitSyncStatus = .notStarted
-
-        // Cancel any waiting continuations
-        resumeCloudKitWaiters()
-        Task { @MainActor in
-            self.resumeCloudKitImportWaiters(success: false, endDate: nil)
-        }
-
-        cloudKitExportWorkItem?.cancel()
-        cloudKitExportWorkItem = nil
-        exportRetryWorkItem?.cancel()
-        exportRetryWorkItem = nil
-        cloudKitExportInProgress = false
-        cloudKitExportDirty = false
-        exportRetryCount = 0
-        lastCloudKitExportAt = nil
-        lastCloudKitExportRequestAt = nil
-        lastCloudKitExportStartAt = nil
-        nextCloudKitExportAllowedAt = nil
-
-        // End any active CloudKit export background tasks
-        #if !targetEnvironment(macCatalyst)
-        for (startDate, taskId) in cloudKitExportTasks {
-            if taskId != .invalid {
-                UIApplication.shared.endBackgroundTask(taskId)
-                self.logInfo("[MessageStore] Ended orphaned background task %d for export started at %@",
-                      taskId.rawValue, startDate.description)
-            }
-        }
-        cloudKitExportTasks.removeAll()
-        #endif
-    }
-
-    /// Handle CloudKit event notifications
-    private func handleCloudKitEvent(_ notification: Notification) {
-        guard let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey] as? NSPersistentCloudKitContainer.Event else {
-            return
-        }
-
-        let eventType: String
-        switch event.type {
-        case .setup: eventType = "setup"
-        case .import: eventType = "import"
-        case .export: eventType = "export"
-        @unknown default: eventType = "unknown"
-        }
-
-        if let error = event.error {
-            let nsError = error as NSError
-            let isImportConflict = event.type == .import &&
-                nsError.domain == NSCocoaErrorDomain &&
-                nsError.code == 134407
-
-            if isImportConflict {
-                // Core Data reported a competing import request.
-                // Treat as transient and wait for the active import to finish.
-                self.logInfo("[MessageStore] CloudKit import conflict (134407) - waiting for active import to complete")
-                return
-            }
-
-            self.logInfo("[MessageStore] CloudKit %@ event error: %@", eventType, error.localizedDescription)
-            if event.type == .import && cloudKitSyncStatus == .syncing {
-                cloudKitSyncStatus = .failed
-                resumeCloudKitWaiters()
-            }
-            if event.type == .import {
-                Task { @MainActor in
-                    self.resumeCloudKitImportWaiters(success: false, endDate: nil)
-                }
-            }
-            // End background task if export failed
-            if event.type == .export {
-                if let ckError = error as? CKError, let retryAfter = ckError.retryAfterSeconds, retryAfter > 0 {
-                    let nextAllowed = Date().addingTimeInterval(retryAfter)
-                    nextCloudKitExportAllowedAt = nextAllowed
-                    self.logInfo("[MessageStore] CloudKit export backoff for %.1fs (retry after %@)",
-                          retryAfter, nextAllowed.description)
-                } else if (error as NSError).domain == NSCocoaErrorDomain,
-                          (error as NSError).code == 134419 {
-                    // Export deferred by the system. Back off to avoid repeated immediate retries.
-                    let backoff: TimeInterval = 60
-                    let nextAllowed = Date().addingTimeInterval(backoff)
-                    nextCloudKitExportAllowedAt = nextAllowed
-                    self.logInfo("[MessageStore] CloudKit export deferred; backing off for %.0fs (retry after %@)",
-                          backoff, nextAllowed.description)
-                }
-                endCloudKitExportBackgroundTask(for: event.startDate)
-                lastCloudKitExportEventAt = event.endDate
-                lastCloudKitExportAt = event.endDate
-                cloudKitExportInProgress = false
-                if cloudKitExportDirty {
-                    scheduleCloudKitExportAfterDebounce()
-                }
-            }
-            return
-        }
-
-        self.logInfo("[MessageStore] CloudKit %@ event: succeeded=%@, start=%@, end=%@",
-              eventType,
-              event.succeeded ? "true" : "false",
-              event.startDate.description,
-              event.endDate?.description ?? "in progress")
-
-        // Handle CloudKit export events
-        if event.type == .export {
-            if event.endDate == nil {
-                // Export started - begin background task to keep app alive
-                beginCloudKitExportBackgroundTask(for: event.startDate)
-                cloudKitExportInProgress = true
-                lastCloudKitExportStartAt = event.startDate
-                lastCloudKitExportAt = event.startDate
-            } else if event.succeeded {
-                // Export completed - end background task and checkpoint WAL
-                endCloudKitExportBackgroundTask(for: event.startDate)
-                lastCloudKitExportEventAt = event.endDate
-                lastCloudKitExportAt = event.endDate
-                cloudKitExportInProgress = false
-                if cloudKitExportDirty {
-                    scheduleCloudKitExportAfterDebounce()
-                }
-
-                // Checkpoint WAL now that CloudKit export is done
-                // This prevents "Database busy" errors from Core Data's automatic checkpointing
-                // which tries to run during export
-                Task.detached(priority: .utility) { [weak self] in
-                    try? await Task.sleep(nanoseconds: 500_000_000) // Wait 500ms for export to fully finish
-                    self?.checkpointWAL()
-                }
-            }
-        }
-
-        // When import completes successfully, mark sync as done
-        if event.type == .import && event.succeeded && event.endDate != nil {
-            if let endDate = event.endDate {
-                lastCloudKitImportEndDate = endDate
-                Task { @MainActor in
-                    self.resumeCloudKitImportWaiters(success: true, endDate: endDate)
-                }
-            }
-            if cloudKitSyncStatus == .syncing, let endDate = event.endDate {
-                // Wait for a short idle window before declaring initial sync complete.
-                let idleMarker = endDate
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    guard let self else { return }
-                    guard self.cloudKitSyncStatus == .syncing else { return }
-                    if self.lastCloudKitImportEndDate == idleMarker {
-                        self.logInfo("[MessageStore] CloudKit initial import complete (idle window)")
-                        self.cloudKitSyncStatus = .synced
-                        self.resumeCloudKitWaiters()
-                    }
-                }
-            }
-        }
-    }
-
-    /// Begin a background task for CloudKit export to prevent app suspension
-    private func beginCloudKitExportBackgroundTask(for startDate: Date) {
-        #if !targetEnvironment(macCatalyst)
-        let taskId = UIApplication.shared.beginBackgroundTask(withName: "CloudKit Export") { [weak self] in
-            // Background task expired - clean up
-            self?.endCloudKitExportBackgroundTask(for: startDate)
-        }
-
-        guard taskId != .invalid else {
-            self.logInfo("[MessageStore] Failed to begin background task for CloudKit export")
-            return
-        }
-
-        cloudKitExportTasks[startDate] = taskId
-        self.logInfo("[MessageStore] Began background task %d for CloudKit export", taskId.rawValue)
-
-        // Safety: end the background task if CloudKit export never reports completion.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 25.0) { [weak self] in
-            self?.endCloudKitExportBackgroundTask(for: startDate)
-        }
-        #endif
-    }
-
-    /// End the background task for a CloudKit export
-    private func endCloudKitExportBackgroundTask(for startDate: Date) {
-        #if !targetEnvironment(macCatalyst)
-        guard let taskId = cloudKitExportTasks.removeValue(forKey: startDate) else {
-            return
-        }
-
-        guard taskId != .invalid else {
-            return
-        }
-
-        UIApplication.shared.endBackgroundTask(taskId)
-        self.logInfo("[MessageStore] Ended background task %d for CloudKit export", taskId.rawValue)
-        #endif
-    }
-
-    /// Resume all waiters for CloudKit sync
-    private func resumeCloudKitWaiters() {
-        let continuations = cloudKitSyncContinuations
-        cloudKitSyncContinuations.removeAll()
-        for (_, continuation) in continuations {
-            continuation.resume()
-        }
-    }
-
-    /// Resume waiters waiting for a CloudKit import event
-    @MainActor
-    private func resumeCloudKitImportWaiters(success: Bool, endDate: Date?) {
-        guard !cloudKitImportWaiters.isEmpty else { return }
-        let resolvedEndDate = endDate ?? Date()
-        var idsToRemove: [UUID] = []
-        for (id, waiter) in cloudKitImportWaiters {
-            if success, let after = waiter.after, resolvedEndDate <= after {
-                continue
-            }
-            waiter.timeoutTask?.cancel()
-            waiter.continuation.resume(returning: success)
-            idsToRemove.append(id)
-        }
-        for id in idsToRemove {
-            cloudKitImportWaiters.removeValue(forKey: id)
-        }
-    }
-
-    /// Wait for CloudKit initial sync to complete.
-    /// Returns immediately if CloudKit is disabled or already synced.
-    /// - Parameter timeout: Maximum time to wait in seconds. Use 0 for no timeout (wait indefinitely).
-    func waitForCloudKitSync(timeout: TimeInterval = 0) async {
-        // Already done or disabled
-        if cloudKitSyncStatus == .synced || cloudKitSyncStatus == .disabled || cloudKitSyncStatus == .failed {
-            return
-        }
-
-        // Not started yet (store not loaded)
-        if cloudKitSyncStatus == .notStarted {
-            // Wait a bit for store to load
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-            if cloudKitSyncStatus == .notStarted {
-                self.logInfo("[MessageStore] waitForCloudKitSync: store not loaded, proceeding")
-                return
-            }
-        }
-
-        if timeout > 0 {
-            self.logInfo("[MessageStore] Waiting for CloudKit sync (timeout: %.1fs)...", timeout)
-        } else {
-            self.logInfo("[MessageStore] Waiting for CloudKit sync (no timeout)...")
-        }
-
-        let startedAt = Date()
-        while true {
-            if cloudKitSyncStatus == .synced || cloudKitSyncStatus == .disabled || cloudKitSyncStatus == .failed {
-                break
-            }
-
-            if timeout > 0 {
-                let elapsed = Date().timeIntervalSince(startedAt)
-                if elapsed >= timeout {
-                    self.logInfo("[MessageStore] CloudKit sync wait timed out after %.1fs", timeout)
-                    break
-                }
-                let remaining = timeout - elapsed
-                let sleepSeconds = min(0.5, max(0.05, remaining))
-                try? await Task.sleep(nanoseconds: UInt64(sleepSeconds * 1_000_000_000))
-            } else {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-            }
-
-            if Task.isCancelled {
-                break
-            }
-        }
-
-        self.logInfo("[MessageStore] CloudKit sync wait complete, status: %@",
-              cloudKitSyncStatus == .synced ? "synced" :
-              cloudKitSyncStatus == .failed ? "failed" : "other")
-    }
-
-    func reloadPersistentStores(enableCloud: Bool, completion: (() -> Void)? = nil) {
-        // Stop CloudKit sync observation before removing stores
-        stopCloudKitSyncObservation()
-        resetViewContextBeforeStoreRemoval()
-
-        let coordinator = container.persistentStoreCoordinator
-        for store in coordinator.persistentStores {
-            do {
-                try coordinator.remove(store)
-            } catch {
-                self.logInfo("[MessageStore] Failed to remove store: \(error)")
-            }
-        }
-
-        // Use wallet-specific store URL
-        let url = storeURLForWallet(currentWalletAddress)
-        let description = NSPersistentStoreDescription(url: url)
-        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
-        configureStoreDescription(description, walletAddress: currentWalletAddress, enableCloud: enableCloud)
-        container.persistentStoreDescriptions = [description]
-        isLoaded = false
-        didLogMissingStore = false
-        loadPersistentStores(primaryDescription: description, completion: completion)
-    }
-
-    func reloadPersistentStores(enableCloud: Bool) async {
-        await withCheckedContinuation { continuation in
-            reloadPersistentStores(enableCloud: enableCloud) {
-                continuation.resume()
-            }
-        }
-    }
-
-    /// Purges ALL CloudKit data (all wallet zones). Use with caution.
-    func purgeCloudKitData() async -> Error? {
-        guard ensureStoreLoaded() else { return NSError(domain: "Kasia", code: 1, userInfo: [NSLocalizedDescriptionKey: "Store not loaded"]) }
-        let ckContainer = CKContainer(identifier: containerId)
-        let database = ckContainer.privateCloudDatabase
-        return await withCheckedContinuation { continuation in
-            database.fetchAllRecordZones { zones, error in
-                if let error {
-                    continuation.resume(returning: error)
-                    return
-                }
-                let deletableZones = (zones ?? []).filter { zone in
-                    zone.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName
-                }
-                guard !deletableZones.isEmpty else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                self.logInfo("[MessageStore] Purging \(deletableZones.count) CloudKit zones")
-                let op = CKModifyRecordZonesOperation(recordZonesToSave: nil, recordZoneIDsToDelete: deletableZones.map { $0.zoneID })
-                op.modifyRecordZonesResultBlock = { result in
-                    switch result {
-                    case .success:
-                        self.logInfo("[MessageStore] Successfully purged all CloudKit zones")
-                        continuation.resume(returning: nil)
-                    case .failure(let opError):
-                        continuation.resume(returning: opError)
-                    }
-                }
-                database.add(op)
-            }
-        }
-    }
-
-    /// Purges CloudKit data for the current wallet's zone only
-    func purgeCurrentWalletCloudKitData() async -> Error? {
-        guard let walletAddress = currentWalletAddress else {
-            return NSError(domain: "Kasia", code: 2, userInfo: [NSLocalizedDescriptionKey: "No wallet set"])
-        }
-
-        let zoneName = zoneNameForWallet(walletAddress)
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
-        let ckContainer = CKContainer(identifier: containerId)
-        let database = ckContainer.privateCloudDatabase
-
-        return await withCheckedContinuation { continuation in
-            self.logInfo("[MessageStore] Purging CloudKit zone: \(zoneName)")
-            let op = CKModifyRecordZonesOperation(recordZonesToSave: nil, recordZoneIDsToDelete: [zoneID])
-            op.modifyRecordZonesResultBlock = { result in
-                switch result {
-                case .success:
-                    self.logInfo("[MessageStore] Successfully purged zone: \(zoneName)")
-                    continuation.resume(returning: nil)
-                case .failure(let opError):
-                    // Zone not found is not an error
-                    if (opError as? CKError)?.code == .zoneNotFound {
-                        self.logInfo("[MessageStore] Zone not found (already deleted): \(zoneName)")
-                        continuation.resume(returning: nil)
-                    } else {
-                        continuation.resume(returning: opError)
-                    }
-                }
-            }
-            database.add(op)
-        }
-    }
-
-    struct CloudKitStorageEstimate {
-        let recordCount: Int
-        let estimatedBytes: Int64
-    }
-
-    /// Best-effort estimate of how much the current wallet's CloudKit zone is using - CloudKit
-    /// has no public "bytes used" API (the number shown in iOS's own iCloud storage settings is
-    /// computed server-side and never exposed to apps), so this fetches every record actually
-    /// present in the zone right now and sums each one's approximate archived size. This is
-    /// deliberately a live server round-trip, not derived from the local store, so it reflects
-    /// reality even after data was deleted from iCloud outside the app (e.g. via system Settings)
-    /// while the local `.sqlite` cache (see `currentStoreSizeBytes()`) was left untouched.
-    func estimateCurrentWalletCloudKitStorage() async -> Result<CloudKitStorageEstimate, Error> {
-        guard let walletAddress = currentWalletAddress else {
-            return .failure(NSError(domain: "Kasia", code: 2, userInfo: [NSLocalizedDescriptionKey: "No wallet set"]))
-        }
-        let zoneName = zoneNameForWallet(walletAddress)
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
-        let database = CKContainer(identifier: containerId).privateCloudDatabase
-
-        var recordCount = 0
-        var totalBytes: Int64 = 0
-        var changeToken: CKServerChangeToken?
-        var moreComing = true
-
-        while moreComing {
-            let result = await fetchZoneChangesPage(zoneID: zoneID, database: database, changeToken: changeToken)
-            switch result {
-            case .failure(let error):
-                return .failure(error)
-            case .success(let page):
-                recordCount += page.recordCount
-                totalBytes += page.bytes
-                changeToken = page.token
-                moreComing = page.moreComing
-            }
-        }
-        return .success(CloudKitStorageEstimate(recordCount: recordCount, estimatedBytes: totalBytes))
-    }
-
-    private struct ZoneChangesPage {
-        let recordCount: Int
-        let bytes: Int64
-        let token: CKServerChangeToken?
-        let moreComing: Bool
-    }
-
-    private func fetchZoneChangesPage(
-        zoneID: CKRecordZone.ID,
-        database: CKDatabase,
-        changeToken: CKServerChangeToken?
-    ) async -> Result<ZoneChangesPage, Error> {
-        await withCheckedContinuation { continuation in
-            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
-                previousServerChangeToken: changeToken,
-                resultsLimit: nil,
-                desiredKeys: nil
-            )
-            let op = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zoneID], configurationsByRecordZoneID: [zoneID: config])
-            var recordCount = 0
-            var totalBytes: Int64 = 0
-
-            op.recordWasChangedBlock = { _, result in
-                if case .success(let record) = result {
-                    recordCount += 1
-                    totalBytes += Int64(Self.estimatedRecordSize(record))
-                }
-            }
-
-            op.recordZoneFetchResultBlock = { _, result in
-                switch result {
-                case .success(let (token, _, moreComing)):
-                    continuation.resume(returning: .success(
-                        ZoneChangesPage(recordCount: recordCount, bytes: totalBytes, token: token, moreComing: moreComing)
-                    ))
-                case .failure(let error):
-                    if (error as? CKError)?.code == .zoneNotFound {
-                        continuation.resume(returning: .success(ZoneChangesPage(recordCount: 0, bytes: 0, token: nil, moreComing: false)))
-                    } else {
-                        continuation.resume(returning: .failure(error))
-                    }
-                }
-            }
-            database.add(op)
-        }
-    }
-
-    /// CloudKit doesn't expose a "size of this record" API - archiving it is a reasonable
-    /// approximation of what's actually stored/transferred, close enough for a rough UI estimate.
-    private static func estimatedRecordSize(_ record: CKRecord) -> Int {
-        (try? NSKeyedArchiver.archivedData(withRootObject: record, requiringSecureCoding: true))?.count ?? 0
+        // History rows are dead weight now (see configureStoreDescription); keep the file lean.
+        purgeOldHistory()
     }
 
     private func ensureStoreLoaded() -> Bool {
@@ -2983,8 +1962,8 @@ final class MessageStore {
     }
 
     /// Replaces any existing reaction `reactorAddress` left on `targetTxId` with `emoji` - one
-    /// reaction per (message, reactor). No uniqueness constraint at the Core Data level (CloudKit
-    /// doesn't support them, same as `CDReadMarker`) - any duplicate found during the
+    /// reaction per (message, reactor). No uniqueness constraint at the Core Data level (same
+    /// as `CDReadMarker`) - any duplicate found during the
     /// fetch-then-upsert is folded into the first result and the rest deleted.
     func upsertReaction(targetTxId: String, reactorAddress: String, contactAddress: String, emoji: String, reactionTxId: String?, blockTime: Int64, encryptionKey: SymmetricKey, deliveryStatus: String? = nil, failedAction: String? = nil) {
         guard ensureStoreLoaded() else { return }
@@ -3165,6 +2144,9 @@ final class MessageStore {
         readMarkerEntity.name = CDReadMarker.entityName
         readMarkerEntity.managedObjectClassName = NSStringFromClass(CDReadMarker.self)
 
+        // CDSyncMarker was the row the CloudKit mirror touched to force an export. Nothing writes
+        // it any more; the entity stays in the model because dropping it would migrate every
+        // existing store for no gain.
         let syncMarkerEntity = NSEntityDescription()
         syncMarkerEntity.name = CDSyncMarker.entityName
         syncMarkerEntity.managedObjectClassName = NSStringFromClass(CDSyncMarker.self)
@@ -3199,17 +2181,17 @@ final class MessageStore {
             makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true),
             // Multi-account support: wallet address for partitioning
             makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: true),
-            // Read status sync fields (for multi-device CloudKit sync)
+            // Read status fields
             makeAttribute(name: "lastReadTxId", type: .stringAttributeType, optional: true),
             makeAttribute(name: "lastReadBlockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
             makeAttribute(name: "lastReadAt", type: .dateAttributeType, optional: true),
-            // Archived state (synced via CloudKit for multi-device)
+            // Archived state
             makeAttribute(name: "isArchived", type: .booleanAttributeType, optional: false, defaultValue: false)
         ]
 
-        // CDReadMarker: per-device read markers for conflict-free CloudKit sync
-        // Note: CloudKit doesn't support uniqueness constraints, so we handle deduplication
-        // manually in upsertReadMarker() by fetching existing records before insert
+        // CDReadMarker: per-device read markers, a schema born for cross-device merging and
+        // kept as-is (a model change would migrate every store). No uniqueness constraint;
+        // deduplication is handled manually in upsertReadMarker() by fetching before insert
         readMarkerEntity.properties = [
             makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
             makeAttribute(name: "conversationId", type: .stringAttributeType, optional: false, defaultValue: ""),
@@ -3226,8 +2208,8 @@ final class MessageStore {
 
         // CDReaction: one row per (targetTxId, reactorAddress, walletAddress) - picking a new
         // emoji replaces the row's emojiEncrypted rather than adding a second row; removing a
-        // reaction deletes the row outright. No uniqueness constraint (CloudKit doesn't support
-        // them, same as CDReadMarker above) - dedup is handled manually before insert.
+        // reaction deletes the row outright. No uniqueness constraint (same as CDReadMarker
+        // above) - dedup is handled manually before insert.
         reactionEntity.properties = [
             makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
             makeAttribute(name: "reactorAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
@@ -3252,8 +2234,7 @@ final class MessageStore {
         // NOTE: Core Data's version hash does NOT cover indexes, so an EXISTING store is judged
         // compatible and keeps running without them; only a store created from scratch gets
         // them. Forcing the migration with a versionHashModifier was tried and reverted - it
-        // wedged the app on a store this size, and on a CloudKit-backed store it also means
-        // re-exporting every record. Building these on an existing store needs to happen off
+        // wedged the app on a store this size. Building these on an existing store needs to happen off
         // the main thread with the UI told to wait, which is its own piece of work.
         messageEntity.indexes = [
             makeIndex(name: "byWalletContactTime", on: messageEntity, attributes: ["walletAddress", "contactAddress", "blockTime"]),
@@ -3501,236 +2482,16 @@ final class MessageStore {
         }
     }
 
-    /// Debounce state for CloudKit export
-    private var cloudKitExportWorkItem: DispatchWorkItem?
-    private var lastCloudKitExportAt: Date?
-    private var lastCloudKitExportRequestAt: Date?
-    private var lastCloudKitExportEventAt: Date?
-    private var lastCloudKitExportStartAt: Date?
-    private var nextCloudKitExportAllowedAt: Date?
-    private var cloudKitExportInProgress = false
-    private var cloudKitExportDirty = false
-    private var exportRetryWorkItem: DispatchWorkItem?
-    private var exportRetryCount = 0
-    private let cloudKitExportMinInterval: TimeInterval = 2.0 // Minimum 2s between exports
-    // Retry slowly to avoid foreground write churn that can delay CloudKit start.
-    private let cloudKitExportRetryDelay: TimeInterval = 12.0
-    private let cloudKitExportMaxRetries = 1
-
-    /// Request a CloudKit export with debouncing.
-    /// Leading-edge export, trailing debounce with a short minimum interval.
-    func triggerCloudKitExport() {
-        // Must be called on main thread for debounce/retry scheduling.
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { self.triggerCloudKitExport() }
-            return
-        }
-        lastCloudKitExportRequestAt = Date()
-        cloudKitExportDirty = true
-        exportRetryCount = 0
-        scheduleCloudKitExportRetry()
-
-        scheduleCloudKitExportAfterDebounce()
-    }
-
-    /// Actually perform the CloudKit export
-    private func performCloudKitExport() {
-        guard ensureStoreLoaded() else { return }
-
-        if let nextAllowed = nextCloudKitExportAllowedAt, Date() < nextAllowed {
-            let delay = nextAllowed.timeIntervalSince(Date())
-            self.logInfo("[MessageStore] CloudKit export throttled by server for %.1fs", delay)
-            scheduleCloudKitExportAfterDebounce()
-            return
-        }
-
-        if cloudKitExportInProgress {
-            return
-        }
-
-        cloudKitExportDirty = false
-
-        // Process any pending changes in the view context
-        viewContext.processPendingChanges()
-
-        let didSave: Bool
-        if viewContext.hasChanges {
-            do {
-                try viewContext.save()
-                didSave = true
-                self.logInfo("[MessageStore] Triggered CloudKit export via viewContext save")
-            } catch {
-                didSave = false
-                self.logInfo("[MessageStore] Failed to trigger CloudKit export: \(error)")
-            }
-        } else {
-            didSave = false
-        }
-
-        // If there were no local changes, touch a marker to force an export.
-        // Use a background context to avoid extra viewContext saves.
-        if !didSave {
-            touchCloudKitExportMarker(useViewContext: false)
-        }
-    }
-
-    private func scheduleCloudKitExportAfterDebounce() {
-        guard !cloudKitExportInProgress else { return }
-        if cloudKitExportWorkItem != nil {
-            self.logInfo("[MessageStore] CloudKit export debounce active - coalescing request")
-            return
-        }
-        let now = Date()
-        let retryDelay: TimeInterval
-        if let nextAllowed = nextCloudKitExportAllowedAt, nextAllowed > now {
-            retryDelay = nextAllowed.timeIntervalSince(now)
-        } else {
-            retryDelay = 0
-        }
-        let last = lastCloudKitExportAt ?? .distantPast
-        let elapsed = now.timeIntervalSince(last)
-        let delay = max(cloudKitExportMinInterval - elapsed, retryDelay, 0.0)
-
-        if delay <= 0.001 {
-            performCloudKitExport()
-            return
-        }
-
-        self.logInfo("[MessageStore] Scheduling CloudKit export in %.1fs", delay)
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.cloudKitExportWorkItem = nil
-            guard !self.cloudKitExportInProgress else { return }
-            self.performCloudKitExport()
-        }
-        cloudKitExportWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-    }
-
-    private func scheduleCloudKitExportRetry(after delay: TimeInterval = 0) {
-        exportRetryWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            let requestedAt = self.lastCloudKitExportRequestAt
-            let eventAt = self.lastCloudKitExportEventAt
-            let startAt = self.lastCloudKitExportStartAt
-            let exportObserved: Bool
-            if let eventAt, let requestedAt, eventAt >= requestedAt {
-                exportObserved = true
-            } else if let startAt, let requestedAt, startAt >= requestedAt {
-                exportObserved = true
-            } else {
-                exportObserved = false
-            }
-            if self.cloudKitExportInProgress && exportObserved {
-                return
-            }
-            guard !exportObserved else { return }
-            if self.cloudKitExportWorkItem != nil {
-                self.scheduleCloudKitExportRetry(after: self.cloudKitExportRetryDelay)
-                return
-            }
-            guard self.exportRetryCount < self.cloudKitExportMaxRetries else {
-                self.logInfo("[MessageStore] CloudKit export retry exhausted")
-                // Safety: if export events were not observed, force a checkpoint and
-                // one more background-context marker touch to unstick foreground stalls.
-                DispatchQueue.global(qos: .utility).async { [weak self] in
-                    self?.checkpointWAL()
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    self?.touchCloudKitExportMarker(useViewContext: false)
-                }
-                return
-            }
-            self.exportRetryCount += 1
-            self.logInfo("[MessageStore] Retrying CloudKit export (attempt %d)", self.exportRetryCount + 1)
-            // Force one explicit flush instead of repeated marker touches.
-            self.flushCloudKitExport()
-            self.scheduleCloudKitExportRetry(after: self.cloudKitExportRetryDelay)
-        }
-        exportRetryWorkItem = workItem
-        let retryDelay = delay > 0 ? delay : cloudKitExportRetryDelay
-        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
-    }
-    
-    private func touchCloudKitExportMarker(useViewContext: Bool = false) {
-        guard ensureStoreLoaded() else { return }
-        let hasCloudKit = container.persistentStoreDescriptions.first?.cloudKitContainerOptions != nil
-        guard hasCloudKit else { return }
-        guard let walletAddr = currentWalletAddress else { return }
-
-        if useViewContext {
-            let context = viewContext
-            context.perform { [weak self] in
-                guard let self else { return }
-                // Re-check stores haven't been removed during async dispatch
-                guard !self.container.persistentStoreCoordinator.persistentStores.isEmpty else { return }
-
-                context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
-                context.undoManager = nil
-                context.shouldDeleteInaccessibleFaults = true
-                context.stalenessInterval = 0.0
-
-                let marker = CDSyncMarker(context: context)
-                marker.walletAddress = walletAddr
-                marker.updatedAt = Date()
-                do {
-                    try context.save()
-                    self.logInfo("[MessageStore] Touched CloudKit export marker (view context)")
-                } catch {
-                    self.logInfo("[MessageStore] Failed to touch export marker (view context): \(error)")
-                }
-            }
-            return
-        }
-
-        container.performBackgroundTask { [weak self] context in
-            guard let self else { return }
-            // Re-check stores haven't been removed during async dispatch (e.g. logout race)
-            guard !self.container.persistentStoreCoordinator.persistentStores.isEmpty else { return }
-
-            context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
-            context.undoManager = nil
-            context.shouldDeleteInaccessibleFaults = true
-            context.stalenessInterval = 0.0
-
-            let marker = CDSyncMarker(context: context)
-            marker.walletAddress = walletAddr
-            marker.updatedAt = Date()
-            do {
-                try context.save()
-                self.logInfo("[MessageStore] Touched CloudKit export marker (background context)")
-                // Force a WAL checkpoint shortly after the marker save so CloudKit sees the change
-                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    self?.checkpointWAL()
-                }
-            } catch {
-                self.logInfo("[MessageStore] Failed to touch export marker (background context): \(error)")
-            }
-        }
-    }
-
-    /// Force immediate CloudKit export (bypass debounce).
-    /// Use for critical syncs like app backgrounding.
-    func flushCloudKitExport() {
-        cloudKitExportWorkItem?.cancel()
-        cloudKitExportWorkItem = nil
-        exportRetryWorkItem?.cancel()
-        exportRetryWorkItem = nil
-        lastCloudKitExportAt = nil  // Reset throttle for flush
-        performCloudKitExport()
-    }
-
     /// Manually checkpoint the WAL file to reduce file size
-    /// Call this when the app is idle (backgrounded, after CloudKit export, etc.)
+    /// Call this when the app is idle (backgrounded, after a large import, etc.)
     /// This triggers Core Data's PostSaveMaintenance which will checkpoint if needed
     func checkpointWAL() {
         guard ensureStoreLoaded() else { return }
 
         let context = container.newBackgroundContext()
         // ASYNC perform, never performAndWait: this is fired from the scene-phase handler when
-        // the app backgrounds (tapping a link -> Safari), exactly when the CloudKit export flush
-        // is using the store. performAndWait blocked the MAIN thread on the SQLite lock, iOS
+        // the app backgrounds (tapping a link -> Safari), exactly when a background save may
+        // be using the store. performAndWait blocked the MAIN thread on the SQLite lock, iOS
         // suspended the process mid-wait, and the app resumed still frozen inside that wait
         // (~1min hang + "unsafeForcedSync called from Swift Concurrent context"). Every caller
         // is fire-and-forget; a checkpoint is pure maintenance nobody needs to wait for.
@@ -3784,7 +2545,7 @@ final class MessageStore {
     }
 }
 
-// MessageStore coordinates Core Data and CloudKit work on its own queues.
+// MessageStore coordinates Core Data work on its own queues.
 // Treat as sendable for structured concurrency usage.
 extension MessageStore: @unchecked Sendable {}
 
@@ -3821,7 +2582,7 @@ final class CDConversation: NSManagedObject {
     /// Wallet address for multi-account partitioning (nil = legacy/any wallet)
     @NSManaged var walletAddress: String?
 
-    // Read status sync fields (for multi-device CloudKit sync)
+    // Read status fields
     /// txId of the last message the user has read
     @NSManaged var lastReadTxId: String?
     /// blockTime of the last read message (for ordering comparisons)
@@ -3829,18 +2590,18 @@ final class CDConversation: NSManagedObject {
     /// When the user marked messages as read locally
     @NSManaged var lastReadAt: Date?
 
-    // Archived state (synced via CloudKit for multi-device)
+    // Archived state
     @NSManaged var isArchived: Bool
 }
 
-/// Per-device read marker for CloudKit sync.
+/// Per-device read marker (one row per device that read the conversation).
 /// Each device writes its own marker (walletAddress + conversationId + deviceId).
 /// This eliminates write conflicts between devices.
 @objc(CDReadMarker)
 final class CDReadMarker: NSManagedObject {
     static let entityName = "CDReadMarker"
 
-    /// Wallet address for CloudKit zone partitioning (required - shared zone needs filtering)
+    /// Wallet address the marker belongs to (required - every query filters on it)
     @NSManaged var walletAddress: String
     /// Contact address identifying the conversation
     @NSManaged var conversationId: String

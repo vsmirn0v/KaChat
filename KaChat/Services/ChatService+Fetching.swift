@@ -2690,38 +2690,15 @@ extension ChatService {
             return true
         }
 
-        // PRIORITY 1: Try CloudKit sync first
-        // Outgoing messages from other devices have their content stored in CloudKit
-        // The on-chain payload is encrypted for the recipient, so we can't decrypt it here
-        AppLog.log("[ChatService] Outgoing push from other device: %@ - trying CloudKit sync", txId)
+        // An outgoing message from another device: the on-chain payload is encrypted for the
+        // recipient, so this device can only decrypt it when it happens to hold that ability
+        // (some message types). Otherwise a placeholder keeps the message's place until the
+        // Nextcloud archive restore delivers the text.
+        AppLog.log("[ChatService] Outgoing push from other device: %@ - trying payload decrypt", txId)
 
-        let settings = currentSettings
-        if settings.storeMessagesInICloud {
-            // Trigger CloudKit to fetch any pending changes
-            await messageStore.waitForCloudKitSync(timeout: 5)
-
-            // Reload messages from store (includes CloudKit-synced data)
-            await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-
-            // Brief pause for Core Data to merge
-            try? await Task.sleep(nanoseconds: 500_000_000)
-
-            // Check if CloudKit delivered the content
-            if let cloudKitMsg = await findLocalMessage(txId: txId),
-               !cloudKitMsg.isSentPlaceholder {
-                AppLog.log("[ChatService] Outgoing push resolved via CloudKit: %@", txId)
-                return true
-            }
-
-            AppLog.log("[ChatService] CloudKit sync did not deliver content for %@ - trying payload decrypt", txId)
-        }
-
-        // PRIORITY 2: Try to decrypt on-chain payload (may work for some message types)
         let rawPayload = await resolveRawPayloadForTx(txId: txId, payloadHint: payload)
         guard let rawPayload else {
             AppLog.log("[ChatService] Outgoing push: failed to resolve raw payload for %@", txId)
-            // Schedule a retry - CloudKit may deliver later
-            scheduleCloudKitRetryForOutgoing(txId: txId, sender: sender, timestamp: timestamp)
             return false
         }
 
@@ -2742,8 +2719,8 @@ extension ChatService {
         }
 
         guard let decrypted = await decryptContextualMessageFromRawPayload(rawPayload, privateKey: privateKey) else {
-            AppLog.log("[ChatService] Outgoing push: decrypt failed for %@ - content will sync via CloudKit", txId)
-            // Create placeholder message - CloudKit will deliver actual content
+            AppLog.log("[ChatService] Outgoing push: decrypt failed for %@ - content arrives with the next archive restore", txId)
+            // Create placeholder message - the archive restore delivers the actual content
             let placeholderMessage = ChatMessage(
                 txId: txId,
                 senderAddress: sender,
@@ -2757,9 +2734,6 @@ extension ChatService {
             )
             addMessageToConversation(placeholderMessage, contactAddress: contactAddress)
             saveMessages()
-
-            // Schedule CloudKit retry
-            scheduleCloudKitRetryForOutgoing(txId: txId, sender: sender, timestamp: timestamp)
             return true  // Return true since we created a placeholder
         }
 
@@ -2770,7 +2744,7 @@ extension ChatService {
             content: decrypted,
             messageType: msgType
         ) {
-            saveMessages(triggerExport: true)
+            saveMessages()
             AppLog.log("[ChatService] Outgoing push updated pending message: %@ to %@", txId, String(contactAddress.suffix(10)))
             return true
         }
@@ -2788,36 +2762,9 @@ extension ChatService {
         )
 
         addMessageToConversation(message, contactAddress: contactAddress)
-        saveMessages(triggerExport: true)
+        saveMessages()
         AppLog.log("[ChatService] Outgoing push imported: %@ to %@", txId, String(contactAddress.suffix(10)))
         return true
-    }
-
-    /// Schedule a CloudKit retry for outgoing messages that couldn't be resolved immediately
-    func scheduleCloudKitRetryForOutgoing(txId: String, sender: String, timestamp: Int64) {
-        Task {
-            // Wait 5 seconds for CloudKit to potentially deliver
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-
-            // Reload from store
-            await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-
-            // Check if content arrived
-            if let msg = await findLocalMessage(txId: txId),
-               !msg.isSentPlaceholder {
-                AppLog.log("[ChatService] CloudKit retry successful for outgoing: %@", txId)
-                return
-            }
-
-            // Try again after 15 seconds
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-
-            if let msg = await findLocalMessage(txId: txId),
-               msg.isSentPlaceholder {
-                AppLog.log("[ChatService] Outgoing message %@ still awaiting CloudKit sync", txId)
-            }
-        }
     }
 
     func contactAddressForOutgoingAlias(_ alias: String) -> String? {
@@ -3099,7 +3046,7 @@ extension ChatService {
 
     /// The txIds of the message array most recently ingested into, plus a retained copy of that
     /// array. Conversations are mutated from many places (pending-promotion rewrites, deletes,
-    /// CloudKit reconciliation swapping the whole array), none of which can be asked to
+    /// a store reload swapping the whole array), none of which can be asked to
     /// invalidate this, so it validates itself instead: the retained copy keeps the storage
     /// buffer alive and shared, which forces every mutation anywhere - in place or by
     /// replacement - to copy-on-write into a fresh buffer. Same buffer therefore means same

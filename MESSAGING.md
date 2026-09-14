@@ -201,8 +201,8 @@ There is no per-contact "disable realtime" flag or spam detector on any platform
 ## Encrypted Backup Envelope (v1)
 
 Cloud copies of the chat archive (the shared Nextcloud `kachat-backup.json` and Android's
-per-account Google Drive files) are encrypted at rest. iCloud is unaffected (CloudKit already
-encrypts server-side).
+per-account Google Drive files) are encrypted at rest. These archives are the only cloud copies
+that exist; iOS keeps nothing in iCloud.
 
 **Envelope** (the file's entire content):
 
@@ -439,7 +439,7 @@ duplicate a bubble (the txId dedup covers that independently).
 ### Device-Local State
 
 Pool state (my reservations per contact, their pool for me with used flags, offered markers) is
-**device-local** — NOT synced via CloudKit or any backup channel. A restore onto a new device
+**device-local** — NOT included in any backup channel. A restore onto a new device
 loses it; the apps simply re-exchange: the restored device's lazy offer re-runs with
 `replace:true` (which is why re-offering must always be safe), and payments fall back to the
 chatting address until a fresh pool arrives. Funds received earlier on reserved spending-chain

@@ -7,8 +7,7 @@ import SQLite3
 /// them: an EXISTING store is judged compatible and keeps running without the new indexes, so
 /// exactly the users with the most history - the ones who need them - get nothing. Forcing the
 /// point with a `versionHashModifier` was tried and reverted: that runs a full lightweight
-/// migration, which rewrites every row on the main thread and, on the CloudKit-backed store,
-/// re-initialises the mirroring schema too. It wedged the app.
+/// migration, which rewrites every row on the main thread. It wedged the app.
 ///
 /// This does the one thing actually wanted instead. A SQLite index is invisible to Core Data - it
 /// is not in the model, does not move any version hash, and Core Data never inspects

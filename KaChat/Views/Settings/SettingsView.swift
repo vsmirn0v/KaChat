@@ -29,8 +29,6 @@ struct SettingsView: View {
     /// Selection handed back by the chat picker sheet; the resync starts from the sheet's
     /// onDismiss so the fullScreenCover is never presented while the sheet is still animating out.
     @State private var pendingResyncSelection: [String]?
-    @State private var showWipeICloudConfirmation = false
-    @State private var isWipingICloud = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -324,44 +322,19 @@ struct SettingsView: View {
                 Text("Images and files the app can always download again. Clearing them frees space and loses nothing.")
             }
 
-            Section("Cloud Storage") {
-                settingsCategoryRow("iCloud", icon: "icloud", tint: .accentColor) {
-                    iCloudStoragePage
-                }
+            // Nextcloud is the only cloud the app talks to: messages live on this device and in
+            // the encrypted archive on the user's own server, nowhere else.
+            Section {
                 settingsCategoryRow("Nextcloud", icon: "externaldrive.connected.to.line.below", tint: .accentColor) {
                     nextcloudStoragePage
                 }
+            } header: {
+                Text("Cloud Storage")
+            } footer: {
+                Text("Your own Nextcloud server is the only place messages sync to. Nothing is stored in iCloud.")
             }
         }
         .navigationTitle("Storage")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var iCloudStoragePage: some View {
-        Form {
-            Section("iCloud") {
-                Toggle("Store encrypted messages in iCloud CloudKit", isOn: $settingsViewModel.settings.storeMessagesInICloud)
-                    .onChange(of: settingsViewModel.settings.storeMessagesInICloud) { newValue in
-                        settingsViewModel.saveSettings()
-                        refreshMessageStoreSize()
-                        // One cloud at a time: turning iCloud on turns Nextcloud Automatic
-                        // Sync off through its real setter, so the pending upload debounce
-                        // is cancelled and the choice is persisted for that wallet.
-                        if newValue, NextcloudService.shared.autoBackupEnabled {
-                            NextcloudService.shared.setAutoSyncEnabled(false)
-                        }
-                    }
-
-                Text("Required for cross-device sync and backup of sent messages.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Text("Automatic sync works with one cloud service at a time.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .navigationTitle("iCloud")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -457,31 +430,8 @@ struct SettingsView: View {
                     // accounts screen's job now - it is where accounts are listed, so it is
                     // where you can see which one you are removing. Two doors to the same
                     // destructive act, one of them on a screen that never names the account,
-                    // is one door too many.
-
-                    Button(role: .destructive) {
-                        showWipeICloudConfirmation = true
-                    } label: {
-                        HStack {
-                            Label("Wipe iCloud Data", systemImage: "icloud.slash")
-                                .foregroundColor(.red)
-                            Spacer()
-                            if isWipingICloud {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(isWipingICloud)
-                    .sheet(isPresented: $showWipeICloudConfirmation) {
-                        ConfirmActionSheet(
-                            title: "Wipe iCloud Data",
-                            confirmTitle: "Wipe iCloud Data",
-                            confirmSubtitle: "Deletes this account's messages from iCloud only. Your local messages and your account stay on this device.",
-                            confirmSystemImage: "icloud.slash"
-                        ) {
-                            Task { await wipeICloudData() }
-                        }
-                    }
+                    // is one door too many. "Wipe iCloud Data" lived here too, until the app
+                    // stopped putting anything in iCloud.
                 }
         }
         .navigationTitle("Danger Zone")
@@ -561,19 +511,6 @@ struct SettingsView: View {
         .padding(.bottom, 20)
         .presentationDetents([.height(380)])
         .presentationDragIndicator(.visible)
-    }
-
-    /// iCloud-only wipe: deletes the CURRENT wallet's CloudKit zone and nothing else. Local
-    /// messages, contacts, and the account are untouched - removing the account itself is the
-    /// accounts screen's job.
-    private func wipeICloudData() async {
-        isWipingICloud = true
-        defer { isWipingICloud = false }
-        if let error = await MessageStore.shared.purgeCurrentWalletCloudKitData() {
-            showToast("iCloud wipe failed: \(error.localizedDescription)", style: .error)
-        } else {
-            showToast("iCloud message data wiped.")
-        }
     }
 
     private func exportChatHistoryArchive() async {
@@ -3381,7 +3318,7 @@ private struct AllNodesRow: View {
 
 /// Settings > Storage > Nextcloud tab: connect/disconnect the user's own Nextcloud server,
 /// plus start-folder choice and message backup. Renders bare Sections (no Form of its own) so
-/// the Storage page's segmented iCloud/Nextcloud tabs can embed it directly in their Form.
+/// the Storage page can embed it directly in its Form.
 /// Credentials are verified against the OCS user endpoint before being stored in the Keychain
 /// (see NextcloudService). The connected account powers the chat attach picker's
 /// "From Nextcloud" flow (photos/videos sent as public share links).

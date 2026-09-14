@@ -223,7 +223,7 @@ struct ChatListView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { _ in
-                Text("This permanently deletes every message in this chat, including from iCloud, so it's removed from your other devices too. This cannot be undone.")
+                Text("This permanently deletes every message in this chat from this device. This cannot be undone.")
             }
 
         let withGroupRowDeleteAlert = withRowDeleteAlert
@@ -1028,7 +1028,7 @@ struct ChatListView: View {
 
     private var bulkDeleteAlertMessage: String {
         selectedListTab == .chats
-            ? "This permanently deletes every message in each selected chat, including from iCloud, so they're removed from your other devices too. This cannot be undone."
+            ? "This permanently deletes every message in each selected chat from this device. This cannot be undone."
             : "This removes each selected group and its messages from this device. This cannot be undone, and other members won't be notified."
     }
 

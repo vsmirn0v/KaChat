@@ -47,7 +47,7 @@ enum ColdStorageError: LocalizedError {
 /// (e.g. exported from a KasSigner hardware device). Storage here is intentionally
 /// separate from WalletManager/KeychainService — a kpub contains no private key or
 /// mnemonic material, so it needs neither Secure Enclave wrapping nor the per-wallet
-/// CloudKit zone machinery used for the app's spending wallet.
+/// message store machinery used for the app's spending wallet.
 @MainActor
 final class ColdStorageManager: ObservableObject {
     static let shared = ColdStorageManager()

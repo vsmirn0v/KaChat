@@ -14,7 +14,7 @@ import Foundation
 /// - **Their pools**: addresses a contact shared with us via `addr_pool` - "addresses I can pay
 ///   this contact at". Each is single-use: consumed (marked used) when a payment send selects it.
 ///
-/// This state is intentionally device-local (NOT CloudKit-synced): a restore onto a new device
+/// This state is intentionally device-local (never in any archive): a restore onto a new device
 /// simply loses it, and the apps re-exchange pools - re-offering is safe because the initial
 /// offer always uses `replace: true`.
 @MainActor

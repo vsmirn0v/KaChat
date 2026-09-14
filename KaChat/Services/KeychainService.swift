@@ -105,7 +105,7 @@ final class KeychainService {
     // MARK: - Nextcloud (server + app-password credentials, see NextcloudService)
     //
     // Scoped per wallet account: the key name carries the same SHA256(walletAddress).prefix(8)
-    // hex suffix MessageStore uses for its CloudKit zones and store files, so every account
+    // hex suffix MessageStore uses for its store files, so every account
     // keeps its own Nextcloud login. Entries are device-local (never iCloud-keychain synced),
     // matching the rest of the app's per-account storage.
 
@@ -166,8 +166,8 @@ final class KeychainService {
         "\(KeychainKey.nextcloudCredentials.rawValue)_\(walletHashSuffix(walletAddress))"
     }
 
-    /// First 8 bytes of SHA256(walletAddress) as hex - the identical derivation
-    /// MessageStore.zoneNameForWallet uses, so all per-wallet storage shares one suffix scheme.
+    /// First 8 bytes of SHA256(walletAddress) as hex - the identical derivation MessageStore
+    /// uses for its per-wallet store file, so all per-wallet storage shares one suffix scheme.
     static func walletHashSuffix(_ walletAddress: String) -> String {
         let hash = SHA256.hash(data: Data(walletAddress.utf8))
         return hash.prefix(8).map { String(format: "%02x", $0) }.joined()
@@ -361,7 +361,7 @@ final class KeychainService {
     // MARK: - Group Chat Secrets (Device-specific, SE-wrapped, keyed by groupId)
     //
     // GroupBag holds a group's symmetric key material (groupSeed/groupRootEpoch/blindingKey) -
-    // deliberately Keychain-only, never CloudKit-synced, matching the seed-phrase precedent.
+    // deliberately Keychain-only, never synced anywhere, matching the seed-phrase precedent.
     // A new device won't auto-restore group membership - the admin has to re-add it directly.
 
     func saveGroupBag(_ bag: GroupBag) throws {

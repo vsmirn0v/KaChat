@@ -21,7 +21,7 @@ struct KaChatApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     /// Below this, becoming active again skips the heavier resync work (node pool reconnect
-    /// sweep, CloudKit fetch + catch-up sync) - only things that must run every single time
+    /// sweep, catch-up sync) - only things that must run every single time
     /// regardless of how brief the background interval was (e.g. resuming a UTXO subscription
     /// that's unconditionally paused on every backgrounding) still do. Without this, quickly
     /// backgrounding and resuming (e.g. glancing at the app switcher for a second) re-fired this
@@ -131,15 +131,13 @@ struct KaChatApp: App {
             if settingsViewModel.settings.notificationMode == .remotePush {
                 ChatService.shared.pauseUtxoSubscriptionForRemotePush()
             }
-            // Flush any pending read status updates to CloudKit before backgrounding
+            // Flush any pending read status updates to the store before backgrounding
             appDelegate.beginBackgroundFlushIfNeeded()
             ReadStatusSyncManager.shared.flushPendingUpdates()
             // Flush the debounced chat-list snapshot write immediately too, rather than leaving
             // it in-flight for a 300ms timer that iOS could suspend the process before firing.
             ChatService.shared.chatListSnapshotPersistTask?.cancel()
             ChatService.shared.persistChatListSnapshotIfPossible()
-            // Force immediate CloudKit export before backgrounding
-            MessageStore.shared.flushCloudKitExport()
             // Checkpoint WAL when going to background to reduce file size
             MessageStore.shared.checkpointWAL()
             // Give the async saves above a moment to actually land before releasing the
@@ -169,7 +167,7 @@ struct KaChatApp: App {
             let isFirstActiveTransition = !hasCompletedFirstActiveTransition
             hasCompletedFirstActiveTransition = true
             // On cold launch specifically, every cache (KNS avatars, message-preview parsing,
-            // image decoding) is empty, node pool/CloudKit/catch-up sync all kick off at once,
+            // image decoding) is empty, node pool/catch-up sync all kick off at once,
             // and the user is most likely to immediately start navigating around (e.g. opening a
             // chat and coming right back out) - all of that is MainActor-bound work (every
             // service here is @MainActor), so it directly competes with the user's own taps and
@@ -209,29 +207,11 @@ struct KaChatApp: App {
             Task {
                 await processPendingOutboundShareIfNeeded()
             }
-            // Refresh CloudKit first to pick up messages from other devices
-            // Then sync messages that may have arrived while backgrounded
+            // Sync messages that may have arrived while backgrounded
             if shouldRunHeavyResync {
                 Task {
                     if coldStartGraceNanos > 0 {
                         try? await Task.sleep(nanoseconds: coldStartGraceNanos)
-                    }
-                    // Fetch CloudKit changes to get messages sent from other devices
-                    let settings = AppSettings.load()
-                    if settings.storeMessagesInICloud {
-                        #if targetEnvironment(macCatalyst)
-                        let cloudKitImportTimeout: TimeInterval = 12.0
-                        #else
-                        let cloudKitImportTimeout: TimeInterval = 6.0
-                        #endif
-                        await MessageStore.shared.fetchCloudKitChanges(
-                            reason: "app-active",
-                            timeout: cloudKitImportTimeout
-                        )
-                        // Sync read statuses from CloudKit (picks up reads from other devices)
-                        await ReadStatusSyncManager.shared.syncFromCloudKit()
-                        // Load any CloudKit-synced messages before indexer sync
-                        await ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                     }
                     // Run catch-up sync with push-reliability gating.
                     await ChatService.shared.maybeRunCatchUpSync(trigger: .appActive)
@@ -476,7 +456,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     /// Requests a few extra seconds of background execution time so the debounced read-marker
-    /// and CloudKit export writes triggered on backgrounding (both `context.perform`, not
+    /// and snapshot writes triggered on backgrounding (both `context.perform`, not
     /// `performAndWait`, so they return before the save actually lands) get a chance to complete
     /// before iOS can suspend the process. Without this, backgrounding right after reading a chat
     /// can lose that write, resurrecting a stale "unread" position and wrong scroll anchor the

@@ -385,30 +385,19 @@ extension ChatService {
                         continue
                     }
 
-                    // Own self-stash transactions: contextual messages we sent to a contact
-                    // If we have this message locally (we sent it from this device), skip
-                    // Otherwise, trigger CloudKit import (sent from another device with same wallet)
+                    // Own self-stash transactions: contextual messages we sent to a contact.
+                    // If we have this message locally (we sent it from this device), skip.
+                    // Otherwise it was sent from another device with the same wallet: the
+                    // indexer only has a payload encrypted for the recipient, so the text
+                    // arrives with the next Nextcloud archive restore, not from here.
                     if utxoAddress == myAddress {
                         if await findLocalMessage(txId: txId) != nil {
                             AppLog.log("[ChatService] Own self-stash %@ already exists locally - skipping",
                                   String(txId.prefix(12)))
                             continue
                         }
-
-                        // Message sent from another device - trigger CloudKit import to get message text
-                        // (indexer only has encrypted payload we can't decrypt)
-                        AppLog.log("[ChatService] Own self-stash %@ not found locally - triggering CloudKit import for multi-device sync",
+                        AppLog.log("[ChatService] Own self-stash %@ not found locally - sent from another device; text arrives with the archive",
                               String(txId.prefix(12)))
-                        Task { @MainActor [weak self] in
-                            let importAfter = Date()
-                            let didImport = await MessageStore.shared.fetchCloudKitChanges(
-                                reason: "self-stash-missing-\(String(txId.prefix(12)))",
-                                after: importAfter,
-                                timeout: 12.0
-                            )
-                            await self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-                            await self?.handleCloudKitImportResult(txId: txId, didImport: didImport)
-                        }
                         continue
                     }
 
@@ -1074,15 +1063,7 @@ extension ChatService {
                 if await findLocalMessage(txId: txId) != nil {
                     return
                 }
-                AppLog.log("[ChatService] Verified self-stash %@ - triggering CloudKit import", String(txId.prefix(12)))
-                let importAfter = Date()
-                let didImport = await MessageStore.shared.fetchCloudKitChanges(
-                    reason: "self-stash-verified-\(String(txId.prefix(12)))",
-                    after: importAfter,
-                    timeout: 12.0
-                )
-                await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-                await handleCloudKitImportResult(txId: txId, didImport: didImport)
+                AppLog.log("[ChatService] Verified self-stash %@ - sent from another device; text arrives with the archive", String(txId.prefix(12)))
                 clearSelfStashRetryState(txId: txId)
                 return
             }
@@ -1177,9 +1158,6 @@ extension ChatService {
         selfStashFirstAttemptAt.removeValue(forKey: txId)
         mempoolResolvedTxIds.remove(txId)
         mempoolPayloadByTxId.removeValue(forKey: txId)
-        cloudKitImportFirstAttemptAt.removeValue(forKey: txId)
-        cloudKitImportLastObservedAt.removeValue(forKey: txId)
-        cloudKitImportRetryTokenByTxId.removeValue(forKey: txId)
     }
 
 
@@ -1233,16 +1211,8 @@ extension ChatService {
                     if !entry.payload.isEmpty {
                         let payload = entry.payload
                         if isContextualPayload(payload) || isSelfStashPayload(payload) {
-                            AppLog.log("[ChatService] Mempool resolved %@ as self-stash (inputs=ours, outputs=self) - triggering CloudKit import",
+                            AppLog.log("[ChatService] Mempool resolved %@ as self-stash (inputs=ours, outputs=self) - sent from another device; text arrives with the archive",
                                   String(txId.prefix(12)))
-                            let importAfter = Date()
-                            let didImport = await MessageStore.shared.fetchCloudKitChanges(
-                                reason: "self-stash-mempool-\(String(txId.prefix(12)))",
-                                after: importAfter,
-                                timeout: 12.0
-                            )
-                            await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-                            await handleCloudKitImportResult(txId: txId, didImport: didImport)
                         } else {
                             AppLog.log("[ChatService] Mempool resolved %@ as self-spend (inputs=ours, outputs=self) - ignoring",
                                   String(txId.prefix(12)))

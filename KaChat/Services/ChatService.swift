@@ -240,14 +240,7 @@ final class ChatService: ObservableObject {
     var dirtyConversationAddresses = Set<String>()
     var lastFullStoreMaintenanceAt: Date = .distantPast
     let fullStoreMaintenanceInterval: TimeInterval = 600
-    var pendingCloudKitExport = false
-    var remoteChangeObserver: NSObjectProtocol?
-    var cloudRefreshTimer: Timer?
     var legacyMigrationScheduled = false
-    var cloudKitImportFirstAttemptAt: [String: Date] = [:]
-    var cloudKitImportLastObservedAt: [String: Date] = [:]
-    var cloudKitImportRetryTokenByTxId: [String: UUID] = [:]
-    let cloudKitImportMaxWaitSeconds: TimeInterval = 180
     var resolveRetryCounts: [String: Int] = [:]
     var resolveRetryTasks: [String: Task<Void, Never>] = [:]
     var incomingResolutionPendingTxIds = Set<String>()
@@ -367,7 +360,6 @@ final class ChatService: ObservableObject {
     enum InitialSyncPhase: Equatable {
         case handshakes
         case subscribing
-        case cloud
         case localStore
         case indexer
         case finished
@@ -376,7 +368,6 @@ final class ChatService: ObservableObject {
             switch self {
             case .handshakes: return "Finding your conversations"
             case .subscribing: return "Connecting for live updates"
-            case .cloud: return "Waiting for iCloud"
             case .localStore: return "Loading saved messages"
             case .indexer: return "Downloading message history"
             case .finished: return "Finished"
@@ -550,34 +541,9 @@ final class ChatService: ObservableObject {
         observePingLatency()
         observeNodePoolConnectionState()
         observeConversationCount()
-        observeRemoteStoreChanges()
         Task { @MainActor [weak self] in
             await self?.messageStore.applyRetentionInBackground(SettingsViewModel.loadSettings().messageRetention)
         }
-        // The periodic CloudKit store refresh (`cloudRefreshTimer`) is started by `startPolling()`
-        // alongside the other pollers, not here: created in init it ran for the process lifetime,
-        // firing full store reloads while logged out and while backgrounded.
-    }
-
-    /// Start the 5-minute CloudKit store refresh if it isn't already running. Picks up messages
-    /// other devices wrote to the shared store that no remote-change notification surfaced.
-    /// Runs only while a wallet is loaded (started from `startPolling()`, torn down by
-    /// `resetForNewWallet()`) and skips ticks that land while the app is not active.
-    func startCloudRefreshTimerIfNeeded() {
-        guard cloudRefreshTimer == nil else { return }
-        cloudRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard WalletManager.shared.currentWallet != nil else { return }
-                guard UIApplication.shared.applicationState == .active else { return }
-                await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-            }
-        }
-    }
-
-    func stopCloudRefreshTimer() {
-        cloudRefreshTimer?.invalidate()
-        cloudRefreshTimer = nil
     }
 
     func startReplyTo(_ message: ChatMessage) {
@@ -714,10 +680,6 @@ final class ChatService: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
             rpcReconnectedObserver = nil
         }
-        if let observer = remoteChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
-            remoteChangeObserver = nil
-        }
     }
 
     // NOTE: the Danger Zone wipe-and-resync now lives in
@@ -735,9 +697,6 @@ final class ChatService: ObservableObject {
         activeChatPollTask?.cancel()
         activeChatPollTask = nil
         stopForegroundContactSweep()
-        // The 5-minute store refresh belongs to the wallet being torn down; `startPolling()`
-        // brings it back for the next one. Without this it kept reloading the store after logout.
-        stopCloudRefreshTimer()
         initialSyncTask?.cancel()
         initialSyncTask = nil
         messageSyncTask?.cancel()
@@ -847,15 +806,8 @@ final class ChatService: ObservableObject {
     var startPollingWhenStoreReadyTask: Task<Void, Never>?
     var suppressChatListSnapshotPersistence = false
 
-    /// Debounce state for CloudKit import on remote store change
-    var cloudKitImportTimer: Timer?
-    var lastCloudKitImportAt: Date?
+    /// When this process last wrote to the message store (see `recordLocalSave`).
     var lastLocalSaveAt: Date?
-    #if targetEnvironment(macCatalyst)
-    let cloudKitImportMinInterval: TimeInterval = 30.0 // Catalyst imports are slower; reduce churn.
-    #else
-    let cloudKitImportMinInterval: TimeInterval = 10.0
-    #endif
 
 }
 

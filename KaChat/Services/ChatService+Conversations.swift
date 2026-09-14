@@ -357,7 +357,6 @@ extension ChatService {
     }
 
     /// Fetch only handshakes (lightweight, needed to establish encryption keys)
-    /// Call this before CloudKit sync so we have aliases ready
     /// NOTE: Assumes configureAPIIfNeeded() was already called by startup flow
     func fetchHandshakesOnly() async {
         guard let wallet = WalletManager.shared.currentWallet else {
@@ -1648,7 +1647,7 @@ extension ChatService {
                 saveConversationIds()
             }
 
-            saveMessages(triggerExport: true)
+            saveMessages()
 
         } catch {
             releaseMessageOutpoints()
@@ -1673,7 +1672,7 @@ extension ChatService {
                     txId: acceptedTxId
                 )
                 clearNoInputRetryState(for: activePendingTxId)
-                saveMessages(triggerExport: true)
+                saveMessages()
                 return
             }
             if shouldRetryNoSpendableFundsError(error),
@@ -2342,7 +2341,7 @@ extension ChatService {
                 txId: txId
             )
             clearNoInputRetryState(for: activePendingTxId)
-            saveMessages(triggerExport: true)
+            saveMessages()
             if let freshChangeIndex {
                 await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
             }
@@ -2368,7 +2367,7 @@ extension ChatService {
                     txId: acceptedTxId
                 )
                 clearNoInputRetryState(for: activePendingTxId)
-                saveMessages(triggerExport: true)
+                saveMessages()
                 if let freshChangeIndex {
                     await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
                 }
@@ -3274,7 +3273,7 @@ extension ChatService {
             conversationIds[contact.address] = conversationId
             saveConversationIds()
 
-            saveMessages(triggerExport: true)
+            saveMessages()
 
             // Create self-stash to persist handshake metadata (separate tx)
             await sendOrQueueSelfStash(
@@ -3307,7 +3306,7 @@ extension ChatService {
                     txId: acceptedTxId
                 )
                 clearNoInputRetryState(for: activePendingTxId)
-                saveMessages(triggerExport: true)
+                saveMessages()
                 return
             }
 
@@ -4030,11 +4029,11 @@ extension ChatService {
             updateConversation(at: index, persist: false) { updated in
                 updated.unreadCount = 0
             }
-            // Persist unread reset immediately so reloads/CloudKit merges cannot resurrect
+            // Persist unread reset immediately so reloads cannot resurrect
             // a stale unread badge when the read cursor does not advance.
             messageStore.updateConversationUnread(contactAddress: conversation.contact.address, unreadCount: 0)
 
-            // Sync read status to CloudKit (debounced)
+            // Persist the read position (debounced)
             let targetBlockTime = max(inMemoryBlockTime, storeBlockTime)
             if targetBlockTime > 0 {
                 // Keep the in-memory read cursor current so a later full re-sync doesn't re-mark

@@ -72,10 +72,7 @@ extension ChatService {
             removeLocalReaction(targetTxId: targetTxId, reactorAddress: myAddress)
             messageStore.removeReaction(targetTxId: targetTxId, reactorAddress: myAddress)
         }
-        // Every Core Data write - reactions included - fires a local NSPersistentStoreRemoteChange
-        // notification indistinguishable from a real CloudKit import; recording it here (same as
-        // every other local save already does) suppresses the resulting full-conversation reload
-        // this write would otherwise needlessly trigger.
+        // Bookkeeping shared with every other local save (see `recordLocalSave`).
         recordLocalSave()
 
         let payload = MessageReactionCodec.encode(targetTxId: targetTxId, emoji: emoji, action: action)

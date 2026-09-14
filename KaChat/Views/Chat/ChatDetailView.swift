@@ -290,8 +290,8 @@ struct ChatDetailView: View {
     private func computeMessages() -> [ChatMessage] {
         // "📤 Sent via another device" placeholders never render: they carry no readable
         // content (an outgoing tx from another device whose text hasn't synced), and showing
-        // them added noise without information. The records stay in the store, so when
-        // CloudKit later delivers the real text the message appears with content.
+        // them added noise without information. The records stay in the store, so when an
+        // archive restore later delivers the real text the message appears with content.
         let base = normalizedMessages.filter { !$0.isSentPlaceholder }
         // Before you accept a stranger's request, show only the "wants to connect" handshake (and
         // anything you sent) — never their earlier messages.
@@ -838,10 +838,10 @@ struct ChatDetailView: View {
         // Reactive read-marking: the once-at-appear mark silently no-ops when a notification
         // tap opens this chat BEFORE the conversation has loaded (cold start / mid-catch-up),
         // leaving the badge stuck. Whenever unread is nonzero while this chat is open, clear
-        // it - covers late loads, catch-up bumps, and CloudKit merges alike.
+        // it - covers late loads, catch-up bumps, and store reloads alike.
         .onChange(of: conversation?.unreadCount ?? 0) { count in
             // DEBOUNCED: catch-up sync can bump unread once per arriving message - marking
-            // read per bump (store fetch + CloudKit read-status + notification sweep each
+            // read per bump (store fetch + read-status write + notification sweep each
             // time) stormed the main thread into a ~1min hang on resume. One mark after the
             // burst quiets down.
             guard count > 0, conversation != nil, !reactiveReadMarkPending else { return }

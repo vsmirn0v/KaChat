@@ -358,7 +358,7 @@ struct ChatMessage: Codable, Identifiable, Equatable {
     /// Exact content of the cross-device fill-in slot created when this wallet's own outgoing
     /// message is discovered on-chain by a device that cannot decrypt it (own sends are encrypted
     /// for the recipient). The row keeps the message's place in the store and in backup archives
-    /// until CloudKit or an archive restore delivers the real text (see
+    /// until an archive restore delivers the real text (see
     /// `ChatService.preferMessage`), but it must NEVER be visible anywhere in the UI - every
     /// display surface filters with `isSentPlaceholder`. Single source of truth for the literal;
     /// do not duplicate the string.
@@ -1852,7 +1852,6 @@ enum ChatPhotoQualityPreset: String, Codable, CaseIterable {
 }
 
 struct AppSettings: Codable {
-    var storeMessagesInICloud: Bool
     var messageRetention: MessageRetention
     var networkType: NetworkType
     var autoAddContacts: Bool
@@ -2051,7 +2050,6 @@ struct AppSettings: Codable {
 
     static var `default`: AppSettings {
         AppSettings(
-            storeMessagesInICloud: true,
             messageRetention: .forever,
             networkType: .mainnet,
             autoAddContacts: true,
@@ -2117,7 +2115,6 @@ struct AppSettings: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case storeMessagesInICloud
         case messageRetention
         case networkType
         case autoAddContacts
@@ -2184,7 +2181,6 @@ struct AppSettings: Codable {
     }
 
     init(
-        storeMessagesInICloud: Bool,
         messageRetention: MessageRetention,
         networkType: NetworkType,
         autoAddContacts: Bool,
@@ -2240,7 +2236,6 @@ struct AppSettings: Codable {
         grpcPoolNetworkType: NetworkType? = nil,
         lastPoolPersistDate: Date? = nil
     ) {
-        self.storeMessagesInICloud = storeMessagesInICloud
         self.messageRetention = messageRetention
         self.networkType = networkType
         // Auto-add contacts is always enabled.
@@ -2300,7 +2295,6 @@ struct AppSettings: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        storeMessagesInICloud = try container.decodeIfPresent(Bool.self, forKey: .storeMessagesInICloud) ?? false
         messageRetention = try container.decodeIfPresent(MessageRetention.self, forKey: .messageRetention) ?? .forever
         // Testnet is no longer selectable anywhere in the app - always run mainnet. Installs
         // that previously switched to testnet get migrated back (network-scoped URLs that
@@ -2444,7 +2438,6 @@ struct AppSettings: Codable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(storeMessagesInICloud, forKey: .storeMessagesInICloud)
         try container.encode(messageRetention, forKey: .messageRetention)
         try container.encode(networkType, forKey: .networkType)
         // Persist as enabled for forward/backward compatibility.
@@ -2823,7 +2816,7 @@ struct GrpcEndpoint: Codable, Identifiable, Equatable {
 //
 // Single-admin, epoch-based group messaging - see GroupCipher.swift for the crypto and
 // GroupChatService for the orchestration layer. Secret key material (GroupBag) lives in
-// Keychain only (never CloudKit-synced); non-secret roster/message metadata lives in
+// Keychain only (never synced anywhere); non-secret roster/message metadata lives in
 // GroupStore's local-only Core Data store (mirrors BroadcastStore's pattern).
 
 /// A member of a group chat.
@@ -2844,7 +2837,7 @@ struct GroupMember: Codable, Identifiable, Equatable, Hashable {
 }
 
 /// Local secret+state bag for a group, persisted in Keychain (device-specific, SE-wrapped,
-/// never CloudKit-synced) - mirrors the reference implementation's `GroupBag` schema.
+/// never synced anywhere) - mirrors the reference implementation's `GroupBag` schema.
 struct GroupBag: Codable, Sendable {
     let groupId: String              // hex
     var groupSeed: String?           // hex, admin-only, nil for non-admin members

@@ -235,7 +235,7 @@ final class WalletManager: ObservableObject {
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
                 SharedDataManager.setPrivateKeyAvailable(true)
                 isLoading = false
-                // Switch MessageStore to this wallet's store and CloudKit zone
+                // Switch MessageStore to this wallet's store
                 await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 BroadcastService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 GroupChatService.shared.setCurrentWallet(canonicalWallet.publicAddress)
@@ -381,7 +381,7 @@ final class WalletManager: ObservableObject {
         isLoggedOut = false
         UserDefaults.standard.removeObject(forKey: logoutFlagKey)
         ContactsManager.shared.setActiveWalletAddress(wallet.publicAddress)
-        // Switch MessageStore to this wallet's store and CloudKit zone FIRST
+        // Switch MessageStore to this wallet's store FIRST
         // This must happen before resetForNewWallet() to avoid clearing the wrong store
         await MessageStore.shared.setCurrentWallet(wallet.publicAddress)
         BroadcastService.shared.setCurrentWallet(wallet.publicAddress)
@@ -1417,8 +1417,8 @@ final class WalletManager: ObservableObject {
     ///
     /// This is a CLEAN identity selection, not a migration: nothing is moved or deleted. If the
     /// imported seed's current (index-0) identity already synced conversation history, that
-    /// history lives on-chain and in its own address-keyed storage scope (MessageStore SQLite +
-    /// CloudKit zone are keyed by wallet address) - switching simply parks it there, and the UI
+    /// history lives on-chain and in its own address-keyed storage scope (MessageStore SQLite
+    /// is keyed by wallet address) - switching simply parks it there, and the UI
     /// confirms with the user first when any conversations exist (see
     /// ChattingAddressDetailView). In-flight sync races are handled the same way any account
     /// switch is: `importWallet` stops polling first, and ChatService's write-time
@@ -1427,8 +1427,8 @@ final class WalletManager: ObservableObject {
     /// identity consumer switches exactly like an account import does: keychain wallet record +
     /// private key (re-derived for the chosen index), `currentWallet`/`publicAddress`,
     /// `getPrivateKey()` (handshakes/ECIES encryption), ContactsManager scope, MessageStore's
-    /// per-wallet SQLite + CloudKit zone (fresh zone keyed by the new address - the old
-    /// address's store was empty since no conversations existed), Broadcast/Group/ColdStorage/
+    /// per-wallet SQLite (a fresh file keyed by the new address - the old address's store was
+    /// empty since no conversations existed), Broadcast/Group/ColdStorage/
     /// Portfolio scopes, share-extension shared data, and ChatService polling + UTXO
     /// subscriptions (restarted for the new address; push registration always reads
     /// `currentWallet.publicAddress` live at register time).

@@ -32,9 +32,9 @@ struct BroadcastMessage: Identifiable, Equatable {
 }
 
 /// Local-only, per-wallet store for KaChat 2.0 Broadcast channel data.
-/// Unlike `MessageStore`, this is intentionally NOT synced via CloudKit: broadcast
-/// channels are public, on-chain, and ephemeral (retention-pruned locally), matching
-/// the Android client's local-only Room tables for the same feature.
+/// Never part of the Nextcloud archive either: broadcast channels are public, on-chain,
+/// and ephemeral (retention-pruned locally), matching the Android client's local-only Room
+/// tables for the same feature.
 final class BroadcastStore {
     static let shared = BroadcastStore()
 
@@ -216,8 +216,8 @@ final class BroadcastStore {
 
     /// Batch insert for indexer-fetched history: ONE async background-context pass for the
     /// whole page instead of a synchronous main-thread performAndWait per row - a resume-time
-    /// poll of 200 rows was hard main-thread work exactly while CloudKit import/WAL
-    /// checkpointing contend for the store (the app-freeze-after-resume class of bug).
+    /// poll of 200 rows was hard main-thread work exactly while WAL checkpointing
+    /// contends for the store (the app-freeze-after-resume class of bug).
     /// Returns how many rows were actually new.
     func insertMessages(
         _ messages: [(id: String, channel: String, senderAddress: String, content: String, blockTime: Int64)]

@@ -10,7 +10,7 @@ It combines:
 - Voice message support (Opus)
 - KNS (Kaspa Name Service) domain resolution
 - Real-time UTXO-based updates with resilient node failover
-- CloudKit-backed multi-device message sync
+- Multi-device message sync through your own Nextcloud server (encrypted archive)
 - Push notifications with optional encrypted payload delivery
 
 ## Project Status
@@ -47,12 +47,12 @@ Current deployment target is iOS 16.0 (widgets require iOS 17.0). The current re
 - Cold storage accounts with air-gapped signing (KSPT QR flow, KasSigner companion)
 - Gift claim onboarding flow
 - Child Mode (parent-set password gate for sensitive actions)
-- Chat history backup: CloudKit sync plus encrypted Nextcloud backup/auto-sync
+- Chat history backup and cross-device sync: encrypted Nextcloud backup/auto-sync
 - Home screen widgets, share extension, and App Shortcuts
 - Configurable network endpoints (Kaspa REST API, Indexer, KNS API)
 - Adaptive real-time sync via gRPC UTXO subscriptions and fallback polling
 - Background/terminated delivery via remote push mode
-- Per-wallet CloudKit zones for message isolation
+- Per-wallet local message stores for isolation
 - Localization support across 19 languages (`*.lproj`)
 
 </details>
@@ -78,7 +78,7 @@ Core service responsibilities:
 - `UtxoSubscriptionManager`: subscription lifecycle + failover
 - `KasiaAPIClient`: indexer HTTP client
 - `KNSService`: domain lookup and caching
-- `MessageStore`: Core Data + CloudKit persistence
+- `MessageStore`: Core Data persistence (device-local)
 - `PushNotificationManager`: APNs registration and reliability logic
 
 </details>
@@ -136,13 +136,12 @@ See [POOLS_v2.md](POOLS_v2.md) for details.
 <summary>Summary</summary>
 
 - Keys/seeds are wrapped with device-specific Secure Enclave keys
-- Message persistence uses Core Data with CloudKit sync
-- Data is partitioned per wallet (wallet-specific store/zone)
+- Message persistence uses Core Data, local to the device; the only cloud copy is the encrypted Nextcloud archive
+- Data is partitioned per wallet (wallet-specific store)
 - App Group sharing supports extension interoperability
 
 Bundle identifiers used by the app:
 - App: `com.kachat.app`
-- CloudKit container: `iCloud.com.kachat.app`
 - App Group: `group.com.kachat.app`
 
 </details>
@@ -152,7 +151,7 @@ Bundle identifiers used by the app:
 The at-rest model, plainly:
 
 - Message history lives in the app sandbox, protected by iOS file-based encryption (Data Protection). Message content is additionally encrypted at rest with a key derived from the wallet, so the local database never holds plaintext messages and any device backup of it carries only ciphertext.
-- Cloud copies are end-to-end encrypted with the wallet key: CloudKit syncs only the wallet-encrypted content, and Nextcloud backup archives are sealed in the encrypted backup envelope (see MESSAGING.md) before upload. Without the wallet, cloud copies are ciphertext.
+- The only cloud copy is the Nextcloud backup archive, sealed in the encrypted backup envelope (see MESSAGING.md) before upload to the user's own server. Nothing is stored in iCloud. Without the wallet, the archive is ciphertext.
 - Seed phrases and private keys are wrapped by this device's Secure Enclave and stored in the Keychain. They never leave the device and are not included in any backup.
 
 ## Push Notifications
@@ -225,7 +224,6 @@ Vendored:
    - Push Notifications
    - Background Modes (remote notifications/fetch as used)
    - App Groups (`group.com.kachat.app`)
-   - iCloud/CloudKit (`iCloud.com.kachat.app`)
 4. Select a simulator/device (iOS 16+).
 5. Build and run.
 

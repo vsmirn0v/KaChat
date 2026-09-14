@@ -1,14 +1,15 @@
 import Foundation
-import CloudKit
 
-/// Manages read status synchronization between devices via CloudKit.
-/// Uses per-device read markers (CDReadMarker) to eliminate write conflicts.
-/// Implements stable-point debounce: 15s idle timeout OR conversation exit.
+/// Debounced persistence of read positions. Uses per-device read markers (CDReadMarker) -
+/// a schema born for cross-device merging and kept because a model change would migrate every
+/// store - written on a stable point: 15s idle timeout OR conversation exit.
+///
+/// Device-local, like the store it writes to. Read state used to ride CloudKit to the user's
+/// other devices; that mirror is gone, and the Nextcloud archive is the only thing that leaves
+/// the device.
 @MainActor
 final class ReadStatusSyncManager: ObservableObject {
     static let shared = ReadStatusSyncManager()
-
-    private let containerId = "iCloud.com.kachat.app"
 
     /// Pending read marker for a conversation
     struct PendingReadMarker {
@@ -27,12 +28,7 @@ final class ReadStatusSyncManager: ObservableObject {
     /// Idle timeout in seconds before flushing a conversation's read marker
     private let idleInterval: TimeInterval = 15.0
 
-    /// Whether CloudKit sync is enabled
-    private var isCloudKitEnabled = AppSettings.load().storeMessagesInICloud
-    private var settingsObserver: NSObjectProtocol?
-    private var readStatusObserver: NSObjectProtocol?
-
-    /// Current wallet address (for zone partitioning)
+    /// Current wallet address
     private var currentWalletAddress: String? {
         WalletManager.shared.currentWallet?.publicAddress
     }
@@ -42,30 +38,7 @@ final class ReadStatusSyncManager: ObservableObject {
         KeychainService.shared.currentDeviceId()
     }
 
-    private init() {
-        // Observe read status changes from remote (CloudKit). Block observers are released only
-        // by removing their token (`removeObserver(self)` in deinit does not reach them), so keep it.
-        readStatusObserver = NotificationCenter.default.addObserver(
-            forName: MessageStore.readStatusDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in
-                await self?.handleRemoteReadStatusChange(notification)
-            }
-        }
-
-        settingsObserver = NotificationCenter.default.addObserver(
-            forName: .settingsDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let settings = notification.object as? AppSettings else { return }
-            Task { @MainActor [weak self] in
-                self?.isCloudKitEnabled = settings.storeMessagesInICloud
-            }
-        }
-    }
+    private init() {}
 
     /// Run one-time migration from CDConversation read status to CDReadMarker.
     /// Call this after the store is loaded and wallet is set.
@@ -76,16 +49,6 @@ final class ReadStatusSyncManager: ObservableObject {
 
         Task.detached(priority: .background) {
             MessageStore.shared.migrateToReadMarkersIfNeeded(deviceId: deviceId)
-        }
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-        if let settingsObserver {
-            NotificationCenter.default.removeObserver(settingsObserver)
-        }
-        if let readStatusObserver {
-            NotificationCenter.default.removeObserver(readStatusObserver)
         }
     }
 
@@ -170,27 +133,6 @@ final class ReadStatusSyncManager: ObservableObject {
         }
     }
 
-    /// Sync read statuses from CloudKit.
-    /// Call this on app launch and when receiving CloudKit change notifications.
-    func syncFromCloudKit() async {
-        guard isCloudKitEnabled else { return }
-        guard currentWalletAddress != nil else {
-            AppLog.log("[ReadStatusSync] No wallet set, skipping CloudKit sync")
-            return
-        }
-
-        AppLog.log("[ReadStatusSync] Starting CloudKit read status sync...")
-
-        // Refresh view context to pick up CloudKit changes
-        // NSPersistentCloudKitContainer handles the actual sync - we just need to refresh
-        await MessageStore.shared.refreshFromCloudKit()
-
-        // Fetch all read statuses from local store (which includes CloudKit-synced data)
-        let readStatuses = await MessageStore.shared.fetchAllReadStatuses()
-
-        AppLog.log("[ReadStatusSync] Loaded %d read statuses from CloudKit-synced store", readStatuses.count)
-    }
-
     // MARK: - Legacy API (for backwards compatibility during migration)
 
     /// Legacy method - redirects to new recordRead API.
@@ -205,15 +147,14 @@ final class ReadStatusSyncManager: ObservableObject {
             lastReadAt: Date()
         )
 
-        // Also record for per-device marker sync
+        // Also record the per-device marker
         recordRead(contactAddress: contactAddress, lastReadTxId: lastReadTxId, lastReadBlockTime: lastReadBlockTime)
     }
 
     /// Awaitable version of `markAsRead` - see `MessageStore.updateReadStatusAndWait`'s doc
-    /// comment. `recordRead`'s own per-device marker sync stays fire-and-forget (debounced by
-    /// design, and CloudKit marker sync missing a beat on a force-quit just means another device
-    /// re-learns the read state slightly later - not the same data-loss-on-relaunch risk as the
-    /// local read cursor above, which is this device's own single source of truth for its badge).
+    /// comment. `recordRead`'s own per-device marker write stays fire-and-forget (debounced by
+    /// design; the local read cursor above is this device's single source of truth for its
+    /// badge, and that is the write a force-quit must not lose).
     func markAsReadAndWait(contactAddress: String, lastReadTxId: String?, lastReadBlockTime: UInt64) async {
         let blockTime = Int64(lastReadBlockTime)
         await MessageStore.shared.updateReadStatusAndWait(
@@ -239,7 +180,7 @@ final class ReadStatusSyncManager: ObservableObject {
         persistReadMarker(marker)
     }
 
-    /// Persist a read marker to Core Data (which syncs to CloudKit via NSPersistentCloudKitContainer)
+    /// Persist a read marker to Core Data
     private func persistReadMarker(_ marker: PendingReadMarker) {
         guard let deviceId = deviceId else {
             AppLog.log("[ReadStatusSync] Cannot persist read marker: no device ID")
@@ -256,21 +197,5 @@ final class ReadStatusSyncManager: ObservableObject {
 
         AppLog.log("[ReadStatusSync] Persisted read marker for %@ device=%@ blockTime=%lld",
               String(marker.conversationId.suffix(8)), String(deviceId.prefix(8)), marker.lastReadBlockTime)
-    }
-
-    /// Handle remote read status change notification
-    private func handleRemoteReadStatusChange(_ notification: Notification) async {
-        guard let conversations = notification.userInfo?["conversations"] as? Set<String> else { return }
-
-        AppLog.log("[ReadStatusSync] Remote read status changed for %d conversations", conversations.count)
-
-        // Recompute effective read status for each affected conversation
-        // The ChatService should listen for this and update unread counts
-        for conversationId in conversations {
-            if let effective = await MessageStore.shared.recomputeEffectiveReadStatus(conversationId: conversationId) {
-                AppLog.log("[ReadStatusSync] Effective read status for %@: blockTime=%lld (%d devices)",
-                      String(conversationId.suffix(8)), effective.lastReadBlockTime, effective.deviceCount)
-            }
-        }
     }
 }
