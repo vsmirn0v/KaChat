@@ -36,6 +36,11 @@ final class PushNotificationManager: ObservableObject {
     /// installing a TestFlight build over an Xcode build must force a FULL re-registration
     /// rather than reusing the stale server record.
     private let registeredApnsEnvironmentDefaultsKey = "push_registered_apns_environment"
+    /// App build the device last successfully registered from. A new build gets one FULL
+    /// registration (POST) instead of trusting the persisted "registered" flag - installing a
+    /// beta over the previous one left users with no pushes until they toggled notifications
+    /// off and on, which is exactly the unregister + register this now does by itself.
+    private let registeredBuildDefaultsKey = "push_registered_build"
     private let legacyKasiaUnregisterDoneKey = "push_legacy_kasia_unregister_done"
     private let deviceAuthCounterDefaultsKey = "push_device_auth_counter"
 
@@ -254,6 +259,26 @@ final class PushNotificationManager: ObservableObject {
         AppLog.log("[Push] Received APNs token: %@...%@",
               String(token.prefix(8)), String(token.suffix(8)))
 
+        // APNs handed out a DIFFERENT token while the service still holds the old one (a
+        // reinstall or an update can reissue it). Nothing else re-registers in that state -
+        // the persisted "registered" flag steered every later refresh into a PUT for the old
+        // token - so every push went to a token this device no longer has. Full register now.
+        if let previousToken, previousToken != token, isRegistered, !pendingRegistration {
+            AppLog.log("[Push] APNs token changed - re-registering with the new token")
+            isRegistered = false
+            persistRegistrationStatus(false)
+            guard !registrationInFlight else { return }
+            Task {
+                do {
+                    try await registerWithIndexer()
+                } catch {
+                    lastError = error.localizedDescription
+                    AppLog.log("[Push] Re-registration after token change failed: %@", error.localizedDescription)
+                }
+            }
+            return
+        }
+
         // If we were waiting for registration, complete it
         if pendingRegistration {
             pendingRegistration = false
@@ -422,6 +447,7 @@ final class PushNotificationManager: ObservableObject {
         persistRegistrationStatus(true)
         UserDefaults.standard.set(AppSettings.load().pushIndexerURL, forKey: registeredBaseURLDefaultsKey)
         UserDefaults.standard.set(ApnsEnvironment.current.rawValue, forKey: registeredApnsEnvironmentDefaultsKey)
+        UserDefaults.standard.set(Self.currentBuildIdentifier, forKey: registeredBuildDefaultsKey)
         clearWalletBindingConflictCooldown()
         lastWatchedSignature = buildWatchedSignature(
             watchedAddresses: watchedAddresses,
@@ -721,6 +747,22 @@ final class PushNotificationManager: ObservableObject {
                         return
                     }
                     activateWalletBindingConflictCooldown(reason: reason)
+                    return
+                }
+                if httpResponse.statusCode == 404 {
+                    // The service does not know this device any more - a PUT can never fix
+                    // that, and retrying it on a backoff only kept the pushes dead. Register
+                    // from scratch.
+                    AppLog.log("[Push] Watched update answered 404 - device unknown to the service, re-registering")
+                    inFlightWatchedSignature = nil
+                    isRegistered = false
+                    persistRegistrationStatus(false)
+                    do {
+                        try await registerWithIndexer()
+                    } catch {
+                        lastError = error.localizedDescription
+                        AppLog.log("[Push] Re-registration after 404 failed: %@", error.localizedDescription)
+                    }
                     return
                 }
                 AppLog.log("[Push] Failed to update watched addresses: status=%d reason=%@", httpResponse.statusCode, reason)
@@ -1161,6 +1203,27 @@ final class PushNotificationManager: ObservableObject {
             isRegistered = false
             persistRegistrationStatus(false)
         }
+
+        // Same on a new build. The "registered" flag survives an app update, but whether the
+        // service still holds a working record for this device does not always (a token
+        // reissued with the install, a server that dropped the row); a beta that stopped
+        // pinging until notifications were toggled off and on was this. One full register per
+        // build is cheap insurance.
+        let storedBuild = UserDefaults.standard.string(forKey: registeredBuildDefaultsKey)
+        if isRegistered, storedBuild != Self.currentBuildIdentifier {
+            AppLog.log("[Push] App build changed (%@ -> %@) - forcing re-registration",
+                       storedBuild ?? "none", Self.currentBuildIdentifier)
+            isRegistered = false
+            persistRegistrationStatus(false)
+        }
+    }
+
+    /// "version (build)" of the running app, the unit a beta install changes.
+    private static var currentBuildIdentifier: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
     }
 
     private func persistDeviceToken(_ token: String) {
