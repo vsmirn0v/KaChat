@@ -39,6 +39,21 @@ enum MessageTextRenderPlan {
         return cache
     }()
 
+    /// Above this many UTF-8 bytes, plain text goes through `LinkifiedMessageTextView` even
+    /// with no link in it. Every keystroke in the composer and every status tick re-renders
+    /// the visible rows, and a SwiftUI `Text` re-measures a long paragraph on each of those
+    /// passes - a few hundred characters was enough to make a chat visibly stutter while
+    /// typing. The UIKit path keeps its attributed string and its measured size across renders
+    /// (see `LinkifiedMessageTextView.Coordinator`), so a re-render of a long message costs an
+    /// identity check instead of a text layout.
+    static let uiKitTextThreshold = 400
+
+    /// Whether `text` should render through `LinkifiedMessageTextView`: it carries a tappable
+    /// link, or it is long enough that SwiftUI `Text` would be the expensive choice.
+    static func prefersUIKitTextView(_ text: String) -> Bool {
+        text.utf8.count > uiKitTextThreshold || requiresLinkTextView(text)
+    }
+
     static func requiresLinkTextView(_ text: String) -> Bool {
         let key = text as NSString
         if let cached = linkTextViewCache.object(forKey: key) {

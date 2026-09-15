@@ -2540,7 +2540,7 @@ private struct GroupMessageBubbleRow: View {
                                         }
                                         return .systemAction
                                     })
-                            } else if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
+                            } else if MessageTextRenderPlan.prefersUIKitTextView(displayContent) {
                                 LinkifiedMessageTextView(
                                     text: displayContent,
                                     isOutgoing: message.isOutgoing,

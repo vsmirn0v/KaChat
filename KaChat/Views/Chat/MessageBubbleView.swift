@@ -630,7 +630,7 @@ struct MessageBubbleView: View {
         // would itself cost real time on a huge string.
         if displayText.utf8.count > Self.inlineTextTruncationThreshold {
             truncatedMessageContent
-        } else if MessageTextRenderPlan.requiresLinkTextView(displayText) {
+        } else if MessageTextRenderPlan.prefersUIKitTextView(displayText) {
             LinkifiedMessageTextView(
                 text: displayText,
                 isOutgoing: message.isOutgoing,
@@ -1368,11 +1368,13 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
         ]
         context.coordinator.textView = textView
         context.coordinator.configureGestureRecognizersIfNeeded()
-        textView.attributedText = context.coordinator.makeAttributedText(
+        let attributed = context.coordinator.makeAttributedText(
             text: text,
             isOutgoing: isOutgoing,
             isSingleEmojiOnly: isSingleEmojiOnly
         )
+        textView.attributedText = attributed
+        context.coordinator.noteAssigned(attributed)
         return textView
     }
 
@@ -1386,13 +1388,26 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
         // SwiftUI re-runs this on every parent render (typing indicator, status tick, scroll),
         // and assigning `attributedText` invalidates TextKit's layout even when the string is
         // identical, so skip the assignment unless the content or attributes actually changed.
-        guard !(uiView.attributedText?.isEqual(to: newValue) ?? false) else { return }
+        // `makeAttributedText` hands back the same instance while nothing changed, so the common
+        // case is a pointer comparison; the O(n) `isEqual` only runs when the instance differs.
+        if context.coordinator.isAssigned(newValue) { return }
+        guard !(uiView.attributedText?.isEqual(to: newValue) ?? false) else {
+            context.coordinator.noteAssigned(newValue)
+            return
+        }
         uiView.attributedText = newValue
+        context.coordinator.noteAssigned(newValue)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
+
+    /// Below this many characters the bubble may be narrower than its maximum, so the text is
+    /// measured unconstrained first to find its natural width. Anything longer wraps past the
+    /// maximum width no matter what, and that unconstrained pass - one enormous line through
+    /// TextKit - is the single most expensive thing a long message did on every layout.
+    private static let naturalWidthMeasureLimit = 80
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         let screenWidth = UIScreen.main.bounds.width
@@ -1400,14 +1415,27 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
         let proposedWidth = proposal.width ?? maxBubbleWidth
         let targetMaxWidth = max(1, min(maxBubbleWidth, proposedWidth))
 
-        let unconstrained = uiView.sizeThatFits(
-            CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        )
-        let targetWidth = max(1, min(targetMaxWidth, ceil(unconstrained.width)))
+        // Measured once per (text, available width); SwiftUI asks several times per layout pass
+        // and once more per re-render, and TextKit's answer does not change in between.
+        if let cached = context.coordinator.cachedSize(forMaxWidth: targetMaxWidth) {
+            return cached
+        }
+
+        let targetWidth: CGFloat
+        if (uiView.attributedText?.length ?? 0) > Self.naturalWidthMeasureLimit {
+            targetWidth = targetMaxWidth
+        } else {
+            let unconstrained = uiView.sizeThatFits(
+                CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            )
+            targetWidth = max(1, min(targetMaxWidth, ceil(unconstrained.width)))
+        }
         let fitting = uiView.sizeThatFits(
             CGSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude)
         )
-        return CGSize(width: targetWidth, height: ceil(fitting.height))
+        let size = CGSize(width: targetWidth, height: ceil(fitting.height))
+        context.coordinator.storeSize(size, forMaxWidth: targetMaxWidth)
+        return size
     }
 
     final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
@@ -1420,9 +1448,33 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
         private var cachedIsOutgoing = false
         private var cachedIsSingleEmojiOnly = false
         private var cachedAttributedText: NSAttributedString?
+        /// The attributed string currently installed in the text view, by identity.
+        private var assignedAttributedText: NSAttributedString?
+        /// Measured sizes for the installed string, keyed by the available width (rounded to a
+        /// point). Dropped whenever a different string is installed.
+        private var sizesByMaxWidth: [Int: CGSize] = [:]
 
         init(parent: LinkifiedMessageTextView) {
             self.parent = parent
+        }
+
+        func isAssigned(_ attributed: NSAttributedString) -> Bool {
+            assignedAttributedText === attributed
+        }
+
+        func noteAssigned(_ attributed: NSAttributedString) {
+            if assignedAttributedText !== attributed {
+                sizesByMaxWidth.removeAll()
+            }
+            assignedAttributedText = attributed
+        }
+
+        func cachedSize(forMaxWidth width: CGFloat) -> CGSize? {
+            sizesByMaxWidth[Int(width.rounded())]
+        }
+
+        func storeSize(_ size: CGSize, forMaxWidth width: CGFloat) {
+            sizesByMaxWidth[Int(width.rounded())] = size
         }
 
         func configureGestureRecognizersIfNeeded() {

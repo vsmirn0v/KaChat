@@ -1524,7 +1524,7 @@ private struct BroadcastMessageRow: View {
             BroadcastAudioBubble(data: voicePayload.data, isOwnMessage: isOwnMessage)
         } else if displayText.utf8.count > Self.inlineTextTruncationThreshold {
             truncatedTextContent
-        } else if MessageTextRenderPlan.requiresLinkTextView(displayText) {
+        } else if MessageTextRenderPlan.prefersUIKitTextView(displayText) {
             LinkifiedMessageTextView(
                 text: displayText,
                 isOutgoing: isOwnMessage,
