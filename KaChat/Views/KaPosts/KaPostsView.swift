@@ -4517,8 +4517,73 @@ private struct KaPostCellView: View {
         displayedText.count > 280 || displayedText.filter { $0 == "\n" }.count >= 8
     }
 
+    /// Post Activity works for EVERYONE's posts (the KaChat indexer fork serves
+    /// get-post-engagement); the post's own explorer link lives inside that screen.
+    private var showsPostActivityRow: Bool {
+        post.remoteId != nil && onViewEngagement != nil
+    }
+
+    /// Title, rows, padding - sized to its rows so the sheet is never taller than its content.
+    private var overflowSheetHeight: CGFloat {
+        let rows = (showsPostActivityRow ? 1 : 0) + (isOwnPost ? 0 : 2)
+        return 88 + CGFloat(rows) * 78
+    }
+
+    /// The three-dots half sheet. Same shape as Address Actions and the other half-sheet menus,
+    /// so a menu is a menu wherever it appears.
+    private var overflowSheet: some View {
+        VStack(spacing: 0) {
+            Text(isOwnPost ? "Your post" : displayName)
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+            VStack(spacing: 12) {
+                if showsPostActivityRow {
+                    ActionSheetRow(
+                        title: "Post Activity",
+                        subtitle: "Who liked, disliked, reposted and quoted this post.",
+                        systemImage: "globe"
+                    ) {
+                        showOverflowSheet = false
+                        onViewEngagement?()
+                    }
+                }
+                if !isOwnPost {
+                    ActionSheetRow(
+                        title: "Mute \(displayName)",
+                        subtitle: "Hides their posts everywhere. They can still interact with you.",
+                        systemImage: "speaker.slash"
+                    ) {
+                        showOverflowSheet = false
+                        onMute()
+                    }
+                    ActionSheetRow(
+                        title: "Block \(displayName)",
+                        subtitle: "Hides their posts and stops them interacting with you.",
+                        systemImage: "hand.raised",
+                        tint: .red
+                    ) {
+                        showOverflowSheet = false
+                        onBlock()
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.bottom, 20)
+    }
+
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.openURL) private var openURL
+    /// The three-dots half sheet (Post Activity / Mute / Block). A sheet, like every other menu
+    /// in the app, so each option can say what it does; the old popover menu had room for a
+    /// verb and nothing else.
+    @State private var showOverflowSheet = false
     /// Observed for the 5s undo countdown pills. Deadlines only change when the user arms or
     /// cancels an action - never while scrolling - so this subscription is cheap.
     ///
@@ -4595,31 +4660,16 @@ private struct KaPostCellView: View {
                         .buttonStyle(.plain)
                     }
                     Spacer()
-                    // X-style overflow menu. Mute: their content disappears everywhere but they
-                    // can still interact with you. Block: content gone AND they can't interact
-                    // (the interaction half becomes real once wiring lands).
-                    Menu {
-                        // Post Activity works for EVERYONE's posts now (the KaChat indexer
-                        // fork serves get-post-engagement); the post's own explorer link lives
-                        // inside that screen.
-                        if post.remoteId != nil, let onViewEngagement {
-                            Button {
-                                onViewEngagement()
-                            } label: {
-                                Label("Post Activity", systemImage: "globe")
-                            }
-                        }
-                        if !isOwnPost {
-                            Button {
-                                onMute()
-                            } label: {
-                                Label("Mute \(displayName)", systemImage: "speaker.slash")
-                            }
-                            Button(role: .destructive) {
-                                onBlock()
-                            } label: {
-                                Label("Block \(displayName)", systemImage: "hand.raised")
-                            }
+                    // X-style overflow menu, as a half sheet. Mute: their content disappears
+                    // everywhere but they can still interact with you. Block: content gone AND
+                    // they can't interact (the interaction half becomes real once wiring lands).
+                    Button {
+                        // See LazyImageBubble.setShowImagePreview - a modal-presenting boolean
+                        // flipped from inside a scrolling, gesture-heavy cell; same defensive fix.
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            showOverflowSheet = true
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -4627,6 +4677,12 @@ private struct KaPostCellView: View {
                             .foregroundColor(.secondary)
                             .frame(width: 30, height: 24)
                             .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .sheet(isPresented: $showOverflowSheet) {
+                        overflowSheet
+                            .presentationDetents([.height(overflowSheetHeight)])
+                            .presentationDragIndicator(.visible)
                     }
                 }
 
