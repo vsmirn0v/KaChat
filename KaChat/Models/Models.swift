@@ -1273,6 +1273,11 @@ struct CallResponseContent: Codable, Equatable {
     var type: String = "call_response"
     let callId: String
     let accepted: Bool
+    /// Why a decline happened, when it was not the person: "no_host" answers a `call_request`
+    /// the contact's phone cannot host (no Nextcloud Talk on their side either), so the
+    /// requester learns at once that someone in the chat needs Talk set up, instead of ringing
+    /// out to "no answer".
+    var reason: String? = nil
 }
 
 /// Either side hung up (or the caller gave up ringing). `reason` is free-form for the

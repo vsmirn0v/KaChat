@@ -3303,6 +3303,7 @@ extension ChatService {
                 if invite.viaRequest == true { return invite.video ? "📹 Video call ready" : "📞 Voice call ready" }
                 return invite.video ? "📹 Incoming video call" : "📞 Incoming voice call"
             case .response(let response):
+                if response.reason == "no_host" { return "📞 Calls need Nextcloud Talk on one side" }
                 return response.accepted ? "📞 Answered your call" : "📞 Declined your call"
             case .end:
                 return "📞 Call ended"

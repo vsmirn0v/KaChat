@@ -1522,7 +1522,8 @@ struct ConversationRow: View {
             switch callEnvelope {
             case .request(let request): result = request.video ? "📹 Video call" : "📞 Voice call"
             case .invite(let invite): result = invite.video ? "📹 Video call" : "📞 Voice call"
-            case .response(let response): result = response.accepted ? "📞 Call answered" : "📞 Call declined"
+            case .response(let response):
+                result = response.reason == "no_host" ? "📞 Calls need Nextcloud Talk" : (response.accepted ? "📞 Call answered" : "📞 Call declined")
             case .end(let end):
                 if let seconds = end.durationSeconds, seconds > 0 {
                     result = String(format: "📞 Call · %d:%02d", seconds / 60, seconds % 60)

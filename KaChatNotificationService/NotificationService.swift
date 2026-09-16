@@ -935,6 +935,7 @@ class NotificationService: UNNotificationServiceExtension {
             if parsed.viaRequest == true { return parsed.video == true ? "📹 Video call ready" : "📞 Voice call ready" }
             return parsed.video == true ? "📹 Incoming video call" : "📞 Incoming voice call"
         case "call_response":
+            if parsed.reason == "no_host" { return "📞 Calls need Nextcloud Talk on one side" }
             return parsed.accepted == true ? "📞 Answered your call" : "📞 Declined your call"
         case "call_end":
             if let seconds = parsed.durationSeconds, seconds > 0 {

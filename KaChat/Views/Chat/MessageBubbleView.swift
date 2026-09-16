@@ -769,6 +769,9 @@ struct MessageBubbleView: View {
                 }
                 return (invite.video ? "video.fill" : "phone.fill", message.isOutgoing ? "\(kind) started" : "Incoming \(kind.lowercased())")
             case .response(let response):
+                if response.reason == "no_host" {
+                    return ("phone.down.fill", "Calls need Nextcloud Talk on one side")
+                }
                 return (response.accepted ? "phone.arrow.down.left.fill" : "phone.down.fill",
                         response.accepted ? "Call answered" : "Call declined")
             case .end(let end):

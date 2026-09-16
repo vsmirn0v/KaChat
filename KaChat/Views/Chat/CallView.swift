@@ -223,6 +223,7 @@ struct CallView: View {
         case .ended(let reason):
             switch reason {
             case "declined": return "Declined"
+            case "no_host": return "One person in this chat needs Nextcloud Talk set up to make calls."
             case "no_answer": return "No answer"
             case "missed": return "Missed call"
             case "busy": return "Busy"

@@ -213,7 +213,14 @@ final class CallService: ObservableObject {
             guard !handledCallIds.contains(request.callId) else { return }
             guard let contact = ContactsManager.shared.getContact(byAddress: contactAddress) else { return }
             guard contact.callsDisabled != true, age < inviteFreshness else { return }
-            guard canHost, let account = NextcloudService.shared.account, let server = account.serverURL else { return }
+            guard canHost, let account = NextcloudService.shared.account, let server = account.serverURL else {
+                // Neither side can host. Say so right away rather than letting their phone
+                // ring out - the requester's screen turns this into "someone in this chat
+                // needs Nextcloud Talk".
+                markHandled(request.callId)
+                Task { try? await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(CallResponseContent(callId: request.callId, accepted: false, reason: "no_host"))) }
+                return
+            }
             if let current = session {
                 if current.id != request.callId {
                     Task { try? await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(CallResponseContent(callId: request.callId, accepted: false))) }
@@ -304,7 +311,8 @@ final class CallService: ObservableObject {
             if response.accepted {
                 if call.phase == .ringingOut { call.phase = .connecting }
             } else {
-                Task { await finish(reason: "declined", notifyPeer: false) }
+                let reason = response.reason == "no_host" ? "no_host" : "declined"
+                Task { await finish(reason: reason, notifyPeer: false) }
             }
         case .end(let end):
             markHandled(end.callId)
