@@ -26,7 +26,7 @@ struct ChatInfoView: View {
     @State private var activeSheet: InfoSheet?
 
     private enum InfoSheet: String, Identifiable {
-        case address, domains, aliases, systemContact, notifications, photos, info
+        case address, domains, aliases, systemContact, notifications, photos, calls, info
         var id: String { rawValue }
     }
     @State private var photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil
@@ -335,27 +335,14 @@ struct ChatInfoView: View {
                     ) { activeSheet = .photos }
 
                     infoCard(
+                        "Calls",
+                        systemImage: contact.callsDisabled == true ? "phone.down" : "phone"
+                    ) { activeSheet = .calls }
+
+                    infoCard(
                         "Info",
                         systemImage: "info.circle"
                     ) { activeSheet = .info }
-                }
-
-                // Whether this person can ring you. On the main screen, not behind a card: it
-                // is the one thing here someone may need to flip in a hurry. Off means their
-                // call invites are ignored on this device (they get no answer, not a decline)
-                // and the call button disappears on your side too. Per contact, this device only.
-                Section {
-                    Toggle("Allow calls and video calls", isOn: Binding(
-                        get: { contact.callsDisabled != true },
-                        set: { allowed in
-                            contact.callsDisabled = allowed ? nil : true
-                            contactsManager.updateContact(contact)
-                        }
-                    ))
-                } header: {
-                    Text("Calls")
-                } footer: {
-                    Text("Calls run through Nextcloud Talk and stay inside KaChat. Turn this off if you never want this contact to be able to call you.")
                 }
             }
             .toast(message: toastMessage, style: toastStyle)
@@ -367,6 +354,7 @@ struct ChatInfoView: View {
                 case .systemContact: systemContactSheet
                 case .notifications: notificationsSheet
                 case .photos: photosSheet
+                case .calls: callsSheet
                 case .info: infoSheet
                 }
             }
@@ -680,6 +668,31 @@ struct ChatInfoView: View {
                 }
             }
             .navigationTitle("Photos")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// Whether this person can ring you. Off means their call invites are ignored on this
+    /// device (they get no answer, not a decline) and the call button disappears on your side
+    /// too. Per contact, this device only.
+    private var callsSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle("Allow calls and video calls", isOn: Binding(
+                        get: { contact.callsDisabled != true },
+                        set: { allowed in
+                            contact.callsDisabled = allowed ? nil : true
+                            contactsManager.updateContact(contact)
+                        }
+                    ))
+                } footer: {
+                    Text("Calls run through Nextcloud Talk and stay inside KaChat. Turn this off if you never want this contact to be able to call you.")
+                }
+            }
+            .navigationTitle("Calls")
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium, .large])
