@@ -338,8 +338,12 @@ struct MessageBubbleView: View {
                     // both handled inside the Group above) gets this extra preview card below it.
                     // An internal KaChat link wins over an external one in the same message, so
                     // a post/room mentioned alongside other text still previews natively.
+                    // A call invite carries the caller's Nextcloud URL inside its JSON; that is
+                    // plumbing for the callee's phone, not a link the person shared, so it must
+                    // never grow a preview card under the "Incoming voice call" line.
                     if media == nil,
                        internalLink == nil,
+                       CallCodec.parseAny(displayText) == nil,
                        !MessageTextRenderPlan.isEntirelyLink(displayText),
                        let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
                         LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
