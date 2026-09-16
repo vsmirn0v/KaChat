@@ -213,6 +213,7 @@ class NotificationService: UNNotificationServiceExtension {
                 content.body = paymentNoticePreviewText(for: decrypted)
                     ?? reactionPreviewText(for: decrypted)
                     ?? chessPreviewText(for: decrypted)
+                    ?? callPreviewText(for: decrypted)
                     ?? unwrapReplyText(decrypted)
             } else {
                 // No payload on the push. Anything over 3.5KB is sent txId-only (see
@@ -394,6 +395,7 @@ class NotificationService: UNNotificationServiceExtension {
             let reactionTargetsMine = isReactionToMyMessage(match.plaintext)
             let displayBody = reactionPreviewText(for: match.plaintext, inGroup: !reactionTargetsMine)
                 ?? chessPreviewText(for: match.plaintext)
+                ?? callPreviewText(for: match.plaintext)
                 ?? unwrapReplyText(match.plaintext)
             // "Only Notify if I'm Mentioned" - a reply to one of MY messages counts the same as
             // an explicit @mention (checked against the raw, still-wrapped plaintext, since
@@ -911,6 +913,35 @@ class NotificationService: UNNotificationServiceExtension {
         let reason: String?
     }
 
+    /// Local mirror of the main app's `CallCodec` (this target doesn't compile Models.swift):
+    /// call events ring through the chat, and the push for one must read like a call, not JSON.
+    private struct PushCallEnvelope: Decodable {
+        let type: String
+        let video: Bool?
+        let accepted: Bool?
+        let reason: String?
+        let durationSeconds: Int?
+    }
+
+    private func callPreviewText(for content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", trimmed.contains("\"call_"), let data = trimmed.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(PushCallEnvelope.self, from: data) else { return nil }
+        switch parsed.type {
+        case "call_invite":
+            return parsed.video == true ? "📹 Incoming video call" : "📞 Incoming voice call"
+        case "call_response":
+            return parsed.accepted == true ? "📞 Answered your call" : "📞 Declined your call"
+        case "call_end":
+            if let seconds = parsed.durationSeconds, seconds > 0 {
+                return String(format: "📞 Call · %d:%02d", seconds / 60, seconds % 60)
+            }
+            return parsed.reason == "no_answer" || parsed.reason == "cancelled" ? "📞 Missed call" : "📞 Call ended"
+        default:
+            return nil
+        }
+    }
+
     private func chessPreviewText(for content: String) -> String? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
@@ -1024,6 +1055,7 @@ class NotificationService: UNNotificationServiceExtension {
         guard trimmed.first == "{" else { return body }
         return reactionPreviewText(for: body, inGroup: true)
             ?? chessPreviewText(for: body)
+            ?? callPreviewText(for: body)
             ?? unwrapReplyText(body)
     }
 
@@ -1116,6 +1148,7 @@ class NotificationService: UNNotificationServiceExtension {
             let preview = self.paymentNoticePreviewText(for: decrypted)
                 ?? self.reactionPreviewText(for: decrypted)
                 ?? self.chessPreviewText(for: decrypted)
+                ?? self.callPreviewText(for: decrypted)
                 ?? self.unwrapReplyText(decrypted)
             completion(preview)
         }.resume()

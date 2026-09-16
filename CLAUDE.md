@@ -53,6 +53,7 @@ The app uses MVVM architecture with global singleton services injected via Swift
 | `ContactsManager` | Address book persistence, KNS domain integration |
 | `KNSService` | Kaspa Name Service API client for domain resolution |
 | `KasiaTransactionBuilder` | Constructs signed Kaspa transactions |
+| `CallService` | Voice/video calls over Nextcloud Talk + WebRTC (`NextcloudTalkClient`, `WebRTCClient`, `CallView`); ringing rides the 1:1 chat as `call_*` envelopes |
 
 ### Messaging Protocol
 

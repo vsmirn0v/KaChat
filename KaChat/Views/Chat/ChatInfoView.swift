@@ -671,6 +671,23 @@ struct ChatInfoView: View {
     private var infoSheet: some View {
         NavigationStack {
             Form {
+                // Whether this person can ring you. Off means their call invites are ignored
+                // on this device (they get no answer, not a decline) and the call buttons
+                // disappear on your side too. Per contact, this device only.
+                Section {
+                    Toggle("Allow calls and video calls", isOn: Binding(
+                        get: { contact.callsDisabled != true },
+                        set: { allowed in
+                            contact.callsDisabled = allowed ? nil : true
+                            contactsManager.updateContact(contact)
+                        }
+                    ))
+                } header: {
+                    Text("Calls")
+                } footer: {
+                    Text("Calls run through Nextcloud Talk and stay inside KaChat. Turn this off if you never want this contact to be able to call you.")
+                }
+
                 Section("Info") {
                     LabeledContent("Added") {
                         Text(contact.addedAt, style: .date)

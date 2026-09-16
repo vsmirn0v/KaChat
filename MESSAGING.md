@@ -579,3 +579,39 @@ kchat:1:gctl:...                              # Group chat control message
 | Receive payment | Sender → Self | Optional memo | No | REST API |
 | Send handshake | Self → Recipient | Key exchange | N/A (we're sender) | Immediate |
 | Receive handshake | Sender → Self | Key exchange | No | REST API |
+
+## Calls (5.0): Nextcloud Talk over the 1:1 channel
+
+Voice and video calls never leave KaChat and need a Nextcloud on ONE side only. The caller's
+Nextcloud (Talk installed, calls enabled - detected from `/ocs/v2.php/cloud/capabilities`
+`spreed.features` incl. `conversation-v4`/`signaling-v3` and `config.call.enabled`) hosts a
+throwaway **public** Talk conversation; the callee joins it as a Talk **guest** on that server,
+so no account of their own is involved. Media is one WebRTC peer connection between the two
+phones, negotiated over Talk's *internal* signaling API (the external HPB mode is refused with
+a message). STUN/TURN come from the caller's server's `signaling/settings`.
+
+Ringing is three ordinary encrypted contextual messages, JSON like the chess envelopes, all
+carrying the same `callId` (a UUID):
+
+| Envelope | Sent by | Fields |
+|---|---|---|
+| `{"type":"call_invite"}` | caller | `callId`, `server` (https base URL), `token` (room), `video` (bool) |
+| `{"type":"call_response"}` | callee | `callId`, `accepted` (false = decline / busy) |
+| `{"type":"call_end"}` | either | `callId`, `reason` (`hangup`, `cancelled`, `no_answer`, `failed`), `durationSeconds` (when it connected) |
+
+Clients render these as call-history bubbles ("Voice call started", "Missed call", "Call · 4:12")
+and never as raw JSON. An invite is only answerable for 90 s after its block time and a ring lasts
+75 s before the caller gives up with `no_answer`. Per contact, Chat Info's "Allow calls and
+video calls" switch (`Contact.callsDisabled`, device-local) hides the call buttons and makes that
+contact's invites be ignored.
+
+Call sequence (caller): `POST /apps/spreed/api/v4/room` (`roomType=3`) → `POST
+/room/{token}/participants/active` (gives the Talk `sessionId`) → `POST /call/{token}` (`flags`
+= 1|2|4) → send `call_invite` → long-poll `GET /api/v3/signaling/{token}` for `usersInRoom` +
+peer `message`s, send offer/answer/candidates via `POST /api/v3/signaling/{token}`
+(`messages=[{ev:"message",fn:<json>,sessionId}]`, `fn` = `{to,sid,roomType:"video",type,payload}`).
+The peer with the larger Talk session id sends the offer (Talk web's tie-break); the other side
+offers itself after 10 s of silence. Callee mirrors this unauthenticated (guest cookie session),
+plus `POST /api/v1/guest/{token}/name`. On hang-up the caller leaves the call and conversation
+and deletes the room.
+

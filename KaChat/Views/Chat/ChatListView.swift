@@ -1518,6 +1518,21 @@ struct ConversationRow: View {
             return result
         }
 
+        if let callEnvelope = CallCodec.parseAny(unwrapped) {
+            switch callEnvelope {
+            case .invite(let invite): result = invite.video ? "📹 Video call" : "📞 Voice call"
+            case .response(let response): result = response.accepted ? "📞 Call answered" : "📞 Call declined"
+            case .end(let end):
+                if let seconds = end.durationSeconds, seconds > 0 {
+                    result = String(format: "📞 Call · %d:%02d", seconds / 60, seconds % 60)
+                } else {
+                    result = end.reason == "no_answer" || end.reason == "cancelled" ? "📞 Missed call" : "📞 Call ended"
+                }
+            }
+            Self.previewCache.setObject(result as NSString, forKey: key)
+            return result
+        }
+
         guard let data = unwrapped.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               json["type"] as? String == "file",

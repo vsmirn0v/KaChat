@@ -51,6 +51,10 @@
 		CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */; };
 		CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0003A0000000000000001 /* ColdStorageManager.swift */; };
 		NC0001B0000000000000001 /* NextcloudService.swift in Sources */ = {isa = PBXBuildFile; fileRef = NC0001A0000000000000001 /* NextcloudService.swift */; };
+		CALL0004B000000000000001 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0004A000000000000001 /* CallView.swift */; };
+		CALL0003B000000000000001 /* WebRTCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0003A000000000000001 /* WebRTCClient.swift */; };
+		CALL0002B000000000000001 /* CallService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0002A000000000000001 /* CallService.swift */; };
+		CALL0001B000000000000001 /* NextcloudTalkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0001A000000000000001 /* NextcloudTalkClient.swift */; };
 		GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = GN0001A0000000000000001 /* GlobalNotificationCenter.swift */; };
 		KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */; };
 		AB0001B0000000000000001 /* AppTabBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0001A0000000000000001 /* AppTabBadge.swift */; };
@@ -176,6 +180,7 @@
 		SHSH00010001000100000002 /* SharedOutboundShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHSH00010001000000000001 /* SharedOutboundShare.swift */; };
 		SPMGRPC000100010001 /* GRPC in Frameworks */ = {isa = PBXBuildFile; productRef = SPMGRPC000100010002 /* GRPC */; };
 		SPMP256K000100010001 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = SPMP256K000100010003 /* P256K */; };
+		SPMWEBRTC00010001001 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = SPMWEBRTC00010001003 /* WebRTC */; };
 		SPMP256K000100010002 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = SPMP256K000100010003 /* P256K */; };
 		SPMPB000100010001 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = SPMPB000100010002 /* SwiftProtobuf */; };
 		SWAP001B0000000000000001 /* SwapModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP001A0000000000000001 /* SwapModels.swift */; };
@@ -275,6 +280,10 @@
 		CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaExtendedPublicKey.swift; sourceTree = "<group>"; };
 		CS0003A0000000000000001 /* ColdStorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageManager.swift; sourceTree = "<group>"; };
 		NC0001A0000000000000001 /* NextcloudService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudService.swift; sourceTree = "<group>"; };
+		CALL0004A000000000000001 /* CallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallView.swift; sourceTree = "<group>"; };
+		CALL0003A000000000000001 /* WebRTCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRTCClient.swift; sourceTree = "<group>"; };
+		CALL0002A000000000000001 /* CallService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallService.swift; sourceTree = "<group>"; };
+		CALL0001A000000000000001 /* NextcloudTalkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudTalkClient.swift; sourceTree = "<group>"; };
 		GN0001A0000000000000001 /* GlobalNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalNotificationCenter.swift; sourceTree = "<group>"; };
 		KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsNotificationCenter.swift; sourceTree = "<group>"; };
 		AB0001A0000000000000001 /* AppTabBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTabBadge.swift; sourceTree = "<group>"; };
@@ -483,6 +492,7 @@
 				SPMGRPC000100010001 /* GRPC in Frameworks */,
 				SPMPB000100010001 /* SwiftProtobuf in Frameworks */,
 				SPMP256K000100010001 /* P256K in Frameworks */,
+				SPMWEBRTC00010001001 /* WebRTC in Frameworks */,
 				E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -628,6 +638,9 @@
 				PF0010A0000000000000001 /* PortfolioAddressImporter.swift */,
 				CS0003A0000000000000001 /* ColdStorageManager.swift */,
 				NC0001A0000000000000001 /* NextcloudService.swift */,
+				CALL0003A000000000000001 /* WebRTCClient.swift */,
+				CALL0002A000000000000001 /* CallService.swift */,
+				CALL0001A000000000000001 /* NextcloudTalkClient.swift */,
 				GN0001A0000000000000001 /* GlobalNotificationCenter.swift */,
 				KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */,
 				AB0001A0000000000000001 /* AppTabBadge.swift */,
@@ -732,6 +745,7 @@
 				E81000162D4C00010000000C /* ChatListView.swift */,
 				E81000182D4C00010000000D /* ChatDetailView.swift */,
 				1C4C922EA822400194F497F9 /* ChatInfoView.swift */,
+				CALL0004A000000000000001 /* CallView.swift */,
 				4D3D20022F72000200000001 /* ChatTimelineLayout.swift */,
 				CPTV00010001000000000001 /* ComposerTextView.swift */,
 				4D3D20082F72000800000001 /* ComposerKeyCommandPolicy.swift */,
@@ -946,6 +960,7 @@
 				SPMGRPC000100010002 /* GRPC */,
 				SPMPB000100010002 /* SwiftProtobuf */,
 				SPMP256K000100010003 /* P256K */,
+				SPMWEBRTC00010001003 /* WebRTC */,
 			);
 			productName = KaChat;
 			productReference = E80000002D4C000000000000 /* KaChat.app */;
@@ -1026,6 +1041,7 @@
 				SPMGRPC000100010003 /* XCRemoteSwiftPackageReference "grpc-swift" */,
 				SPMPB000100010003 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
 				SPMP256K000100010004 /* XCRemoteSwiftPackageReference "swift-secp256k1" */,
+				SPMWEBRTC00010001004 /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			productRefGroup = E80000022D4C000000000002 /* Products */;
 			projectDirPath = "";
@@ -1142,11 +1158,15 @@
 				4D3D20062F72000600000002 /* DesktopEmojiLibrary.swift in Sources */,
 				4D3D20072F72000700000002 /* DesktopEmojiPickerView.swift in Sources */,
 				3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */,
+				CALL0004B000000000000001 /* CallView.swift in Sources */,
 				SA0001B0000000000000001 /* ManageAddressesView.swift in Sources */,
 				CS0001B0000000000000001 /* Base58.swift in Sources */,
 				CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */,
 				CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */,
 				NC0001B0000000000000001 /* NextcloudService.swift in Sources */,
+				CALL0003B000000000000001 /* WebRTCClient.swift in Sources */,
+				CALL0002B000000000000001 /* CallService.swift in Sources */,
+				CALL0001B000000000000001 /* NextcloudTalkClient.swift in Sources */,
 				GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */,
 				KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */,
 				AB0001B0000000000000001 /* AppTabBadge.swift in Sources */,
@@ -1824,6 +1844,14 @@
 				version = 1.38.1;
 			};
 		};
+		SPMWEBRTC00010001004 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {
+				kind = exactVersion;
+				version = 153.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1841,6 +1869,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = SPMPB000100010003 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
 			productName = SwiftProtobuf;
+		};
+		SPMWEBRTC00010001003 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPMWEBRTC00010001004 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

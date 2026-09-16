@@ -2857,6 +2857,13 @@ extension ChatService {
             return
         }
 
+        // Call events (invite / answer / hang-up) ring through the chat itself. They DO stay as
+        // bubbles - the chat shows "Voice call · 4:12" the way a phone's history would - so this
+        // only hands the envelope to CallService and carries on.
+        if !message.isOutgoing, let callEnvelope = CallCodec.parseAny(MessageReplyCodec.unwrappedText(message.content)) {
+            CallService.shared.handleIncoming(callEnvelope, message: message, contactAddress: contactAddress)
+        }
+
         let contact = contactsManager.getOrCreateContact(address: contactAddress)
         if message.isOutgoing {
             contactsManager.markHasSentOutgoingMessage(address: contactAddress)
@@ -3286,6 +3293,17 @@ extension ChatService {
         // Same guard for reaction envelopes, mirroring the NSE's reactionPreviewText.
         if let reaction = MessageReactionCodec.parse(unwrapped) {
             return "Reacted \(reaction.emoji)"
+        }
+        // Call envelopes, matching the NSE's callPreviewText.
+        if let callEnvelope = CallCodec.parseAny(unwrapped) {
+            switch callEnvelope {
+            case .invite(let invite):
+                return invite.video ? "📹 Incoming video call" : "📞 Incoming voice call"
+            case .response(let response):
+                return response.accepted ? "📞 Answered your call" : "📞 Declined your call"
+            case .end:
+                return "📞 Call ended"
+            }
         }
 
         // Check if content is a file JSON payload

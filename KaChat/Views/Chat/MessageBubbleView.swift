@@ -306,6 +306,10 @@ struct MessageBubbleView: View {
                             // keeps the raw link visible/tappable if no preview data is ever found,
                             // rather than the message rendering as nothing at all.
                             LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
+                        } else if let callEnvelope = CallCodec.parseAny(displayText) {
+                            // Calls leave a compact history line, like a phone's recents.
+                            callBubble(callEnvelope)
+                                .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
                         } else if message.messageType == .payment, let paymentParts = paymentCardParts {
                             // Rich Apple-Pay-in-iMessage style card replacing the plain
                             // "Sent/Received X KAS" text bubble. Unparseable/legacy payment
@@ -742,6 +746,50 @@ struct MessageBubbleView: View {
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: 300)
+    }
+
+    /// One line per call event - what it was, and for a finished call how long it lasted. The
+    /// invite/response/end trio all land as separate messages, so each says its own piece.
+    private func callBubble(_ envelope: CallEnvelope) -> some View {
+        let (icon, text): (String, String) = {
+            switch envelope {
+            case .invite(let invite):
+                let kind = invite.video ? "Video call" : "Voice call"
+                return (invite.video ? "video.fill" : "phone.fill", message.isOutgoing ? "\(kind) started" : "Incoming \(kind.lowercased())")
+            case .response(let response):
+                return (response.accepted ? "phone.arrow.down.left.fill" : "phone.down.fill",
+                        response.accepted ? "Call answered" : "Call declined")
+            case .end(let end):
+                if let seconds = end.durationSeconds, seconds > 0 {
+                    return ("phone.fill", String(format: "Call · %d:%02d", seconds / 60, seconds % 60))
+                }
+                switch end.reason {
+                case "no_answer": return ("phone.down.fill", message.isOutgoing ? "No answer" : "Missed call")
+                case "cancelled": return ("phone.down.fill", message.isOutgoing ? "Call cancelled" : "Missed call")
+                case "failed": return ("phone.down.fill", "Call failed")
+                default: return ("phone.down.fill", "Call ended")
+                }
+            }
+        }()
+        return HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.subheadline.weight(.semibold))
+            Text(text)
+                .font(.subheadline.weight(.medium))
+        }
+        .foregroundStyle(message.isOutgoing ? Color.white : Color.primary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(message.isOutgoing ? kaspaBubbleColor : Color(.systemGray5))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .contextMenu {
+            if let onReply {
+                Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+            }
+            if let onSelect {
+                Button { onSelect() } label: { Label("Select", systemImage: "checkmark.circle") }
+            }
+        }
     }
 
     @ViewBuilder

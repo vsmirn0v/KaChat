@@ -189,6 +189,9 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var systemContactLinkSource: SystemContactLinkSource?
     var systemMatchConfidence: Double?
     var systemLastSyncedAt: Date?
+    /// True when this contact must never be able to ring you - Chat Info's "Allow calls" switch
+    /// off. Hides the call buttons on your side too; nil/false is the default (calls allowed).
+    var callsDisabled: Bool?
     /// A base64 JPEG photo carried in the cross-platform backup, shown as an avatar
     /// fallback when this device has no system-contact photo or KNS avatar. Lets a photo
     /// set on another device (e.g. desktop) appear here after a restore. Optional so
@@ -248,6 +251,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         case systemMatchConfidence
         case systemLastSyncedAt
         case backupPhoto
+        case callsDisabled
     }
 
     // Custom decoding to handle missing fields in existing data
@@ -273,6 +277,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         systemMatchConfidence = try container.decodeIfPresent(Double.self, forKey: .systemMatchConfidence)
         systemLastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .systemLastSyncedAt)
         backupPhoto = try container.decodeIfPresent(String.self, forKey: .backupPhoto)
+        callsDisabled = try container.decodeIfPresent(Bool.self, forKey: .callsDisabled)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -292,6 +297,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(systemMatchConfidence, forKey: .systemMatchConfidence)
         try container.encodeIfPresent(systemLastSyncedAt, forKey: .systemLastSyncedAt)
         try container.encodeIfPresent(backupPhoto, forKey: .backupPhoto)
+        try container.encodeIfPresent(callsDisabled, forKey: .callsDisabled)
     }
 
     /// The name the user actually typed for this contact, or nil when there is none.
@@ -1229,6 +1235,102 @@ enum ChessCodec {
     }
 
     private struct ChessTypeOnly: Decodable {
+        let type: String
+    }
+}
+
+// MARK: - Calls (Nextcloud Talk over the encrypted 1:1 channel)
+
+/// The caller has opened a Nextcloud Talk conversation for this call and invites the contact
+/// into it. `server` + `token` are everything the callee needs to join as a Talk guest - no
+/// account on that server required - so only one side of a call has to own a Nextcloud.
+struct CallInviteContent: Codable, Equatable {
+    var type: String = "call_invite"
+    let callId: String
+    let server: String
+    let token: String
+    let video: Bool
+}
+
+/// The callee's answer. `accepted == false` is a decline; an accept is implied by the callee
+/// turning up in the Talk call, but is sent too so the caller's screen can say "Connecting"
+/// before the media lands.
+struct CallResponseContent: Codable, Equatable {
+    var type: String = "call_response"
+    let callId: String
+    let accepted: Bool
+}
+
+/// Either side hung up (or the caller gave up ringing). `reason` is free-form for the
+/// bubble: "hangup", "no_answer", "cancelled", "failed".
+struct CallEndContent: Codable, Equatable {
+    var type: String = "call_end"
+    let callId: String
+    var reason: String? = nil
+    /// Seconds the call was connected, when it was - shown in the chat as "Voice call · 4:12".
+    var durationSeconds: Int? = nil
+}
+
+enum CallEnvelope: Equatable {
+    case invite(CallInviteContent)
+    case response(CallResponseContent)
+    case end(CallEndContent)
+
+    var callId: String {
+        switch self {
+        case .invite(let content): return content.callId
+        case .response(let content): return content.callId
+        case .end(let content): return content.callId
+        }
+    }
+}
+
+enum CallCodec {
+    static func encode(_ content: CallInviteContent) -> String { encodeAny(content) }
+    static func encode(_ content: CallResponseContent) -> String { encodeAny(content) }
+    static func encode(_ content: CallEndContent) -> String { encodeAny(content) }
+
+    private static func encodeAny<T: Encodable>(_ content: T) -> String {
+        guard let data = try? JSONEncoder().encode(content),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return json
+    }
+
+    private final class CallBox { let value: CallEnvelope?; init(_ v: CallEnvelope?) { value = v } }
+    private static let parseAnyCache: NSCache<NSString, CallBox> = {
+        let cache = NSCache<NSString, CallBox>(); cache.countLimit = 1024; return cache
+    }()
+
+    /// Same cached, `{`-prefixed fast path as `ChessCodec.parseAny` - this runs from bubble
+    /// bodies and previews on every render.
+    static func parseAny(_ text: String?) -> CallEnvelope? {
+        guard let text, text.utf8.count < 4_096 else { return nil }
+        let key = text as NSString
+        if let cached = parseAnyCache.object(forKey: key) { return cached.value }
+        let result = parseAnyUncached(text)
+        parseAnyCache.setObject(CallBox(result), forKey: key)
+        return result
+    }
+
+    private static func parseAnyUncached(_ text: String) -> CallEnvelope? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"), trimmed.contains("\"call_"), let data = trimmed.data(using: .utf8) else { return nil }
+        guard let head = try? JSONDecoder().decode(CallTypeOnly.self, from: data) else { return nil }
+        switch head.type {
+        case "call_invite":
+            return (try? JSONDecoder().decode(CallInviteContent.self, from: data)).map { .invite($0) }
+        case "call_response":
+            return (try? JSONDecoder().decode(CallResponseContent.self, from: data)).map { .response($0) }
+        case "call_end":
+            return (try? JSONDecoder().decode(CallEndContent.self, from: data)).map { .end($0) }
+        default:
+            return nil
+        }
+    }
+
+    private struct CallTypeOnly: Decodable {
         let type: String
     }
 }

@@ -23,6 +23,8 @@ struct ChatDetailView: View {
 
     @State private var contact: Contact
     @State private var showChatInfo = false
+    /// Call buttons in the bar, and the "can't call" toast when a start fails.
+    @ObservedObject private var callService = CallService.shared
     /// Local-only multi-select for deleting individual messages (never the whole conversation -
     /// see `deleteConversation` for that) - toggled from the toolbar's "Select" button.
     @State private var isSelectingMessages = false
@@ -861,6 +863,31 @@ struct ChatDetailView: View {
             if !isSelectingMessages {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     ConnectionStatusIndicator()
+                }
+            }
+
+            // Voice and video calls, next to the status dot. Only the side that can host the
+            // call sees them (a connected Nextcloud with Talk calls enabled); the contact needs
+            // nothing but KaChat to pick up. Hidden when the contact was switched off in Chat
+            // Info, and while a call is already up.
+            if !isSelectingMessages, callService.canCall(contact), callService.session == nil {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 14) {
+                        Button {
+                            callService.startCall(with: contact, video: false)
+                        } label: {
+                            Image(systemName: "phone.fill")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .accessibilityLabel(Text("Voice call"))
+                        Button {
+                            callService.startCall(with: contact, video: true)
+                        } label: {
+                            Image(systemName: "video.fill")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .accessibilityLabel(Text("Video call"))
+                    }
                 }
             }
 

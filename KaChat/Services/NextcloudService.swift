@@ -130,6 +130,11 @@ final class NextcloudService: ObservableObject {
 
     @Published private(set) var account: NextcloudAccount?
 
+    /// Whether the connected server has Nextcloud Talk with calls enabled - what makes the call
+    /// buttons appear in 1:1 chats (see `CallService.canCall`). Read from the server's
+    /// capabilities on connect and on every wallet activation; false until known.
+    @Published private(set) var talkCallsAvailable = false
+
     /// "Automatic Sync" toggle (Settings > Storage > Nextcloud) - the upgraded form of the old
     /// "Automatic Backup" switch (same stored key, so existing choices carry over; defaults ON
     /// once connected). When on, the shared archive syncs near-live: a debounced merge upload
@@ -350,6 +355,7 @@ final class NextcloudService: ObservableObject {
 
         guard let walletAddress else {
             account = nil
+            talkCallsAvailable = false
             autoBackupEnabled = false
             mediaSendEnabled = false
             pendingSyncDirty = false
@@ -377,6 +383,8 @@ final class NextcloudService: ObservableObject {
         scheduleAutoRestoreIfNeeded()
         // Continuous path after the bootstrap: watch the shared file for other devices' writes.
         startChangeWatcherIfNeeded()
+        talkCallsAvailable = false
+        refreshTalkAvailability()
     }
 
     /// Deletes a wallet's stored Nextcloud login and settings outright - used when that account
@@ -986,6 +994,51 @@ final class NextcloudService: ObservableObject {
         noteMessageActivity()
         scheduleAutoRestoreIfNeeded()
         startChangeWatcherIfNeeded()
+        refreshTalkAvailability()
+    }
+
+    /// Asks the server's capabilities whether Talk is installed with calls on, and publishes
+    /// the answer. Best effort: a failed lookup leaves the buttons hidden until the next try.
+    func refreshTalkAvailability() {
+        guard let account, let server = account.serverURL else {
+            talkCallsAvailable = false
+            return
+        }
+        let owner = currentWalletAddress
+        Task { [weak self] in
+            guard let self else { return }
+            let available = await Self.probeTalkCalls(server: server, account: account)
+            guard self.currentWalletAddress == owner, self.account?.serverURLString == account.serverURLString else { return }
+            if self.talkCallsAvailable != available {
+                self.talkCallsAvailable = available
+                AppLog.log("%@", "[Nextcloud] Talk calls \(available ? "available" : "not available") on \(server.host ?? "server")")
+            }
+        }
+    }
+
+    private nonisolated static func probeTalkCalls(server: URL, account: NextcloudAccount) async -> Bool {
+        guard let endpoint = URL(string: server.absoluteString + "/ocs/v2.php/cloud/capabilities?format=json") else { return false }
+        var request = URLRequest(url: endpoint)
+        let token = Data("\(account.username):\(account.appPassword)".utf8).base64EncodedString()
+        request.setValue("Basic \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("true", forHTTPHeaderField: "OCS-APIRequest")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 20
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let ocs = root["ocs"] as? [String: Any],
+              let payload = ocs["data"] as? [String: Any],
+              let capabilities = payload["capabilities"] as? [String: Any],
+              let spreed = capabilities["spreed"] as? [String: Any] else { return false }
+        let features = (spreed["features"] as? [String]) ?? []
+        guard features.contains("conversation-v4"), features.contains("signaling-v3") else { return false }
+        let config = spreed["config"] as? [String: Any]
+        let call = config?["call"] as? [String: Any]
+        // Absent means an older Talk that never had the switch - calls are on.
+        if let enabled = call?["enabled"] as? Bool { return enabled }
+        if let enabled = call?["enabled"] as? Int { return enabled != 0 }
+        return true
     }
 
     func disconnect() {
@@ -1016,6 +1069,7 @@ final class NextcloudService: ObservableObject {
         }
         autoBackupEnabled = false
         account = nil
+        talkCallsAvailable = false
     }
 
     /// Persists the picker's start folder (nil/"" = files root) into the credentials blob.

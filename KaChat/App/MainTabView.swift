@@ -16,6 +16,9 @@ struct MainTabView: View {
     /// Don't Show Again (persisted per device).
     /// Blocking progress while the post-onboarding sync runs.
     @State private var showInitialSyncProgress = false
+    /// The call screen (ringing in, ringing out, connected) sits over the whole app, whichever
+    /// tab is showing - a call is not a page of the chat it started from.
+    @ObservedObject private var callService = CallService.shared
     /// What the Chats slot currently shows: .chats, or a masked-out tab (.kaposts/.broadcasts)
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var chatService: ChatService
@@ -126,6 +129,11 @@ struct MainTabView: View {
         }
         .fullScreenCover(isPresented: $showInitialSyncProgress) {
             InitialSyncProgressModal(onDismiss: { showInitialSyncProgress = false })
+        }
+        // Dismissal only ever comes from CallService clearing the session (the cover's own
+        // setter is deliberately inert) - swiping a live call away is not a way to hang up.
+        .fullScreenCover(item: Binding(get: { callService.session }, set: { _ in })) { call in
+            CallView(call: call)
         }
         .fullScreenCover(isPresented: $showWelcomeGuide) {
             WelcomeGuideView(
