@@ -19,19 +19,19 @@
 // restarting low inside the 3.0 train was rejected). Moving to a NEW marketing version resets
 // the train, so each train legitimately starts back at build 1 and counts up 2, 3, ... from
 // there - 4.0 did, 4.1 did, and 5.0 does the same (4.1 shipped to the App Store 2026-09-15).
-// NOTE: Xcode Cloud archives ignore this value - ci_scripts/ci_post_clone.sh stamps every
-// target with Xcode Cloud's own $CI_BUILD_NUMBER. That counter is PER PRODUCT (shared by
-// every KaChat workflow) and only ever counts up: the long build numbers the 4.x betas
-// carried were that counter. To start a train at 1 it has to be reset by hand - Xcode >
-// Report Navigator > Cloud > Manage Workflows... > Product Settings > "Build Number..." -
-// which is what was done for 5.0. Restarting at 1 here covers local archives. Beware the
-// shared counter if a hotfix for an OLD train is ever needed: App Store Connect wants that
-// upload's build above the old train's high-water mark, so bump the setting past it for
-// that one upload and set it back afterwards.
+// This value IS the build number everywhere, Xcode Cloud included: ci_scripts/
+// ci_pre_xcodebuild.sh stamps every target with it right before a Cloud archive. Xcode
+// Cloud's own counter ($CI_BUILD_NUMBER) is per product, shared by every workflow, and can
+// only go up - an early date-stamp script pushed it to 202607032479, which is where the 4.x
+// betas' long build numbers came from - so it is deliberately ignored now.
+//
+// BUMP THIS FOR EVERY BETA that goes to TestFlight. App Store Connect refuses an upload whose
+// build number is not above the last one in the same marketing version, so a forgotten bump
+// fails at upload rather than shipping a duplicate.
 CURRENT_PROJECT_VERSION = 1
 MARKETING_VERSION = 5.0
 
-// Required for `agvtool` (used by ci_scripts/ci_post_clone.sh) to be able to write
+// Required for `agvtool` (used by ci_scripts/ci_pre_xcodebuild.sh) to be able to write
 // CURRENT_PROJECT_VERSION for every target - without this, agvtool fails with "not using
-// Apple Generic Versioning" instead of syncing the build number Xcode Cloud assigned.
+// Apple Generic Versioning".
 VERSIONING_SYSTEM = apple-generic
