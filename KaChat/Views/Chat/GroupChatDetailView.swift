@@ -665,8 +665,13 @@ struct GroupChatDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // The info button is gone: tapping the header opens Group Info, exactly as it does
-            // in a 1:1 chat. The connection dot is gone from inside chats too (the chat list
-            // still has it), so the trailing slot only ever shows Cancel/Delete while selecting.
+            // in a 1:1 chat, so the trailing slot is free for the connection dot to sit where
+            // 1:1 puts it. Hidden while selecting, where the bar is Cancel/Delete.
+            if !isSelectingMessages {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    ConnectionStatusIndicator()
+                }
+            }
             // Entry point into select mode is a message's long-press "Select" menu item (see
             // `enterSelectMode(with:)`), not a toolbar button - this only ever shows Cancel/Delete
             // once already selecting.
