@@ -23,8 +23,10 @@ struct ChatDetailView: View {
 
     @State private var contact: Contact
     @State private var showChatInfo = false
-    /// Call buttons in the bar, and the "can't call" toast when a start fails.
+    /// The call button in the bar, and the "can't call" toast when a start fails.
     @ObservedObject private var callService = CallService.shared
+    /// The voice-or-video half sheet behind the call button.
+    @State private var showCallOptions = false
     /// Local-only multi-select for deleting individual messages (never the whole conversation -
     /// see `deleteConversation` for that) - toggled from the toolbar's "Select" button.
     @State private var isSelectingMessages = false
@@ -860,34 +862,21 @@ struct ChatDetailView: View {
         .toolbar {
             // Trailing, not leading: the left of the bar belongs to Back, and the dot reads as
             // status rather than navigation. Hidden while selecting, where the bar is Cancel/Delete.
-            if !isSelectingMessages {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    ConnectionStatusIndicator()
-                }
-            }
-
-            // Voice and video calls, next to the status dot. Only the side that can host the
-            // call sees them (a connected Nextcloud with Talk calls enabled); the contact needs
+            // The connection dot is gone from inside a chat (the chat list still has it) - the
+            // one thing in the trailing slot is the call button. Only the side that can host a
+            // call sees it (a connected Nextcloud with Talk calls enabled); the contact needs
             // nothing but KaChat to pick up. Hidden when the contact was switched off in Chat
-            // Info, and while a call is already up.
+            // Info, and while a call is already up. Tapping it asks voice or video in a half
+            // sheet, like every other choice in the app.
             if !isSelectingMessages, callService.canCall(contact), callService.session == nil {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 14) {
-                        Button {
-                            callService.startCall(with: contact, video: false)
-                        } label: {
-                            Image(systemName: "phone.fill")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        .accessibilityLabel(Text("Voice call"))
-                        Button {
-                            callService.startCall(with: contact, video: true)
-                        } label: {
-                            Image(systemName: "video.fill")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        .accessibilityLabel(Text("Video call"))
+                    Button {
+                        showCallOptions = true
+                    } label: {
+                        Image(systemName: "phone.fill")
+                            .font(.subheadline.weight(.semibold))
                     }
+                    .accessibilityLabel(Text("Call"))
                 }
             }
 
@@ -953,6 +942,11 @@ struct ChatDetailView: View {
                 displayName: { _ in contactsManager.displayName(for: contact) },
                 avatarURL: { knsService.profileCache[$0]?.avatarURL }
             )
+        }
+        .sheet(isPresented: $showCallOptions) {
+            callOptionsSheet
+                .presentationDetents([.height(250)])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showChatInfo) {
             ChatInfoView(contact: $contact)
@@ -3323,6 +3317,41 @@ struct ChatDetailView: View {
                 }
             }
         }
+    }
+
+    /// Voice or video - the same half-sheet shape as Address Actions and the other menus.
+    private var callOptionsSheet: some View {
+        VStack(spacing: 0) {
+            Text("Call \(replyDisplayName(for: contact.address))")
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+            VStack(spacing: 12) {
+                ActionSheetRow(
+                    title: "Voice call",
+                    subtitle: "Rings them in KaChat; your Nextcloud carries the call.",
+                    systemImage: "phone.fill"
+                ) {
+                    showCallOptions = false
+                    callService.startCall(with: contact, video: false)
+                }
+                ActionSheetRow(
+                    title: "Video call",
+                    subtitle: "Same, with your camera on from the start.",
+                    systemImage: "video.fill"
+                ) {
+                    showCallOptions = false
+                    callService.startCall(with: contact, video: true)
+                }
+            }
+            .padding(.horizontal, 20)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.bottom, 20)
     }
 
     private func respondToChessInvite(gameId: String, accepted: Bool) {
