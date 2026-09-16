@@ -31,7 +31,14 @@
 // read 5.0 (1), 5.0 (2), ... App Store Connect scopes build numbers per marketing version and
 // wants each upload above the last in that version, so never mix a local upload into a train
 // that already has Cloud uploads - the local number would be rejected as too low.
+//
+// What the app SHOWS is ours regardless of what Cloud uploads: the About row reads
+// KaChatBuildNumber / KaChatIsRelease from Info.plist (both bound to the settings below, which
+// Cloud does not touch) and renders "5.0 (1)" during the beta cycle - bump KACHAT_BUILD_NUMBER
+// for each beta - and plain "5.0" once KACHAT_IS_RELEASE is flipped to YES for the App Store
+// release. Cloud's own number stays in diagnostics archives, where matching the upload matters.
 KACHAT_BUILD_NUMBER = 1
+KACHAT_IS_RELEASE = NO
 CURRENT_PROJECT_VERSION = 1
 MARKETING_VERSION = 5.0
 

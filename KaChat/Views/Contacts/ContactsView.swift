@@ -1510,20 +1510,23 @@ struct ProfileView: View {
         )
     }
 
-    /// Marketing version only ("4.0") - the build number stays out of About entirely (it still
-    /// travels in diagnostics archives, where it matters).
+    /// "5.0 (1)" through the beta cycle, plain "5.0" once the train is released. The build
+    /// number here is OURS - `KaChatBuildNumber` from Version.xcconfig, bumped per beta - not
+    /// CFBundleVersion, which Xcode Cloud overwrites in the archive with its own ever-rising
+    /// counter (that number still travels in diagnostics archives, where matching the upload
+    /// matters). `KaChatIsRelease` = YES drops the parenthetical for the App Store build.
     private var appVersionDisplay: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-
-        switch (version?.trimmingCharacters(in: .whitespacesAndNewlines), build?.trimmingCharacters(in: .whitespacesAndNewlines)) {
-        case let (v?, _) where !v.isEmpty:
-            return v
-        case let (_, b?) where !b.isEmpty:
-            return b
-        default:
-            return "Unknown"
+        let info = Bundle.main.infoDictionary
+        let version = (info?["CFBundleShortVersionString"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !version.isEmpty else { return "Unknown" }
+        let isRelease = ((info?["KaChatIsRelease"] as? String) ?? "").uppercased() == "YES"
+        let build = (info?["KaChatBuildNumber"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if isRelease || build.isEmpty {
+            return version
         }
+        return "\(version) (\(build))"
     }
 
     private var websiteURL: URL {
