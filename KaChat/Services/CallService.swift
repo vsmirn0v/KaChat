@@ -89,11 +89,13 @@ final class CallService: ObservableObject {
     /// A one-line reason the last attempt failed, for a toast in the chat.
     @Published var lastError: String?
 
-    /// How long an outgoing call rings before giving up, and how long an invite stays
-    /// answerable after it was mined (the chat delivers with a few seconds' lag, and an old
-    /// invite from a closed app must not ring hours later).
-    private let ringTimeout: TimeInterval = 75
-    private let inviteFreshness: TimeInterval = 90
+    /// How long an outgoing call rings before giving up (a phone's own calls give up after
+    /// about half a minute; the chat adds a few seconds of delivery lag on top), how long the
+    /// callee's phone rings, and how long an invite stays answerable after it was mined (an
+    /// old invite from a closed app must not ring hours later).
+    private let ringTimeout: TimeInterval = 35
+    private let incomingRingTimeout: TimeInterval = 30
+    private let inviteFreshness: TimeInterval = 45
 
     private init() {
         handledCallIds = Set(UserDefaults.standard.stringArray(forKey: Self.handledCallIdsKey) ?? [])
@@ -160,7 +162,7 @@ final class CallService: ObservableObject {
                     return
                 }
                 call.timeoutTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: UInt64(self?.ringTimeout ?? 75) * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: UInt64(self?.ringTimeout ?? 35) * 1_000_000_000)
                     guard let self, let current = self.session, current === call, current.phase == .ringingOut else { return }
                     await self.finish(reason: "no_answer", notifyPeer: true)
                 }
@@ -188,7 +190,7 @@ final class CallService: ObservableObject {
                 let invite = CallInviteContent(callId: live.id, server: server.absoluteString, token: token, video: video)
                 try await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(invite))
                 live.timeoutTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: UInt64(self?.ringTimeout ?? 75) * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: UInt64(self?.ringTimeout ?? 35) * 1_000_000_000)
                     guard let self, let current = self.session, current === live, current.phase == .ringingOut else { return }
                     await self.finish(reason: "no_answer", notifyPeer: true)
                 }
@@ -233,7 +235,7 @@ final class CallService: ObservableObject {
             UIApplication.shared.isIdleTimerDisabled = true
             startRinging(call)
             call.timeoutTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: UInt64(self?.incomingRingTimeout ?? 30) * 1_000_000_000)
                 guard let self, let current = self.session, current === call, current.phase == .ringingIn else { return }
                 await self.finish(reason: "missed", notifyPeer: false)
             }
@@ -299,7 +301,7 @@ final class CallService: ObservableObject {
             UIApplication.shared.isIdleTimerDisabled = true
             startRinging(call)
             call.timeoutTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: UInt64(self?.incomingRingTimeout ?? 30) * 1_000_000_000)
                 guard let self, let current = self.session, current === call, current.phase == .ringingIn else { return }
                 await self.finish(reason: "missed", notifyPeer: false)
             }

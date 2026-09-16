@@ -604,8 +604,8 @@ Clients render these as call-history bubbles ("Voice call started", "Missed call
 a `viaRequest` invite is the neutral "Voice call ready") and never as raw JSON. The call button
 shows whenever the contact's "Allow calls" switch is on - hosting ability is not required on the
 tapping side; if neither side can host, the contact answers `call_response {accepted:false, reason:"no_host"}` at once (a contact with calls switched off stays silent, and the request rings out to "no answer"). A client keeps a
-persisted set of call ids it has handled so a re-ingested invite/request never rings twice. An invite is only answerable for 90 s after its block time and a ring lasts
-75 s before the caller gives up with `no_answer`. Per contact, Chat Info's "Allow calls and
+persisted set of call ids it has handled so a re-ingested invite/request never rings twice. An invite is only answerable for 45 s after its block time; the callee's phone rings for 30 s
+and the caller gives up after 35 s with `no_answer` - the same feel as a phone call. Per contact, Chat Info's "Allow calls and
 video calls" switch (`Contact.callsDisabled`, device-local) hides the call buttons and makes that
 contact's invites be ignored.
 
