@@ -783,6 +783,13 @@ struct MessageBubbleView: View {
         .background(message.isOutgoing ? kaspaBubbleColor : Color(.systemGray5))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .contextMenu {
+            // Every call line is a real on-chain message, so it gets the same explorer link
+            // as any other bubble.
+            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
+                Link(destination: url) {
+                    Label("View in Explorer", systemImage: "safari")
+                }
+            }
             if let onReply {
                 Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
             }
