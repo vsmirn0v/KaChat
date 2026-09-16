@@ -1250,6 +1250,20 @@ struct CallInviteContent: Codable, Equatable {
     let server: String
     let token: String
     let video: Bool
+    /// True when this invite answers the contact's `call_request` (they started the call, we
+    /// host it). The requester joins straight away instead of ringing, and both chats render
+    /// it as a neutral "Call started" line rather than a second "Incoming call".
+    var viaRequest: Bool? = nil
+}
+
+/// A phone WITHOUT Nextcloud starting a call: it asks the contact to host. If the contact's
+/// KaChat has a Nextcloud with Talk and their "Allow calls" switch is on for us, it opens the
+/// room and answers with a `call_invite` carrying this `callId`; the requester joins as a guest
+/// and the host's phone rings. No host on either side simply rings out to "no answer".
+struct CallRequestContent: Codable, Equatable {
+    var type: String = "call_request"
+    let callId: String
+    let video: Bool
 }
 
 /// The callee's answer. `accepted == false` is a decline; an accept is implied by the callee
@@ -1272,12 +1286,14 @@ struct CallEndContent: Codable, Equatable {
 }
 
 enum CallEnvelope: Equatable {
+    case request(CallRequestContent)
     case invite(CallInviteContent)
     case response(CallResponseContent)
     case end(CallEndContent)
 
     var callId: String {
         switch self {
+        case .request(let content): return content.callId
         case .invite(let content): return content.callId
         case .response(let content): return content.callId
         case .end(let content): return content.callId
@@ -1286,6 +1302,7 @@ enum CallEnvelope: Equatable {
 }
 
 enum CallCodec {
+    static func encode(_ content: CallRequestContent) -> String { encodeAny(content) }
     static func encode(_ content: CallInviteContent) -> String { encodeAny(content) }
     static func encode(_ content: CallResponseContent) -> String { encodeAny(content) }
     static func encode(_ content: CallEndContent) -> String { encodeAny(content) }
@@ -1319,6 +1336,8 @@ enum CallCodec {
         guard trimmed.hasPrefix("{"), trimmed.contains("\"call_"), let data = trimmed.data(using: .utf8) else { return nil }
         guard let head = try? JSONDecoder().decode(CallTypeOnly.self, from: data) else { return nil }
         switch head.type {
+        case "call_request":
+            return (try? JSONDecoder().decode(CallRequestContent.self, from: data)).map { .request($0) }
         case "call_invite":
             return (try? JSONDecoder().decode(CallInviteContent.self, from: data)).map { .invite($0) }
         case "call_response":

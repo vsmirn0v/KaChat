@@ -863,10 +863,10 @@ struct ChatDetailView: View {
             // Trailing, not leading: the left of the bar belongs to Back, and the dot reads as
             // status rather than navigation. Hidden while selecting, where the bar is Cancel/Delete.
             // The connection dot is gone from inside a chat (the chat list still has it) - the
-            // one thing in the trailing slot is the call button. Only the side that can host a
-            // call sees it (a connected Nextcloud with Talk calls enabled); the contact needs
-            // nothing but KaChat to pick up. Hidden when the contact was switched off in Chat
-            // Info, and while a call is already up. Tapping it asks voice or video in a half
+            // one thing in the trailing slot is the call button. Chat Info's "Allow calls"
+            // switch is its only gate: a phone with no Nextcloud of its own asks the contact to
+            // host the call, so either side can start one as long as one of them has Talk.
+            // Hidden while a call is already up. Tapping it asks voice or video in a half
             // sheet, like every other choice in the app.
             if !isSelectingMessages, callService.canCall(contact), callService.session == nil {
                 ToolbarItem(placement: .navigationBarTrailing) {

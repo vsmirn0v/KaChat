@@ -921,6 +921,7 @@ class NotificationService: UNNotificationServiceExtension {
         let accepted: Bool?
         let reason: String?
         let durationSeconds: Int?
+        let viaRequest: Bool?
     }
 
     private func callPreviewText(for content: String) -> String? {
@@ -928,7 +929,10 @@ class NotificationService: UNNotificationServiceExtension {
         guard trimmed.first == "{", trimmed.contains("\"call_"), let data = trimmed.data(using: .utf8),
               let parsed = try? JSONDecoder().decode(PushCallEnvelope.self, from: data) else { return nil }
         switch parsed.type {
+        case "call_request":
+            return parsed.video == true ? "📹 Incoming video call" : "📞 Incoming voice call"
         case "call_invite":
+            if parsed.viaRequest == true { return parsed.video == true ? "📹 Video call ready" : "📞 Voice call ready" }
             return parsed.video == true ? "📹 Incoming video call" : "📞 Incoming voice call"
         case "call_response":
             return parsed.accepted == true ? "📞 Answered your call" : "📞 Declined your call"

@@ -689,7 +689,7 @@ struct ChatInfoView: View {
                         }
                     ))
                 } footer: {
-                    Text("Calls run through Nextcloud Talk and stay inside KaChat. Turn this off if you never want this contact to be able to call you.")
+                    Text("Calls run through Nextcloud Talk and stay inside KaChat - only one of you needs a Nextcloud. Turn this off if you never want this contact to be able to call you, and they will not be able to ask your Nextcloud to host a call either.")
                 }
             }
             .navigationTitle("Calls")

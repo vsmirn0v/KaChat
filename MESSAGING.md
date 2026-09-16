@@ -595,12 +595,16 @@ carrying the same `callId` (a UUID):
 
 | Envelope | Sent by | Fields |
 |---|---|---|
-| `{"type":"call_invite"}` | caller | `callId`, `server` (https base URL), `token` (room), `video` (bool) |
+| `{"type":"call_request"}` | a caller with NO Nextcloud | `callId`, `video` - asks the contact to host; the contact answers with a `call_invite` carrying the same `callId` (only if their "Allow calls" switch is on for the requester and their KaChat can host), and the requester joins that room as a guest while the HOST's phone is the one ringing |
+| `{"type":"call_invite"}` | the host | `callId`, `server` (https base URL), `token` (room), `video` (bool), `viaRequest` (bool, optional - true when answering a `call_request`) |
 | `{"type":"call_response"}` | callee | `callId`, `accepted` (false = decline / busy) |
 | `{"type":"call_end"}` | either | `callId`, `reason` (`hangup`, `cancelled`, `no_answer`, `failed`), `durationSeconds` (when it connected) |
 
-Clients render these as call-history bubbles ("Voice call started", "Missed call", "Call · 4:12")
-and never as raw JSON. An invite is only answerable for 90 s after its block time and a ring lasts
+Clients render these as call-history bubbles ("Voice call started", "Missed call", "Call · 4:12";
+a `viaRequest` invite is the neutral "Voice call ready") and never as raw JSON. The call button
+shows whenever the contact's "Allow calls" switch is on - hosting ability is not required on the
+tapping side; if neither side can host, the request rings out to "no answer". A client keeps a
+persisted set of call ids it has handled so a re-ingested invite/request never rings twice. An invite is only answerable for 90 s after its block time and a ring lasts
 75 s before the caller gives up with `no_answer`. Per contact, Chat Info's "Allow calls and
 video calls" switch (`Contact.callsDisabled`, device-local) hides the call buttons and makes that
 contact's invites be ignored.

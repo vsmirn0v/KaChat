@@ -1520,6 +1520,7 @@ struct ConversationRow: View {
 
         if let callEnvelope = CallCodec.parseAny(unwrapped) {
             switch callEnvelope {
+            case .request(let request): result = request.video ? "📹 Video call" : "📞 Voice call"
             case .invite(let invite): result = invite.video ? "📹 Video call" : "📞 Voice call"
             case .response(let response): result = response.accepted ? "📞 Call answered" : "📞 Call declined"
             case .end(let end):

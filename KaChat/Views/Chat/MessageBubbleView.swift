@@ -757,8 +757,16 @@ struct MessageBubbleView: View {
     private func callBubble(_ envelope: CallEnvelope) -> some View {
         let (icon, text): (String, String) = {
             switch envelope {
+            case .request(let request):
+                let kind = request.video ? "Video call" : "Voice call"
+                return (request.video ? "video.fill" : "phone.fill", message.isOutgoing ? "\(kind) started" : "Incoming \(kind.lowercased())")
             case .invite(let invite):
                 let kind = invite.video ? "Video call" : "Voice call"
+                if invite.viaRequest == true {
+                    // The host's answer to the other side's request - the call already has
+                    // its "started"/"incoming" line from the request itself.
+                    return (invite.video ? "video.fill" : "phone.fill", "\(kind) ready")
+                }
                 return (invite.video ? "video.fill" : "phone.fill", message.isOutgoing ? "\(kind) started" : "Incoming \(kind.lowercased())")
             case .response(let response):
                 return (response.accepted ? "phone.arrow.down.left.fill" : "phone.down.fill",

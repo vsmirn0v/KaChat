@@ -3297,7 +3297,10 @@ extension ChatService {
         // Call envelopes, matching the NSE's callPreviewText.
         if let callEnvelope = CallCodec.parseAny(unwrapped) {
             switch callEnvelope {
+            case .request(let request):
+                return request.video ? "📹 Incoming video call" : "📞 Incoming voice call"
             case .invite(let invite):
+                if invite.viaRequest == true { return invite.video ? "📹 Video call ready" : "📞 Voice call ready" }
                 return invite.video ? "📹 Incoming video call" : "📞 Incoming voice call"
             case .response(let response):
                 return response.accepted ? "📞 Answered your call" : "📞 Declined your call"
