@@ -88,7 +88,28 @@ final class CallService: ObservableObject {
     private let ringTimeout: TimeInterval = 75
     private let inviteFreshness: TimeInterval = 90
 
-    private init() {}
+    private init() {
+        handledCallIds = Set(UserDefaults.standard.stringArray(forKey: Self.handledCallIdsKey) ?? [])
+    }
+
+    /// Every call id this device has already rung, answered, or seen end. An invite is an
+    /// ordinary on-chain message and the ingest paths re-deliver recent messages freely - a
+    /// relaunch's UTXO resync re-resolves the last few with a fresh "now" block time - so
+    /// without this a call that was over rang again on every reopen. Persisted, bounded.
+    private static let handledCallIdsKey = "kachat_calls_handled_ids"
+    private var handledCallIds: Set<String>
+    private var handledCallOrder: [String] = []
+
+    private func markHandled(_ callId: String) {
+        guard !handledCallIds.contains(callId) else { return }
+        handledCallIds.insert(callId)
+        handledCallOrder.append(callId)
+        if handledCallOrder.count > 200 {
+            let dropped = handledCallOrder.removeFirst()
+            handledCallIds.remove(dropped)
+        }
+        UserDefaults.standard.set(Array(handledCallIds), forKey: Self.handledCallIdsKey)
+    }
 
     // MARK: - Availability
 
@@ -127,6 +148,7 @@ final class CallService: ObservableObject {
                 live.client = client
                 self.session = live
                 try await self.joinAndSignal(call: live)
+                self.markHandled(live.id)
                 let invite = CallInviteContent(callId: live.id, server: server.absoluteString, token: token, video: video)
                 try await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(invite))
                 live.timeoutTask = Task { [weak self] in
@@ -148,6 +170,9 @@ final class CallService: ObservableObject {
         guard !message.isOutgoing else { return }
         switch envelope {
         case .invite(let invite):
+            // Once per call id, ever - see `handledCallIds`. A re-ingested invite for a call that
+            // already rang (or already ended) is history, not a phone ringing.
+            guard !handledCallIds.contains(invite.callId) else { return }
             guard let contact = ContactsManager.shared.getContact(byAddress: contactAddress) else { return }
             guard contact.callsDisabled != true else { return }
             let age = Date().timeIntervalSince(Date(timeIntervalSince1970: TimeInterval(message.blockTime) / 1000))
@@ -161,6 +186,7 @@ final class CallService: ObservableObject {
                 }
                 return
             }
+            markHandled(invite.callId)
             let call = ActiveCall(id: invite.callId, contact: contact, isOutgoing: false, server: server, token: invite.token, video: invite.video, phase: .ringingIn)
             session = call
             UIApplication.shared.isIdleTimerDisabled = true
@@ -171,6 +197,9 @@ final class CallService: ObservableObject {
                 await self.finish(reason: "missed", notifyPeer: false)
             }
         case .response(let response):
+            // A response or an end for a call this device is not on means that call is over;
+            // remember it so its invite, should it arrive later in the same batch, stays quiet.
+            markHandled(response.callId)
             guard let call = session, call.id == response.callId, call.isOutgoing else { return }
             if response.accepted {
                 if call.phase == .ringingOut { call.phase = .connecting }
@@ -178,6 +207,7 @@ final class CallService: ObservableObject {
                 Task { await finish(reason: "declined", notifyPeer: false) }
             }
         case .end(let end):
+            markHandled(end.callId)
             guard let call = session, call.id == end.callId else { return }
             Task { await finish(reason: call.phase == .ringingIn ? "missed" : "remote_hangup", notifyPeer: false) }
         }
