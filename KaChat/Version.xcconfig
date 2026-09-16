@@ -19,15 +19,20 @@
 // restarting low inside the 3.0 train was rejected). Moving to a NEW marketing version resets
 // the train, so each train legitimately starts back at build 1 and counts up 2, 3, ... from
 // there - 4.0 did, 4.1 did, and 5.0 does the same (4.1 shipped to the App Store 2026-09-15).
-// This value IS the build number everywhere, Xcode Cloud included: ci_scripts/
-// ci_pre_xcodebuild.sh stamps every target with it right before a Cloud archive. Xcode
-// Cloud's own counter ($CI_BUILD_NUMBER) is per product, shared by every workflow, and can
-// only go up - an early date-stamp script pushed it to 202607032479, which is where the 4.x
-// betas' long build numbers came from - so it is deliberately ignored now.
+// KACHAT_BUILD_NUMBER is the build number that ships. Every target's Info.plist sets
+// CFBundleVersion = $(KACHAT_BUILD_NUMBER) explicitly - NOT the usual generated
+// $(CURRENT_PROJECT_VERSION) - because Xcode Cloud silently forces CURRENT_PROJECT_VERSION to
+// its own counter for archives, and that counter is per product, shared by every workflow,
+// and can only go up (an early date-stamp script pushed it to 202607032479, which is where
+// the 4.x betas' long build numbers came from). Stamping CURRENT_PROJECT_VERSION ourselves
+// in ci_pre_xcodebuild.sh was not enough - Cloud's value still won - so CFBundleVersion now
+// reads a setting Cloud has no opinion about. CURRENT_PROJECT_VERSION is kept equal to it
+// so Xcode's General tab and agvtool show the same number.
 //
-// BUMP THIS FOR EVERY BETA that goes to TestFlight. App Store Connect refuses an upload whose
+// BUMP BOTH FOR EVERY BETA that goes to TestFlight. App Store Connect refuses an upload whose
 // build number is not above the last one in the same marketing version, so a forgotten bump
 // fails at upload rather than shipping a duplicate.
+KACHAT_BUILD_NUMBER = 1
 CURRENT_PROJECT_VERSION = 1
 MARKETING_VERSION = 5.0
 

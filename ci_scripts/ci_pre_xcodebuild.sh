@@ -1,9 +1,13 @@
 #!/bin/sh
 #
-# Xcode Cloud runs this right before xcodebuild. For archives it stamps every target (main
-# app, KaChatNotificationService, KaChatShareExtension, widgets) with the build number the
-# REPO says - CURRENT_PROJECT_VERSION in KaChat/Version.xcconfig - so a Cloud archive carries
-# exactly what a local archive would: 5.0 (1), 5.0 (2), ...
+# Xcode Cloud runs this right before xcodebuild. For archives it stamps every target's
+# CURRENT_PROJECT_VERSION with the build number the REPO says (KaChat/Version.xcconfig).
+#
+# This turned out NOT to be what decides the shipped build number: Xcode Cloud forces
+# CURRENT_PROJECT_VERSION to its own counter regardless, and the first 5.0 archive still came
+# out as 202607032480. What ships is CFBundleVersion, which every target's Info.plist now
+# binds to $(KACHAT_BUILD_NUMBER) - a setting Cloud has no opinion about. This script stays
+# as belt-and-braces so CURRENT_PROJECT_VERSION agrees with it wherever Cloud lets it.
 #
 # Why not Xcode Cloud's own $CI_BUILD_NUMBER, as ci_post_clone.sh used to stamp: that counter
 # is per product, shared by every workflow, and can only ever go UP (App Store Connect refuses
