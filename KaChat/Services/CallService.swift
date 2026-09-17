@@ -229,7 +229,7 @@ final class CallService: ObservableObject {
                 markHandled(request.callId)
                 return
             }
-            if let current = session {
+            if session != nil {
                 // Busy: silent, and the caller rings out. Same invite delivered twice: ignored.
                 return
             }
