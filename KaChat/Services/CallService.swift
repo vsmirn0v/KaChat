@@ -71,6 +71,10 @@ final class CallService: ObservableObject {
         var offerFallbackTask: Task<Void, Never>?
         var ringTimer: Timer?
         var sawPeerInCall = false
+        /// Whether this side's opening message (invite / request) has gone out. The closing
+        /// `call_end` is only ever sent by the side that initiated the call, and only after
+        /// its opening message did - so a call that failed before ringing costs nothing.
+        var openingMessageSent = false
 
         init(id: String, contact: Contact, isOutgoing: Bool, server: URL?, token: String, video: Bool, phase: Phase, hostsThisCall: Bool) {
             self.id = id
@@ -157,15 +161,16 @@ final class CallService: ObservableObject {
                 guard let self else { return }
                 do {
                     try await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(CallRequestContent(callId: callId, video: video)))
+                    call.openingMessageSent = true
                 } catch {
                     self.lastError = error.localizedDescription
-                    await self.finish(reason: "failed", notifyPeer: false)
+                    await self.finish(reason: "failed")
                     return
                 }
                 call.timeoutTask = Task { [weak self] in
                     try? await Task.sleep(nanoseconds: UInt64(self?.ringTimeout ?? 35) * 1_000_000_000)
                     guard let self, let current = self.session, current === call, current.phase == .ringingOut else { return }
-                    await self.finish(reason: "no_answer", notifyPeer: true)
+                    await self.finish(reason: "no_answer")
                 }
             }
             return
@@ -190,15 +195,16 @@ final class CallService: ObservableObject {
                 self.markHandled(live.id)
                 let invite = CallInviteContent(callId: live.id, server: server.absoluteString, token: token, video: video)
                 try await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(invite))
+                live.openingMessageSent = true
                 live.timeoutTask = Task { [weak self] in
                     try? await Task.sleep(nanoseconds: UInt64(self?.ringTimeout ?? 35) * 1_000_000_000)
                     guard let self, let current = self.session, current === live, current.phase == .ringingOut else { return }
-                    await self.finish(reason: "no_answer", notifyPeer: true)
+                    await self.finish(reason: "no_answer")
                 }
             } catch {
                 AppLog.log("[Call] Starting call failed: %@", error.localizedDescription)
                 self.lastError = error.localizedDescription
-                await self.finish(reason: "failed", notifyPeer: false)
+                await self.finish(reason: "failed")
             }
         }
     }
@@ -217,17 +223,14 @@ final class CallService: ObservableObject {
             guard let contact = ContactsManager.shared.getContact(byAddress: contactAddress) else { return }
             guard contact.callsEnabled == true, age < inviteFreshness else { return }
             guard canHost, let account = NextcloudService.shared.account, let server = account.serverURL else {
-                // Neither side can host. Say so right away rather than letting their phone
-                // ring out - the requester's screen turns this into "someone in this chat
-                // needs Nextcloud Talk".
+                // Neither side can host. Nothing goes on chain from this side - the caller is
+                // the only one who pays for a call - so the requester's ring-out is what tells
+                // them one of the two needs Nextcloud Talk.
                 markHandled(request.callId)
-                Task { try? await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(CallResponseContent(callId: request.callId, accepted: false, reason: "no_host"))) }
                 return
             }
             if let current = session {
-                if current.id != request.callId {
-                    Task { try? await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(CallResponseContent(callId: request.callId, accepted: false))) }
-                }
+                // Busy: silent, and the caller rings out. Same invite delivered twice: ignored.
                 return
             }
             markHandled(request.callId)
@@ -238,7 +241,7 @@ final class CallService: ObservableObject {
             call.timeoutTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(self?.incomingRingTimeout ?? 30) * 1_000_000_000)
                 guard let self, let current = self.session, current === call, current.phase == .ringingIn else { return }
-                await self.finish(reason: "missed", notifyPeer: false)
+                await self.finish(reason: "missed")
             }
             // Open the room now so the requester can already be waiting in it as a guest when
             // we accept; we join the call itself on accept.
@@ -256,7 +259,7 @@ final class CallService: ObservableObject {
                 } catch {
                     AppLog.log("[Call] Hosting a requested call failed: %@", error.localizedDescription)
                     self.lastError = error.localizedDescription
-                    await self.finish(reason: "failed", notifyPeer: true)
+                    await self.finish(reason: "failed")
                 }
             }
         case .invite(let invite):
@@ -277,7 +280,7 @@ final class CallService: ObservableObject {
                     } catch {
                         AppLog.log("[Call] Joining the hosted call failed: %@", error.localizedDescription)
                         self.lastError = error.localizedDescription
-                        await self.finish(reason: "failed", notifyPeer: true)
+                        await self.finish(reason: "failed")
                     }
                 }
                 return
@@ -288,12 +291,9 @@ final class CallService: ObservableObject {
             guard let contact = ContactsManager.shared.getContact(byAddress: contactAddress) else { return }
             guard contact.callsEnabled == true else { return }
             guard age < inviteFreshness else { return }
-            if let current = session {
-                // Already on a call: a different invite gets a decline (the caller sees "busy"
-                // rather than ringing out); this same invite delivered twice is simply ignored.
-                if current.id != invite.callId {
-                    Task { try? await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(CallResponseContent(callId: invite.callId, accepted: false))) }
-                }
+            if session != nil {
+                // Already on a call: stay silent and let the caller ring out. This same invite
+                // delivered twice is simply ignored.
                 return
             }
             markHandled(invite.callId)
@@ -304,7 +304,7 @@ final class CallService: ObservableObject {
             call.timeoutTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(self?.incomingRingTimeout ?? 30) * 1_000_000_000)
                 guard let self, let current = self.session, current === call, current.phase == .ringingIn else { return }
-                await self.finish(reason: "missed", notifyPeer: false)
+                await self.finish(reason: "missed")
             }
         case .response(let response):
             // A response or an end for a call this device is not on means that call is over;
@@ -315,12 +315,12 @@ final class CallService: ObservableObject {
                 if call.phase == .ringingOut { call.phase = .connecting }
             } else {
                 let reason = response.reason == "no_host" ? "no_host" : "declined"
-                Task { await finish(reason: reason, notifyPeer: false) }
+                Task { await finish(reason: reason) }
             }
         case .end(let end):
             markHandled(end.callId)
             guard let call = session, call.id == end.callId else { return }
-            Task { await finish(reason: call.phase == .ringingIn ? "missed" : "remote_hangup", notifyPeer: false) }
+            Task { await finish(reason: call.phase == .ringingIn ? "missed" : "remote_hangup") }
         }
     }
 
@@ -341,7 +341,7 @@ final class CallService: ObservableObject {
                     waited += 1
                 }
                 guard self.session === call, !call.token.isEmpty, call.client != nil else {
-                    await self.finish(reason: "failed", notifyPeer: true)
+                    await self.finish(reason: "failed")
                     return
                 }
             } else {
@@ -350,11 +350,10 @@ final class CallService: ObservableObject {
             }
             do {
                 try await self.joinAndSignal(call: call)
-                try? await ChatService.shared.sendMessage(to: call.contact, content: CallCodec.encode(CallResponseContent(callId: call.id, accepted: true)))
             } catch {
                 AppLog.log("[Call] Joining call failed: %@", error.localizedDescription)
                 self.lastError = error.localizedDescription
-                await self.finish(reason: "failed", notifyPeer: true)
+                await self.finish(reason: "failed")
             }
         }
     }
@@ -362,16 +361,34 @@ final class CallService: ObservableObject {
     func declineIncoming() {
         guard let call = session, call.phase == .ringingIn else { return }
         stopRinging(call)
-        let contact = call.contact
-        let callId = call.id
-        Task { try? await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(CallResponseContent(callId: callId, accepted: false))) }
-        Task { await finish(reason: "declined", notifyPeer: false) }
+        if !call.hostsThisCall, let server = call.server, !call.token.isEmpty {
+            // Tell the caller through Talk, not the chain: join their room as a guest, hand
+            // their session one "kachat_decline", and leave. Best effort - if it fails the
+            // caller simply rings out.
+            let token = call.token
+            Task.detached {
+                let client = NextcloudTalkClient(server: server, auth: .guest)
+                guard let sessionId = try? await client.joinConversation(token: token) else { return }
+                if let events = try? await client.pullSignaling(token: token, sessionId: sessionId) {
+                    for case .usersInRoom(let users) in events {
+                        for user in users where user.sessionId != sessionId {
+                            let message = NextcloudTalkClient.PeerMessage(to: user.sessionId, sid: "decline", roomType: "video", type: "kachat_decline", payload: [:])
+                            try? await client.sendSignaling(token: token, sessionId: sessionId, messages: [message])
+                        }
+                    }
+                }
+                await client.leaveConversation(token: token)
+            }
+        }
+        // A hosted request we are declining: `finish` deletes the room, and the requester
+        // waiting in it reads the 404 as the decline.
+        Task { await finish(reason: "declined") }
     }
 
     func hangUp() {
         guard let call = session else { return }
         if case .ended = call.phase { return }
-        Task { await finish(reason: call.isOutgoing && call.phase == .ringingOut ? "cancelled" : "hangup", notifyPeer: true) }
+        Task { await finish(reason: call.isOutgoing && call.phase == .ringingOut ? "cancelled" : "hangup") }
     }
 
     /// Clears an ended call off the screen.
@@ -454,7 +471,7 @@ final class CallService: ObservableObject {
             case .disconnected:
                 call.statusDetail = "Reconnecting"
             case .failed:
-                Task { await self.finish(reason: "failed", notifyPeer: true) }
+                Task { await self.finish(reason: "failed") }
             default:
                 break
             }
@@ -485,7 +502,8 @@ final class CallService: ObservableObject {
                 switch error {
                 case .conversationGone, .sessionLost:
                     AppLog.log("[Call] Signaling ended: %@", error.localizedDescription)
-                    await finish(reason: "remote_hangup", notifyPeer: false)
+                    let declined = !call.hostsThisCall && call.connectedAt == nil
+                    await finish(reason: declined ? "declined" : "remote_hangup")
                     return
                 default:
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -523,10 +541,15 @@ final class CallService: ObservableObject {
             } else if let peer = call.peerSessionId, call.sawPeerInCall,
                       !others.contains(where: { $0.sessionId == peer }) {
                 // The other side left the call (hung up, or their app died).
-                await finish(reason: "remote_hangup", notifyPeer: false)
+                await finish(reason: "remote_hangup")
             }
         case .message(let data):
             guard let from = data["from"] as? String, let type = data["type"] as? String else { return }
+            if type == "kachat_decline" {
+                // The callee said no through Talk (no chain message from their side).
+                if call.isOutgoing, call.connectedAt == nil { await finish(reason: "declined") }
+                return
+            }
             if call.peerSessionId == nil { call.peerSessionId = from }
             guard from == call.peerSessionId, let webrtc = call.webrtc else { return }
             let payload = data["payload"] as? [String: Any] ?? [:]
@@ -608,7 +631,7 @@ final class CallService: ObservableObject {
 
     // MARK: - Teardown
 
-    private func finish(reason: String, notifyPeer: Bool) async {
+    private func finish(reason: String) async {
         guard let call = session else { return }
         if case .ended = call.phase { return }
         stopRinging(call)
@@ -624,7 +647,10 @@ final class CallService: ObservableObject {
         call.phase = .ended(reason)
         UIApplication.shared.isIdleTimerDisabled = false
 
-        if notifyPeer {
+        // The caller is the only side that ever puts a call on chain: one opening message
+        // (invite or request) and one closing message with how it went and, if it connected,
+        // for how long. A callee's hang-up reaches the caller through the room instead.
+        if call.isOutgoing, call.openingMessageSent {
             let end = CallEndContent(callId: call.id, reason: reason, durationSeconds: duration)
             try? await ChatService.shared.sendMessage(to: call.contact, content: CallCodec.encode(end))
         }

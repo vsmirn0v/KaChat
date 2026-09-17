@@ -941,7 +941,11 @@ class NotificationService: UNNotificationServiceExtension {
             if let seconds = parsed.durationSeconds, seconds > 0 {
                 return String(format: "📞 Call · %d:%02d", seconds / 60, seconds % 60)
             }
-            return parsed.reason == "no_answer" || parsed.reason == "cancelled" ? "📞 Missed call" : "📞 Call ended"
+            switch parsed.reason {
+            case "no_answer", "cancelled": return "📞 Missed call"
+            case "declined": return "📞 Call declined"
+            default: return "📞 Call ended"
+            }
         default:
             return nil
         }

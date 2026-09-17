@@ -782,6 +782,7 @@ struct MessageBubbleView: View {
                 case "no_answer": return ("phone.down.fill", message.isOutgoing ? "No answer" : "Missed call")
                 case "cancelled": return ("phone.down.fill", message.isOutgoing ? "Call cancelled" : "Missed call")
                 case "failed": return ("phone.down.fill", "Call failed")
+                case "declined": return ("phone.down.fill", "Call declined")
                 default: return ("phone.down.fill", "Call ended")
                 }
             }

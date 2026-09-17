@@ -3305,8 +3305,15 @@ extension ChatService {
             case .response(let response):
                 if response.reason == "no_host" { return "📞 Calls need Nextcloud Talk on one side" }
                 return response.accepted ? "📞 Answered your call" : "📞 Declined your call"
-            case .end:
-                return "📞 Call ended"
+            case .end(let end):
+                if let seconds = end.durationSeconds, seconds > 0 {
+                    return String(format: "📞 Call · %d:%02d", seconds / 60, seconds % 60)
+                }
+                switch end.reason {
+                case "no_answer", "cancelled": return "📞 Missed call"
+                case "declined": return "📞 Call declined"
+                default: return "📞 Call ended"
+                }
             }
         }
 

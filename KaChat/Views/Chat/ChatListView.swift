@@ -1528,7 +1528,11 @@ struct ConversationRow: View {
                 if let seconds = end.durationSeconds, seconds > 0 {
                     result = String(format: "📞 Call · %d:%02d", seconds / 60, seconds % 60)
                 } else {
-                    result = end.reason == "no_answer" || end.reason == "cancelled" ? "📞 Missed call" : "📞 Call ended"
+                    switch end.reason {
+                    case "no_answer", "cancelled": result = "📞 Missed call"
+                    case "declined": result = "📞 Call declined"
+                    default: result = "📞 Call ended"
+                    }
                 }
             }
             Self.previewCache.setObject(result as NSString, forKey: key)

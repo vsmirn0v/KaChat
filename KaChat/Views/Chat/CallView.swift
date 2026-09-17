@@ -225,7 +225,10 @@ struct CallView: View {
             switch reason {
             case "declined": return "Declined"
             case "no_host": return "One person in this chat needs Nextcloud Talk set up to make calls."
-            case "no_answer": return "No answer"
+            case "no_answer":
+                // A request nobody hosted rings out exactly like an unanswered call - the
+                // other side never says anything on chain - so the hint rides along here.
+                return call.hostsThisCall ? "No answer" : "No answer. If they don't have Nextcloud Talk, one of you needs it to make calls."
             case "missed": return "Missed call"
             case "busy": return "Busy"
             case "failed": return callService.lastError ?? "Call failed"

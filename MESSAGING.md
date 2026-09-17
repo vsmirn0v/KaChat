@@ -590,25 +590,34 @@ so no account of their own is involved. Media is one WebRTC peer connection betw
 phones, negotiated over Talk's *internal* signaling API (the external HPB mode is refused with
 a message). STUN/TURN come from the caller's server's `signaling/settings`.
 
-Ringing is three ordinary encrypted contextual messages, JSON like the chess envelopes, all
-carrying the same `callId` (a UUID):
+Ringing is ordinary encrypted contextual messages, JSON like the chess envelopes, all carrying
+the same `callId` (a UUID). **The caller is the only side that ever writes to the chain, and at
+most twice per call**: one opening message and one closing message. The callee answers, declines
+and hangs up through the Talk room itself (joining it, a `kachat_decline` signaling message, or
+leaving it), never on chain.
 
 | Envelope | Sent by | Fields |
 |---|---|---|
-| `{"type":"call_request"}` | a caller with NO Nextcloud | `callId`, `video` - asks the contact to host; the contact answers with a `call_invite` carrying the same `callId` (only if their "Allow calls" switch is on for the requester and their KaChat can host), and the requester joins that room as a guest while the HOST's phone is the one ringing |
-| `{"type":"call_invite"}` | the host | `callId`, `server` (https base URL), `token` (room), `video` (bool), `viaRequest` (bool, optional - true when answering a `call_request`) |
-| `{"type":"call_response"}` | callee | `callId`, `accepted` (false = decline / busy), `reason` (optional; `no_host` = a `call_request` the contact cannot host either - the requester shows "one person in this chat needs Nextcloud Talk") |
-| `{"type":"call_end"}` | either | `callId`, `reason` (`hangup`, `cancelled`, `no_answer`, `failed`), `durationSeconds` (when it connected) |
+| `{"type":"call_invite"}` | the caller, when they host | `callId`, `server` (https base URL), `token` (room), `video` (bool), `viaRequest` (bool, optional - true when a host answers a `call_request`) |
+| `{"type":"call_request"}` | a caller with NO Nextcloud | `callId`, `video` - asks the contact to host; if the contact's KaChat can host and their "Allow calls" switch is on for the requester, it opens a room, answers with a `call_invite {viaRequest:true}` (the one message a non-caller ever sends - the requester cannot learn the room any other way) and rings; the requester joins that room as a guest. A contact that cannot host stays silent and the request rings out. |
+| `{"type":"call_end"}` | the caller, always | `callId`, `reason` (`hangup`, `remote_hangup`, `declined`, `no_answer`, `cancelled`, `failed`), `durationSeconds` (when it connected). Sent only after the caller's opening message went out. |
+| `{"type":"call_response"}` | *legacy* - nothing sends it any more | `callId`, `accepted`, `reason`; still parsed so older clients' messages render |
 
-Clients render these as call-history bubbles ("Voice call started", "Missed call", "Call · 4:12";
-a `viaRequest` invite is the neutral "Voice call ready") and never as raw JSON. The call button
-shows whenever the contact's "Allow calls" switch is on - hosting ability is not required on the
-tapping side; if neither side can host, the contact answers `call_response {accepted:false, reason:"no_host"}` at once (a contact with calls switched off stays silent, and the request rings out to "no answer"). A client keeps a
-persisted set of call ids it has handled so a re-ingested invite/request never rings twice. An invite is only answerable for 45 s after its block time; the callee's phone rings for 30 s
-and the caller gives up after 35 s with `no_answer` - the same feel as a phone call. Per contact, calls are OFF by default (`Contact.callsEnabled`, device-local): the call button is
-always there, but the first tap asks "Enable calls and video calls with X?" and saves the answer;
-Chat Info's "Allow calls and video calls" switch shows and edits the same value. While off, that
-contact's invites and requests are ignored (silently - no reply).
+So a hosted call costs the caller 2 messages whatever happens (answered: invite + "Call · 4:12";
+declined / no answer / cancelled: invite + the reason); a requested call costs the caller 2 and the
+host 1 (its invite). Callee-side events reach the caller through the room: appearing in the call =
+answered; `kachat_decline` from the callee's guest session = declined; the callee leaving the
+call = hang-up (the caller writes the duration); the host deleting the room = a declined request
+(the waiting guest sees a 404).
+
+Clients render these as call-history bubbles ("Voice call started", "Missed call", "Call
+declined", "Call · 4:12"; a `viaRequest` invite is the neutral "Voice call ready") and never as
+raw JSON. The call button is always there; Chat Info's per-contact switch (`Contact.callsEnabled`,
+OFF by default, device-local) is the gate - the first tap on a not-yet-enabled contact asks
+"Enable calls and video calls with X?" and saves the answer. While off, that contact's invites and
+requests are ignored silently. A client keeps a persisted set of call ids it has handled so a
+re-ingested invite/request never rings twice. An invite is only answerable for 45 s after its
+block time; the callee's phone rings for 30 s and the caller gives up after 35 s with `no_answer`.
 
 Call sequence (caller): `POST /apps/spreed/api/v4/room` (`roomType=3`) → `POST
 /room/{token}/participants/active` (gives the Talk `sessionId`) → `POST /call/{token}` (`flags`
