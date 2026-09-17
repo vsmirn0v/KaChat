@@ -8,9 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		19319293ACD84C2AB108D745 /* KNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A61ACF41FEA483D9EF0924F /* KNSService.swift */; };
-		E8100B912D4C00010000001C /* KaPostsDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8100B902D4C00010000001C /* KaPostsDraftStore.swift */; };
-		A4E71D3C82F5406B9C1E5D73 /* KaspaNetworkStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */; };
-		B7A11C0E4D3F48A2915E7C21 /* PostTranslationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */; };
 		3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4C922EA822400194F497F9 /* ChatInfoView.swift */; };
 		3F4C10012F72000100000002 /* LaunchRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F4C10012F72000100000001 /* LaunchRouter.swift */; };
 		3F4C10022F72000100000002 /* ChatListSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F4C10022F72000100000001 /* ChatListSnapshotStore.swift */; };
@@ -26,40 +23,46 @@
 		4D3D20092F72000900000002 /* BroadcastNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20092F72000900000001 /* BroadcastNavigationPolicy.swift */; };
 		588DACE23026E3D300D94B9B /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 588DACE13026E3D300D94B9B /* WidgetKit.framework */; };
 		588DACE43026E3D300D94B9B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 588DACE33026E3D300D94B9B /* SwiftUI.framework */; };
-		588DACF53026E3D500D94B9B /* KaChatWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 588DACDF3026E3D300D94B9B /* KaChatWidgetsExtension.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		588DACF53026E3D500D94B9B /* KaChatWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 588DACDF3026E3D300D94B9B /* KaChatWidgetsExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		588DB562305C77E500D94B9B /* KaChatIntents.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 588DB559305C77E500D94B9B /* KaChatIntents.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A4E71D3C82F5406B9C1E5D73 /* KaspaNetworkStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */; };
 		A91062000000000000000001 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91062000000000000000002 /* AppLog.swift */; };
+		AB0001B0000000000000001 /* AppTabBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0001A0000000000000001 /* AppTabBadge.swift */; };
+		ADAC00010001000100000001 /* AddressActivityNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADAC00010001000000000001 /* AddressActivityNotifier.swift */; };
+		ADDRACT0001000100000002 /* AddressActivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADDRACT0001000100000001 /* AddressActivityService.swift */; };
 		APLC00010000000000000BF1 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = APLC00010000000000000BF2 /* AppLocalization.swift */; };
 		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
+		B7A11C0E4D3F48A2915E7C21 /* PostTranslationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */; };
 		BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* BroadcastAudioRecording.swift */; };
 		BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* BroadcastChannelView.swift */; };
 		BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */; };
-		BCRI00010001000100000001 /* BroadcastRoomInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */; };
 		BCLV00010001000100000001 /* BroadcastListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCLV00010001000000000001 /* BroadcastListView.swift */; };
+		BCRI00010001000100000001 /* BroadcastRoomInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */; };
 		BCST00010001000100000001 /* BroadcastStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCST00010001000000000001 /* BroadcastStore.swift */; };
 		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
 		BSVC00010001000100000001 /* BroadcastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BSVC00010001000000000001 /* BroadcastService.swift */; };
+		C3F79B2E51A64D08B7E1265A /* EcosystemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */; };
+		C7A1F42E63B84D8195C0AE71 /* AddToPortfolioSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */; };
+		CACHEMGR00010001000100000001 /* CacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACHEMGR00010001000000000001 /* CacheManager.swift */; };
+		CALL0001B000000000000001 /* NextcloudTalkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0001A000000000000001 /* NextcloudTalkClient.swift */; };
+		CALL0002B000000000000001 /* CallService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0002A000000000000001 /* CallService.swift */; };
+		CALL0003B000000000000001 /* WebRTCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0003A000000000000001 /* WebRTCClient.swift */; };
+		CALL0004B000000000000001 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0004A000000000000001 /* CallView.swift */; };
+		CALL0005B000000000000001 /* CallKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0005A000000000000001 /* CallKitManager.swift */; };
+		CALL0006B000000000000001 /* VoIPPushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0006A000000000000001 /* VoIPPushManager.swift */; };
 		CAMV0000000000000001 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMV0000000000000002 /* CameraCaptureView.swift */; };
 		CFMT00010001000000000002 /* CurrencyFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFMT00010001000000000001 /* CurrencyFormat.swift */; };
 		CH0001B0000000000000001 /* ChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0001A0000000000000001 /* ChessEngine.swift */; };
 		CH0002B0000000000000001 /* ChessGameService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0002A0000000000000001 /* ChessGameService.swift */; };
+		CH0003B0000000000000001 /* ChessGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0003A0000000000000001 /* ChessGameView.swift */; };
+		CHAD00010001000100000001 /* ChattingAddressPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAD00010001000000000001 /* ChattingAddressPickerView.swift */; };
 		CM0001B0000000000000001 /* ChildModeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CM0001A0000000000000001 /* ChildModeService.swift */; };
 		CM0002B0000000000000001 /* ChildModeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CM0002A0000000000000001 /* ChildModeSettingsView.swift */; };
-		CH0003B0000000000000001 /* ChessGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0003A0000000000000001 /* ChessGameView.swift */; };
 		CPQS00010001000100000001 /* ChatPhotoQualitySlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */; };
 		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
 		CS0001B0000000000000001 /* Base58.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0001A0000000000000001 /* Base58.swift */; };
 		CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */; };
 		CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0003A0000000000000001 /* ColdStorageManager.swift */; };
-		NC0001B0000000000000001 /* NextcloudService.swift in Sources */ = {isa = PBXBuildFile; fileRef = NC0001A0000000000000001 /* NextcloudService.swift */; };
-		CALL0004B000000000000001 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0004A000000000000001 /* CallView.swift */; };
-		CALL0003B000000000000001 /* WebRTCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0003A000000000000001 /* WebRTCClient.swift */; };
-		CALL0002B000000000000001 /* CallService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0002A000000000000001 /* CallService.swift */; };
-		CALL0005B000000000000001 /* CallKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0005A000000000000001 /* CallKitManager.swift */; };
-		CALL0006B000000000000001 /* VoIPPushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0006A000000000000001 /* VoIPPushManager.swift */; };
-		CALL0001B000000000000001 /* NextcloudTalkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0001A000000000000001 /* NextcloudTalkClient.swift */; };
-		GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = GN0001A0000000000000001 /* GlobalNotificationCenter.swift */; };
-		KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */; };
-		AB0001B0000000000000001 /* AppTabBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0001A0000000000000001 /* AppTabBadge.swift */; };
 		CS0004B0000000000000001 /* ColdStorageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0004A0000000000000001 /* ColdStorageView.swift */; };
 		CS0006B0000000000000001 /* KsptCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0006A0000000000000001 /* KsptCodec.swift */; };
 		CS0007B0000000000000001 /* QrFrameChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0007A0000000000000001 /* QrFrameChunker.swift */; };
@@ -74,11 +77,10 @@
 		CSEX00010001000100000006 /* ChatService+Decryption.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000006 /* ChatService+Decryption.swift */; };
 		CSEX00010001000100000007 /* ChatService+Reactions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000007 /* ChatService+Reactions.swift */; };
 		CSEX00010001000100000008 /* ChatService+PaymentPools.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000008 /* ChatService+PaymentPools.swift */; };
-		PPOL00010001000100000001 /* PaymentPoolStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPOL00010001000000000001 /* PaymentPoolStore.swift */; };
-		ADAC00010001000100000001 /* AddressActivityNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADAC00010001000000000001 /* AddressActivityNotifier.swift */; };
-		DA0001B0000000000000001 /* DeviceAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0001A0000000000000001 /* DeviceAuth.swift */; };
-		DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */ = {isa = PBXBuildFile; fileRef = DTAL00010001000000000001 /* DeterministicAlias.swift */; };
 		D9F31A6B7E2C48D0A15B3C42 /* KaPostsMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C74B28306D4A9FB8E25D13 /* KaPostsMarkdown.swift */; };
+		DA0001B0000000000000001 /* DeviceAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0001A0000000000000001 /* DeviceAuth.swift */; };
+		DECI00010001000100000001 /* DecimalInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = DECI00010001000000000001 /* DecimalInput.swift */; };
+		DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */ = {isa = PBXBuildFile; fileRef = DTAL00010001000000000001 /* DeterministicAlias.swift */; };
 		E81000012D4C000100000001 /* KaChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000002D4C000100000001 /* KaChatApp.swift */; };
 		E81000032D4C000100000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000022D4C000100000002 /* ContentView.swift */; };
 		E81000052D4C000100000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E81000042D4C000100000003 /* Assets.xcassets */; };
@@ -96,33 +98,32 @@
 		E810001D2D4C00010000000F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810001C2D4C00010000000F /* SettingsView.swift */; };
 		E81000212D4C000100000011 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000202D4C000100000011 /* Models.swift */; };
 		E81000232D4C000100000012 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000222D4C000100000012 /* MainTabView.swift */; };
-		C3F79B2E51A64D08B7E1265A /* EcosystemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */; };
 		E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000282D4C000100000015 /* SettingsViewModel.swift */; };
 		E810002F2D4C000100000018 /* CryptoUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810002E2D4C000100000018 /* CryptoUtils.swift */; };
 		E81000332D4C00010000001A /* AddContactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000322D4C00010000001A /* AddContactView.swift */; };
 		E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000342D4C00010000001B /* MessageBubbleView.swift */; };
 		E81000372D4C00010000001C /* Bech32.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000362D4C00010000001C /* Bech32.swift */; };
-		E8100A912D4C00010000001C /* CoreDataIndexBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8100A902D4C00010000001C /* CoreDataIndexBuilder.swift */; };
 		E81000392D4C00010000001D /* BIP39.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000382D4C00010000001D /* BIP39.swift */; };
 		E810003B2D4C00010000001F /* KaChatCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810003A2D4C00010000001E /* KaChatCipher.swift */; };
+		E8100A912D4C00010000001C /* CoreDataIndexBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8100A902D4C00010000001C /* CoreDataIndexBuilder.swift */; };
+		E8100B912D4C00010000001C /* KaPostsDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8100B902D4C00010000001C /* KaPostsDraftStore.swift */; };
 		E810FA122D4C00010000000B /* PassphraseOptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810FA112D4C00010000000B /* PassphraseOptionView.swift */; };
 		E810FB122D4C00010000000B /* SeedPhraseKeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810FB112D4C00010000000B /* SeedPhraseKeyboardView.swift */; };
 		E83000012D4C000200000006 /* OpusBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = E83000032D4C000200000008 /* OpusBridge.m */; };
 		E8F100122D4C0001000000FF /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100112D4C0001000000FF /* Toast.swift */; };
-		E8F1AC710001000000000001 /* ActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1AC700001000000000001 /* ActionSheet.swift */; };
-		DECI00010001000100000001 /* DecimalInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = DECI00010001000000000001 /* DecimalInput.swift */; };
-		RS0001B0000000000000001 /* RevealableSecureField.swift in Sources */ = {isa = PBXBuildFile; fileRef = RS0001A0000000000000001 /* RevealableSecureField.swift */; };
 		E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100142D4C0001000001FF /* QRScannerView.swift */; };
 		E8F1A0032F4B000100000003 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1A0042F4B000100000004 /* Haptics.swift */; };
 		E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */; };
+		E8F1AC710001000000000001 /* ActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1AC700001000000000001 /* ActionSheet.swift */; };
 		ENGL00012F70000100000002 /* english.txt in Resources */ = {isa = PBXBuildFile; fileRef = ENGL00012F70000100000001 /* english.txt */; };
+		ERPK00010001000100000001 /* EmojiReactionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = ERPK00010001000000000001 /* EmojiReactionPicker.swift */; };
+		F2B95C1D8A374E6BA07C4D95 /* MarkdownComposerField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D18E3F52B04C7D91FA6208 /* MarkdownComposerField.swift */; };
 		F5A71C3C1061AA2FFE3F837F /* KaChatTransactionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */; };
 		FEESHIM0001000100000002 /* FeeShimmerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */; };
 		GEOIP00012F90000100000002 /* geoip-lite.json in Resources */ = {isa = PBXBuildFile; fileRef = GEOIP00012F90000100000001 /* geoip-lite.json */; };
 		GIFT00010001000100000001 /* GiftService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000001 /* GiftService.swift */; };
-		ADDRACT0001000100000002 /* AddressActivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADDRACT0001000100000001 /* AddressActivityService.swift */; };
-		CACHEMGR00010001000100000001 /* CacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACHEMGR00010001000000000001 /* CacheManager.swift */; };
 		GIFT00010001000100000002 /* GiftClaimView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000002 /* GiftClaimView.swift */; };
+		GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = GN0001A0000000000000001 /* GlobalNotificationCenter.swift */; };
 		GRCP00010001000100000001 /* GroupCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRCP00010001000000000001 /* GroupCipher.swift */; };
 		GRCS00010001000100000001 /* GroupChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRCS00010001000000000001 /* GroupChatService.swift */; };
 		GRDV00010001000100000001 /* GroupChatDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRDV00010001000000000001 /* GroupChatDetailView.swift */; };
@@ -132,21 +133,23 @@
 		GRPC00010001000100000018 /* p2p.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000008 /* p2p.pb.swift */; };
 		GRST00010001000100000001 /* GroupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRST00010001000000000001 /* GroupStore.swift */; };
 		IMGP00010001000100000001 /* ImagePrep.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGP00010001000000000001 /* ImagePrep.swift */; };
+		IMSW00010001000100000001 /* ImportSourceWalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMSW00010001000000000001 /* ImportSourceWalletView.swift */; };
 		KASPATYPES001 /* KaspaTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = KASPATYPES002 /* KaspaTypes.swift */; };
 		KFAS00010001000000000002 /* KaspaFiatAmountState.swift in Sources */ = {isa = PBXBuildFile; fileRef = KFAS00010001000000000001 /* KaspaFiatAmountState.swift */; };
 		KFPOLICY000100010001 /* KaspaFeePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = KFPOLICY000100010002 /* KaspaFeePolicy.swift */; };
 		KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNAV000100010000000001 /* KNSAvatarView.swift */; };
 		KNSPROB0000000000000001 /* KNSCreateProfileFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */; };
+		KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */; };
 		KP0002B0000000000000001 /* KaPostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0002A0000000000000001 /* KaPostsView.swift */; };
 		KP0009B0000000000000001 /* KaPostsSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0009A0000000000000001 /* KaPostsSearchView.swift */; };
-		F2B95C1D8A374E6BA07C4D95 /* MarkdownComposerField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D18E3F52B04C7D91FA6208 /* MarkdownComposerField.swift */; };
 		KPAPI001B000000000000001 /* KaPostsAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = KPAPI001A000000000000001 /* KaPostsAPIClient.swift */; };
 		L10N000300000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L10N000200000001 /* Localizable.strings */; };
 		LPRVB0000000000000001 /* LinkPreviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = LPRVA0000000000000001 /* LinkPreviewService.swift */; };
 		LPRVD0000000000000001 /* LinkPreviewCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LPRVC0000000000000001 /* LinkPreviewCardView.swift */; };
-		NC0002B0000000000000001 /* NextcloudPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NC0002A0000000000000001 /* NextcloudPickerView.swift */; };
 		MSGS00012F5C000100000002 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = MSGS00012F5C000100000001 /* MessageStore.swift */; };
 		MV0001B0000000000000001 /* MenuVisibilityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MV0001A0000000000000001 /* MenuVisibilityView.swift */; };
+		NC0001B0000000000000001 /* NextcloudService.swift in Sources */ = {isa = PBXBuildFile; fileRef = NC0001A0000000000000001 /* NextcloudService.swift */; };
+		NC0002B0000000000000001 /* NextcloudPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NC0002A0000000000000001 /* NextcloudPickerView.swift */; };
 		NODEPOOL000100010001 /* NodeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = NODEPOOL000100010002 /* NodeModels.swift */; };
 		NODEPOOL000100010003 /* NodeRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = NODEPOOL000100010004 /* NodeRegistry.swift */; };
 		NODEPOOL000100010005 /* NetworkEpochMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = NODEPOOL000100010006 /* NetworkEpochMonitor.swift */; };
@@ -162,16 +165,16 @@
 		PF0004B0000000000000001 /* PortfolioViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0004A0000000000000001 /* PortfolioViewModel.swift */; };
 		PF0005B0000000000000001 /* PortfolioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0005A0000000000000001 /* PortfolioView.swift */; };
 		PF0006B0000000000000001 /* PortfolioTransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0006A0000000000000001 /* PortfolioTransactionsView.swift */; };
-		C7A1F42E63B84D8195C0AE71 /* AddToPortfolioSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */; };
 		PF0008B0000000000000001 /* PortfolioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0008A0000000000000001 /* PortfolioManager.swift */; };
 		PF0009B0000000000000001 /* PortfolioPickerHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0009A0000000000000001 /* PortfolioPickerHeader.swift */; };
 		PF0010B0000000000000001 /* PortfolioAddressImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0010A0000000000000001 /* PortfolioAddressImporter.swift */; };
+		PPOL00010001000100000001 /* PaymentPoolStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPOL00010001000000000001 /* PaymentPoolStore.swift */; };
 		PQSS00010001000000000002 /* PhotoQualitySettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */; };
 		PUSH00010001000100000001 /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PUSH00010001000000000001 /* PushNotificationManager.swift */; };
 		PUSH00010001000100000002 /* SharedDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PUSH00010001000000000002 /* SharedDataManager.swift */; };
 		QRBV00010001000100000001 /* QuickReactionBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = QRBV00010001000000000001 /* QuickReactionBarView.swift */; };
-		ERPK00010001000100000001 /* EmojiReactionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = ERPK00010001000000000001 /* EmojiReactionPicker.swift */; };
 		RDSS00010001000100000001 /* ReadStatusSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = RDSS00010001000000000001 /* ReadStatusSyncManager.swift */; };
+		RS0001B0000000000000001 /* RevealableSecureField.swift in Sources */ = {isa = PBXBuildFile; fileRef = RS0001A0000000000000001 /* RevealableSecureField.swift */; };
 		RSTM00012F4C000100000002 /* Resolvers.toml in Resources */ = {isa = PBXBuildFile; fileRef = RSTM00012F4C000100000001 /* Resolvers.toml */; };
 		SA0001B0000000000000001 /* ManageAddressesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SA0001A0000000000000001 /* ManageAddressesView.swift */; };
 		SECV00010001000100000001 /* SecureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SECV00010001000000000001 /* SecureView.swift */; };
@@ -182,16 +185,14 @@
 		SHSH00010001000100000002 /* SharedOutboundShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHSH00010001000000000001 /* SharedOutboundShare.swift */; };
 		SPMGRPC000100010001 /* GRPC in Frameworks */ = {isa = PBXBuildFile; productRef = SPMGRPC000100010002 /* GRPC */; };
 		SPMP256K000100010001 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = SPMP256K000100010003 /* P256K */; };
-		SPMWEBRTC00010001001 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = SPMWEBRTC00010001003 /* WebRTC */; };
 		SPMP256K000100010002 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = SPMP256K000100010003 /* P256K */; };
 		SPMPB000100010001 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = SPMPB000100010002 /* SwiftProtobuf */; };
+		SPMWEBRTC00010001001 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = SPMWEBRTC00010001003 /* WebRTC */; };
 		SWAP001B0000000000000001 /* SwapModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP001A0000000000000001 /* SwapModels.swift */; };
 		SWAP002B0000000000000001 /* ChangeNowAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP002A0000000000000001 /* ChangeNowAPIClient.swift */; };
 		SWAP003B0000000000000001 /* SwapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP003A0000000000000001 /* SwapService.swift */; };
 		SWAP004B0000000000000001 /* SwapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP004A0000000000000001 /* SwapView.swift */; };
 		WLCM0000000000000001 /* WelcomeGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = WLCM0000000000000002 /* WelcomeGuideView.swift */; };
-		CHAD00010001000100000001 /* ChattingAddressPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAD00010001000000000001 /* ChattingAddressPickerView.swift */; };
-		IMSW00010001000100000001 /* ImportSourceWalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMSW00010001000000000001 /* ImportSourceWalletView.swift */; };
 		WMSA00010001000100000001 /* WalletManager+SpendingAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = WMSA00010001000000000001 /* WalletManager+SpendingAddresses.swift */; };
 /* End PBXBuildFile section */
 
@@ -209,6 +210,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 588DACDE3026E3D300D94B9B;
 			remoteInfo = KaChatWidgetsExtension;
+		};
+		588DB560305C77E500D94B9B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E80000062D4C000000000006 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 588DB558305C77E500D94B9B;
+			remoteInfo = KaChatIntents;
 		};
 		SHREXT000100010000000001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -228,6 +236,7 @@
 			files = (
 				588DACF53026E3D500D94B9B /* KaChatWidgetsExtension.appex in Embed Foundation Extensions */,
 				43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */,
+				588DB562305C77E500D94B9B /* KaChatIntents.appex in Embed Foundation Extensions */,
 				SHREXT000100010001000001 /* KaChatShareExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
@@ -253,44 +262,46 @@
 		588DACDF3026E3D300D94B9B /* KaChatWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		588DACE13026E3D300D94B9B /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		588DACE33026E3D300D94B9B /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		588DB559305C77E500D94B9B /* KaChatIntents.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatIntents.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		6A61ACF41FEA483D9EF0924F /* KNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSService.swift; sourceTree = "<group>"; };
-		E8100B902D4C00010000001C /* KaPostsDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsDraftStore.swift; sourceTree = "<group>"; };
-		B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaNetworkStatsService.swift; sourceTree = "<group>"; };
-		C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostTranslationService.swift; sourceTree = "<group>"; };
+		A6D18E3F52B04C7D91FA6208 /* MarkdownComposerField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownComposerField.swift; sourceTree = "<group>"; };
 		A91062000000000000000002 /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		A91062000000000000000010 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+		AB0001A0000000000000001 /* AppTabBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTabBadge.swift; sourceTree = "<group>"; };
+		ADAC00010001000000000001 /* AddressActivityNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressActivityNotifier.swift; sourceTree = "<group>"; };
+		ADDRACT0001000100000001 /* AddressActivityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressActivityService.swift; sourceTree = "<group>"; };
 		APLC00010000000000000BF2 /* AppLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLocalization.swift; sourceTree = "<group>"; };
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
+		B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaNetworkStatsService.swift; sourceTree = "<group>"; };
 		BCAR00010001000000000001 /* BroadcastAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastAudioRecording.swift; sourceTree = "<group>"; };
 		BCCV00010001000000000001 /* BroadcastChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastChannelView.swift; sourceTree = "<group>"; };
 		BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenBroadcastSendersView.swift; sourceTree = "<group>"; };
-		BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastRoomInfoView.swift; sourceTree = "<group>"; };
 		BCLV00010001000000000001 /* BroadcastListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastListView.swift; sourceTree = "<group>"; };
+		BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastRoomInfoView.swift; sourceTree = "<group>"; };
 		BCST00010001000000000001 /* BroadcastStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastStore.swift; sourceTree = "<group>"; };
 		BGTM00012E0100000001 /* BackgroundTaskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskManager.swift; sourceTree = "<group>"; };
 		BSVC00010001000000000001 /* BroadcastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastService.swift; sourceTree = "<group>"; };
+		C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostTranslationService.swift; sourceTree = "<group>"; };
+		CACHEMGR00010001000000000001 /* CacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManager.swift; sourceTree = "<group>"; };
+		CALL0001A000000000000001 /* NextcloudTalkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudTalkClient.swift; sourceTree = "<group>"; };
+		CALL0002A000000000000001 /* CallService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallService.swift; sourceTree = "<group>"; };
+		CALL0003A000000000000001 /* WebRTCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRTCClient.swift; sourceTree = "<group>"; };
+		CALL0004A000000000000001 /* CallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallView.swift; sourceTree = "<group>"; };
+		CALL0005A000000000000001 /* CallKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallKitManager.swift; sourceTree = "<group>"; };
+		CALL0006A000000000000001 /* VoIPPushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPPushManager.swift; sourceTree = "<group>"; };
 		CAMV0000000000000002 /* CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureView.swift; sourceTree = "<group>"; };
 		CFMT00010001000000000001 /* CurrencyFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrencyFormat.swift; sourceTree = "<group>"; };
 		CH0001A0000000000000001 /* ChessEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessEngine.swift; sourceTree = "<group>"; };
 		CH0002A0000000000000001 /* ChessGameService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameService.swift; sourceTree = "<group>"; };
+		CH0003A0000000000000001 /* ChessGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameView.swift; sourceTree = "<group>"; };
+		CHAD00010001000000000001 /* ChattingAddressPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChattingAddressPickerView.swift; sourceTree = "<group>"; };
 		CM0001A0000000000000001 /* ChildModeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildModeService.swift; sourceTree = "<group>"; };
 		CM0002A0000000000000001 /* ChildModeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildModeSettingsView.swift; sourceTree = "<group>"; };
-		CH0003A0000000000000001 /* ChessGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameView.swift; sourceTree = "<group>"; };
 		CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPhotoQualitySlider.swift; sourceTree = "<group>"; };
 		CPTV00010001000000000001 /* ComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerTextView.swift; sourceTree = "<group>"; };
 		CS0001A0000000000000001 /* Base58.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base58.swift; sourceTree = "<group>"; };
 		CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaExtendedPublicKey.swift; sourceTree = "<group>"; };
 		CS0003A0000000000000001 /* ColdStorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageManager.swift; sourceTree = "<group>"; };
-		NC0001A0000000000000001 /* NextcloudService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudService.swift; sourceTree = "<group>"; };
-		CALL0004A000000000000001 /* CallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallView.swift; sourceTree = "<group>"; };
-		CALL0003A000000000000001 /* WebRTCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRTCClient.swift; sourceTree = "<group>"; };
-		CALL0002A000000000000001 /* CallService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallService.swift; sourceTree = "<group>"; };
-		CALL0005A000000000000001 /* CallKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallKitManager.swift; sourceTree = "<group>"; };
-		CALL0006A000000000000001 /* VoIPPushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPPushManager.swift; sourceTree = "<group>"; };
-		CALL0001A000000000000001 /* NextcloudTalkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudTalkClient.swift; sourceTree = "<group>"; };
-		GN0001A0000000000000001 /* GlobalNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalNotificationCenter.swift; sourceTree = "<group>"; };
-		KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsNotificationCenter.swift; sourceTree = "<group>"; };
-		AB0001A0000000000000001 /* AppTabBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTabBadge.swift; sourceTree = "<group>"; };
 		CS0004A0000000000000001 /* ColdStorageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageView.swift; sourceTree = "<group>"; };
 		CS0006A0000000000000001 /* KsptCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KsptCodec.swift; sourceTree = "<group>"; };
 		CS0007A0000000000000001 /* QrFrameChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrFrameChunker.swift; sourceTree = "<group>"; };
@@ -305,9 +316,10 @@
 		CSEX00010001000000000006 /* ChatService+Decryption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Decryption.swift"; sourceTree = "<group>"; };
 		CSEX00010001000000000007 /* ChatService+Reactions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Reactions.swift"; sourceTree = "<group>"; };
 		CSEX00010001000000000008 /* ChatService+PaymentPools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+PaymentPools.swift"; sourceTree = "<group>"; };
-		PPOL00010001000000000001 /* PaymentPoolStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentPoolStore.swift; sourceTree = "<group>"; };
-		ADAC00010001000000000001 /* AddressActivityNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressActivityNotifier.swift; sourceTree = "<group>"; };
+		D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToPortfolioSheet.swift; sourceTree = "<group>"; };
+		D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EcosystemView.swift; sourceTree = "<group>"; };
 		DA0001A0000000000000001 /* DeviceAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceAuth.swift; sourceTree = "<group>"; };
+		DECI00010001000000000001 /* DecimalInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecimalInput.swift; sourceTree = "<group>"; };
 		DTAL00010001000000000001 /* DeterministicAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicAlias.swift; sourceTree = "<group>"; };
 		E1C74B28306D4A9FB8E25D13 /* KaPostsMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsMarkdown.swift; sourceTree = "<group>"; };
 		E80000002D4C000000000000 /* KaChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KaChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -328,35 +340,33 @@
 		E810001C2D4C00010000000F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		E81000202D4C000100000011 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		E81000222D4C000100000012 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
-		D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EcosystemView.swift; sourceTree = "<group>"; };
 		E81000282D4C000100000015 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
 		E810002E2D4C000100000018 /* CryptoUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoUtils.swift; sourceTree = "<group>"; };
 		E81000322D4C00010000001A /* AddContactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddContactView.swift; sourceTree = "<group>"; };
 		E81000342D4C00010000001B /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
 		E81000362D4C00010000001C /* Bech32.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bech32.swift; sourceTree = "<group>"; };
-		E8100A902D4C00010000001C /* CoreDataIndexBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreDataIndexBuilder.swift; sourceTree = "<group>"; };
 		E81000382D4C00010000001D /* BIP39.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BIP39.swift; sourceTree = "<group>"; };
 		E810003A2D4C00010000001E /* KaChatCipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatCipher.swift; sourceTree = "<group>"; };
+		E8100A902D4C00010000001C /* CoreDataIndexBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreDataIndexBuilder.swift; sourceTree = "<group>"; };
+		E8100B902D4C00010000001C /* KaPostsDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsDraftStore.swift; sourceTree = "<group>"; };
 		E810FA112D4C00010000000B /* PassphraseOptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassphraseOptionView.swift; sourceTree = "<group>"; };
 		E810FB112D4C00010000000B /* SeedPhraseKeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedPhraseKeyboardView.swift; sourceTree = "<group>"; };
 		E83000022D4C000200000007 /* OpusBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpusBridge.h; sourceTree = "<group>"; };
 		E83000032D4C000200000008 /* OpusBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = OpusBridge.m; sourceTree = "<group>"; };
 		E83000042D4C000200000009 /* KaChat-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "KaChat-Bridging-Header.h"; sourceTree = "<group>"; };
 		E8F100112D4C0001000000FF /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
-		E8F1AC700001000000000001 /* ActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionSheet.swift; sourceTree = "<group>"; };
-		DECI00010001000000000001 /* DecimalInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecimalInput.swift; sourceTree = "<group>"; };
-		RS0001A0000000000000001 /* RevealableSecureField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealableSecureField.swift; sourceTree = "<group>"; };
 		E8F100142D4C0001000001FF /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E8F1A0042F4B000100000004 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = external/opus/Opus.xcframework; sourceTree = "<group>"; };
+		E8F1AC700001000000000001 /* ActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionSheet.swift; sourceTree = "<group>"; };
 		ENGL00012F70000100000001 /* english.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = english.txt; sourceTree = "<group>"; };
+		ERPK00010001000000000001 /* EmojiReactionPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiReactionPicker.swift; sourceTree = "<group>"; };
 		FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatTransactionBuilder.swift; sourceTree = "<group>"; };
 		FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeeShimmerOverlay.swift; sourceTree = "<group>"; };
 		GEOIP00012F90000100000001 /* geoip-lite.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "geoip-lite.json"; sourceTree = "<group>"; };
 		GIFT00010001000000000001 /* GiftService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftService.swift; sourceTree = "<group>"; };
-		ADDRACT0001000100000001 /* AddressActivityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressActivityService.swift; sourceTree = "<group>"; };
-		CACHEMGR00010001000000000001 /* CacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManager.swift; sourceTree = "<group>"; };
 		GIFT00010001000000000002 /* GiftClaimView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftClaimView.swift; sourceTree = "<group>"; };
+		GN0001A0000000000000001 /* GlobalNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalNotificationCenter.swift; sourceTree = "<group>"; };
 		GRCP00010001000000000001 /* GroupCipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCipher.swift; sourceTree = "<group>"; };
 		GRCS00010001000000000001 /* GroupChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatService.swift; sourceTree = "<group>"; };
 		GRDV00010001000000000001 /* GroupChatDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatDetailView.swift; sourceTree = "<group>"; };
@@ -366,14 +376,15 @@
 		GRPC00010001000100000008 /* p2p.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = p2p.pb.swift; sourceTree = "<group>"; };
 		GRST00010001000000000001 /* GroupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupStore.swift; sourceTree = "<group>"; };
 		IMGP00010001000000000001 /* ImagePrep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePrep.swift; sourceTree = "<group>"; };
+		IMSW00010001000000000001 /* ImportSourceWalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportSourceWalletView.swift; sourceTree = "<group>"; };
 		KASPATYPES002 /* KaspaTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaTypes.swift; sourceTree = "<group>"; };
 		KFAS00010001000000000001 /* KaspaFiatAmountState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaFiatAmountState.swift; sourceTree = "<group>"; };
 		KFPOLICY000100010002 /* KaspaFeePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaFeePolicy.swift; sourceTree = "<group>"; };
 		KNAV000100010000000001 /* KNSAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSAvatarView.swift; sourceTree = "<group>"; };
 		KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSCreateProfileFlowView.swift; sourceTree = "<group>"; };
+		KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsNotificationCenter.swift; sourceTree = "<group>"; };
 		KP0002A0000000000000001 /* KaPostsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsView.swift; sourceTree = "<group>"; };
 		KP0009A0000000000000001 /* KaPostsSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsSearchView.swift; sourceTree = "<group>"; };
-		A6D18E3F52B04C7D91FA6208 /* MarkdownComposerField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownComposerField.swift; sourceTree = "<group>"; };
 		KPAPI001A000000000000001 /* KaPostsAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsAPIClient.swift; sourceTree = "<group>"; };
 		L10N000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000002 /* ar-EG */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "ar-EG"; path = "ar-EG.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -385,7 +396,6 @@
 		L10N000100000008 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000009 /* he */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = he; path = he.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N00010000000A /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/Localizable.strings; sourceTree = "<group>"; };
-		L10N000100000013 /* id */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = id; path = id.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N00010000000B /* it */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = it; path = it.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N00010000000C /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N00010000000D /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -394,11 +404,13 @@
 		L10N000100000010 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000011 /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = vi.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000012 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		L10N000100000013 /* id */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = id; path = id.lproj/Localizable.strings; sourceTree = "<group>"; };
 		LPRVA0000000000000001 /* LinkPreviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkPreviewService.swift; sourceTree = "<group>"; };
 		LPRVC0000000000000001 /* LinkPreviewCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkPreviewCardView.swift; sourceTree = "<group>"; };
-		NC0002A0000000000000001 /* NextcloudPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudPickerView.swift; sourceTree = "<group>"; };
 		MSGS00012F5C000100000001 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
 		MV0001A0000000000000001 /* MenuVisibilityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuVisibilityView.swift; sourceTree = "<group>"; };
+		NC0001A0000000000000001 /* NextcloudService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudService.swift; sourceTree = "<group>"; };
+		NC0002A0000000000000001 /* NextcloudPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudPickerView.swift; sourceTree = "<group>"; };
 		NODEPOOL000100010002 /* NodeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeModels.swift; sourceTree = "<group>"; };
 		NODEPOOL000100010004 /* NodeRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeRegistry.swift; sourceTree = "<group>"; };
 		NODEPOOL000100010006 /* NetworkEpochMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkEpochMonitor.swift; sourceTree = "<group>"; };
@@ -414,16 +426,16 @@
 		PF0004A0000000000000001 /* PortfolioViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioViewModel.swift; sourceTree = "<group>"; };
 		PF0005A0000000000000001 /* PortfolioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioView.swift; sourceTree = "<group>"; };
 		PF0006A0000000000000001 /* PortfolioTransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioTransactionsView.swift; sourceTree = "<group>"; };
-		D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToPortfolioSheet.swift; sourceTree = "<group>"; };
 		PF0008A0000000000000001 /* PortfolioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioManager.swift; sourceTree = "<group>"; };
 		PF0009A0000000000000001 /* PortfolioPickerHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioPickerHeader.swift; sourceTree = "<group>"; };
 		PF0010A0000000000000001 /* PortfolioAddressImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioAddressImporter.swift; sourceTree = "<group>"; };
+		PPOL00010001000000000001 /* PaymentPoolStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentPoolStore.swift; sourceTree = "<group>"; };
 		PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoQualitySettingsSheet.swift; sourceTree = "<group>"; };
 		PUSH00010001000000000001 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
 		PUSH00010001000000000002 /* SharedDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDataManager.swift; sourceTree = "<group>"; };
 		QRBV00010001000000000001 /* QuickReactionBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickReactionBarView.swift; sourceTree = "<group>"; };
-		ERPK00010001000000000001 /* EmojiReactionPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiReactionPicker.swift; sourceTree = "<group>"; };
 		RDSS00010001000000000001 /* ReadStatusSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadStatusSyncManager.swift; sourceTree = "<group>"; };
+		RS0001A0000000000000001 /* RevealableSecureField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealableSecureField.swift; sourceTree = "<group>"; };
 		RSTM00012F4C000100000001 /* Resolvers.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = Resolvers.toml; sourceTree = "<group>"; };
 		SA0001A0000000000000001 /* ManageAddressesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManageAddressesView.swift; sourceTree = "<group>"; };
 		SECV00010001000000000001 /* SecureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureView.swift; sourceTree = "<group>"; };
@@ -436,8 +448,6 @@
 		SWAP003A0000000000000001 /* SwapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwapService.swift; sourceTree = "<group>"; };
 		SWAP004A0000000000000001 /* SwapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwapView.swift; sourceTree = "<group>"; };
 		WLCM0000000000000002 /* WelcomeGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeGuideView.swift; sourceTree = "<group>"; };
-		CHAD00010001000000000001 /* ChattingAddressPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChattingAddressPickerView.swift; sourceTree = "<group>"; };
-		IMSW00010001000000000001 /* ImportSourceWalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportSourceWalletView.swift; sourceTree = "<group>"; };
 		WMSA00010001000000000001 /* WalletManager+SpendingAddresses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WalletManager+SpendingAddresses.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -456,6 +466,13 @@
 			);
 			target = 588DACDE3026E3D300D94B9B /* KaChatWidgetsExtension */;
 		};
+		588DB566305C77E500D94B9B /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 588DB558305C77E500D94B9B /* KaChatIntents */;
+		};
 		SHREXT000100010000000005 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -468,6 +485,7 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		43BBF3472F15A52900B42BDA /* KaChatNotificationService */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (43BBF3512F15A52900B42BDA /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = KaChatNotificationService; sourceTree = "<group>"; };
 		588DACE53026E3D300D94B9B /* KaChatWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (588DACF83026E3D500D94B9B /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = KaChatWidgets; sourceTree = "<group>"; };
+		588DB55A305C77E500D94B9B /* KaChatIntents */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (588DB566305C77E500D94B9B /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = KaChatIntents; sourceTree = "<group>"; };
 		SHREXT000100010000000004 /* KaChatShareExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (SHREXT000100010000000005 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = KaChatShareExtension; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
@@ -486,6 +504,13 @@
 			files = (
 				588DACE43026E3D300D94B9B /* SwiftUI.framework in Frameworks */,
 				588DACE23026E3D300D94B9B /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		588DB556305C77E500D94B9B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -536,6 +561,7 @@
 				SHREXT000100010000000004 /* KaChatShareExtension */,
 				E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */,
 				588DACE53026E3D300D94B9B /* KaChatWidgets */,
+				588DB55A305C77E500D94B9B /* KaChatIntents */,
 				588DACE03026E3D300D94B9B /* Frameworks */,
 				E80000022D4C000000000002 /* Products */,
 			);
@@ -548,6 +574,7 @@
 				43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */,
 				SHREXT000100010000000002 /* KaChatShareExtension.appex */,
 				588DACDF3026E3D300D94B9B /* KaChatWidgetsExtension.appex */,
+				588DB559305C77E500D94B9B /* KaChatIntents.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -824,6 +851,14 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		ECO0001G0000000000000001 /* Ecosystem */ = {
+			isa = PBXGroup;
+			children = (
+				D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */,
+			);
+			path = Ecosystem;
+			sourceTree = "<group>";
+		};
 		GRPC00010001000100000020 /* Generated */ = {
 			isa = PBXGroup;
 			children = (
@@ -879,14 +914,6 @@
 				SHRT000100010000000002 /* KaChatShortcuts.swift */,
 			);
 			path = Shortcuts;
-			sourceTree = "<group>";
-		};
-		ECO0001G0000000000000001 /* Ecosystem */ = {
-			isa = PBXGroup;
-			children = (
-				D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */,
-			);
-			path = Ecosystem;
 			sourceTree = "<group>";
 		};
 		SWAP005G0000000000000001 /* Swap */ = {
@@ -945,6 +972,28 @@
 			productReference = 588DACDF3026E3D300D94B9B /* KaChatWidgetsExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		588DB558305C77E500D94B9B /* KaChatIntents */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 588DB567305C77E500D94B9B /* Build configuration list for PBXNativeTarget "KaChatIntents" */;
+			buildPhases = (
+				588DB555305C77E500D94B9B /* Sources */,
+				588DB556305C77E500D94B9B /* Frameworks */,
+				588DB557305C77E500D94B9B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				588DB55A305C77E500D94B9B /* KaChatIntents */,
+			);
+			name = KaChatIntents;
+			packageProductDependencies = (
+			);
+			productName = KaChatIntents;
+			productReference = 588DB559305C77E500D94B9B /* KaChatIntents.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		E80000032D4C000000000003 /* KaChat */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E80000082D4C000000000008 /* Build configuration list for PBXNativeTarget "KaChat" */;
@@ -960,6 +1009,7 @@
 				43BBF34C2F15A52900B42BDA /* PBXTargetDependency */,
 				SHREXT000100010000000003 /* PBXTargetDependency */,
 				588DACF43026E3D500D94B9B /* PBXTargetDependency */,
+				588DB561305C77E500D94B9B /* PBXTargetDependency */,
 			);
 			name = KaChat;
 			packageProductDependencies = (
@@ -1006,6 +1056,9 @@
 						CreatedOnToolsVersion = 26.2;
 					};
 					588DACDE3026E3D300D94B9B = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					588DB558305C77E500D94B9B = {
 						CreatedOnToolsVersion = 26.6;
 					};
 					E80000032D4C000000000003 = {
@@ -1057,6 +1110,7 @@
 				43BBF3452F15A52900B42BDA /* KaChatNotificationService */,
 				SHREXT000100010000000006 /* KaChatShareExtension */,
 				588DACDE3026E3D300D94B9B /* KaChatWidgetsExtension */,
+				588DB558305C77E500D94B9B /* KaChatIntents */,
 			);
 		};
 /* End PBXProject section */
@@ -1070,6 +1124,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		588DACDD3026E3D300D94B9B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		588DB557305C77E500D94B9B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -1106,6 +1167,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		588DACDB3026E3D300D94B9B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		588DB555305C77E500D94B9B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -1306,11 +1374,14 @@
 		};
 		588DACF43026E3D500D94B9B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			platformFilters = (
-				ios,
-			);
+			platformFilter = ios;
 			target = 588DACDE3026E3D300D94B9B /* KaChatWidgetsExtension */;
 			targetProxy = 588DACF33026E3D500D94B9B /* PBXContainerItemProxy */;
+		};
+		588DB561305C77E500D94B9B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 588DB558305C77E500D94B9B /* KaChatIntents */;
+			targetProxy = 588DB560305C77E500D94B9B /* PBXContainerItemProxy */;
 		};
 		SHREXT000100010000000003 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1475,6 +1546,76 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		588DB564305C77E500D94B9B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A91062000000000000000010 /* Version.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = KaChatIntents/KaChatIntents.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "KaChatIntents/KaChatIntents-mac.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = RP4Z22SFSD;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = KaChatIntents/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = KaChatIntents;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 KaChat. All rights reserved.";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatIntents;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		588DB565305C77E500D94B9B /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A91062000000000000000010 /* Version.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = KaChatIntents/KaChatIntents.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "KaChatIntents/KaChatIntents-mac.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = RP4Z22SFSD;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = KaChatIntents/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = KaChatIntents;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 KaChat. All rights reserved.";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatIntents;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1794,6 +1935,15 @@
 			buildConfigurations = (
 				588DACF63026E3D500D94B9B /* Debug */,
 				588DACF73026E3D500D94B9B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		588DB567305C77E500D94B9B /* Build configuration list for PBXNativeTarget "KaChatIntents" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				588DB564305C77E500D94B9B /* Debug */,
+				588DB565305C77E500D94B9B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
