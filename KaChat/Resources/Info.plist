@@ -84,6 +84,11 @@
 		<string>audio</string>
 		<string>fetch</string>
 		<string>remote-notification</string>
+		<string>voip</string>
+	</array>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INStartCallIntent</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

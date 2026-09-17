@@ -1,5 +1,7 @@
 import Foundation
 import AudioToolbox
+import CallKit
+import Intents
 import UIKit
 import WebRTC
 
@@ -37,6 +39,9 @@ final class CallService: ObservableObject {
     /// one and `CallService` owns its lifetime.
     final class ActiveCall: ObservableObject, Identifiable {
         let id: String
+        /// The same call under CallKit's name. Derived from `id` (a UUID string on both
+        /// phones) so a VoIP push and the chain message for one call agree on it.
+        let uuid: UUID
         let contact: Contact
         let isOutgoing: Bool
         /// The Talk server and room. Unknown (nil / empty) while a call we asked the contact
@@ -75,9 +80,13 @@ final class CallService: ObservableObject {
         /// `call_end` is only ever sent by the side that initiated the call, and only after
         /// its opening message did - so a call that failed before ringing costs nothing.
         var openingMessageSent = false
+        /// The user ended this call from the system call UI (or its in-app twin routed through
+        /// CallKit): the end action is CallKit's own report, so `finish` must not report again.
+        var endedByCallKit = false
 
         init(id: String, contact: Contact, isOutgoing: Bool, server: URL?, token: String, video: Bool, phase: Phase, hostsThisCall: Bool) {
             self.id = id
+            self.uuid = UUID(uuidString: id) ?? UUID()
             self.contact = contact
             self.isOutgoing = isOutgoing
             self.server = server
@@ -157,11 +166,15 @@ final class CallService: ObservableObject {
             session = call
             markHandled(callId)
             UIApplication.shared.isIdleTimerDisabled = true
+            registerOutgoingWithCallKit(call)
             Task { [weak self] in
                 guard let self else { return }
                 do {
-                    try await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(CallRequestContent(callId: callId, video: video)))
+                    let request = CallCodec.encode(CallRequestContent(callId: callId, video: video))
+                    try await ChatService.shared.sendMessage(to: contact, content: request)
                     call.openingMessageSent = true
+                    CallKitManager.shared.reportOutgoingConnecting(uuid: call.uuid)
+                    self.requestRing(for: call, content: request, kind: "request")
                 } catch {
                     self.lastError = error.localizedDescription
                     await self.finish(reason: "failed")
@@ -179,6 +192,7 @@ final class CallService: ObservableObject {
         let call = ActiveCall(id: callId, contact: contact, isOutgoing: true, server: server, token: "", video: video, phase: .ringingOut, hostsThisCall: true)
         session = call
         UIApplication.shared.isIdleTimerDisabled = true
+        registerOutgoingWithCallKit(call)
 
         Task { [weak self] in
             guard let self else { return }
@@ -188,17 +202,17 @@ final class CallService: ObservableObject {
                 let name = ContactsManager.shared.displayName(for: contact)
                 let token = try await client.createPublicConversation(named: "KaChat call with \(name)")
                 guard self.session === call else { await client.deleteConversation(token: token); return }
-                let live = ActiveCall(id: call.id, contact: contact, isOutgoing: true, server: server, token: token, video: video, phase: .ringingOut, hostsThisCall: true)
-                live.client = client
-                self.session = live
-                try await self.joinAndSignal(call: live)
-                self.markHandled(live.id)
-                let invite = CallInviteContent(callId: live.id, server: server.absoluteString, token: token, video: video)
-                try await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(invite))
-                live.openingMessageSent = true
-                live.timeoutTask = Task { [weak self] in
+                call.token = token
+                try await self.joinAndSignal(call: call)
+                self.markHandled(call.id)
+                let invite = CallCodec.encode(CallInviteContent(callId: call.id, server: server.absoluteString, token: token, video: video))
+                try await ChatService.shared.sendMessage(to: contact, content: invite)
+                call.openingMessageSent = true
+                CallKitManager.shared.reportOutgoingConnecting(uuid: call.uuid)
+                self.requestRing(for: call, content: invite, kind: "invite")
+                call.timeoutTask = Task { [weak self] in
                     try? await Task.sleep(nanoseconds: UInt64(self?.ringTimeout ?? 35) * 1_000_000_000)
-                    guard let self, let current = self.session, current === live, current.phase == .ringingOut else { return }
+                    guard let self, let current = self.session, current === call, current.phase == .ringingOut else { return }
                     await self.finish(reason: "no_answer")
                 }
             } catch {
@@ -222,7 +236,7 @@ final class CallService: ObservableObject {
             guard !handledCallIds.contains(request.callId) else { return }
             guard let contact = ContactsManager.shared.getContact(byAddress: contactAddress) else { return }
             guard contact.callsEnabled == true, age < inviteFreshness else { return }
-            guard canHost, let account = NextcloudService.shared.account, let server = account.serverURL else {
+            guard canHost else {
                 // Neither side can host. Nothing goes on chain from this side - the caller is
                 // the only one who pays for a call - so the requester's ring-out is what tells
                 // them one of the two needs Nextcloud Talk.
@@ -234,36 +248,18 @@ final class CallService: ObservableObject {
                 return
             }
             markHandled(request.callId)
-            let call = ActiveCall(id: request.callId, contact: contact, isOutgoing: false, server: server, token: "", video: request.video, phase: .ringingIn, hostsThisCall: true)
-            session = call
-            UIApplication.shared.isIdleTimerDisabled = true
-            startRinging(call)
-            call.timeoutTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(self?.incomingRingTimeout ?? 30) * 1_000_000_000)
-                guard let self, let current = self.session, current === call, current.phase == .ringingIn else { return }
-                await self.finish(reason: "missed")
-            }
-            // Open the room now so the requester can already be waiting in it as a guest when
-            // we accept; we join the call itself on accept.
-            Task { [weak self] in
-                guard let self else { return }
-                let client = NextcloudTalkClient(server: server, auth: .basic(username: account.username, appPassword: account.appPassword))
-                call.client = client
-                do {
-                    let name = ContactsManager.shared.displayName(for: contact)
-                    let token = try await client.createPublicConversation(named: "KaChat call with \(name)")
-                    guard self.session === call else { await client.deleteConversation(token: token); return }
-                    call.token = token
-                    let invite = CallInviteContent(callId: call.id, server: server.absoluteString, token: token, video: call.video, viaRequest: true)
-                    try await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(invite))
-                } catch {
-                    AppLog.log("[Call] Hosting a requested call failed: %@", error.localizedDescription)
-                    self.lastError = error.localizedDescription
-                    await self.finish(reason: "failed")
-                }
-            }
+            _ = hostRequestedCall(id: request.callId, contact: contact, video: request.video)
         case .invite(let invite):
             guard let server = URL(string: invite.server), server.scheme?.lowercased() == "https" else { return }
+            // A call already ringing off its VoIP push alone (the push could not be decrypted
+            // on a locked phone): this is the same invite, now with the room in it. Fill it in;
+            // if the user has already answered, `performAccept` is waiting for exactly this.
+            if let current = session, !current.isOutgoing, !current.hostsThisCall, current.id == invite.callId, current.token.isEmpty {
+                current.server = server
+                current.token = invite.token
+                current.video = invite.video
+                return
+            }
             // The contact hosting the call WE asked for: this invite is the answer to our
             // request, so join it straight away as a guest - their phone is the one ringing.
             if let current = session, current.isOutgoing, !current.hostsThisCall, current.id == invite.callId, current.phase == .ringingOut {
@@ -298,14 +294,7 @@ final class CallService: ObservableObject {
             }
             markHandled(invite.callId)
             let call = ActiveCall(id: invite.callId, contact: contact, isOutgoing: false, server: server, token: invite.token, video: invite.video, phase: .ringingIn, hostsThisCall: false)
-            session = call
-            UIApplication.shared.isIdleTimerDisabled = true
-            startRinging(call)
-            call.timeoutTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(self?.incomingRingTimeout ?? 30) * 1_000_000_000)
-                guard let self, let current = self.session, current === call, current.phase == .ringingIn else { return }
-                await self.finish(reason: "missed")
-            }
+            ringIncoming(call)
         case .response(let response):
             // A response or an end for a call this device is not on means that call is over;
             // remember it so its invite, should it arrive later in the same batch, stays quiet.
@@ -324,28 +313,75 @@ final class CallService: ObservableObject {
         }
     }
 
+    // The in-app Answer / Decline / Hang up / Mute buttons go through CallKit when it holds
+    // the call, so the system's call UI (lock screen, Dynamic Island, Recents) stays in step;
+    // CallKit then calls back into the `perform*` methods below, which are also what its own
+    // UI drives. When CallKit is not in on the call, the buttons perform the change directly.
+
     func acceptIncoming() {
+        guard let call = session, call.phase == .ringingIn else { return }
+        guard CallKitManager.shared.isKnown(call.uuid) else { performAccept(); return }
+        CallKitManager.shared.requestAnswer(uuid: call.uuid) { [weak self] accepted in
+            guard !accepted else { return }
+            Task { @MainActor in self?.performAccept() }
+        }
+    }
+
+    func declineIncoming() {
+        guard let call = session, call.phase == .ringingIn else { return }
+        guard CallKitManager.shared.isKnown(call.uuid) else { Task { await performDecline() }; return }
+        CallKitManager.shared.requestEnd(uuid: call.uuid) { [weak self] accepted in
+            guard !accepted else { return }
+            Task { @MainActor in await self?.performDecline() }
+        }
+    }
+
+    func hangUp() {
+        guard let call = session else { return }
+        if case .ended = call.phase { return }
+        guard CallKitManager.shared.isKnown(call.uuid) else { Task { await performEnd(reason: nil) }; return }
+        CallKitManager.shared.requestEnd(uuid: call.uuid) { [weak self] accepted in
+            guard !accepted else { return }
+            Task { @MainActor in await self?.performEnd(reason: nil) }
+        }
+    }
+
+    /// Answers the ringing call. Entered from CallKit's answer action, or directly when
+    /// CallKit is not holding the call.
+    func performAccept() {
         guard let call = session, call.phase == .ringingIn else { return }
         stopRinging(call)
         call.timeoutTask?.cancel()
         call.phase = .connecting
+        donateCallInteraction(call)
         Task { [weak self] in
             guard let self else { return }
+            // The room may still be on its way: a call we host opens it while ringing, and a
+            // call rung off its VoIP push alone learns the room from the chain message. Give
+            // it a moment, and nudge the fetch for that chat so the message lands sooner.
+            if call.token.isEmpty, !call.hostsThisCall {
+                Task { await ChatService.shared.fetchNewMessages(forActiveOnly: call.contact.address) }
+            }
+            var waited = 0
+            while call.token.isEmpty, waited < 150, self.session === call {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                waited += 1
+            }
+            guard self.session === call, !call.token.isEmpty else {
+                await self.finish(reason: "failed")
+                return
+            }
             if call.hostsThisCall {
-                // A call the contact asked us to host: the room was opened when it rang; the
-                // owning client is already on the call. Wait for the room if the invite is
-                // still on its way out.
-                var waited = 0
-                while call.token.isEmpty, waited < 100, self.session === call {
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                    waited += 1
-                }
-                guard self.session === call, !call.token.isEmpty, call.client != nil else {
+                // The owning client opened the room and is already on the call.
+                guard call.client != nil else {
                     await self.finish(reason: "failed")
                     return
                 }
             } else {
-                guard let server = call.server else { return }
+                guard let server = call.server else {
+                    await self.finish(reason: "failed")
+                    return
+                }
                 call.client = NextcloudTalkClient(server: server, auth: .guest)
             }
             do {
@@ -358,7 +394,33 @@ final class CallService: ObservableObject {
         }
     }
 
-    func declineIncoming() {
+    /// Ends whatever the call is doing: a ringing incoming call is declined, a ringing
+    /// outgoing one cancelled, a live one hung up. `reason` overrides that wording (CallKit
+    /// resetting mid-call reports "failed").
+    func performEnd(reason: String?) async {
+        guard let call = session else { return }
+        if case .ended = call.phase { return }
+        if let reason {
+            await finish(reason: reason)
+            return
+        }
+        switch call.phase {
+        case .ringingIn:
+            await performDecline()
+        case .ringingOut:
+            await finish(reason: "cancelled")
+        default:
+            await finish(reason: "hangup")
+        }
+    }
+
+    func performSetMuted(_ muted: Bool) {
+        guard let call = session else { return }
+        call.isMuted = muted
+        call.webrtc?.setMuted(muted)
+    }
+
+    private func performDecline() async {
         guard let call = session, call.phase == .ringingIn else { return }
         stopRinging(call)
         if !call.hostsThisCall, let server = call.server, !call.token.isEmpty {
@@ -382,13 +444,7 @@ final class CallService: ObservableObject {
         }
         // A hosted request we are declining: `finish` deletes the room, and the requester
         // waiting in it reads the 404 as the decline.
-        Task { await finish(reason: "declined") }
-    }
-
-    func hangUp() {
-        guard let call = session else { return }
-        if case .ended = call.phase { return }
-        Task { await finish(reason: call.isOutgoing && call.phase == .ringingOut ? "cancelled" : "hangup") }
+        await finish(reason: "declined")
     }
 
     /// Clears an ended call off the screen.
@@ -402,8 +458,12 @@ final class CallService: ObservableObject {
 
     func toggleMute() {
         guard let call = session else { return }
-        call.isMuted.toggle()
-        call.webrtc?.setMuted(call.isMuted)
+        let muted = !call.isMuted
+        guard CallKitManager.shared.isKnown(call.uuid) else { performSetMuted(muted); return }
+        CallKitManager.shared.requestMute(uuid: call.uuid, muted: muted) { [weak self] accepted in
+            guard !accepted else { return }
+            Task { @MainActor in self?.performSetMuted(muted) }
+        }
     }
 
     func toggleSpeaker() {
@@ -446,6 +506,9 @@ final class CallService: ObservableObject {
         try await client.joinCall(token: call.token, video: call.video)
 
         let webrtc = WebRTCClient(iceServers: settings.iceServers, video: call.video)
+        // With CallKit on the call, iOS activates the audio session itself (see
+        // `CallKitManager.provider(_:didActivate:)`); WebRTC must not.
+        webrtc.audioManagedByCallKit = CallKitManager.shared.isKnown(call.uuid)
         call.webrtc = webrtc
         call.localVideoTrack = webrtc.localVideoTrack
         webrtc.onLocalCandidate = { [weak self, weak call] candidate in
@@ -465,7 +528,10 @@ final class CallService: ObservableObject {
             guard let self, let call else { return }
             switch state {
             case .connected, .completed:
-                if call.connectedAt == nil { call.connectedAt = Date() }
+                if call.connectedAt == nil {
+                    call.connectedAt = Date()
+                    if call.isOutgoing { CallKitManager.shared.reportOutgoingConnected(uuid: call.uuid) }
+                }
                 call.phase = .connected
                 call.statusDetail = nil
             case .disconnected:
@@ -646,6 +712,9 @@ final class CallService: ObservableObject {
         let duration = call.connectedAt.map { Int(Date().timeIntervalSince($0)) }
         call.phase = .ended(reason)
         UIApplication.shared.isIdleTimerDisabled = false
+        if !call.endedByCallKit {
+            CallKitManager.shared.reportEnded(uuid: call.uuid, reason: Self.callKitReason(for: reason))
+        }
 
         // The caller is the only side that ever puts a call on chain: one opening message
         // (invite or request) and one closing message with how it went and, if it connected,
@@ -668,6 +737,215 @@ final class CallService: ObservableObject {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard let self, let current = self.session, current === call else { return }
             self.session = nil
+        }
+    }
+
+    // MARK: - CallKit, VoIP push, Contacts
+
+    /// Puts an incoming call on screen and rings it - through CallKit when it will take it
+    /// (the phone's own incoming-call UI, lock screen included), inside the app otherwise.
+    private func ringIncoming(_ call: ActiveCall) {
+        session = call
+        UIApplication.shared.isIdleTimerDisabled = true
+        call.timeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(self?.incomingRingTimeout ?? 30) * 1_000_000_000)
+            guard let self, let current = self.session, current === call, current.phase == .ringingIn else { return }
+            await self.finish(reason: "missed")
+        }
+        let name = ContactsManager.shared.displayName(for: call.contact)
+        CallKitManager.shared.reportIncoming(uuid: call.uuid, displayName: name, handle: call.contact.address, video: call.video) { [weak self, weak call] error in
+            Task { @MainActor in
+                guard let self, let call, self.session === call, call.phase == .ringingIn else { return }
+                guard error != nil else { return }
+                // CallKit will not show it (Do Not Disturb, a region without CallKit, ...):
+                // ring in-app if the user is looking, otherwise it is a missed call.
+                if UIApplication.shared.applicationState == .active {
+                    self.startRinging(call)
+                } else {
+                    await self.finish(reason: "missed")
+                }
+            }
+        }
+    }
+
+    /// Hosts a call the contact asked for: rings, and opens the room meanwhile so the
+    /// requester can be waiting in it as a guest by the time we accept. Returns false when
+    /// this device cannot host.
+    @discardableResult
+    private func hostRequestedCall(id callId: String, contact: Contact, video: Bool) -> Bool {
+        guard canHost, let account = NextcloudService.shared.account, let server = account.serverURL else { return false }
+        let call = ActiveCall(id: callId, contact: contact, isOutgoing: false, server: server, token: "", video: video, phase: .ringingIn, hostsThisCall: true)
+        ringIncoming(call)
+        Task { [weak self] in
+            guard let self else { return }
+            let client = NextcloudTalkClient(server: server, auth: .basic(username: account.username, appPassword: account.appPassword))
+            call.client = client
+            do {
+                let name = ContactsManager.shared.displayName(for: contact)
+                let token = try await client.createPublicConversation(named: "KaChat call with \(name)")
+                guard self.session === call else { await client.deleteConversation(token: token); return }
+                call.token = token
+                let invite = CallInviteContent(callId: call.id, server: server.absoluteString, token: token, video: call.video, viaRequest: true)
+                try await ChatService.shared.sendMessage(to: contact, content: CallCodec.encode(invite))
+            } catch {
+                AppLog.log("[Call] Hosting a requested call failed: %@", error.localizedDescription)
+                self.lastError = error.localizedDescription
+                await self.finish(reason: "failed")
+            }
+        }
+        return true
+    }
+
+    /// A VoIP push from the push service: the caller's phone asked it to ring this device the
+    /// moment its opening message went on chain. Every push MUST become a CallKit call before
+    /// this returns (iOS stops delivering VoIP pushes to an app that swallows one), so a push
+    /// that should not ring is reported and ended on the spot.
+    ///
+    /// Fields: `call_id`, `sender` (the caller's address, vouched for by the signed ring
+    /// request), `video`, `kind` ("invite" | "request"), `timestamp` (ms), and `payload` - a
+    /// hex copy of the opening message encrypted to this wallet. The payload is decrypted when
+    /// the keys are reachable, which gives the room straight away; on a locked phone it may
+    /// not be, and then the call rings on the push's word alone and the room comes from the
+    /// chain message once the app has fetched it.
+    func handleVoIPPush(_ info: [AnyHashable: Any]) {
+        let callId = ((info["call_id"] as? String) ?? "").lowercased()
+        let sender = (info["sender"] as? String) ?? ""
+        let video = Self.flag(info["video"])
+        let kind = (info["kind"] as? String) ?? "invite"
+        let timestampMs = Self.milliseconds(info["timestamp"]) ?? UInt64(Date().timeIntervalSince1970 * 1000)
+        let uuid = UUID(uuidString: callId) ?? UUID()
+        let contact = ContactsManager.shared.getContact(byAddress: sender)
+        let name: String
+        if let contact {
+            name = ContactsManager.shared.displayName(for: contact)
+        } else {
+            name = sender.isEmpty ? "KaChat" : ContactsManager.shared.displayName(for: sender)
+        }
+        let drop: (CXCallEndedReason) -> Void = { reason in
+            CallKitManager.shared.reportDroppedIncoming(uuid: uuid, displayName: name, handle: sender.isEmpty ? "KaChat" : sender, video: video, reason: reason)
+        }
+        guard !callId.isEmpty, !sender.isEmpty else { drop(.failed); return }
+
+        if let current = session, current.id == callId {
+            // The chain message got here first and the call is already ringing (or answered);
+            // CallKit knows it. Reporting the same UUID again is the acknowledgement iOS wants.
+            CallKitManager.shared.reportIncoming(uuid: current.uuid, displayName: name, handle: sender, video: current.video) { _ in }
+            return
+        }
+        guard !handledCallIds.contains(callId) else { drop(.unanswered); return }
+        guard let contact, contact.callsEnabled == true else { drop(.unanswered); return }
+        let age = Date().timeIntervalSince(Date(timeIntervalSince1970: TimeInterval(timestampMs) / 1000))
+        guard age < inviteFreshness else { drop(.unanswered); return }
+        guard session == nil else { drop(.unanswered); return }
+
+        var envelope: CallEnvelope?
+        if let hex = info["payload"] as? String,
+           let key = try? KeychainService.shared.loadPrivateKey(),
+           let content = ChatService.decryptContextualMessageFromRawPayloadSync(hex, privateKey: key),
+           let parsed = CallCodec.parseAny(content),
+           parsed.callId == callId {
+            envelope = parsed
+        }
+        markHandled(callId)
+        switch envelope {
+        case .invite(let invite):
+            guard let server = URL(string: invite.server), server.scheme?.lowercased() == "https" else { drop(.failed); return }
+            let call = ActiveCall(id: callId, contact: contact, isOutgoing: false, server: server, token: invite.token, video: invite.video, phase: .ringingIn, hostsThisCall: false)
+            ringIncoming(call)
+        case .request(let request):
+            if !hostRequestedCall(id: callId, contact: contact, video: request.video) { drop(.failed) }
+        case .response, .end:
+            drop(.unanswered)
+        case nil:
+            if kind == "request" {
+                if !hostRequestedCall(id: callId, contact: contact, video: video) { drop(.failed) }
+            } else {
+                let call = ActiveCall(id: callId, contact: contact, isOutgoing: false, server: nil, token: "", video: video, phase: .ringingIn, hostsThisCall: false)
+                ringIncoming(call)
+            }
+        }
+    }
+
+    /// CallKit activated the audio session for the current call: apply the route the call
+    /// wants now that there is a session to route.
+    func audioSessionBecameActive() {
+        guard let call = session, let webrtc = call.webrtc else { return }
+        webrtc.setSpeaker(call.isSpeakerOn)
+    }
+
+    private func registerOutgoingWithCallKit(_ call: ActiveCall) {
+        let name = ContactsManager.shared.displayName(for: call.contact)
+        CallKitManager.shared.requestStart(uuid: call.uuid, displayName: name, handle: call.contact.address, video: call.video) { _ in }
+        donateCallInteraction(call)
+    }
+
+    /// Asks the push service to ring the contact's phones right now, with an encrypted copy
+    /// of the opening message so a closed app can ring with the room already in hand. Best
+    /// effort: without it the chain message still rings an open app, just later.
+    private func requestRing(for call: ActiveCall, content: String, kind: String) {
+        let contact = call.contact
+        Task {
+            guard let recipientKey = KaspaAddress.publicKey(from: contact.address) else { return }
+            let alias = ChatService.shared.outgoingAlias(for: contact.address)
+            guard let payload = try? KasiaTransactionBuilder.buildContextualMessagePayload(alias: alias, message: content, recipientPublicKey: recipientKey) else { return }
+            do {
+                try await PushNotificationManager.shared.requestRing(to: contact.address, callId: call.id, video: call.video, kind: kind, payloadHex: payload.hexString)
+            } catch {
+                AppLog.log("[Call] Ring push not sent: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    /// Tells iOS this person is someone KaChat calls. After a few of these, the Contacts app
+    /// lists KaChat behind the contact's call and video buttons (matched through the linked
+    /// system contact), Siri understands "call X on KaChat", and Recents can call back.
+    private func donateCallInteraction(_ call: ActiveCall) {
+        let contact = call.contact
+        let person = INPerson(
+            personHandle: INPersonHandle(value: contact.address, type: .unknown),
+            nameComponents: nil,
+            displayName: ContactsManager.shared.displayName(for: contact),
+            image: nil,
+            contactIdentifier: contact.systemContactId,
+            customIdentifier: contact.address
+        )
+        let intent = INStartCallIntent(
+            callRecordFilter: nil,
+            callRecordToCallBack: nil,
+            audioRoute: .unknown,
+            destinationType: .normal,
+            contacts: [person],
+            callCapability: call.video ? .videoCall : .audioCall
+        )
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.direction = call.isOutgoing ? .outgoing : .incoming
+        interaction.donate { error in
+            if let error { AppLog.log("[Call] Intent donation failed: %@", error.localizedDescription) }
+        }
+    }
+
+    private static func callKitReason(for reason: String) -> CXCallEndedReason {
+        switch reason {
+        case "no_answer", "missed": return .unanswered
+        case "failed", "no_host": return .failed
+        default: return .remoteEnded
+        }
+    }
+
+    private static func flag(_ value: Any?) -> Bool {
+        switch value {
+        case let bool as Bool: return bool
+        case let number as NSNumber: return number.boolValue
+        case let string as String: return ["1", "true", "yes"].contains(string.lowercased())
+        default: return false
+        }
+    }
+
+    private static func milliseconds(_ value: Any?) -> UInt64? {
+        switch value {
+        case let number as NSNumber: return number.uint64Value
+        case let string as String: return UInt64(string)
+        default: return nil
         }
     }
 

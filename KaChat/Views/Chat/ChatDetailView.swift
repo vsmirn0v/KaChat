@@ -3362,6 +3362,7 @@ struct ChatDetailView: View {
                 ) {
                     contact.callsEnabled = true
                     contactsManager.updateContact(contact)
+                    SharedDataManager.syncCallContactsForIntents()
                     showEnableCalls = false
                 }
                 ActionSheetRow(

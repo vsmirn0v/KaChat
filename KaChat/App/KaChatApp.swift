@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import Intents
 import UserNotifications
 import UIKit
 
@@ -18,6 +19,9 @@ struct KaChatApp: App {
     @State private var isProcessingOutboundShare = false
     @State private var lastActiveResyncAt: Date?
     @State private var hasCompletedFirstActiveTransition = false
+    /// A "call X on KaChat" that arrived (Contacts app, Siri, Recents) before the wallet was
+    /// loaded; placed as soon as it is.
+    @State private var pendingIntentCall: (address: String, video: Bool)?
     @Environment(\.scenePhase) private var scenePhase
 
     /// Below this, becoming active again skips the heavier resync work (node pool reconnect
@@ -70,6 +74,10 @@ struct KaChatApp: App {
                         await contactsManager.bootstrapSystemContactsIfNeeded()
                         await processPendingOutboundShareIfNeeded()
                     }
+                    if let pending = pendingIntentCall {
+                        pendingIntentCall = nil
+                        placeIntentCall(address: pending.address, video: pending.video)
+                    }
                 }
                 .onOpenURL { url in
                     handleIncomingURL(url)
@@ -79,6 +87,11 @@ struct KaChatApp: App {
                     if let url = activity.webpageURL {
                         handleIncomingURL(url)
                     }
+                }
+                .onContinueUserActivity(NSStringFromClass(INStartCallIntent.self)) { activity in
+                    // "Call X with KaChat" from the Contacts app, Siri, or Recents - resolved
+                    // by the KaChatIntents extension, placed here.
+                    handleStartCallActivity(activity)
                 }
                 .preferredColorScheme(settingsViewModel.settings.appearance.colorScheme)
                 .onChange(of: settingsViewModel.settings.appearance) { _ in
@@ -108,6 +121,39 @@ struct KaChatApp: App {
             for window in windowScene.windows {
                 window.overrideUserInterfaceStyle = style
             }
+        }
+    }
+
+    /// The Intents extension resolved whom to call and handed over; the activity carries the
+    /// KaChat address (or the linked system contact) and whether video was asked for.
+    private func handleStartCallActivity(_ activity: NSUserActivity) {
+        let info = activity.userInfo ?? [:]
+        let intent = activity.interaction?.intent as? INStartCallIntent
+        let person = intent?.contacts?.first
+        let video = (info["video"] as? Bool) ?? (intent?.callCapability == .videoCall)
+        var address = (info["address"] as? String) ?? person?.customIdentifier ?? person?.personHandle?.value
+        if address == nil || contactsManager.getContact(byAddress: address ?? "") == nil,
+           let systemId = (info["systemContactId"] as? String) ?? person?.contactIdentifier,
+           let linked = contactsManager.contacts.first(where: { $0.systemContactId == systemId }) {
+            address = linked.address
+        }
+        guard let address else { return }
+        if walletManager.currentWallet == nil {
+            pendingIntentCall = (address, video)
+            return
+        }
+        placeIntentCall(address: address, video: video)
+    }
+
+    private func placeIntentCall(address: String, video: Bool) {
+        guard let contact = contactsManager.getContact(byAddress: address) else { return }
+        if contact.callsEnabled == true {
+            CallService.shared.startCall(with: contact, video: video)
+        } else {
+            // Calls are not yet allowed with this person: land in the chat, where the call
+            // button asks to enable them.
+            chatService.pendingChatNavigation = contact.address
+            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: ["contactAddress": contact.address])
         }
     }
 
@@ -481,6 +527,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // Register background task handler
         BackgroundTaskManager.shared.registerBackgroundTasks()
+
+        // VoIP pushes (a closed app ringing) must be registered for at launch: a push that
+        // launches the app is delivered to this registration.
+        VoIPPushManager.shared.start()
 
         // Security hygiene: wipe the legacy plaintext shared-secret blob older releases left
         // in the App Group plist (see SharedDataManager.purgeLegacySharedSecretsIfPresent).

@@ -136,3 +136,62 @@ Honor removal counter-actions: an `unvote`/`unquote` should not generate a push.
   notes for the sandbox story on dev builds — same applies here).
 - Rate sanity: batch/coalesce bursts (a viral post's votes) — collapse-id already dedupes
   retries; consider a per-device per-minute cap on KaPosts pushes.
+
+## 5. Calls: VoIP pushes (NEW, 5.0)
+
+KaChat 5.0 has voice/video calls (MESSAGING.md "Calls"). Ringing is an encrypted chat message,
+which a closed app cannot see - so the caller's phone asks the push service to ring the callee
+through **PushKit VoIP**, the only push kind iOS lets a terminated app answer by ringing. Two
+pieces of server work: store a second token per device, and add one endpoint.
+
+### 5a. Registration: `voip_token`
+
+`/register` and the update endpoint now carry `voip_token` (`String?`, hex, from PushKit).
+Store it per device token like the §1 fields; null/missing = this device cannot be rung (keep
+sending ordinary pushes). It is NOT part of the auth preimage. It is valid at the same APNs
+environment as `device_token` (`apns_environment`).
+
+### 5b. `POST /v1/push/ring`
+
+Body (JSON):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `device_token` | `String` | The CALLER's registered APNs token - identifies the calling device/wallet. |
+| `to_address` | `String` | The callee's Kaspa address. Ring every registered device whose `primary_address` is this address and that has a `voip_token`. |
+| `call_id` | `String` | The call's UUID (lowercase). |
+| `video` | `Bool` | Video call or voice. |
+| `kind` | `String` | `"invite"` (caller hosts the Talk room) or `"request"` (caller asks the callee to host). |
+| `payload` | `String` | The opening call message, encrypted to the callee exactly as on chain (`kchat:1:comm:ALIAS:BASE64`, hex). Opaque; forward it. ≤ 2 KB. |
+| `timestamp` | `UInt64` | Caller's clock, ms. |
+| `auth` | object | The same signed challenge auth as every other push endpoint (`method=POST`, `path=/v1/push/ring`, empty `watched_addresses`/`watched_group_ids`/`aliases`, `primary_address` = the caller's wallet). |
+
+Verify `auth` as for `/register`; the wallet it proves is the **sender** the push names, so
+the callee can trust `sender` without decrypting anything. Reject (403) when `device_token`'s
+registration is bound to a different wallet. Respond `200 {}` once the pushes are queued (or
+`200` with no devices - the caller does not care), `404`/`204` is not needed.
+
+Then send, to each of the callee's VoIP tokens, an APNs push with:
+
+- topic `com.kachat.app.voip` (the app's bundle id + `.voip`), `apns-push-type: voip`,
+  `apns-priority: 10`, `apns-expiration: 0` (never queue a stale ring - a push older than
+  ~45 s is dropped on the phone anyway).
+- Payload (all top level, no `aps` alert):
+
+```json
+{
+  "call_id": "<call_id>",
+  "kind": "invite",
+  "video": false,
+  "sender": "<the caller's wallet address, canonical>",
+  "timestamp": <server receive time, ms>,
+  "payload": "<payload hex, forwarded>"
+}
+```
+
+Rules: one push per ring request (no retries beyond APNs' own - iOS punishes an app for every
+VoIP push that does not become a visible call, and a duplicate becomes a "missed call" on the
+callee's phone); rate-limit per sender (a few per minute is plenty); never send a VoIP push
+for anything but this endpoint. The existing chat push for the on-chain call message still
+goes out as usual (the notification service extension renders it as "📞 Incoming voice
+call") - that is the fallback for devices without a VoIP token.

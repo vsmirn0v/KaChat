@@ -45,6 +45,10 @@ final class PushNotificationManager: ObservableObject {
     private let deviceAuthCounterDefaultsKey = "push_device_auth_counter"
 
     private var deviceToken: String?
+    /// The PushKit VoIP token, alongside the APNs one: the push service rings this device
+    /// through it (`/v1/push/ring`). Registered with the rest of the device record; nil until
+    /// PushKit hands one out, or after it invalidates it.
+    private(set) var voipToken: String?
     private var pendingRegistration = false
     private var registrationInFlight = false
     private var lastDeviceTokenHandledAt: Date?
@@ -83,6 +87,7 @@ final class PushNotificationManager: ObservableObject {
     private let registrationEndpoint = "/v1/push/register"
     private let updateEndpoint = "/v1/push/update"
     private let unregisterEndpoint = "/v1/push/unregister"
+    private let ringEndpoint = "/v1/push/ring"
     private let challengeEndpoint = "/v1/push/challenge"
     private let pushAuthDomain = "kchat-push-auth:v1"
     private let pushDeviceAuthDomain = "kchat-push-device-auth:v1"
@@ -241,6 +246,59 @@ final class PushNotificationManager: ObservableObject {
     }
 
     /// Called from AppDelegate when APNs token received
+    /// PushKit handed out (or withdrew) the VoIP token. Persisted and pushed to the service
+    /// with the next device update - it is part of the watched signature, so the update goes
+    /// out as soon as the token changes.
+    func didUpdateVoIPToken(_ token: String?) {
+        guard token != voipToken else { return }
+        voipToken = token
+        saveVoipTokenToKeychain(token)
+        AppLog.log("[Push] VoIP token %@", token.map { "updated: \($0.prefix(8))..." } ?? "invalidated")
+        guard isRegistered else { return }
+        Task { await updateWatchedAddresses() }
+    }
+
+    /// Asks the service to ring `address`'s devices for a call this device is placing. The
+    /// request is signed like every other push call, which is how the service knows the
+    /// sender it puts in the push. `payloadHex` is the opening call message encrypted to the
+    /// contact, for the callee to decrypt on arrival (PUSH_EXTENSIONS.md §5).
+    func requestRing(to address: String, callId: String, video: Bool, kind: String, payloadHex: String) async throws {
+        guard let token = deviceToken else { throw PushError.noDeviceToken }
+        let settings = AppSettings.load()
+        guard let url = URL(string: "\(settings.pushIndexerURL)\(ringEndpoint)") else {
+            throw PushError.invalidResponse
+        }
+        let auth = try await buildPushAuth(
+            method: "POST",
+            path: ringEndpoint,
+            deviceToken: token,
+            watchedAddresses: [],
+            watchedGroupIds: [],
+            primaryAddress: collectPrimaryAddress(),
+            aliases: []
+        )
+        let request = PushRingRequest(
+            deviceToken: token,
+            toAddress: address,
+            callId: callId,
+            video: video,
+            kind: kind,
+            payload: payloadHex,
+            timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
+            auth: auth
+        )
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try JSONEncoder().encode(request)
+        urlRequest.timeoutInterval = 15
+        let (responseData, response) = try await URLSession.shared.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else { throw PushError.invalidResponse }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw PushError.ringFailed(statusCode: httpResponse.statusCode, reason: parseIndexerError(from: responseData))
+        }
+    }
+
     func didRegisterForRemoteNotifications(deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         let previousToken = self.deviceToken
@@ -419,6 +477,7 @@ final class PushNotificationManager: ObservableObject {
             primaryAddress: primaryAddress,
             aliases: aliases,
             apnsEnvironment: ApnsEnvironment.current.rawValue,
+            voipToken: voipToken,
             auth: auth
         )
 
@@ -707,6 +766,7 @@ final class PushNotificationManager: ObservableObject {
             primaryAddress: primaryAddress,
             aliases: aliases,
             apnsEnvironment: ApnsEnvironment.current.rawValue,
+            voipToken: voipToken,
             auth: auth
         )
 
@@ -833,7 +893,8 @@ final class PushNotificationManager: ObservableObject {
             .sorted { $0.key < $1.key }
             .map { "\($0.key):\($0.value.joined(separator: "+"))" }
         let apnsEnvironment = ApnsEnvironment.current.rawValue
-        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast + ["|", kapostsKey] + ["|", apnsEnvironment]).joined(separator: ",")
+        let voip = voipToken ?? ""
+        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast + ["|", kapostsKey] + ["|", apnsEnvironment] + ["|", voip]).joined(separator: ",")
     }
 
     /// Unregister device (call on logout/wallet delete)
@@ -1186,6 +1247,7 @@ final class PushNotificationManager: ObservableObject {
                 defaults.removeObject(forKey: tokenDefaultsKey)
             }
         }
+        voipToken = loadVoipTokenFromKeychain()
         let storedRegistered = UserDefaults.standard.bool(forKey: registeredDefaultsKey)
         isRegistered = storedRegistered && deviceToken != nil
 
@@ -1234,6 +1296,7 @@ final class PushNotificationManager: ObservableObject {
 
     private static let keychainService = "com.kachat.app"
     private static let keychainAccount = "push_device_token"
+    private static let voipKeychainAccount = "push_voip_token"
     private static let deviceAuthKeychainAccount = "push_device_auth_private_key"
 
     private func saveTokenToKeychain(_ token: String) {
@@ -1257,6 +1320,35 @@ final class PushNotificationManager: ObservableObject {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.keychainService,
             kSecAttrAccount as String: Self.keychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func saveVoipTokenToKeychain(_ token: String?) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.voipKeychainAccount
+        ]
+        SecItemDelete(query as CFDictionary)
+        guard let token, let data = token.data(using: .utf8) else { return }
+        var addQuery = query
+        addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        addQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse!
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
+    private func loadVoipTokenFromKeychain() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.voipKeychainAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -2102,6 +2194,9 @@ struct PushRegistrationRequest: Codable {
     let aliases: [String]
     /// "development" | "production" - which APNs endpoint this device's token is valid for.
     let apnsEnvironment: String
+    /// PushKit VoIP token (hex), for ringing this device through `/v1/push/ring`. Same APNs
+    /// environment as `deviceToken`. Missing/null = this device cannot be rung.
+    let voipToken: String?
     let auth: PushAuthRequest?
 
     enum CodingKeys: String, CodingKey {
@@ -2120,6 +2215,7 @@ struct PushRegistrationRequest: Codable {
         case primaryAddress = "primary_address"
         case aliases
         case apnsEnvironment = "apns_environment"
+        case voipToken = "voip_token"
         case auth
     }
 }
@@ -2141,6 +2237,8 @@ struct PushUpdateRequest: Codable {
     let aliases: [String]
     /// "development" | "production" - which APNs endpoint this device's token is valid for.
     let apnsEnvironment: String
+    /// See PushRegistrationRequest.
+    let voipToken: String?
     let auth: PushAuthRequest?
 
     enum CodingKeys: String, CodingKey {
@@ -2158,6 +2256,33 @@ struct PushUpdateRequest: Codable {
         case primaryAddress = "primary_address"
         case aliases
         case apnsEnvironment = "apns_environment"
+        case voipToken = "voip_token"
+        case auth
+    }
+}
+
+/// `POST /v1/push/ring` - ring `toAddress`'s devices for a call this device is placing
+/// (PUSH_EXTENSIONS.md §5).
+struct PushRingRequest: Codable {
+    let deviceToken: String
+    let toAddress: String
+    let callId: String
+    let video: Bool
+    /// "invite" (the caller hosts the room) | "request" (the caller asks the callee to host).
+    let kind: String
+    /// The opening call message, encrypted to the callee exactly as on chain, hex.
+    let payload: String
+    let timestampMs: UInt64
+    let auth: PushAuthRequest?
+
+    enum CodingKeys: String, CodingKey {
+        case deviceToken = "device_token"
+        case toAddress = "to_address"
+        case callId = "call_id"
+        case video
+        case kind
+        case payload
+        case timestampMs = "timestamp"
         case auth
     }
 }
@@ -2238,6 +2363,7 @@ enum PushError: LocalizedError {
     case registrationInProgress
     case noWatchedAddresses
     case authFailed(reason: String)
+    case ringFailed(statusCode: Int, reason: String?)
 
     var errorDescription: String? {
         switch self {
@@ -2263,6 +2389,8 @@ enum PushError: LocalizedError {
             return "No addresses available for push notifications"
         case .authFailed(let reason):
             return "Push auth failed: \(reason)"
+        case .ringFailed(let statusCode, let reason):
+            return "Ring push failed (\(statusCode))" + (reason.map { ": \($0)" } ?? "")
         }
     }
 }

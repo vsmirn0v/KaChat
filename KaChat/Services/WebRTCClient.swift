@@ -97,8 +97,13 @@ final class WebRTCClient: NSObject {
         if enabled { startCaptureIfNeeded() } else { stopCapture() }
     }
 
-    /// The audio route. WebRTC owns the audio session during a call; this only flips the
-    /// output between earpiece and speaker.
+    /// True when CallKit holds this call: iOS activates and deactivates the audio session
+    /// itself and hands it to WebRTC through `CallKitManager` - this client must only pick the
+    /// route. False (CallKit refused the call) and this client runs the session as before.
+    var audioManagedByCallKit = false
+
+    /// The audio route: earpiece or speaker. Activates the session too when this client, not
+    /// CallKit, owns it.
     func setSpeaker(_ speaker: Bool) {
         let session = RTCAudioSession.sharedInstance()
         session.lockForConfiguration()
@@ -106,7 +111,10 @@ final class WebRTCClient: NSObject {
         do {
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: speaker ? [.defaultToSpeaker, .allowBluetoothHFP] : [.allowBluetoothHFP])
             try session.overrideOutputAudioPort(speaker ? .speaker : .none)
-            try session.setActive(true)
+            if !audioManagedByCallKit {
+                try session.setActive(true)
+                session.isAudioEnabled = true
+            }
         } catch {
             AppLog.log("[WebRTC] Audio route change failed: %@", error.localizedDescription)
         }
@@ -160,6 +168,9 @@ final class WebRTCClient: NSObject {
         onConnectionState = nil
         onRemoteVideoTrack = nil
         connection.close()
+        if !audioManagedByCallKit {
+            RTCAudioSession.sharedInstance().isAudioEnabled = false
+        }
     }
 }
 

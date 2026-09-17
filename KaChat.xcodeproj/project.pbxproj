@@ -54,6 +54,8 @@
 		CALL0004B000000000000001 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0004A000000000000001 /* CallView.swift */; };
 		CALL0003B000000000000001 /* WebRTCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0003A000000000000001 /* WebRTCClient.swift */; };
 		CALL0002B000000000000001 /* CallService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0002A000000000000001 /* CallService.swift */; };
+		CALL0005B000000000000001 /* CallKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0005A000000000000001 /* CallKitManager.swift */; };
+		CALL0006B000000000000001 /* VoIPPushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0006A000000000000001 /* VoIPPushManager.swift */; };
 		CALL0001B000000000000001 /* NextcloudTalkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0001A000000000000001 /* NextcloudTalkClient.swift */; };
 		GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = GN0001A0000000000000001 /* GlobalNotificationCenter.swift */; };
 		KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */; };
@@ -283,6 +285,8 @@
 		CALL0004A000000000000001 /* CallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallView.swift; sourceTree = "<group>"; };
 		CALL0003A000000000000001 /* WebRTCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRTCClient.swift; sourceTree = "<group>"; };
 		CALL0002A000000000000001 /* CallService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallService.swift; sourceTree = "<group>"; };
+		CALL0005A000000000000001 /* CallKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallKitManager.swift; sourceTree = "<group>"; };
+		CALL0006A000000000000001 /* VoIPPushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPPushManager.swift; sourceTree = "<group>"; };
 		CALL0001A000000000000001 /* NextcloudTalkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudTalkClient.swift; sourceTree = "<group>"; };
 		GN0001A0000000000000001 /* GlobalNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalNotificationCenter.swift; sourceTree = "<group>"; };
 		KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsNotificationCenter.swift; sourceTree = "<group>"; };
@@ -640,6 +644,8 @@
 				NC0001A0000000000000001 /* NextcloudService.swift */,
 				CALL0003A000000000000001 /* WebRTCClient.swift */,
 				CALL0002A000000000000001 /* CallService.swift */,
+				CALL0005A000000000000001 /* CallKitManager.swift */,
+				CALL0006A000000000000001 /* VoIPPushManager.swift */,
 				CALL0001A000000000000001 /* NextcloudTalkClient.swift */,
 				GN0001A0000000000000001 /* GlobalNotificationCenter.swift */,
 				KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */,
@@ -1166,6 +1172,8 @@
 				NC0001B0000000000000001 /* NextcloudService.swift in Sources */,
 				CALL0003B000000000000001 /* WebRTCClient.swift in Sources */,
 				CALL0002B000000000000001 /* CallService.swift in Sources */,
+				CALL0005B000000000000001 /* CallKitManager.swift in Sources */,
+				CALL0006B000000000000001 /* VoIPPushManager.swift in Sources */,
 				CALL0001B000000000000001 /* NextcloudTalkClient.swift in Sources */,
 				GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */,
 				KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */,

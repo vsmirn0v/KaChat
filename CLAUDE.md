@@ -53,7 +53,7 @@ The app uses MVVM architecture with global singleton services injected via Swift
 | `ContactsManager` | Address book persistence, KNS domain integration |
 | `KNSService` | Kaspa Name Service API client for domain resolution |
 | `KasiaTransactionBuilder` | Constructs signed Kaspa transactions |
-| `CallService` | Voice/video calls over Nextcloud Talk + WebRTC (`NextcloudTalkClient`, `WebRTCClient`, `CallView`); ringing rides the 1:1 chat as `call_*` envelopes |
+| `CallService` | Voice/video calls over Nextcloud Talk + WebRTC (`NextcloudTalkClient`, `WebRTCClient`, `CallView`); ringing rides the 1:1 chat as `call_*` envelopes. `CallKitManager` mirrors every call into CallKit (lock-screen ringing, Recents, system audio session); `VoIPPushManager` receives the PushKit VoIP push the caller's phone requests from the push service so a closed app rings |
 
 ### Messaging Protocol
 
@@ -253,7 +253,7 @@ KaChat/
 └── Utilities/        # CryptoUtils, KasiaCipher (ECIES, in KaChatCipher.swift), Bech32, ...
 ```
 
-Companion targets at the repo root: `KaChatNotificationService/` (push decryption extension), `KaChatShareExtension/` (share sheet), `KaChatWidgets/` (home screen widgets).
+Companion targets at the repo root: `KaChatNotificationService/` (push decryption extension), `KaChatShareExtension/` (share sheet), `KaChatWidgets/` (home screen widgets), `KaChatIntents/` (Intents extension: `INStartCallIntent` so the Contacts app, Siri and Recents can "call with KaChat"; it resolves against `call_contacts` in the App Group and hands the call to the app).
 
 ## Key Dependencies
 

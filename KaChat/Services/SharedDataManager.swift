@@ -24,6 +24,11 @@ final class SharedDataManager {
 
     private enum Keys {
         static let contacts = "shared_contacts"
+        /// Contacts with calls enabled, for the Intents extension (`KaChatIntents`) to resolve
+        /// "call X on KaChat" against - by KaChat address, linked Contacts-app identifier, or
+        /// name. Plain JSON `[{address, name, systemContactId}]`; the extension does not link
+        /// the app's model types.
+        static let callContacts = "call_contacts"
         /// The wallet `contacts` was written for. The blob itself is a single key holding
         /// whichever account synced last, so without a stamp the extension has no way to tell
         /// that the list in front of it belongs to a different account than the one now signed
@@ -79,6 +84,25 @@ final class SharedDataManager {
         // see a new stamp over an old list.
         sharedDefaults?.set(WalletManager.shared.currentWallet?.publicAddress, forKey: Keys.contactsWallet)
         AppLog.log("[SharedData] Synced %d contacts to shared container", contacts.count)
+        syncCallContactsForIntents()
+    }
+
+    /// The callable contacts, for the Intents extension. Refreshed with the contact list.
+    @MainActor
+    static func syncCallContactsForIntents() {
+        let callable: [[String: String]] = ContactsManager.shared.contacts.compactMap { contact in
+            guard contact.callsEnabled == true else { return nil }
+            var entry: [String: String] = [
+                "address": contact.address,
+                "name": ContactsManager.shared.displayName(for: contact)
+            ]
+            if let systemId = contact.systemContactId, !systemId.isEmpty {
+                entry["systemContactId"] = systemId
+            }
+            return entry
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: callable) else { return }
+        sharedDefaults?.set(data, forKey: Keys.callContacts)
     }
 
     // MARK: - Recent Conversations (Share Extension direct targets)

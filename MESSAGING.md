@@ -596,6 +596,15 @@ most twice per call**: one opening message and one closing message. The callee a
 and hangs up through the Talk room itself (joining it, a `kachat_decline` signaling message, or
 leaving it), never on chain.
 
+A closed app cannot see the chain, so alongside the opening message the caller's phone asks
+the push service to send the callee a **VoIP push** (`POST /v1/push/ring`, PUSH_EXTENSIONS.md
+§5) carrying `call_id`, `kind`, `video`, the caller's address and a hex copy of that same
+opening message encrypted to the callee. iOS wakes the callee's KaChat and it rings through
+CallKit at once; the push's copy gives the room straight away when the keys are reachable, and
+the chain message fills it in otherwise (the ringing call's `callId` matches, so the app knows
+the invite is the one it is already showing). The push is best effort and carries nothing the
+chain does not: no push, and an open app still rings off the chain message a little later.
+
 | Envelope | Sent by | Fields |
 |---|---|---|
 | `{"type":"call_invite"}` | the caller, when they host | `callId`, `server` (https base URL), `token` (room), `video` (bool), `viaRequest` (bool, optional - true when a host answers a `call_request`) |
