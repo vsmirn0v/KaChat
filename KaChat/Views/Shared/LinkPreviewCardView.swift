@@ -48,12 +48,13 @@ struct LinkPreviewCardView: View {
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
 
-    init(url: URL, txId: String, fallbackText: String? = nil, onSelect: (() -> Void)? = nil, onDoubleTap: (() -> Void)? = nil, autoFetch: Bool = true) {
+    init(url: URL, txId: String, fallbackText: String? = nil, onSelect: (() -> Void)? = nil, onDoubleTap: (() -> Void)? = nil, isOutgoing: Bool = false, autoFetch: Bool = true) {
         self.url = url
         self.txId = txId
         self.fallbackText = fallbackText
         self.onSelect = onSelect
         self.onDoubleTap = onDoubleTap
+        self.isOutgoing = isOutgoing
         self.autoFetch = autoFetch
         // If this exact URL was already resolved earlier (e.g. scrolled past once already, or
         // another row with the same link), seed state with the final result immediately instead
