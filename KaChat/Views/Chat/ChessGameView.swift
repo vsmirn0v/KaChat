@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// Full-screen interactive chess board, opened by tapping a chess card in a 1:1 chat
 /// (`MessageBubbleView.chessBubble`). Board state is entirely derived from the conversation's

@@ -86,7 +86,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
     private override init() {
         super.init()
         resetSessions()
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
             NetworkEpochMonitor.shared.onEpochChange { [weak self] _ in
                 Task { await self?.resetHTTPModeForNewEpoch() }
             }
@@ -408,7 +408,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
     ///   - startBlockTime: Starting block_time cursor (0 for all)
     ///   - maxPages: Maximum number of pages to fetch (safety limit)
     ///   - getBlockTime: Closure to extract blockTime from response item
-    private func getPaginated<T: Decodable>(
+    private func getPaginated<T: Decodable & Sendable>(
         endpoint: String,
         params: [String: String],
         limit: Int,
@@ -483,7 +483,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
     /// which the indexer treats as "from the beginning" - once any page comes back, every
     /// subsequent page (within this call, and future calls once the caller persists it) resumes
     /// from the last item's cursor instead.
-    private func getPaginatedByCursor<T: Decodable>(
+    private func getPaginatedByCursor<T: Decodable & Sendable>(
         endpoint: String,
         params: [String: String],
         limit: Int,
@@ -568,7 +568,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         }
     }
 
-    private func get<T: Decodable>(endpoint: String, params: [String: String]) async throws -> T {
+    private func get<T: Decodable & Sendable>(endpoint: String, params: [String: String]) async throws -> T {
         var urlComponents = URLComponents(string: baseURL + endpoint)
         urlComponents?.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
 
