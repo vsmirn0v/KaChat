@@ -813,21 +813,6 @@ struct KaPostsView: View {
             ScrollViewReader { feedProxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    // The feed sits BELOW fixed chrome (title, icon row, tabs), never under the
-                    // navigation bar, so UIKit has no bar to inset it for - yet it kept doing
-                    // so intermittently: coming back from a full-screen cover (a post, a
-                    // profile, the composer) UIKit re-decided the automatic top inset, the
-                    // content offset stayed put, and the first post ended up hidden above
-                    // the tab bar with no way to scroll back to it. Pinning the behaviour to
-                    // "never" takes UIKit's guess out of it; the chrome above is all the
-                    // inset this list needs.
-                    ScrollViewIntrospector { scrollView in
-                        if scrollView.contentInsetAdjustmentBehavior != .never {
-                            scrollView.contentInsetAdjustmentBehavior = .never
-                        }
-                    }
-                    .frame(height: 0)
-                    .allowsHitTesting(false)
                     // Anchor for the "show new posts" jump - the pill's whole point is landing
                     // the reader on what just arrived.
                     Color.clear
