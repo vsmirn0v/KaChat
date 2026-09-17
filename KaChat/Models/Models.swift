@@ -189,9 +189,10 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var systemContactLinkSource: SystemContactLinkSource?
     var systemMatchConfidence: Double?
     var systemLastSyncedAt: Date?
-    /// True when this contact must never be able to ring you - Chat Info's "Allow calls" switch
-    /// off. Hides the call buttons on your side too; nil/false is the default (calls allowed).
-    var callsDisabled: Bool?
+    /// True once you have allowed calls with this contact - the prompt behind the call button
+    /// ("Enable calls and video calls with X?") or Chat Info's switch. Off by default: nobody
+    /// can ring you, or ask your Nextcloud to host a call, until you say so for them.
+    var callsEnabled: Bool?
     /// A base64 JPEG photo carried in the cross-platform backup, shown as an avatar
     /// fallback when this device has no system-contact photo or KNS avatar. Lets a photo
     /// set on another device (e.g. desktop) appear here after a restore. Optional so
@@ -251,7 +252,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         case systemMatchConfidence
         case systemLastSyncedAt
         case backupPhoto
-        case callsDisabled
+        case callsEnabled
     }
 
     // Custom decoding to handle missing fields in existing data
@@ -277,7 +278,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         systemMatchConfidence = try container.decodeIfPresent(Double.self, forKey: .systemMatchConfidence)
         systemLastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .systemLastSyncedAt)
         backupPhoto = try container.decodeIfPresent(String.self, forKey: .backupPhoto)
-        callsDisabled = try container.decodeIfPresent(Bool.self, forKey: .callsDisabled)
+        callsEnabled = try container.decodeIfPresent(Bool.self, forKey: .callsEnabled)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -297,7 +298,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(systemMatchConfidence, forKey: .systemMatchConfidence)
         try container.encodeIfPresent(systemLastSyncedAt, forKey: .systemLastSyncedAt)
         try container.encodeIfPresent(backupPhoto, forKey: .backupPhoto)
-        try container.encodeIfPresent(callsDisabled, forKey: .callsDisabled)
+        try container.encodeIfPresent(callsEnabled, forKey: .callsEnabled)
     }
 
     /// The name the user actually typed for this contact, or nil when there is none.

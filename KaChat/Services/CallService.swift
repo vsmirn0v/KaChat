@@ -122,12 +122,13 @@ final class CallService: ObservableObject {
 
     // MARK: - Availability
 
-    /// Whether the call button shows for this contact. Chat Info's "Allow calls" switch is the
-    /// only gate: a phone with no Nextcloud of its own can still start a call by asking the
-    /// contact to host it (`call_request`), so hosting ability is not required here. If neither
-    /// side can host, the attempt rings out to "no answer".
+    /// Whether calls are allowed with this contact - the per-contact switch, OFF by default.
+    /// The call button shows regardless; tapping it on a contact that is not yet enabled asks
+    /// first. This is the only gate: a phone with no Nextcloud of its own can still start a
+    /// call by asking the contact to host it (`call_request`), so hosting ability is not
+    /// required here.
     func canCall(_ contact: Contact) -> Bool {
-        contact.callsDisabled != true
+        contact.callsEnabled == true
     }
 
     /// Whether this device can open a Talk room itself: a connected Nextcloud with Talk calls
@@ -141,7 +142,7 @@ final class CallService: ObservableObject {
 
     func startCall(with contact: Contact, video: Bool) {
         guard session == nil else { return }
-        guard contact.callsDisabled != true else { return }
+        guard contact.callsEnabled == true else { return }
         lastError = nil
         let callId = UUID().uuidString.lowercased()
         guard canHost, let account = NextcloudService.shared.account, let server = account.serverURL else {
@@ -214,7 +215,7 @@ final class CallService: ObservableObject {
             // their phone rings out to "no answer".
             guard !handledCallIds.contains(request.callId) else { return }
             guard let contact = ContactsManager.shared.getContact(byAddress: contactAddress) else { return }
-            guard contact.callsDisabled != true, age < inviteFreshness else { return }
+            guard contact.callsEnabled == true, age < inviteFreshness else { return }
             guard canHost, let account = NextcloudService.shared.account, let server = account.serverURL else {
                 // Neither side can host. Say so right away rather than letting their phone
                 // ring out - the requester's screen turns this into "someone in this chat
@@ -285,7 +286,7 @@ final class CallService: ObservableObject {
             // already rang (or already ended) is history, not a phone ringing.
             guard !handledCallIds.contains(invite.callId) else { return }
             guard let contact = ContactsManager.shared.getContact(byAddress: contactAddress) else { return }
-            guard contact.callsDisabled != true else { return }
+            guard contact.callsEnabled == true else { return }
             guard age < inviteFreshness else { return }
             if let current = session {
                 // Already on a call: a different invite gets a decline (the caller sees "busy"

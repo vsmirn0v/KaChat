@@ -336,7 +336,7 @@ struct ChatInfoView: View {
 
                     infoCard(
                         "Calls",
-                        systemImage: contact.callsDisabled == true ? "phone.down" : "phone"
+                        systemImage: contact.callsEnabled == true ? "phone" : "phone.down"
                     ) { activeSheet = .calls }
 
                     infoCard(
@@ -682,14 +682,14 @@ struct ChatInfoView: View {
             Form {
                 Section {
                     Toggle("Allow calls and video calls", isOn: Binding(
-                        get: { contact.callsDisabled != true },
+                        get: { contact.callsEnabled == true },
                         set: { allowed in
-                            contact.callsDisabled = allowed ? nil : true
+                            contact.callsEnabled = allowed ? true : nil
                             contactsManager.updateContact(contact)
                         }
                     ))
                 } footer: {
-                    Text("Calls run through Nextcloud Talk and stay inside KaChat - only one of you needs a Nextcloud. Turn this off if you never want this contact to be able to call you, and they will not be able to ask your Nextcloud to host a call either.")
+                    Text("Off for everyone until you turn it on. While off, this contact cannot ring you or ask your Nextcloud to host a call. Calls run through Nextcloud Talk and stay inside KaChat - only one of you needs a Nextcloud.")
                 }
             }
             .navigationTitle("Calls")
