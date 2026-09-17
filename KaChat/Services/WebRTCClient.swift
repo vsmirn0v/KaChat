@@ -103,21 +103,40 @@ final class WebRTCClient: NSObject {
     var audioManagedByCallKit = false
 
     /// The audio route: earpiece or speaker. Activates the session too when this client, not
-    /// CallKit, owns it.
+    /// CallKit, owns it. Each step stands alone - a category the system refuses to change
+    /// mid-call must not stop the override, and a failed override must not stop activation.
     func setSpeaker(_ speaker: Bool) {
         let session = RTCAudioSession.sharedInstance()
         session.lockForConfiguration()
-        defer { session.unlockForConfiguration() }
         do {
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: speaker ? [.defaultToSpeaker, .allowBluetoothHFP] : [.allowBluetoothHFP])
+        } catch {
+            AppLog.log("[WebRTC] Audio category failed: %@", error.localizedDescription)
+        }
+        do {
             try session.overrideOutputAudioPort(speaker ? .speaker : .none)
-            if !audioManagedByCallKit {
-                try session.setActive(true)
-                session.isAudioEnabled = true
-            }
         } catch {
             AppLog.log("[WebRTC] Audio route change failed: %@", error.localizedDescription)
         }
+        session.unlockForConfiguration()
+        if !audioManagedByCallKit {
+            activateAudioSession()
+        }
+    }
+
+    /// Brings the audio session up under this client's own control and lets WebRTC start the
+    /// audio unit. Used when CallKit is not on the call, and as the recovery path when it is
+    /// but never activated the session.
+    func activateAudioSession() {
+        let session = RTCAudioSession.sharedInstance()
+        session.lockForConfiguration()
+        do {
+            try session.setActive(true)
+        } catch {
+            AppLog.log("[WebRTC] Audio session activation failed: %@", error.localizedDescription)
+        }
+        session.unlockForConfiguration()
+        session.isAudioEnabled = true
     }
 
     // MARK: - Negotiation

@@ -78,14 +78,16 @@ struct CallView: View {
             default:
                 VStack(spacing: 40) {
                     HStack(spacing: 44) {
+                        // Off: translucent circle, plain glyph. On: solid white circle, the
+                        // "slashed mic" / "waves" glyph, and the label says so - one look tells.
                         bigButton(systemName: call.isMuted ? "mic.slash.fill" : "mic.fill",
                                   tint: call.isMuted ? .white : Color.white.opacity(0.22),
-                                  size: 84, label: "mute", foreground: call.isMuted ? .black : .white) {
+                                  size: 84, label: call.isMuted ? "muted" : "mute", foreground: call.isMuted ? .black : .white) {
                             callService.toggleMute()
                         }
-                        bigButton(systemName: "speaker.wave.3.fill",
+                        bigButton(systemName: call.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.fill",
                                   tint: call.isSpeakerOn ? .white : Color.white.opacity(0.22),
-                                  size: 84, label: "speaker", foreground: call.isSpeakerOn ? .black : .white) {
+                                  size: 84, label: call.isSpeakerOn ? "speaker on" : "speaker", foreground: call.isSpeakerOn ? .black : .white) {
                             callService.toggleSpeaker()
                         }
                     }
@@ -186,7 +188,7 @@ struct CallView: View {
             smallControl(systemName: call.isMuted ? "mic.slash.fill" : "mic.fill", active: call.isMuted) {
                 callService.toggleMute()
             }
-            smallControl(systemName: "speaker.wave.3.fill", active: call.isSpeakerOn) {
+            smallControl(systemName: call.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.fill", active: call.isSpeakerOn) {
                 callService.toggleSpeaker()
             }
             smallControl(systemName: call.isCameraOff ? "video.slash.fill" : "video.fill", active: call.isCameraOff) {

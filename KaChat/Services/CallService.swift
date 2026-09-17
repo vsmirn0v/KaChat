@@ -1,5 +1,6 @@
 import Foundation
 import AudioToolbox
+import AVFoundation
 import CallKit
 import Intents
 import UIKit
@@ -57,7 +58,13 @@ final class CallService: ObservableObject {
         @Published var phase: Phase
         @Published var connectedAt: Date?
         @Published var isMuted = false
+        /// What the phone is actually doing: true while sound comes out of the loudspeaker.
+        /// Tracked from the audio route itself (`routeChanged`) once audio runs, so the
+        /// button never claims a state the hardware is not in.
         @Published var isSpeakerOn: Bool
+        /// What the user asked for (video calls start on the speaker); applied whenever the
+        /// audio session comes up, and what `isSpeakerOn` converges to.
+        var speakerRequested: Bool
         @Published var isCameraOff = false
         @Published var remoteVideoTrack: RTCVideoTrack?
         @Published var localVideoTrack: RTCVideoTrack?
@@ -95,6 +102,7 @@ final class CallService: ObservableObject {
             self.video = video
             self.phase = phase
             self.isSpeakerOn = video
+            self.speakerRequested = video
         }
     }
 
@@ -110,8 +118,19 @@ final class CallService: ObservableObject {
     private let incomingRingTimeout: TimeInterval = 30
     private let inviteFreshness: TimeInterval = 45
 
+    private var audioObservers: [NSObjectProtocol] = []
+
     private init() {
         handledCallIds = Set(UserDefaults.standard.stringArray(forKey: Self.handledCallIdsKey) ?? [])
+        let center = NotificationCenter.default
+        audioObservers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.routeChanged() }
+        })
+        audioObservers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+            Task { @MainActor in self?.ensureAudioRunning(reason: "interruption ended") }
+        })
     }
 
     /// Every call id this device has already rung, answered, or seen end. An invite is an
@@ -468,8 +487,11 @@ final class CallService: ObservableObject {
 
     func toggleSpeaker() {
         guard let call = session else { return }
-        call.isSpeakerOn.toggle()
-        call.webrtc?.setSpeaker(call.isSpeakerOn)
+        // Flip from where the audio actually is, not from where we last asked it to be.
+        call.speakerRequested = !call.isSpeakerOn
+        call.isSpeakerOn = call.speakerRequested
+        call.webrtc?.setSpeaker(call.speakerRequested)
+        // The route change notification settles the displayed state a moment later.
     }
 
     func toggleCamera() {
@@ -531,9 +553,18 @@ final class CallService: ObservableObject {
                 if call.connectedAt == nil {
                     call.connectedAt = Date()
                     if call.isOutgoing { CallKitManager.shared.reportOutgoingConnected(uuid: call.uuid) }
+                    // Audio watchdog: media is flowing, so a couple of seconds from now the
+                    // audio unit must be running too. If CallKit never activated the session
+                    // (it happens when another app held it at answer time) take it over.
+                    Task { [weak self, weak call] in
+                        try? await Task.sleep(nanoseconds: 2_500_000_000)
+                        guard let self, let call, self.session === call else { return }
+                        self.ensureAudioRunning(reason: "watchdog")
+                    }
                 }
                 call.phase = .connected
                 call.statusDetail = nil
+                self.routeChanged()
             case .disconnected:
                 call.statusDetail = "Reconnecting"
             case .failed:
@@ -542,7 +573,7 @@ final class CallService: ObservableObject {
                 break
             }
         }
-        webrtc.setSpeaker(call.isSpeakerOn)
+        webrtc.setSpeaker(call.speakerRequested)
         if call.video { webrtc.startCaptureIfNeeded() }
 
         call.pullTask = Task { [weak self, weak call] in
@@ -870,7 +901,44 @@ final class CallService: ObservableObject {
     /// wants now that there is a session to route.
     func audioSessionBecameActive() {
         guard let call = session, let webrtc = call.webrtc else { return }
-        webrtc.setSpeaker(call.isSpeakerOn)
+        webrtc.setSpeaker(call.speakerRequested)
+        routeChanged()
+    }
+
+    /// The phone's audio route moved (speaker override, headphones, Bluetooth, CallKit
+    /// activation): show where the sound really comes out. Only once audio is running - before
+    /// that the route says nothing about the call.
+    private func routeChanged() {
+        guard let call = session, call.webrtc != nil else { return }
+        let onSpeaker = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
+        if call.isSpeakerOn != onSpeaker { call.isSpeakerOn = onSpeaker }
+    }
+
+    /// Makes sure the audio unit is up for the current call. Sound can go missing in two
+    /// known ways: CallKit never activated the session (another app held it when the call was
+    /// answered, so `didActivate` never came) or an interruption ended without it coming
+    /// back. Either way, activate it ourselves and let WebRTC run.
+    private func ensureAudioRunning(reason: String) {
+        guard let call = session, let webrtc = call.webrtc else { return }
+        switch call.phase {
+        case .connecting, .connected: break
+        default: return
+        }
+        let rtc = RTCAudioSession.sharedInstance()
+        if webrtc.audioManagedByCallKit {
+            if CallKitManager.shared.audioSessionActive {
+                if !rtc.isAudioEnabled {
+                    AppLog.log("[Call] Audio re-enabled (%@)", reason)
+                    rtc.isAudioEnabled = true
+                }
+                return
+            }
+            AppLog.log("[Call] CallKit never activated the audio session (%@) - running it ourselves", reason)
+            webrtc.audioManagedByCallKit = false
+        }
+        webrtc.activateAudioSession()
+        webrtc.setSpeaker(call.speakerRequested)
+        routeChanged()
     }
 
     private func registerOutgoingWithCallKit(_ call: ActiveCall) {
