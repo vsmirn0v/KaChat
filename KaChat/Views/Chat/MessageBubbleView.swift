@@ -305,7 +305,7 @@ struct MessageBubbleView: View {
                             // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                             // keeps the raw link visible/tappable if no preview data is ever found,
                             // rather than the message rendering as nothing at all.
-                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
+                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, isOutgoing: message.isOutgoing, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
                         } else if let callEnvelope = CallCodec.parseAny(displayText) {
                             // Calls leave a compact history line, like a phone's recents.
                             callBubble(callEnvelope)
@@ -346,7 +346,7 @@ struct MessageBubbleView: View {
                        CallCodec.parseAny(displayText) == nil,
                        !MessageTextRenderPlan.isEntirelyLink(displayText),
                        let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
-                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, isOutgoing: message.isOutgoing, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
                     }
                 }
 
@@ -3547,4 +3547,96 @@ struct ChessPieceGlyphView: View {
         ))
     }
     .padding()
+}
+
+/// A voice note that was sent through Nextcloud: the same play button, waveform and duration
+/// as an on-chain voice note, fetched from the share's `/download` endpoint on first sight and
+/// kept for the bubble's life. Before that the on-chain and Nextcloud paths looked nothing
+/// alike - one played inline, the other was a file card that opened a separate screen.
+struct NextcloudAudioBubble: View {
+    let downloadURL: URL
+    let shareURL: URL
+    let fileName: String
+    let isOutgoing: Bool
+    let txId: String
+    let onCopy: ((String, ToastStyle) -> Void)?
+    let onReply: (() -> Void)?
+    var onSelect: (() -> Void)? = nil
+
+    @StateObject private var helper = AudioPlaybackHelper()
+    @State private var data: Data?
+    @State private var failed = false
+
+    private var mimeType: String {
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        switch ext {
+        case "ogg", "opus", "oga": return "audio/ogg"
+        case "webm": return "audio/webm"
+        case "mp3": return "audio/mpeg"
+        case "wav": return "audio/wav"
+        default: return "audio/mp4"
+        }
+    }
+
+    var body: some View {
+        Group {
+            if let data {
+                AudioBubble(
+                    helper: helper,
+                    data: data,
+                    mimeType: mimeType,
+                    isOutgoing: isOutgoing,
+                    fileName: fileName,
+                    txId: txId,
+                    onCopy: onCopy,
+                    onRetry: nil,
+                    onReply: onReply,
+                    onSelect: onSelect
+                )
+            } else {
+                HStack(spacing: 10) {
+                    if failed {
+                        Image(systemName: "exclamationmark.circle")
+                            .font(.system(size: 32))
+                    } else {
+                        ProgressView()
+                            .frame(width: 32, height: 32)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(failed ? "Voice message unavailable" : "Voice message")
+                            .font(.subheadline.weight(.medium))
+                        Text(failed ? "Tap to retry" : "Loading\u{2026}")
+                            .font(.caption)
+                            .foregroundColor(isOutgoing ? .white.opacity(0.8) : .secondary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(isOutgoing ? kaspaBubbleColor : Color(.systemGray5))
+                .foregroundColor(isOutgoing ? .white : .primary)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .contentShape(RoundedRectangle(cornerRadius: 16))
+                .onTapGesture {
+                    if failed {
+                        failed = false
+                        Task { await load() }
+                    }
+                }
+            }
+        }
+        .task(id: downloadURL.absoluteString) {
+            if data == nil { await load() }
+        }
+    }
+
+    private func load() async {
+        // Same fetcher the photo bubble uses: it sends the share link as Referer, which is
+        // what Nextcloud's public download endpoint wants, and caps the size.
+        if let bytes = await LinkPreviewService.shared.imageData(downloadURL, referer: shareURL, maxBytes: 30_000_000),
+           !bytes.isEmpty {
+            data = bytes
+        } else {
+            failed = true
+        }
+    }
 }

@@ -27,6 +27,9 @@ struct LinkPreviewCardView: View {
     /// reply), exactly like double-tapping a normal message bubble. Nil disables it. Single tap
     /// still opens the link.
     var onDoubleTap: (() -> Void)?
+    /// Whether the owning message is ours - only the inline voice-note bubble cares (it takes
+    /// the sent/received bubble colours like an on-chain voice note); the cards are neutral.
+    var isOutgoing: Bool = false
     /// Whether the preview fetch may start on render. True (the default) for accepted 1:1
     /// contacts and for group chats (members chose each other); false for non-accepted senders
     /// and for broadcast rooms (anyone can post there), where the card renders as a
@@ -144,10 +147,27 @@ struct LinkPreviewCardView: View {
                 .onTapGesture(count: 2) { onDoubleTap?() }
                 .onTapGesture { handleTap(data) }
                 .contextMenu { contextMenuItems() }
+        } else if data.nextcloudMedia == .audio,
+                  let downloadString = data.mediaDownloadURLString,
+                  let downloadURL = URL(string: downloadString) {
+            // A voice note sent through Nextcloud plays right here, like an on-chain one -
+            // no file card, no separate screen.
+            NextcloudAudioBubble(
+                downloadURL: downloadURL,
+                shareURL: url,
+                fileName: data.title ?? "voice.m4a",
+                isOutgoing: isOutgoing,
+                txId: txId,
+                onCopy: nil,
+                onReply: nil,
+                onSelect: onSelect
+            )
+            .onTapGesture(count: 2) { onDoubleTap?() }
+            .contextMenu { contextMenuItems() }
         } else if let kind = data.nextcloudMedia {
-            // Audio/PDF/other files: an attachment card (icon, filename, type · size). Audio
-            // and PDF open the in-app viewer; everything else opens Nextcloud's own web viewer,
-            // the only thing that can actually render an Office doc.
+            // PDF/other files: an attachment card (icon, filename, type · size). PDF opens the
+            // in-app viewer; everything else opens Nextcloud's own web viewer, the only thing
+            // that can actually render an Office doc.
             nextcloudAttachmentCard(data, kind: kind)
                 .onTapGesture(count: 2) { onDoubleTap?() }
                 .onTapGesture { handleTap(data) }

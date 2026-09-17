@@ -1579,6 +1579,7 @@ private struct BroadcastMessageRow: View {
                 url: linkURL,
                 txId: message.id,
                 onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil,
+                isOutgoing: isOwnMessage,
                 // Broadcast rooms are open to anyone, so previews never auto-fetch here - each
                 // card is tap-to-load (Decision 5A), including the local user's own posts for
                 // one consistent rule in public rooms.
@@ -1633,6 +1634,7 @@ private struct BroadcastMessageRow: View {
                     txId: message.id,
                     fallbackText: displayText,
                     onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil,
+                    isOutgoing: isOwnMessage,
                     // Broadcast rooms are open to anyone, so previews never auto-fetch here -
                     // each card is tap-to-load (Decision 5A).
                     autoFetch: false

@@ -2522,7 +2522,7 @@ private struct GroupMessageBubbleRow: View {
                         // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                         // keeps the raw link visible/tappable if no preview data is ever found,
                         // rather than the message rendering as nothing at all.
-                        LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil)
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil, isOutgoing: message.isOutgoing)
                     } else {
                         Group {
                             if !mentionedMembers.isEmpty {
@@ -2631,7 +2631,7 @@ private struct GroupMessageBubbleRow: View {
                    internalLink == nil,
                    !MessageTextRenderPlan.isEntirelyLink(displayContent),
                    let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent) {
-                    LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil)
+                    LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil, isOutgoing: message.isOutgoing)
                 }
 
                 if message.isOutgoing {
