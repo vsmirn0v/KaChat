@@ -265,7 +265,8 @@ function page({ title, description, image, canonical, appArgument, body, largeIm
 function postPage(txid, post, identity, quoteIdentity) {
   const name = displayName(identity);
   const canonical = `${SITE_ORIGIN}/post/${encodeURIComponent(txid)}`;
-  const description = truncate(post.text || (post.quote ? 'Reposted a post on KaChat' : 'A post on KaChat'), 300);
+  // One line for the unfurl: chat apps show meta descriptions as a single paragraph anyway.
+  const description = truncate((post.text || (post.quote ? 'Reposted a post on KaChat' : 'A post on KaChat')).replace(/\s+/g, ' ').trim(), 300);
   const avatar = identity.avatar || `${SITE_ORIGIN}/og-default.png`;
   const edited = post.editedAt ? ' · edited' : '';
   const replyLine = post.parentPostId ? `<div class="meta">Replying to a post</div>` : '';
