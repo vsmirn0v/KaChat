@@ -156,10 +156,24 @@ struct KaPostsView: View {
         /// new identity, or LazyVStack rebuilds the whole feed (scroll jumps + a beefy hang,
         /// seen on resume when an in-flight load completed).
         var id = UUID()
-        let text: String
+        /// Mutable for the two-hour edit window (`canEdit`); otherwise what was posted.
+        var text: String
         let timestamp: Date
         /// Kaspa address of the author - drives KNS avatar/name resolution and follow state.
         let posterAddress: String
+        /// When the text shown is an edit (ours this session, or one the indexer accepted).
+        var editedAt: Date? = nil
+        /// Seconds left to edit, or nil once the post is permanent.
+        var editTimeRemaining: TimeInterval? {
+            let left = timestamp.addingTimeInterval(KaPostsAPIClient.editWindow).timeIntervalSinceNow
+            return left > 0 ? left : nil
+        }
+        /// Our own on-chain post, reply or quote, still inside the edit window.
+        var canEdit: Bool {
+            guard remoteId != nil, deliveryStatus == .sent, editTimeRemaining != nil,
+                  let mine = WalletManager.shared.currentWallet?.publicAddress else { return false }
+            return posterAddress == mine
+        }
         /// K transaction id when this post came from the indexer (nil = local session post that
         /// hasn't been wired on-chain yet). Used to fetch replies and (Phase B) target votes.
         var remoteId: String? = nil
@@ -846,7 +860,8 @@ struct KaPostsView: View {
                             onDislike: { toggleDislike(post) },
                             onRepost: { handleRepostTap(post) },
                             onRepostAction: { handleRepostAction(post, $0) },
-                            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
+                            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
+                            onEdit: { editPost(post, newText: $0) }
                         )
                         .equatable()
                         .task(id: post.posterAddress) {
@@ -1400,6 +1415,7 @@ struct KaPostsView: View {
         mapped.reposts = post.quotesCount ?? 0
         mapped.likedByMe = post.isUpvoted ?? false
         mapped.dislikedByMe = post.isDownvoted ?? false
+        mapped.editedAt = post.editedAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
         if let quote = post.quote,
            let quotedText = quote.decodedMessage,
            let quotedPubkey = quote.referencedSenderPubkey,
@@ -2269,6 +2285,37 @@ struct KaPostsView: View {
         }
     }
 
+    /// Replaces the text of one of our posts (or comments) - shown at once, then put on chain.
+    /// No undo countdown: the composer already asked, and the window is the undo. A failed
+    /// transaction puts the old text back.
+    private func editPost(_ post: DraftPost, newText: String) {
+        let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != post.text, post.canEdit, let remoteId = post.remoteId else { return }
+        let previousText = post.text
+        let previousEditedAt = post.editedAt
+        mutatePost(id: post.id) {
+            $0.text = trimmed
+            $0.editedAt = Date()
+            $0.deliveryStatus = .pending
+        }
+        Task {
+            do {
+                _ = try await KaPostsAPIClient.shared.submitEdit(
+                    text: trimmed, postId: remoteId, mentionedPubkeys: await mentionedPubkeys(in: trimmed)
+                )
+                mutatePost(id: post.id) { $0.deliveryStatus = .sent }
+            } catch {
+                mutatePost(id: post.id) {
+                    $0.text = previousText
+                    $0.editedAt = previousEditedAt
+                    $0.deliveryStatus = .sent
+                }
+                feedError = "Couldn't save the edit: \(error.localizedDescription)"
+                AppLog.log("[KaPosts] Edit submit failed: %@", error.localizedDescription)
+            }
+        }
+    }
+
     private func scheduleQuote(target: DraftPost, text: String) {
         let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
         var quotePost = DraftPost(text: text, timestamp: Date(), posterAddress: myAddress)
@@ -3019,7 +3066,8 @@ struct KaPostsView: View {
             // sheet's own hierarchy - the top-level $quoteComposerTarget sheet can't present
             // while the thread sheet is up, so the composer only showed after closing the post.
             onRepostAction: { handleRepostAction(item, $0, level: .thread) },
-            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
+            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
+            onEdit: { editPost(item, newText: $0) }
         )
         .equatable()
     }
@@ -3931,7 +3979,8 @@ struct KaPostsView: View {
             // My-profile cell: this profile lives inside the side-menu sheet (a level
             // ABOVE feedLayer), so the composer has to present from that sheet.
             onRepostAction: { handleRepostAction(post, $0, level: .menu) },
-            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
+            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
+            onEdit: { editPost(post, newText: $0) }
         )
         .equatable()
     }
@@ -4163,7 +4212,8 @@ struct KaPostsView: View {
                                     onRepost: { handleRepostTap(post) },
                                     // Bookmarks lives inside the side-menu sheet - same rule.
                                     onRepostAction: { handleRepostAction(post, $0, level: .menu) },
-                                    onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
+                                    onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
+                                    onEdit: { editPost(post, newText: $0) }
                                 )
                                 .equatable()
                                 Divider()
@@ -4511,6 +4561,16 @@ private struct KaPostCellView: View {
     var onRepostAction: ((KaPostRepostAction) -> Void)? = nil
     /// Tapping the quoted-post embed opens that post's own thread (comments and all).
     var onOpenQuoted: ((String) -> Void)? = nil
+    /// Saves an edit of this post's text. Offered in the three-dots sheet while `post.canEdit`.
+    var onEdit: ((String) -> Void)? = nil
+    /// The edit composer, presented from this cell so it works at every level the cell appears
+    /// (feed, thread sheet, profile sheet, bookmarks) - a parent-level cover cannot present over
+    /// a sheet it does not own.
+    @State private var showEditComposer = false
+
+    private var showsEditRow: Bool {
+        onEdit != nil && post.canEdit
+    }
 
     private var translationKey: String {
         PostTranslationService.translationKey(for: post.remoteId, localId: post.id)
@@ -4537,8 +4597,15 @@ private struct KaPostCellView: View {
 
     /// Title, rows, padding - sized to its rows so the sheet is never taller than its content.
     private var overflowSheetHeight: CGFloat {
-        let rows = (showsPostActivityRow ? 1 : 0) + (isOwnPost ? 0 : 2)
+        let rows = (showsPostActivityRow ? 1 : 0) + (showsEditRow ? 1 : 0) + (isOwnPost ? 0 : 2)
         return 88 + CGFloat(rows) * 78
+    }
+
+    /// "1h 12m left" / "8m left" for the Edit row.
+    private var editWindowText: String {
+        guard let left = post.editTimeRemaining else { return "" }
+        let minutes = Int(left / 60)
+        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m left" : "\(max(minutes, 1))m left"
     }
 
     /// The three-dots half sheet. Same shape as Address Actions and the other half-sheet menus,
@@ -4552,6 +4619,17 @@ private struct KaPostCellView: View {
                 .padding(.bottom, 16)
 
             VStack(spacing: 12) {
+                if showsEditRow {
+                    ActionSheetRow(
+                        title: "Edit",
+                        subtitle: "Change the text. Posts can be edited for two hours; after that they stay as they are. \(editWindowText).",
+                        systemImage: "pencil"
+                    ) {
+                        showOverflowSheet = false
+                        // Let the half sheet finish dismissing before the cover goes up.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showEditComposer = true }
+                    }
+                }
                 if showsPostActivityRow {
                     ActionSheetRow(
                         title: "Post Activity",
@@ -4658,6 +4736,11 @@ private struct KaPostCellView: View {
                     Text(relativeTime(post.timestamp))
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    if post.editedAt != nil {
+                        Text("· edited")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                     // Inline follow toggle: Follow -> Following -> Follow. Hidden on your own
                     // posts - you can't follow yourself.
                     if !isOwnPost {
@@ -4695,6 +4778,13 @@ private struct KaPostCellView: View {
                         overflowSheet
                             .presentationDetents([.height(overflowSheetHeight)])
                             .presentationDragIndicator(.visible)
+                    }
+                    .fullScreenCover(isPresented: $showEditComposer) {
+                        KaPostComposerView(
+                            onPost: { text in onEdit?(text) },
+                            editingPost: true,
+                            initialText: post.text
+                        )
                     }
                 }
 
@@ -5385,7 +5475,8 @@ extension KaPostCellView: Equatable {
         (lhs.onViewEngagement == nil) == (rhs.onViewEngagement == nil) &&
         (lhs.onTip == nil) == (rhs.onTip == nil) &&
         (lhs.onRepostAction == nil) == (rhs.onRepostAction == nil) &&
-        (lhs.onOpenQuoted == nil) == (rhs.onOpenQuoted == nil)
+        (lhs.onOpenQuoted == nil) == (rhs.onOpenQuoted == nil) &&
+        (lhs.onEdit == nil) == (rhs.onEdit == nil)
     }
 }
 
@@ -5930,7 +6021,10 @@ private struct KaPostComposerView: View {
     /// Set when this composer was opened from a saved draft, so re-saving updates that draft
     /// rather than piling up a new one each time.
     var editingDraftId: UUID? = nil
-    /// Prefilled when reopening a draft.
+    /// Editing an existing post's text (the two-hour window): no threading, no quote or reply
+    /// framing, "Save" instead of "Post", and closing discards rather than offering a draft.
+    var editingPost: Bool = false
+    /// Prefilled when reopening a draft, or with the current text of a post being edited.
     var initialText: String = ""
     var initialThreadSegments: [String] = []
     @State private var showCloseOptions = false
@@ -5957,8 +6051,8 @@ private struct KaPostComposerView: View {
 
     private var threadingEnabled: Bool {
         // A reply is one post to one parent, and a quote is one post about one source: neither
-        // stacks into a thread.
-        onPostThread != nil && quotedPost == nil && replyTarget == nil
+        // stacks into a thread. Nor does an edit.
+        onPostThread != nil && quotedPost == nil && replyTarget == nil && !editingPost
     }
 
     /// Everything that would be posted right now: stacked segments plus the in-progress text.
@@ -5991,7 +6085,7 @@ private struct KaPostComposerView: View {
                 Button {
                     // Anything written is worth asking about - closing used to throw it away
                     // silently, which is the whole reason drafts exist.
-                    if hasUnsavedContent {
+                    if hasUnsavedContent, !editingPost {
                         showCloseOptions = true
                     } else {
                         dismiss()
@@ -6004,20 +6098,24 @@ private struct KaPostComposerView: View {
                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.08)))
                 }
                 .buttonStyle(.plain)
-                Text(replyTarget != nil
-                     ? "Reply to Post"
-                     : (quotedPost == nil
-                        ? (threadSegments.isEmpty ? "New Post" : "New Thread")
-                        : "Quote Post"))
+                Text(editingPost
+                     ? "Edit Post"
+                     : (replyTarget != nil
+                        ? "Reply to Post"
+                        : (quotedPost == nil
+                           ? (threadSegments.isEmpty ? "New Post" : "New Thread")
+                           : "Quote Post")))
                     .font(.title3.weight(.bold))
                 Spacer()
                 characterMeter
                 Button {
                     postAll()
                 } label: {
-                    Text(replyTarget != nil
-                         ? "Reply"
-                         : (allSegments.count > 1 ? "Post All (\(allSegments.count))" : "Post"))
+                    Text(editingPost
+                         ? "Save"
+                         : (replyTarget != nil
+                            ? "Reply"
+                            : (allSegments.count > 1 ? "Post All (\(allSegments.count))" : "Post")))
                         .font(.subheadline.weight(.bold))
                         .foregroundColor(canPost ? Color.black : Color.secondary)
                         .padding(.horizontal, 16)

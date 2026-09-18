@@ -93,6 +93,9 @@ final class KaPostsAPIClient: ObservableObject {
         let contentType: String?
         let isQuote: Bool?
         let quote: KQuoteRef?
+        /// Set by the KaChat indexer when the content shown is an accepted edit (ms). The
+        /// `postContent` is then the edited text; `timestamp` stays the original's.
+        let editedAt: Int64?
 
         /// Base64 -> plain text (K encodes all content fields).
         var decodedContent: String? {
@@ -520,6 +523,12 @@ enum KaPostsProtocol {
     static func unquoteSigningString(contentId: String) -> String {
         contentId
     }
+    /// Edits carry the action name in what is signed - a reply's signature covers the very
+    /// same three fields, and without the prefix a reply to your own post could be replayed
+    /// as an edit of it.
+    static func editSigningString(postId: String, b64Message: String, mentionsJSON: String) -> String {
+        "edit:\(postId):\(b64Message):\(mentionsJSON)"
+    }
 
     /// The on-chain record behind one post id, read straight off the transaction payload.
     ///
@@ -595,6 +604,11 @@ enum KaPostsProtocol {
     }
     static func unquotePayload(pubkey: String, signature: String, contentId: String) -> String {
         "\(prefix)unquote:\(pubkey):\(signature):\(contentId)"
+    }
+    /// Replaces the text of `postId` (a post, reply or quote by the same pubkey) - honoured by
+    /// the indexer only within `KaPostsAPIClient.editWindow` of the original.
+    static func editPayload(pubkey: String, signature: String, postId: String, b64Message: String, mentionsJSON: String) -> String {
+        "\(prefix)edit:\(pubkey):\(signature):\(postId):\(b64Message):\(mentionsJSON)"
     }
 }
 
@@ -719,6 +733,31 @@ extension KaPostsAPIClient {
         )
         return try await submitPayloadTx(
             KaPostsProtocol.replyPayload(pubkey: pubkey, signature: signature, postId: postId, b64Message: b64, mentionsJSON: mentions)
+        )
+    }
+
+    /// How long after posting a post, reply or quote can still be edited. The indexer enforces
+    /// the same window on chain time; after it the text is permanent.
+    nonisolated static let editWindow: TimeInterval = 2 * 60 * 60
+
+    /// Replaces the text of one of our own posts/replies/quotes (KAPOSTS_INDEXER.md §5.7).
+    /// Same mention rules as a post, so an @mention added in the edit notifies.
+    func submitEdit(text: String, postId: String, mentionedPubkeys: [String] = []) async throws -> String {
+        let marked = Self.kaChatMarker + text
+        let b64 = KaPostsProtocol.b64(marked)
+        let pubkey = try requesterPubkey()
+        let me = pubkey.lowercased()
+        var seen = Set<String>()
+        let clean = mentionedPubkeys
+            .map { $0.lowercased() }
+            .filter { $0.range(of: "^0[23][0-9a-f]{64}$", options: .regularExpression) != nil && $0 != me && seen.insert($0).inserted }
+        let mentions = "[" + clean.map { "\"\($0)\"" }.joined(separator: ",") + "]"
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.editSigningString(postId: postId, b64Message: b64, mentionsJSON: mentions),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.editPayload(pubkey: pubkey, signature: signature, postId: postId, b64Message: b64, mentionsJSON: mentions)
         )
     }
 

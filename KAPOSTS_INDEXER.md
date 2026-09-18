@@ -34,6 +34,7 @@ k:1:vote:<pubkey>:<signature>:<post_id>:<upvote|downvote|unvote>:<author_pubkey>
 k:1:follow:<pubkey>:<signature>:<follow|unfollow>:<followed_pubkey>
 k:1:quote:<pubkey>:<signature>:<content_id>:<b64_message>:<quoted_author_pubkey>
 k:1:unquote:<pubkey>:<signature>:<content_id>
+k:1:edit:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>
 ```
 
 `unvote` and `unquote` are the removal counter-actions (§5.1); they are implemented in the
@@ -50,6 +51,9 @@ are re-enabled.
   - follow: `"<action>:<followed_pubkey>"`
   - quote: `"<content_id>:<b64_message>:<quoted_author_pubkey>"`
   - unquote: `"<content_id>"`
+  - edit: `"edit:<post_id>:<b64_message>:<mentions_json>"` — note the literal `edit:` prefix
+    inside the signed string (a reply signs the same three fields; without it a reply to your
+    own post could be replayed as an edit of it). See §5.7.
 - `<b64_message>`: base64 of the UTF-8 message text.
 - `<mentions_json>`: JSON array of mentioned pubkeys; the app currently always sends `[]`.
 - A **plain repost** is a quote whose message is empty-after-marker (see §3) — the K
@@ -171,6 +175,37 @@ These are confirmed product decisions; the iOS UI is already shaped for them.
    Both apps ship a client-side search that pages the global feed and filters what comes
    back. It says so in the UI ("Searched the most recent N posts"), but it cannot see further
    than it has paged — a real index is the only way to search all of history.
+
+7. **Edits — the `edit` action (NEW, outstanding; 5.0).** A post, reply or quote can be
+   edited by its author for **two hours** after it was posted; after that it is permanent. The
+   chain still keeps every version - the indexer's *interpretation* is what changes, exactly
+   like `unvote`/`unquote`.
+
+   Payload (§2): `kchat:1:edit:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>`,
+   signature over `"edit:<post_id>:<b64_message>:<mentions_json>"`. The app writes it
+   immediately (no undo countdown) with `deliveryStatus` pending until the tx is accepted.
+
+   Accept an edit only when ALL of these hold; otherwise ignore it silently:
+   - `<post_id>` is a post, reply or quote already indexed, and its `userPublicKey` equals the
+     edit's `<pubkey>` (an author edits only their own content);
+   - the signature verifies for `<pubkey>` over the signing string above;
+   - the edit transaction's chain time is **≤ original.timestamp + 7 200 000 ms**
+     (measured from the ORIGINAL post's timestamp, not from a previous edit);
+   - `<b64_message>` decodes and, marker stripped, is non-empty.
+
+   Interpretation: the latest accepted edit (by chain time) is the content. In every read
+   endpoint that returns a `KPost` (feeds, replies, profiles, `get-post`, `get-thread`,
+   search, the embedded `quote.referencedMessage` of quotes), return:
+   - `postContent` = the edited base64 message (the original stays retrievable on chain);
+   - `timestamp` = the ORIGINAL post's timestamp, unchanged (ordering must not move);
+   - **`editedAt`** (new field, ms) = the accepted edit's chain time; absent/null when never
+     edited. The apps show "edited" next to the time when it is set.
+   `mentions_json` on an edit: treat newly-added pubkeys as mentions for notifications, like
+   a post's; do not re-notify pubkeys already mentioned by the original.
+
+   Nothing else changes: votes, quotes, replies and counts all stay attached to the same
+   `post_id`. An edit received after the window, or for someone else's post, is dropped with
+   no effect.
 
 Nice-to-haves once the core is up: richer notifications (mentions, replies to replies), and
 a push hook — the app already runs a forked kasia-indexer with a `PushNotificationActor` for
