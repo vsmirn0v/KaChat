@@ -581,12 +581,12 @@ struct ProfileView: View {
     }
 
     /// KaPosts-style hero: KNS banner (gradient fallback), overlapping avatar, display name
-    /// (primary KNS domain, .kas dropped, else the account name) and bio.
+    /// (primary KNS domain, with its .kas, else the account name) and bio.
     private func profileHeroSection(_ wallet: Wallet) -> some View {
         let displayName: String = {
             if let domain = knsPrimaryDomain ?? knsProfileInfo?.domainName,
                !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return KaPostsView.strippingKasSuffix(domain)
+                return KaPostsView.displayKasName(domain)
             }
             return wallet.alias
         }()

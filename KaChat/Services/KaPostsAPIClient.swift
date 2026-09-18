@@ -1123,19 +1123,19 @@ final class KaPostsNotificationService {
         }
     }
 
-    /// Contact alias > KNS primary domain (fetched when not cached) > shortened address, .kas
-    /// stripped - the same identity chain as everywhere else in KaPosts.
+    /// Contact alias > KNS primary domain (fetched when not cached) > shortened address - the
+    /// same identity chain as everywhere else in KaPosts; a domain keeps its .kas.
     private func actorName(for address: String) async -> String {
         if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
            !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(alias)
+            return KaPostsView.displayKasName(alias)
         }
         if KNSService.shared.profileCache[address] == nil {
             _ = await KNSService.shared.fetchProfile(for: address)
         }
         if let domain = KNSService.shared.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(domain)
+            return KaPostsView.displayKasName(domain)
         }
         return String(address.suffix(10))
     }

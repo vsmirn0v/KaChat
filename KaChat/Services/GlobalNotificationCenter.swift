@@ -201,11 +201,11 @@ final class GlobalNotificationCenter: ObservableObject {
 
     private func displayName(for address: String) -> String {
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
-            return KaPostsView.strippingKasSuffix(assigned)
+            return KaPostsView.displayKasName(assigned)
         }
         if let domain = KNSService.shared.domainCache[address]?.primaryDomain,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(domain)
+            return KaPostsView.displayKasName(domain)
         }
         return String(address.suffix(10))
     }

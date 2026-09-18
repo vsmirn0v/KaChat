@@ -321,11 +321,11 @@ final class KaPostLinkPreviewCache: ObservableObject {
         guard let address, !address.isEmpty else { return nil }
         if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
            !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(alias)
+            return KaPostsView.displayKasName(alias)
         }
         if let domain = KNSService.shared.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(domain)
+            return KaPostsView.displayKasName(domain)
         }
         return String(address.suffix(10))
     }

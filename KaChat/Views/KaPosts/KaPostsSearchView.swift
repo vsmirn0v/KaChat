@@ -303,15 +303,15 @@ struct KaPostsSearchView: View {
     private func displayName(for address: String) -> String {
         guard !address.isEmpty else { return "Unknown" }
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
-            return KaPostsView.strippingKasSuffix(assigned)
+            return KaPostsView.displayKasName(assigned)
         }
         if let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(domain)
+            return KaPostsView.displayKasName(domain)
         }
         if let domain = knsService.domainCache[address]?.primaryDomain,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(domain)
+            return KaPostsView.displayKasName(domain)
         }
         return String(address.suffix(8))
     }
