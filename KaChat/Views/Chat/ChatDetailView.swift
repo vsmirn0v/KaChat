@@ -3132,16 +3132,30 @@ struct ChatDetailView: View {
         }
         let target = messages[targetIndex]
         armHistoryGrowthAnchor()
-        loadedMessageCount = max(loadedMessageCount, messages.count - targetIndex)
+        // Open the window over the original plus a little history above it, so the target is
+        // not the very first rendered row (the top anchor would fire pagination on arrival).
+        loadedMessageCount = max(loadedMessageCount, min(messages.count, messages.count - targetIndex + 30))
         rememberRenderedWindowStart()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            scrollAndHighlight(target.id, using: proxy)
+        // A turn later, once the rows exist - and NOT animated. Animating a scroll across
+        // hundreds or thousands of rows the LazyVStack has only just been handed lays every one
+        // of them out mid-flight; on a long chat that froze the app for seconds (the same
+        // reason `jumpToChatStart` lands without animation).
+        DispatchQueue.main.async {
+            scrollAndHighlight(target.id, using: proxy, animated: false)
         }
     }
 
-    private func scrollAndHighlight(_ id: UUID, using proxy: ScrollViewProxy) {
-        withAnimation {
-            proxy.scrollTo(id, anchor: .center)
+    private func scrollAndHighlight(_ id: UUID, using proxy: ScrollViewProxy, animated: Bool = true) {
+        if animated {
+            withAnimation {
+                proxy.scrollTo(id, anchor: .center)
+            }
+        } else {
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                proxy.scrollTo(id, anchor: .center)
+            }
         }
         highlightedMessageID = id
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
