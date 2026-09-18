@@ -50,6 +50,8 @@
 		CALL0004B000000000000001 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0004A000000000000001 /* CallView.swift */; };
 		CALL0005B000000000000001 /* CallKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0005A000000000000001 /* CallKitManager.swift */; };
 		CALL0006B000000000000001 /* VoIPPushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0006A000000000000001 /* VoIPPushManager.swift */; };
+		CALL0007B000000000000001 /* CallRingback.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0007A000000000000001 /* CallRingback.swift */; };
+		CALL0008B000000000000001 /* CallCameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0008A000000000000001 /* CallCameraPreview.swift */; };
 		CAMV0000000000000001 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMV0000000000000002 /* CameraCaptureView.swift */; };
 		CFMT00010001000000000002 /* CurrencyFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFMT00010001000000000001 /* CurrencyFormat.swift */; };
 		CH0001B0000000000000001 /* ChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0001A0000000000000001 /* ChessEngine.swift */; };
@@ -290,6 +292,8 @@
 		CALL0004A000000000000001 /* CallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallView.swift; sourceTree = "<group>"; };
 		CALL0005A000000000000001 /* CallKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallKitManager.swift; sourceTree = "<group>"; };
 		CALL0006A000000000000001 /* VoIPPushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPPushManager.swift; sourceTree = "<group>"; };
+		CALL0007A000000000000001 /* CallRingback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallRingback.swift; sourceTree = "<group>"; };
+		CALL0008A000000000000001 /* CallCameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallCameraPreview.swift; sourceTree = "<group>"; };
 		CAMV0000000000000002 /* CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureView.swift; sourceTree = "<group>"; };
 		CFMT00010001000000000001 /* CurrencyFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrencyFormat.swift; sourceTree = "<group>"; };
 		CH0001A0000000000000001 /* ChessEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessEngine.swift; sourceTree = "<group>"; };
@@ -694,6 +698,7 @@
 				CALL0002A000000000000001 /* CallService.swift */,
 				CALL0005A000000000000001 /* CallKitManager.swift */,
 				CALL0006A000000000000001 /* VoIPPushManager.swift */,
+				CALL0007A000000000000001 /* CallRingback.swift */,
 				CALL0001A000000000000001 /* NextcloudTalkClient.swift */,
 				GN0001A0000000000000001 /* GlobalNotificationCenter.swift */,
 				KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */,
@@ -800,6 +805,7 @@
 				E81000182D4C00010000000D /* ChatDetailView.swift */,
 				1C4C922EA822400194F497F9 /* ChatInfoView.swift */,
 				CALL0004A000000000000001 /* CallView.swift */,
+				CALL0008A000000000000001 /* CallCameraPreview.swift */,
 				4D3D20022F72000200000001 /* ChatTimelineLayout.swift */,
 				CPTV00010001000000000001 /* ComposerTextView.swift */,
 				4D3D20082F72000800000001 /* ComposerKeyCommandPolicy.swift */,
@@ -1264,6 +1270,8 @@
 				CALL0002B000000000000001 /* CallService.swift in Sources */,
 				CALL0005B000000000000001 /* CallKitManager.swift in Sources */,
 				CALL0006B000000000000001 /* VoIPPushManager.swift in Sources */,
+				CALL0007B000000000000001 /* CallRingback.swift in Sources */,
+				CALL0008B000000000000001 /* CallCameraPreview.swift in Sources */,
 				CALL0001B000000000000001 /* NextcloudTalkClient.swift in Sources */,
 				GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */,
 				KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */,

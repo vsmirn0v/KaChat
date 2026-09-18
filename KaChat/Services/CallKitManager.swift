@@ -82,6 +82,16 @@ final class CallKitManager: NSObject {
         }
     }
 
+    /// Refreshes the name and video flag of a call already reported (a VoIP push reports before
+    /// the contact list is loaded; the real name comes a moment later).
+    func updateCall(uuid: UUID, displayName: String, video: Bool) {
+        guard knownCalls.contains(uuid) else { return }
+        let update = CXCallUpdate()
+        update.localizedCallerName = displayName
+        update.hasVideo = video
+        provider.reportCall(with: uuid, updated: update)
+    }
+
     /// A VoIP push that did not turn into a ringing call (stale, calls off for that contact,
     /// busy, unknown sender) must still be reported - iOS ends VoIP pushes for an app that
     /// swallows one. Reported and ended in the same breath; Recents shows a missed call, which
@@ -204,6 +214,13 @@ extension CallKitManager: CXProviderDelegate {
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         Task { @MainActor in
+            // A VoIP push reports the call before the app has finished loading the wallet
+            // behind it; the user can answer in that window. Give the call a moment to exist.
+            var waited = 0
+            while CallService.shared.session?.uuid != action.callUUID, waited < 100 {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                waited += 1
+            }
             guard let call = CallService.shared.session, call.uuid == action.callUUID else {
                 action.fail()
                 return
@@ -218,8 +235,10 @@ extension CallKitManager: CXProviderDelegate {
         Task { @MainActor in
             self.knownCalls.remove(action.callUUID)
             guard let call = CallService.shared.session, call.uuid == action.callUUID else {
-                // Ending something we no longer hold (a placeholder, an already-finished call):
-                // nothing to do, and telling CallKit so keeps its list clean.
+                // Ending something we do not hold yet or any more: a VoIP-pushed call still
+                // waiting for the app to load (remember the decline so it never rings), a
+                // placeholder, an already-finished call.
+                CallService.shared.noteEndedBeforeRinging(action.callUUID)
                 action.fulfill()
                 return
             }

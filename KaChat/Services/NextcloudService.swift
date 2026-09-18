@@ -253,6 +253,9 @@ final class NextcloudService: ObservableObject {
     private nonisolated static let autoSyncChosenKey = "kachat_nextcloud_auto_sync_chosen"
     /// Persisted last-known backup ETag (see `lastKnownBackupETag`).
     private nonisolated static let lastETagKey = "kachat_nextcloud_last_etag"
+    /// The last capabilities probe's answer, per wallet, so a launch knows at once whether this
+    /// account can host a call - a VoIP push that starts the app cannot wait for the network.
+    private nonisolated static let talkCallsKey = "kachat_nextcloud_talk_calls"
     nonisolated static let autoBackupMinInterval: TimeInterval = 3600
     /// Quiet time after the last message before the automatic merge upload runs. Two tiers,
     /// for battery: fast while a 1:1 or group chat is open on screen (a send from inside a
@@ -383,7 +386,7 @@ final class NextcloudService: ObservableObject {
         scheduleAutoRestoreIfNeeded()
         // Continuous path after the bootstrap: watch the shared file for other devices' writes.
         startChangeWatcherIfNeeded()
-        talkCallsAvailable = false
+        talkCallsAvailable = account != nil && (scopedKey(Self.talkCallsKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false)
         refreshTalkAvailability()
     }
 
@@ -1013,6 +1016,7 @@ final class NextcloudService: ObservableObject {
                 self.talkCallsAvailable = available
                 AppLog.log("%@", "[Nextcloud] Talk calls \(available ? "available" : "not available") on \(server.host ?? "server")")
             }
+            self.persistSetting(available, baseKey: Self.talkCallsKey)
         }
     }
 

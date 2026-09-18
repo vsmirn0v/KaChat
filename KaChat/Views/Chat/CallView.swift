@@ -20,7 +20,7 @@ struct CallView: View {
     private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var isVideoLayout: Bool {
-        call.video && (call.phase == .connected || call.phase == .connecting)
+        call.video && (call.phase == .connected || call.phase == .connecting || call.phase == .ringingOut)
     }
 
     var body: some View {
@@ -120,13 +120,15 @@ struct CallView: View {
             VStack(spacing: 12) {
                 videoTile(track: call.remoteVideoTrack,
                           name: contactsManager.displayName(for: call.contact),
-                          placeholder: call.phase == .connected ? "Camera off" : (call.statusDetail ?? "Connecting\u{2026}"),
+                          placeholder: remotePlaceholder,
                           address: call.contact.address)
                     .frame(height: tileHeight)
                 videoTile(track: call.isCameraOff ? nil : call.localVideoTrack,
                           name: "You",
                           placeholder: "Camera off",
-                          address: nil)
+                          address: nil,
+                          // Ringing: no WebRTC track yet, so the camera itself fills the tile.
+                          livePreview: !call.isCameraOff && call.localVideoTrack == nil && call.phase == .ringingOut)
                     .frame(height: tileHeight)
                 videoControlBar
                     .frame(height: barHeight)
@@ -137,13 +139,23 @@ struct CallView: View {
         .ignoresSafeArea(.container, edges: .bottom)
     }
 
+    private var remotePlaceholder: String {
+        switch call.phase {
+        case .ringingOut: return "calling\u{2026}"
+        case .connected: return "Camera off"
+        default: return call.statusDetail ?? "Connecting\u{2026}"
+        }
+    }
+
     @ViewBuilder
-    private func videoTile(track: RTCVideoTrack?, name: String, placeholder: String, address: String?) -> some View {
+    private func videoTile(track: RTCVideoTrack?, name: String, placeholder: String, address: String?, livePreview: Bool = false) -> some View {
         ZStack(alignment: .bottomLeading) {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color(white: 0.12))
             if let track {
                 RTCVideoView(track: track)
+            } else if livePreview {
+                CallCameraPreviewView()
             } else {
                 VStack(spacing: 10) {
                     if let address {
