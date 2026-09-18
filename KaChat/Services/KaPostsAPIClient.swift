@@ -529,6 +529,11 @@ enum KaPostsProtocol {
     static func editSigningString(postId: String, b64Message: String, mentionsJSON: String) -> String {
         "edit:\(postId):\(b64Message):\(mentionsJSON)"
     }
+    /// Same domain separation as `edit`: an unquote signs a bare content id, and a delete must
+    /// not be forgeable from one.
+    static func deleteSigningString(postId: String) -> String {
+        "delete:\(postId)"
+    }
 
     /// The on-chain record behind one post id, read straight off the transaction payload.
     ///
@@ -609,6 +614,10 @@ enum KaPostsProtocol {
     /// the indexer only within `KaPostsAPIClient.editWindow` of the original.
     static func editPayload(pubkey: String, signature: String, postId: String, b64Message: String, mentionsJSON: String) -> String {
         "\(prefix)edit:\(pubkey):\(signature):\(postId):\(b64Message):\(mentionsJSON)"
+    }
+    /// Removes `postId` (a post, reply or quote by the same pubkey) from every feed - any time.
+    static func deletePayload(pubkey: String, signature: String, postId: String) -> String {
+        "\(prefix)delete:\(pubkey):\(signature):\(postId)"
     }
 }
 
@@ -758,6 +767,19 @@ extension KaPostsAPIClient {
         )
         return try await submitPayloadTx(
             KaPostsProtocol.editPayload(pubkey: pubkey, signature: signature, postId: postId, b64Message: b64, mentionsJSON: mentions)
+        )
+    }
+
+    /// Deletes one of our own posts/replies/quotes (KAPOSTS_INDEXER.md §5.8). The chain keeps
+    /// the bytes; the indexer stops serving the post.
+    func submitDelete(postId: String) async throws -> String {
+        let pubkey = try requesterPubkey()
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.deleteSigningString(postId: postId),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.deletePayload(pubkey: pubkey, signature: signature, postId: postId)
         )
     }
 

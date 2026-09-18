@@ -1369,9 +1369,25 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         }
     }
 
+    private var persistCacheTask: Task<Void, Never>?
+
+    /// Coalesced and off the main thread, like `persistProfileCache`. This used to encode the
+    /// WHOLE domain cache to UserDefaults synchronously on the main actor for every address
+    /// that resolved - and a contact sweep (opening the post composer) or a long thread
+    /// (one lookup per poster) resolves dozens to hundreds in a row, which froze the app for
+    /// as long as all those encodes took.
     private func persistCache() {
-        guard let data = try? JSONEncoder().encode(domainCache) else { return }
-        UserDefaults.standard.set(data, forKey: cacheKey)
+        persistCacheTask?.cancel()
+        persistCacheTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 750_000_000)
+            guard let self, !Task.isCancelled else { return }
+            let snapshot = self.domainCache
+            let key = self.cacheKey
+            await Task.detached(priority: .utility) {
+                guard let data = try? JSONEncoder().encode(snapshot) else { return }
+                UserDefaults.standard.set(data, forKey: key)
+            }.value
+        }
     }
 
     /// One-time repair for negative entries written by builds that cached a failed lookup as

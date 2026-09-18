@@ -35,6 +35,7 @@ k:1:follow:<pubkey>:<signature>:<follow|unfollow>:<followed_pubkey>
 k:1:quote:<pubkey>:<signature>:<content_id>:<b64_message>:<quoted_author_pubkey>
 k:1:unquote:<pubkey>:<signature>:<content_id>
 k:1:edit:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>
+k:1:delete:<pubkey>:<signature>:<post_id>
 ```
 
 `unvote` and `unquote` are the removal counter-actions (§5.1); they are implemented in the
@@ -54,6 +55,7 @@ are re-enabled.
   - edit: `"edit:<post_id>:<b64_message>:<mentions_json>"` — note the literal `edit:` prefix
     inside the signed string (a reply signs the same three fields; without it a reply to your
     own post could be replayed as an edit of it). See §5.7.
+  - delete: `"delete:<post_id>"` — same idea (an unquote signs a bare content id). See §5.8.
 - `<b64_message>`: base64 of the UTF-8 message text.
 - `<mentions_json>`: JSON array of mentioned pubkeys; the app currently always sends `[]`.
 - A **plain repost** is a quote whose message is empty-after-marker (see §3) — the K
@@ -206,6 +208,28 @@ These are confirmed product decisions; the iOS UI is already shaped for them.
    Nothing else changes: votes, quotes, replies and counts all stay attached to the same
    `post_id`. An edit received after the window, or for someone else's post, is dropped with
    no effect.
+
+8. **Deletes — the `delete` action (NEW, outstanding; 5.0).** An author can delete their own
+   post, reply or quote at any time. Payload (§2):
+   `kchat:1:delete:<pubkey>:<signature>:<post_id>`, signature over `"delete:<post_id>"`.
+
+   Accept when `<post_id>` is an indexed post/reply/quote whose `userPublicKey` equals
+   `<pubkey>` and the signature verifies; otherwise ignore. No time window.
+
+   Interpretation once accepted:
+   - the post disappears from EVERY read endpoint (feeds, profiles, replies, search,
+     bookmarks-by-id, `get-post` → 404, `get-thread` → the deleted level is omitted or 404 when
+     it is the requested post itself);
+   - its parent's `repliesCount` and, for a quote, the quoted post's `quotesCount` go down by
+     one; votes on the deleted post no longer count anywhere;
+   - replies TO the deleted post stay (their authors own them) with `parentPostId` unchanged;
+     clients render a missing parent as "post deleted";
+   - a quote whose `quote.referencedContentId` was deleted keeps its own text and gets
+     `quote.referencedMessage = null` (clients show "post deleted" in the embed);
+   - notifications about the deleted post can be dropped.
+
+   The chain keeps the bytes, so a client's chain reader may still find the original by txid;
+   that is expected and no different from any other removal counter-action.
 
 Nice-to-haves once the core is up: richer notifications (mentions, replies to replies), and
 a push hook — the app already runs a forked kasia-indexer with a `PushNotificationActor` for

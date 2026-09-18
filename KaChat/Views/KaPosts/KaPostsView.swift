@@ -166,6 +166,9 @@ struct KaPostsView: View {
         /// When this session last put the post on the network (an edit's transaction landing);
         /// the sent checkmark counts its minute from here, not from the original post time.
         var sentAt: Date? = nil
+        /// Delete pressed and its five-second undo running: the card dims but stays, so Undo has
+        /// nothing to put back. Removed for good once the delete transaction is on chain.
+        var pendingDeletion = false
         /// Seconds left to edit, or nil once the post is permanent.
         var editTimeRemaining: TimeInterval? {
             let left = timestamp.addingTimeInterval(KaPostsAPIClient.editWindow).timeIntervalSinceNow
@@ -863,7 +866,8 @@ struct KaPostsView: View {
                             onRepost: { handleRepostTap(post) },
                             onRepostAction: { handleRepostAction(post, $0) },
                             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
-                            onEdit: { editPost(post, newText: $0) }
+                            onEdit: { editPost(post, newText: $0) },
+                            onDelete: { deletePost(post) }
                         )
                         .equatable()
                         .task(id: post.posterAddress) {
@@ -2290,6 +2294,55 @@ struct KaPostsView: View {
     /// What an edit replaced, kept for the five seconds Undo can put it back.
     @State private var pendingEditOriginals: [UUID: (text: String, editedAt: Date?)] = [:]
 
+    /// Deletes one of our posts (or comments) - allowed at any age. The card dims behind the
+    /// 5s undo countdown; after it the delete goes on chain and the post leaves every list.
+    private func deletePost(_ post: DraftPost) {
+        guard let remoteId = post.remoteId, post.deliveryStatus == .sent, !post.pendingDeletion,
+              post.posterAddress == WalletManager.shared.currentWallet?.publicAddress else { return }
+        mutatePost(id: post.id) { $0.pendingDeletion = true }
+        let key = "delete:\(post.id)"
+        showUndoToast(key: key, postId: post.id, label: "Deleting post")
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            Task {
+                do {
+                    _ = try await KaPostsAPIClient.shared.submitDelete(postId: remoteId)
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        removePostEverywhere(id: post.id)
+                    }
+                    // Deleted the post the open thread is about: nothing left to read there.
+                    if threadStack.last == post.id || profileThreadStack.last == post.id {
+                        closeThread()
+                    }
+                } catch {
+                    mutatePost(id: post.id) { $0.pendingDeletion = false }
+                    feedError = "Couldn't delete the post: \(error.localizedDescription)"
+                    AppLog.log("[KaPosts] Delete submit failed: %@", error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Drops every node with this id from every list and every comment tree (a post can be a
+    /// feed card and a comment node at once - see `mutatePost`).
+    private func removePostEverywhere(id: UUID) {
+        func strip(_ list: inout [DraftPost]) {
+            list.removeAll { $0.id == id }
+            for index in list.indices { strip(&list[index].comments) }
+        }
+        strip(&posts)
+        strip(&remotePosts)
+        strip(&posterProfilePosts)
+        strip(&posterProfileReplies)
+        strip(&myProfileRemotePosts)
+        strip(&myProfileRemoteReplies)
+        strip(&chainResolvedPosts)
+        for (rootId, chain) in threadChains {
+            threadChains[rootId] = chain.filter { $0.id != id }
+        }
+        pendingNewPosts.removeAll { $0.id == id }
+    }
+
     /// Replaces the text of one of our posts (or comments): shown at once, behind the same 5s
     /// undo countdown as every other action, then put on chain. Undo restores the old text; a
     /// failed transaction does the same.
@@ -2387,6 +2440,8 @@ struct KaPostsView: View {
                 posts.removeAll { $0.id == toast.postId }
             } else if toast.key.hasPrefix("comment:") {
                 removeReply(withId: toast.postId)
+            } else if toast.key.hasPrefix("delete:") {
+                mutatePost(id: toast.postId) { $0.pendingDeletion = false }
             } else if toast.key.hasPrefix("edit:"),
                       let original = pendingEditOriginals.removeValue(forKey: toast.postId) {
                 // An undone edit puts the previous text back exactly as it was.
@@ -3089,7 +3144,8 @@ struct KaPostsView: View {
             // while the thread sheet is up, so the composer only showed after closing the post.
             onRepostAction: { handleRepostAction(item, $0, level: .thread) },
             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
-            onEdit: { editPost(item, newText: $0) }
+            onEdit: { editPost(item, newText: $0) },
+            onDelete: { deletePost(item) }
         )
         .equatable()
     }
@@ -4002,7 +4058,8 @@ struct KaPostsView: View {
             // ABOVE feedLayer), so the composer has to present from that sheet.
             onRepostAction: { handleRepostAction(post, $0, level: .menu) },
             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
-            onEdit: { editPost(post, newText: $0) }
+            onEdit: { editPost(post, newText: $0) },
+                            onDelete: { deletePost(post) }
         )
         .equatable()
     }
@@ -4235,7 +4292,8 @@ struct KaPostsView: View {
                                     // Bookmarks lives inside the side-menu sheet - same rule.
                                     onRepostAction: { handleRepostAction(post, $0, level: .menu) },
                                     onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
-                                    onEdit: { editPost(post, newText: $0) }
+                                    onEdit: { editPost(post, newText: $0) },
+                            onDelete: { deletePost(post) }
                                 )
                                 .equatable()
                                 Divider()
@@ -4585,6 +4643,12 @@ private struct KaPostCellView: View {
     var onOpenQuoted: ((String) -> Void)? = nil
     /// Saves an edit of this post's text. Offered in the three-dots sheet while `post.canEdit`.
     var onEdit: ((String) -> Void)? = nil
+    /// Deletes this post. Offered in the three-dots sheet on your own on-chain posts, any time.
+    var onDelete: (() -> Void)? = nil
+
+    private var showsDeleteRow: Bool {
+        onDelete != nil && isOwnPost && post.remoteId != nil && post.deliveryStatus == .sent && !post.pendingDeletion
+    }
     /// The edit composer, presented from this cell so it works at every level the cell appears
     /// (feed, thread sheet, profile sheet, bookmarks) - a parent-level cover cannot present over
     /// a sheet it does not own.
@@ -4619,7 +4683,7 @@ private struct KaPostCellView: View {
 
     /// Title, rows, padding - sized to its rows so the sheet is never taller than its content.
     private var overflowSheetHeight: CGFloat {
-        let rows = (showsPostActivityRow ? 1 : 0) + (showsEditRow ? 1 : 0) + (isOwnPost ? 0 : 2)
+        let rows = (showsPostActivityRow ? 1 : 0) + (showsEditRow ? 1 : 0) + (showsDeleteRow ? 1 : 0) + (isOwnPost ? 0 : 2)
         return 88 + CGFloat(rows) * 78
     }
 
@@ -4660,6 +4724,17 @@ private struct KaPostCellView: View {
                     ) {
                         showOverflowSheet = false
                         onViewEngagement?()
+                    }
+                }
+                if showsDeleteRow {
+                    ActionSheetRow(
+                        title: "Delete",
+                        subtitle: "Removes this post everywhere. You have five seconds to undo.",
+                        systemImage: "trash",
+                        tint: .red
+                    ) {
+                        showOverflowSheet = false
+                        onDelete?()
                     }
                 }
                 if !isOwnPost {
@@ -5017,6 +5092,9 @@ private struct KaPostCellView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
+        // Delete armed: the card fades while the undo countdown runs.
+        .opacity(post.pendingDeletion ? 0.35 : 1)
+        .animation(.easeInOut(duration: 0.25), value: post.pendingDeletion)
         // Tap anywhere on the card (outside a button) to open the post's comment thread.
         .onTapGesture {
             onOpenThread?()
@@ -5503,7 +5581,8 @@ extension KaPostCellView: Equatable {
         (lhs.onTip == nil) == (rhs.onTip == nil) &&
         (lhs.onRepostAction == nil) == (rhs.onRepostAction == nil) &&
         (lhs.onOpenQuoted == nil) == (rhs.onOpenQuoted == nil) &&
-        (lhs.onEdit == nil) == (rhs.onEdit == nil)
+        (lhs.onEdit == nil) == (rhs.onEdit == nil) &&
+        (lhs.onDelete == nil) == (rhs.onDelete == nil)
     }
 }
 

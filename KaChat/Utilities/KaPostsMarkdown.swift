@@ -66,20 +66,30 @@ enum KaPostsMarkdown {
         render(source).hasFormatting
     }
 
+    /// The output under construction. `count` is tracked by hand: `String.count` walks the
+    /// whole string, and the parser used to ask for it at every marker of every line - a
+    /// quadratic cost that made long formatted posts a hitch on first render.
+    private struct Output {
+        var text = ""
+        var count = 0
+        mutating func append(_ character: Character) { text.append(character); count += 1 }
+        mutating func append(_ string: String) { text.append(string); count += string.count }
+    }
+
     static func render(_ source: String) -> Rendered {
-        var out = ""
+        var out = Output()
         var spans: [Span] = []
         let lines = source.components(separatedBy: "\n")
         for (index, line) in lines.enumerated() {
             if index > 0 { out.append("\n") }
             renderLine(line, into: &out, spans: &spans)
         }
-        return Rendered(text: out, spans: mergeAdjacent(spans))
+        return Rendered(text: out.text, spans: mergeAdjacent(spans))
     }
 
     // MARK: - Block level
 
-    private static func renderLine(_ line: String, into out: inout String, spans: inout [Span]) {
+    private static func renderLine(_ line: String, into out: inout Output, spans: inout [Span]) {
         var content = Substring(line)
         var lineStyle = Style.plain
         var prefix = ""
@@ -134,7 +144,7 @@ enum KaPostsMarkdown {
     private static func parseInline(
         _ chars: [Character],
         style: Style,
-        into out: inout String,
+        into out: inout Output,
         spans: inout [Span]
     ) {
         var i = 0
