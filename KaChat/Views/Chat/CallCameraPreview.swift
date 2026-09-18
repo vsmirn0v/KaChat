@@ -5,7 +5,7 @@ import AVFoundation
 /// track to show. One capture session, started when a video call is placed and stopped the
 /// moment WebRTC takes the camera over (`CallService.joinAndSignal`), since iOS lets only one
 /// session hold the device.
-final class CallCameraPreview {
+final class CallCameraPreview: @unchecked Sendable {
     static let shared = CallCameraPreview()
 
     let session = AVCaptureSession()

@@ -168,11 +168,10 @@ struct KaPostsView: View {
             let left = timestamp.addingTimeInterval(KaPostsAPIClient.editWindow).timeIntervalSinceNow
             return left > 0 ? left : nil
         }
-        /// Our own on-chain post, reply or quote, still inside the edit window.
-        var canEdit: Bool {
-            guard remoteId != nil, deliveryStatus == .sent, editTimeRemaining != nil,
-                  let mine = WalletManager.shared.currentWallet?.publicAddress else { return false }
-            return posterAddress == mine
+        /// On chain, settled, and still inside the edit window. Whether it is OURS is the
+        /// caller's check (the wallet is main-actor state this value type must not touch).
+        var isStillEditable: Bool {
+            remoteId != nil && deliveryStatus == .sent && editTimeRemaining != nil
         }
         /// K transaction id when this post came from the indexer (nil = local session post that
         /// hasn't been wired on-chain yet). Used to fetch replies and (Phase B) target votes.
@@ -2290,7 +2289,8 @@ struct KaPostsView: View {
     /// transaction puts the old text back.
     private func editPost(_ post: DraftPost, newText: String) {
         let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != post.text, post.canEdit, let remoteId = post.remoteId else { return }
+        guard !trimmed.isEmpty, trimmed != post.text, post.isStillEditable, let remoteId = post.remoteId,
+              post.posterAddress == WalletManager.shared.currentWallet?.publicAddress else { return }
         let previousText = post.text
         let previousEditedAt = post.editedAt
         mutatePost(id: post.id) {
@@ -4569,7 +4569,7 @@ private struct KaPostCellView: View {
     @State private var showEditComposer = false
 
     private var showsEditRow: Bool {
-        onEdit != nil && post.canEdit
+        onEdit != nil && isOwnPost && post.isStillEditable
     }
 
     private var translationKey: String {
