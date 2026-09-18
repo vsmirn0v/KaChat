@@ -1933,51 +1933,6 @@ enum NotificationMode: String, Codable, CaseIterable {
 
 // MARK: - Settings Models
 
-enum ChatPhotoQualityPreset: String, Codable, CaseIterable {
-    case dataSaver
-    case balanced
-    case high
-    case best
-
-    static let `default`: ChatPhotoQualityPreset = .balanced
-
-    var displayName: String {
-        switch self {
-        case .dataSaver: return String(localized: "Data Saver")
-        case .balanced: return String(localized: "Balanced")
-        case .high: return String(localized: "High")
-        case .best: return String(localized: "Best")
-        }
-    }
-
-    var targetBytes: Int {
-        switch self {
-        case .dataSaver: return 10_000
-        case .balanced: return 15_000
-        case .high: return 31_000
-        case .best: return 50_000
-        }
-    }
-
-    var targetSizeText: String {
-        "~\(targetBytes / 1_000) KB"
-    }
-
-    var summaryText: String {
-        "\(displayName) · \(targetSizeText)"
-    }
-
-    var sliderValue: Double {
-        Double(Self.allCases.firstIndex(of: self) ?? 0)
-    }
-
-    init(sliderValue: Double) {
-        let index = Int(sliderValue.rounded())
-        let clamped = min(max(index, 0), Self.allCases.count - 1)
-        self = Self.allCases[clamped]
-    }
-}
-
 struct AppSettings: Codable {
     var messageRetention: MessageRetention
     var networkType: NetworkType
@@ -2009,7 +1964,6 @@ struct AppSettings: Codable {
     var kaPostsNotifyMentions: Bool
     var messagePollInterval: TimeInterval
     var liveUpdatesEnabled: Bool
-    var chatPhotoQualityPreset: ChatPhotoQualityPreset
     var requirePhotoApprovalForNewContacts: Bool
     var showFeeEstimate: Bool
     /// Optional (unlike most fields here) - this struct has no custom `init(from:)`, so a newly
@@ -2194,7 +2148,6 @@ struct AppSettings: Codable {
             kaPostsNotifyMentions: true,
             messagePollInterval: 10.0,
             liveUpdatesEnabled: false,
-            chatPhotoQualityPreset: .default,
             requirePhotoApprovalForNewContacts: true,
             showFeeEstimate: true,
             quickReactionEmojis: defaultQuickReactionEmojis,
@@ -2259,7 +2212,6 @@ struct AppSettings: Codable {
         case kaPostsNotifyMentions
         case messagePollInterval
         case liveUpdatesEnabled
-        case chatPhotoQualityPreset
         case requirePhotoApprovalForNewContacts
         case showFeeEstimate
         case quickReactionEmojis
@@ -2325,7 +2277,6 @@ struct AppSettings: Codable {
         kaPostsNotifyMentions: Bool = true,
         messagePollInterval: TimeInterval,
         liveUpdatesEnabled: Bool,
-        chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
         requirePhotoApprovalForNewContacts: Bool = true,
         showFeeEstimate: Bool = true,
         quickReactionEmojis: [String]? = nil,
@@ -2381,7 +2332,6 @@ struct AppSettings: Codable {
         self.kaPostsNotifyMentions = kaPostsNotifyMentions
         self.messagePollInterval = messagePollInterval
         self.liveUpdatesEnabled = liveUpdatesEnabled
-        self.chatPhotoQualityPreset = chatPhotoQualityPreset
         self.requirePhotoApprovalForNewContacts = requirePhotoApprovalForNewContacts
         self.showFeeEstimate = showFeeEstimate
         self.quickReactionEmojis = quickReactionEmojis
@@ -2467,10 +2417,6 @@ struct AppSettings: Codable {
         kaPostsNotifyMentions = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyMentions) ?? true
         messagePollInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .messagePollInterval) ?? 10.0
         liveUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveUpdatesEnabled) ?? false
-        chatPhotoQualityPreset = try container.decodeIfPresent(
-            ChatPhotoQualityPreset.self,
-            forKey: .chatPhotoQualityPreset
-        ) ?? .default
         requirePhotoApprovalForNewContacts = try container.decodeIfPresent(Bool.self, forKey: .requirePhotoApprovalForNewContacts) ?? true
         showFeeEstimate = try container.decodeIfPresent(Bool.self, forKey: .showFeeEstimate) ?? true
         quickReactionEmojis = try container.decodeIfPresent([String].self, forKey: .quickReactionEmojis)
@@ -2583,7 +2529,6 @@ struct AppSettings: Codable {
         try container.encode(kaPostsNotifyMentions, forKey: .kaPostsNotifyMentions)
         try container.encode(messagePollInterval, forKey: .messagePollInterval)
         try container.encode(liveUpdatesEnabled, forKey: .liveUpdatesEnabled)
-        try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
         try container.encode(requirePhotoApprovalForNewContacts, forKey: .requirePhotoApprovalForNewContacts)
         try container.encode(showFeeEstimate, forKey: .showFeeEstimate)
         try container.encodeIfPresent(quickReactionEmojis, forKey: .quickReactionEmojis)

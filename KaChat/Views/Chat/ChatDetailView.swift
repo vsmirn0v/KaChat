@@ -237,6 +237,12 @@ struct ChatDetailView: View {
     @State private var recorderDelegate = AudioRecorderDelegate()
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showPhotoPickerFromMenu = false
+    /// The photo / voice note in the composer came from the "+" menu's on-chain rows. Those
+    /// mean exactly what they say: the bytes go on chain even while "Send Media via Nextcloud"
+    /// is on. Cleared when the attachment is sent or discarded; a recording started from the
+    /// composer bar resets the voice flag.
+    @State private var onChainPhotoRequested = false
+    @State private var onChainVoiceRequested = false
     @State private var showNextcloudPicker = false
     /// Drives the connected-state composer layout: with a Nextcloud server linked, the + menu
     /// drops Send Photo / Send Audio in favor of "Send from Nextcloud", and the message bar
@@ -1997,7 +2003,9 @@ struct ChatDetailView: View {
                     return
                 }
                 await MainActor.run {
-                    _ = attachImageData(data)
+                    // The library picker is only reachable through "Send On-Chain Photo".
+                    onChainPhotoRequested = true
+                    if !attachImageData(data) { onChainPhotoRequested = false }
                 }
             }
         }
@@ -2088,7 +2096,7 @@ struct ChatDetailView: View {
             ) {
                 showComposerPlusSheet = false
                 switchMode(.audio)
-                startRecording()
+                startRecording(onChain: true)
             }
             if nextcloudService.isConnected {
                 ActionSheetRow(
@@ -3595,11 +3603,9 @@ struct ChatDetailView: View {
         }
         // Via Nextcloud, the chain only carries the ~80-byte share link — the photo bytes live
         // on the server — so the fee shown is the link-message fee, not the envelope fee.
-        let payloadSize = (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+        let payloadSize = (nextcloudService.isConnected && nextcloudService.mediaSendEnabled && !onChainPhotoRequested)
             ? Self.nextcloudLinkPayloadSize
-            : ImagePrep.estimatedWirePayloadSize(
-                targetBytes: settingsViewModel.settings.chatPhotoQualityPreset.targetBytes
-            )
+            : ImagePrep.estimatedWirePayloadSize()
         feeEstimateSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
             payload: Data(count: payloadSize),
             inputCount: 1,
@@ -3644,7 +3650,8 @@ struct ChatDetailView: View {
         }
     }
 
-    private func startRecording() {
+    private func startRecording(onChain: Bool = false) {
+        onChainVoiceRequested = onChain
         Task {
             let granted = await requestRecordPermission()
             guard granted else {
@@ -3777,6 +3784,7 @@ struct ChatDetailView: View {
         pendingPhotoImage = nil
         pendingPhotoOriginalData = nil
         photoPickerItem = nil
+        onChainPhotoRequested = false
         feeEstimateSompi = nil
         isEstimatingFee = false
     }
@@ -3858,8 +3866,9 @@ struct ChatDetailView: View {
         // own send paths): upload the best-quality bytes we have and send the public share link
         // as a normal text message (the recipient's link-preview feature renders it as a media
         // bubble). Any upload/share failure falls back to the on-chain envelope below, with a
-        // toast so the sender knows the full-quality upload didn't happen.
-        if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+        // toast so the sender knows the full-quality upload didn't happen. A photo picked
+        // through "Send On-Chain Photo" skips all of this: on chain is what was asked for.
+        if !onChainPhotoRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
             var shareURL: URL?
             do {
                 guard let upload = nextcloudPhotoUpload(for: image) else {
@@ -3908,10 +3917,8 @@ struct ChatDetailView: View {
         }
 
         do {
-            let preparedImage = try ImagePrep.prepareForChatMessage(
-                image,
-                targetBytes: settingsViewModel.settings.chatPhotoQualityPreset.targetBytes
-            )
+            // On chain, a photo is always capped at ImagePrep.defaultChatTargetBytes (15 KB).
+            let preparedImage = try ImagePrep.prepareForChatMessage(image)
             try await chatService.sendImage(
                 to: contact,
                 imageData: preparedImage.data,
@@ -3922,6 +3929,7 @@ struct ChatDetailView: View {
                 pendingPhotoImage = nil
                 pendingPhotoOriginalData = nil
                 photoPickerItem = nil
+                onChainPhotoRequested = false
                 feeEstimateSompi = nil
                 isEstimatingFee = false
             }
@@ -3948,7 +3956,7 @@ struct ChatDetailView: View {
         // Nextcloud mode: preview the full-length original — that's what actually uploads.
         // The WebM decode below reflects only the payload-capped on-chain encode (~9s), which
         // would make a long recording sound truncated in preview while sending fine.
-        if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected,
+        if !onChainVoiceRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected,
            let originalURL = nextcloudOriginalRecordingURL,
            FileManager.default.fileExists(atPath: originalURL.path) {
             do {
@@ -4168,7 +4176,7 @@ struct ChatDetailView: View {
 
         // Via Nextcloud, the recording uploads to the server and the chain only carries the
         // share link — the fee is the link-message fee regardless of recording length.
-        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled {
+        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled && !onChainVoiceRequested {
             if let wallet = walletManager.currentWallet,
                let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) {
                 recordingFeeSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
@@ -4259,7 +4267,7 @@ struct ChatDetailView: View {
         await waitForRecordingFile(url)
         // Nextcloud mode: stash the full-length original BEFORE the payload-capped encode —
         // the M4A upload exports from this copy so long recordings survive intact.
-        if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+        if !onChainVoiceRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
             let keepURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("kachat-voice-original-\(UUID().uuidString).caf")
             if (try? FileManager.default.copyItem(at: url, to: keepURL)) != nil {
@@ -4389,8 +4397,9 @@ struct ChatDetailView: View {
             // envelope. The .m4a re-export matters: the recipient's link-preview audio card
             // streams through AVPlayer, which cannot decode WebM/Opus, so uploading the
             // envelope bytes verbatim would produce an unplayable card. Any failure falls
-            // back to the on-chain path below, with a toast.
-            if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+            // back to the on-chain path below, with a toast. "Send On-Chain Voice Message"
+            // skips all of this.
+            if !onChainVoiceRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
                 recordingFeeTask?.cancel()
                 isSending = true
                 var shareURL: URL?

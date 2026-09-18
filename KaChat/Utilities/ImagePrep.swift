@@ -20,6 +20,8 @@ enum ImagePrep {
     static let chatMaxDimension: CGFloat = 1280
     /// Target raw encoded image byte size - calibrated to land the final on-chain payload in the same
     /// ballpark as a voice message's ~28.7KB final wire size.
+    /// The one on-chain photo budget: every chat photo is encoded to fit 15 KB. There is no
+    /// quality setting - a bigger photo goes through Nextcloud, not the chain.
     static let defaultChatTargetBytes = 15_000
     private static let maxShrinkAttempts = 4
     private static let shrinkFactor: CGFloat = 0.7

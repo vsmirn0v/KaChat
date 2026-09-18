@@ -141,6 +141,10 @@ struct GroupChatDetailView: View {
     @State private var profileContact: Contact?
 
     @State private var photoPickerItem: PhotosPickerItem?
+    /// Set by the "+" menu's on-chain rows: the attachment goes on chain even while "Send Media
+    /// via Nextcloud" is on. Mirrors ChatDetailView.
+    @State private var onChainPhotoRequested = false
+    @State private var onChainVoiceRequested = false
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
@@ -1075,7 +1079,7 @@ struct GroupChatDetailView: View {
         isEstimatingFee = false
         // Via Nextcloud, the chain only carries the ~80-byte share link - the photo bytes live
         // on the server - so the fee shown is the link-message fee, not the envelope fee.
-        let rawBytes = (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+        let rawBytes = (nextcloudService.isConnected && nextcloudService.mediaSendEnabled && !onChainPhotoRequested)
             ? Self.nextcloudLinkPayloadSize
             : Self.groupPhotoTargetBytes
         feeEstimateSompi = groupChatService.estimateGroupMediaFee(rawBytes: rawBytes)
@@ -1088,7 +1092,7 @@ struct GroupChatDetailView: View {
         guard recorder.state == .recording else { return }
         // Via Nextcloud, the recording uploads to the server and the chain only carries the
         // share link - the fee is the link-message fee regardless of recording length.
-        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled {
+        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled && !onChainVoiceRequested {
             feeEstimateSompi = groupChatService.estimateGroupMediaFee(rawBytes: Self.nextcloudLinkPayloadSize)
             isEstimatingFee = false
             return
@@ -1265,6 +1269,7 @@ struct GroupChatDetailView: View {
                 // Matches 1:1 chat's textRow mic button.
                 Button {
                     feeEstimateSompi = nil
+                    onChainVoiceRequested = false
                     recorder.start()
                 } label: {
                     Image(systemName: "mic")
@@ -1325,6 +1330,7 @@ struct GroupChatDetailView: View {
             ) {
                 showPlusSheet = false
                 feeEstimateSompi = nil
+                onChainVoiceRequested = true
                 recorder.start()
             }
             if nextcloudService.isConnected {
@@ -1468,6 +1474,8 @@ struct GroupChatDetailView: View {
                 }
                 await MainActor.run {
                     isComposerFocused = false
+                    // The library picker is only reachable through "Send On-Chain Photo".
+                    onChainPhotoRequested = true
                     pendingPhotoImage = image
                     pendingPhotoOriginalData = data
                     schedulePhotoFeeEstimate()
@@ -1493,6 +1501,7 @@ struct GroupChatDetailView: View {
             Button {
                 pendingPhotoImage = nil
                 pendingPhotoOriginalData = nil
+                onChainPhotoRequested = false
                 feeEstimateSompi = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -1602,8 +1611,9 @@ struct GroupChatDetailView: View {
             // public share link as a normal group text message (the members' link-preview
             // feature renders it as a media bubble). Any upload/share failure falls back to the
             // on-chain envelope below, with a toast so the sender knows the full-quality upload
-            // didn't happen. Mirrors `ChatDetailView.sendPendingPhotoAsync`.
-            if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+            // didn't happen. Mirrors `ChatDetailView.sendPendingPhotoAsync`. A photo picked
+            // through "Send On-Chain Photo" skips this and goes on chain as asked.
+            if !onChainPhotoRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
                 var shareURL: URL?
                 do {
                     guard let upload = nextcloudPhotoUpload(for: pendingPhotoImage) else {
@@ -1648,6 +1658,7 @@ struct GroupChatDetailView: View {
                 await MainActor.run {
                     self.pendingPhotoImage = nil
                     self.pendingPhotoOriginalData = nil
+                    self.onChainPhotoRequested = false
                     self.isSendingPhoto = false
                 }
             } catch {
@@ -1661,7 +1672,9 @@ struct GroupChatDetailView: View {
 
     private func sendRecording() {
         // Snapshot once, so the toggle flipping mid-send can't strand the stashed original.
-        let nextcloudActive = NextcloudService.shared.mediaSendEnabled && NextcloudService.shared.isConnected
+        // "Send On-Chain Voice Message" never goes through the server.
+        let nextcloudActive = !onChainVoiceRequested && NextcloudService.shared.mediaSendEnabled && NextcloudService.shared.isConnected
+        onChainVoiceRequested = false
         Task {
             // Nextcloud mode: stash the full-length original PCM BEFORE the payload-capped WebM
             // encode - the encode truncates to ~13KB (≈9s), and exporting the M4A from that

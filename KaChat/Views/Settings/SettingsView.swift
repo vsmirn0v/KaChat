@@ -37,7 +37,6 @@ struct SettingsView: View {
     @State private var showChatHistoryShareSheet = false
     @State private var showChatHistoryImporter = false
     @State private var isPreparingChatHistoryExport = false
-    @State private var showPhotoQualitySheet = false
 
     /// Mirrors the ACTIVE ACCOUNT's per-wallet Chats Privacy flag (fresh-address payment
     /// pools) - seeded from storage when the Chats page appears, written through on change.
@@ -123,9 +122,6 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showSeedPhrase) {
                 SeedPhraseView()
-            }
-            .sheet(isPresented: $showPhotoQualitySheet) {
-                PhotoQualitySettingsSheet(currentPreset: settingsViewModel.settings.chatPhotoQualityPreset)
             }
             .sheet(isPresented: $showChatHistoryShareSheet, onDismiss: {
                 // The export is a temp file holding the whole chat history; once the share sheet
@@ -240,18 +236,6 @@ struct SettingsView: View {
                         .onChange(of: settingsViewModel.settings.requirePhotoApprovalForNewContacts) { _ in
                             settingsViewModel.saveSettings()
                         }
-
-                    Button {
-                        showPhotoQualitySheet = true
-                    } label: {
-                        HStack {
-                            Label("Photo Quality", systemImage: "photo")
-                            Spacer()
-                            Text(settingsViewModel.settings.chatPhotoQualityPreset.displayName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
 
                     NavigationLink {
                         QuickReactionEmojisSettingsView(settingsViewModel: settingsViewModel)

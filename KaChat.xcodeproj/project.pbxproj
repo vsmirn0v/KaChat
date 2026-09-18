@@ -60,7 +60,6 @@
 		CHAD00010001000100000001 /* ChattingAddressPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAD00010001000000000001 /* ChattingAddressPickerView.swift */; };
 		CM0001B0000000000000001 /* ChildModeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CM0001A0000000000000001 /* ChildModeService.swift */; };
 		CM0002B0000000000000001 /* ChildModeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CM0002A0000000000000001 /* ChildModeSettingsView.swift */; };
-		CPQS00010001000100000001 /* ChatPhotoQualitySlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */; };
 		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
 		CS0001B0000000000000001 /* Base58.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0001A0000000000000001 /* Base58.swift */; };
 		CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */; };
@@ -172,7 +171,6 @@
 		PF0009B0000000000000001 /* PortfolioPickerHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0009A0000000000000001 /* PortfolioPickerHeader.swift */; };
 		PF0010B0000000000000001 /* PortfolioAddressImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0010A0000000000000001 /* PortfolioAddressImporter.swift */; };
 		PPOL00010001000100000001 /* PaymentPoolStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPOL00010001000000000001 /* PaymentPoolStore.swift */; };
-		PQSS00010001000000000002 /* PhotoQualitySettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */; };
 		PUSH00010001000100000001 /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PUSH00010001000000000001 /* PushNotificationManager.swift */; };
 		PUSH00010001000100000002 /* SharedDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PUSH00010001000000000002 /* SharedDataManager.swift */; };
 		QRBV00010001000100000001 /* QuickReactionBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = QRBV00010001000000000001 /* QuickReactionBarView.swift */; };
@@ -302,7 +300,6 @@
 		CHAD00010001000000000001 /* ChattingAddressPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChattingAddressPickerView.swift; sourceTree = "<group>"; };
 		CM0001A0000000000000001 /* ChildModeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildModeService.swift; sourceTree = "<group>"; };
 		CM0002A0000000000000001 /* ChildModeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildModeSettingsView.swift; sourceTree = "<group>"; };
-		CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPhotoQualitySlider.swift; sourceTree = "<group>"; };
 		CPTV00010001000000000001 /* ComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerTextView.swift; sourceTree = "<group>"; };
 		CS0001A0000000000000001 /* Base58.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base58.swift; sourceTree = "<group>"; };
 		CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaExtendedPublicKey.swift; sourceTree = "<group>"; };
@@ -454,7 +451,6 @@
 		PF0009A0000000000000001 /* PortfolioPickerHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioPickerHeader.swift; sourceTree = "<group>"; };
 		PF0010A0000000000000001 /* PortfolioAddressImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioAddressImporter.swift; sourceTree = "<group>"; };
 		PPOL00010001000000000001 /* PaymentPoolStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentPoolStore.swift; sourceTree = "<group>"; };
-		PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoQualitySettingsSheet.swift; sourceTree = "<group>"; };
 		PUSH00010001000000000001 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
 		PUSH00010001000000000002 /* SharedDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDataManager.swift; sourceTree = "<group>"; };
 		QRBV00010001000000000001 /* QuickReactionBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickReactionBarView.swift; sourceTree = "<group>"; };
@@ -816,7 +812,6 @@
 				QRBV00010001000000000001 /* QuickReactionBarView.swift */,
 				ERPK00010001000000000001 /* EmojiReactionPicker.swift */,
 				4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */,
-				PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */,
 				4D3D20032F72000300000001 /* MessageImageSharePayload.swift */,
 				4D3D20042F72000400000001 /* ChatImageAttachmentLoader.swift */,
 				BCLV00010001000000000001 /* BroadcastListView.swift */,
@@ -863,7 +858,6 @@
 			isa = PBXGroup;
 			children = (
 				E8F100142D4C0001000001FF /* QRScannerView.swift */,
-				CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */,
 				E8F100112D4C0001000000FF /* Toast.swift */,
 				E8F1AC700001000000000001 /* ActionSheet.swift */,
 				DECI00010001000000000001 /* DecimalInput.swift */,
@@ -1294,7 +1288,6 @@
 				F2B95C1D8A374E6BA07C4D95 /* MarkdownComposerField.swift in Sources */,
 				CS0010B0000000000000001 /* MultiFrameQRViews.swift in Sources */,
 				4D3D20012F72000200000002 /* MessageTextRenderPlan.swift in Sources */,
-				PQSS00010001000000000002 /* PhotoQualitySettingsSheet.swift in Sources */,
 				4D3D20032F72000300000002 /* MessageImageSharePayload.swift in Sources */,
 				4D3D20042F72000400000002 /* ChatImageAttachmentLoader.swift in Sources */,
 				E810001B2D4C00010000000E /* ContactsView.swift in Sources */,
@@ -1310,7 +1303,6 @@
 				DECI00010001000100000001 /* DecimalInput.swift in Sources */,
 				RS0001B0000000000000001 /* RevealableSecureField.swift in Sources */,
 				E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */,
-				CPQS00010001000100000001 /* ChatPhotoQualitySlider.swift in Sources */,
 				KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */,
 				E81000212D4C000100000011 /* Models.swift in Sources */,
 				E81000232D4C000100000012 /* MainTabView.swift in Sources */,
