@@ -322,6 +322,10 @@ struct KaPostsView: View {
     @State private var posterPostsPage = KaPostsPageState()
     @State private var posterRepliesPage = KaPostsPageState()
     @State private var threadPages: [UUID: KaPostsPageState] = [:]
+    /// Replies posted in this session, by local id. They sit at the top of their thread until
+    /// the indexer returns them; a reset fetch that does not yet include one keeps it there
+    /// instead of dropping it for the seconds the indexer takes to catch up.
+    @State private var sessionReplyIds: Set<UUID> = []
 
     /// The two feed backends behind the three tabs.
     /// Equatable stated rather than relied on: `.task(id: loadedFeedSource)` drives the new-post
@@ -1623,10 +1627,15 @@ struct KaPostsView: View {
             )
             guard threadPages[key]?.epoch == epoch else { return }
             mutatePost(id: key) { target in
-                // Local (session) replies always stay layered at the end of the thread.
-                let localOnly = target.comments.filter { $0.remoteId == nil }
-                let fetched = reset ? [] : target.comments.filter { $0.remoteId != nil }
-                target.comments = fetched + batch.items + localOnly
+                // This session's replies stay on top, newest first, until the indexer returns
+                // them - then the server copy takes over. Everything else is the server's order.
+                let fetched = reset ? [] : target.comments.filter { $0.remoteId != nil && !sessionReplyIds.contains($0.id) }
+                let indexed = Set((fetched + batch.items).compactMap(\.remoteId))
+                let local = target.comments.filter { comment in
+                    guard let remoteId = comment.remoteId else { return true }
+                    return sessionReplyIds.contains(comment.id) && !indexed.contains(remoteId)
+                }
+                target.comments = local + fetched + batch.items
             }
             var updated = threadPages[key] ?? KaPostsPageState()
             updated.apply(batch)
@@ -2227,8 +2236,11 @@ struct KaPostsView: View {
         reply.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
         reply.deliveryStatus = post.remoteId != nil ? .pending : .sent
         let localReplyId = reply.id
+        sessionReplyIds.insert(localReplyId)
+        // Newest first, like the indexer orders replies - so the comment appears right under
+        // the post, not at the far end of a long thread.
         mutatePost(id: post.id) { target in
-            target.comments.append(reply)
+            target.comments.insert(reply, at: 0)
         }
         // A parent that is not on chain yet has nothing to reply TO on the network; the comment
         // still shows locally, exactly as it did before.
