@@ -605,6 +605,18 @@ the chain message fills it in otherwise (the ringing call's `callId` matches, so
 the invite is the one it is already showing). The push is best effort and carries nothing the
 chain does not: no push, and an open app still rings off the chain message a little later.
 
+**Multitasking camera (Picture in Picture in other apps).** iOS pauses an app's camera the
+moment it leaves the foreground unless the App ID carries Apple's
+`com.apple.developer.avfoundation.multitasking-camera-access` entitlement, granted on request
+(developer.apple.com > Account > Additional resources > "Multitasking Camera Access" request
+form; describe the video-call feature). Once approved: enable the capability on the
+`com.kachat.app` App ID in the portal, add
+`<key>com.apple.developer.avfoundation.multitasking-camera-access</key><true/>` to
+`KaChat/KaChat.entitlements` and `KaChat/KaChatRelease.entitlements`, and let automatic signing
+regenerate the profiles. The code is already in place (`WebRTCClient.startCaptureIfNeeded` sets
+`isMultitaskingCameraAccessEnabled` whenever the session reports it supported); adding the
+entitlement key BEFORE Apple grants it breaks signing, so it is deliberately not in the repo yet.
+
 | Envelope | Sent by | Fields |
 |---|---|---|
 | `{"type":"call_invite"}` | the caller, when they host | `callId`, `server` (https base URL), `token` (room), `video` (bool), `viaRequest` (bool, optional - true when a host answers a `call_request`) |

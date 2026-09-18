@@ -80,6 +80,13 @@ final class WebRTCClient: NSObject {
 
     func startCaptureIfNeeded() {
         guard let capturer else { return }
+        // Keep the camera running while the user is in another app (the Picture in Picture
+        // call). Only possible with Apple's multitasking-camera-access entitlement on the App
+        // ID - `isMultitaskingCameraAccessSupported` is false without it, so this is a no-op
+        // until the entitlement lands (see the "Multitasking camera" note in MESSAGING.md).
+        if #available(iOS 16.0, *), capturer.captureSession.isMultitaskingCameraAccessSupported {
+            capturer.captureSession.isMultitaskingCameraAccessEnabled = true
+        }
         let position: AVCaptureDevice.Position = usingFrontCamera ? .front : .back
         guard let device = RTCCameraVideoCapturer.captureDevices().first(where: { $0.position == position })
                 ?? RTCCameraVideoCapturer.captureDevices().first else { return }
