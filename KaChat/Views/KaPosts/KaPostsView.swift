@@ -163,6 +163,9 @@ struct KaPostsView: View {
         let posterAddress: String
         /// When the text shown is an edit (ours this session, or one the indexer accepted).
         var editedAt: Date? = nil
+        /// When this session last put the post on the network (an edit's transaction landing);
+        /// the sent checkmark counts its minute from here, not from the original post time.
+        var sentAt: Date? = nil
         /// Seconds left to edit, or nil once the post is permanent.
         var editTimeRemaining: TimeInterval? {
             let left = timestamp.addingTimeInterval(KaPostsAPIClient.editWindow).timeIntervalSinceNow
@@ -2284,34 +2287,45 @@ struct KaPostsView: View {
         }
     }
 
-    /// Replaces the text of one of our posts (or comments) - shown at once, then put on chain.
-    /// No undo countdown: the composer already asked, and the window is the undo. A failed
-    /// transaction puts the old text back.
+    /// What an edit replaced, kept for the five seconds Undo can put it back.
+    @State private var pendingEditOriginals: [UUID: (text: String, editedAt: Date?)] = [:]
+
+    /// Replaces the text of one of our posts (or comments): shown at once, behind the same 5s
+    /// undo countdown as every other action, then put on chain. Undo restores the old text; a
+    /// failed transaction does the same.
     private func editPost(_ post: DraftPost, newText: String) {
         let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != post.text, post.isStillEditable, let remoteId = post.remoteId,
               post.posterAddress == WalletManager.shared.currentWallet?.publicAddress else { return }
-        let previousText = post.text
-        let previousEditedAt = post.editedAt
+        pendingEditOriginals[post.id] = (post.text, post.editedAt)
         mutatePost(id: post.id) {
             $0.text = trimmed
             $0.editedAt = Date()
             $0.deliveryStatus = .pending
         }
-        Task {
-            do {
-                _ = try await KaPostsAPIClient.shared.submitEdit(
-                    text: trimmed, postId: remoteId, mentionedPubkeys: await mentionedPubkeys(in: trimmed)
-                )
-                mutatePost(id: post.id) { $0.deliveryStatus = .sent }
-            } catch {
-                mutatePost(id: post.id) {
-                    $0.text = previousText
-                    $0.editedAt = previousEditedAt
-                    $0.deliveryStatus = .sent
+        let key = "edit:\(post.id)"
+        showUndoToast(key: key, postId: post.id, label: "Saving edit")
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            let original = pendingEditOriginals.removeValue(forKey: post.id)
+            Task {
+                do {
+                    _ = try await KaPostsAPIClient.shared.submitEdit(
+                        text: trimmed, postId: remoteId, mentionedPubkeys: await mentionedPubkeys(in: trimmed)
+                    )
+                    mutatePost(id: post.id) {
+                        $0.deliveryStatus = .sent
+                        $0.sentAt = Date()
+                    }
+                } catch {
+                    mutatePost(id: post.id) {
+                        $0.text = original?.text ?? post.text
+                        $0.editedAt = original?.editedAt ?? post.editedAt
+                        $0.deliveryStatus = .sent
+                    }
+                    feedError = "Couldn't save the edit: \(error.localizedDescription)"
+                    AppLog.log("[KaPosts] Edit submit failed: %@", error.localizedDescription)
                 }
-                feedError = "Couldn't save the edit: \(error.localizedDescription)"
-                AppLog.log("[KaPosts] Edit submit failed: %@", error.localizedDescription)
             }
         }
     }
@@ -2373,6 +2387,14 @@ struct KaPostsView: View {
                 posts.removeAll { $0.id == toast.postId }
             } else if toast.key.hasPrefix("comment:") {
                 removeReply(withId: toast.postId)
+            } else if toast.key.hasPrefix("edit:"),
+                      let original = pendingEditOriginals.removeValue(forKey: toast.postId) {
+                // An undone edit puts the previous text back exactly as it was.
+                mutatePost(id: toast.postId) {
+                    $0.text = original.text
+                    $0.editedAt = original.editedAt
+                    $0.deliveryStatus = .sent
+                }
             }
             undoToast = nil
         }
@@ -4786,6 +4808,9 @@ private struct KaPostCellView: View {
                             initialText: post.text
                         )
                     }
+                    // A fresh sentAt (an edit landed) gets its own green check even if the
+                    // original post's minute is long over.
+                    .onChange(of: post.sentAt) { _ in sentCheckExpired = false }
                 }
 
                 // Text-only posts, but URLs are TAPPABLE: tapping a link opens a Copy/Open
@@ -4951,13 +4976,15 @@ private struct KaPostCellView: View {
                     // Retry when it didn't go through.
                     switch post.deliveryStatus {
                     case .sent:
+                        // An edit's transaction landing restarts the minute (see `sentAt`).
+                        let sentReference = post.sentAt ?? post.timestamp
                         if post.remoteId != nil, !sentCheckExpired,
-                           Date().timeIntervalSince(post.timestamp) < 60 {
+                           Date().timeIntervalSince(sentReference) < 60 {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
                                 .foregroundColor(.green)
-                                .task(id: post.id) {
-                                    let remaining = 60 - Date().timeIntervalSince(post.timestamp)
+                                .task(id: sentReference) {
+                                    let remaining = 60 - Date().timeIntervalSince(sentReference)
                                     if remaining > 0 {
                                         try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
                                     }
