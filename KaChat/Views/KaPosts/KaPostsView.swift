@@ -5015,7 +5015,7 @@ private struct KaPostCellView: View {
                     // post's comment thread, plus an explorer link for everyone else. Only for
                     // posts that exist on the network.
                     if let remoteId = post.remoteId {
-                        ShareLink(item: shareText(remoteId: remoteId)) {
+                        ShareLink(item: shareURL(remoteId: remoteId)) {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
@@ -5524,14 +5524,14 @@ private struct KaPostCellView: View {
         .padding(.top, 2)
     }
 
-    /// A snippet and the kachat.app link. The https link is the whole story: it unfurls a
-    /// preview of the post in every chat app, opens KaChat when it is installed, and shows the
-    /// post with download buttons when it is not (KACHAT_APP_LINKS.md).
-    private func shareText(remoteId: String) -> String {
-        let snippet = String(post.text.prefix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
-        let ellipsis = post.text.count > 60 ? "..." : ""
-        let link = KaChatInternalLink.kaPost(txId: remoteId).universalLinkString
-        return "\"\(snippet)\(ellipsis)\"\n\n\(link)"
+    /// The kachat.app link, and nothing else. It used to come with a quoted snippet of the post
+    /// in front, which made "copy" hand over a paragraph rather than a link. The link is the
+    /// whole story anyway: it unfurls a preview of the post in every chat app, opens KaChat when
+    /// it is installed, and shows the post with download buttons when it is not
+    /// (KACHAT_APP_LINKS.md). Shared as a URL so the share sheet treats it as one.
+    private func shareURL(remoteId: String) -> URL {
+        URL(string: KaChatInternalLink.kaPost(txId: remoteId).universalLinkString)
+            ?? URL(string: "https://kachat.app")!
     }
 
     private func engagementButton(icon: String, count: Int, tint: Color, action: @escaping () -> Void) -> some View {
