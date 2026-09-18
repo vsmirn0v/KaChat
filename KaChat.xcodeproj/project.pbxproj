@@ -52,6 +52,7 @@
 		CALL0006B000000000000001 /* VoIPPushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0006A000000000000001 /* VoIPPushManager.swift */; };
 		CALL0007B000000000000001 /* CallRingback.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0007A000000000000001 /* CallRingback.swift */; };
 		CALL0008B000000000000001 /* CallCameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0008A000000000000001 /* CallCameraPreview.swift */; };
+		CALL0009B000000000000001 /* CallPictureInPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0009A000000000000001 /* CallPictureInPicture.swift */; };
 		CAMV0000000000000001 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMV0000000000000002 /* CameraCaptureView.swift */; };
 		CFMT00010001000000000002 /* CurrencyFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFMT00010001000000000001 /* CurrencyFormat.swift */; };
 		CH0001B0000000000000001 /* ChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0001A0000000000000001 /* ChessEngine.swift */; };
@@ -292,6 +293,7 @@
 		CALL0006A000000000000001 /* VoIPPushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPPushManager.swift; sourceTree = "<group>"; };
 		CALL0007A000000000000001 /* CallRingback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallRingback.swift; sourceTree = "<group>"; };
 		CALL0008A000000000000001 /* CallCameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallCameraPreview.swift; sourceTree = "<group>"; };
+		CALL0009A000000000000001 /* CallPictureInPicture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallPictureInPicture.swift; sourceTree = "<group>"; };
 		CAMV0000000000000002 /* CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureView.swift; sourceTree = "<group>"; };
 		CFMT00010001000000000001 /* CurrencyFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrencyFormat.swift; sourceTree = "<group>"; };
 		CH0001A0000000000000001 /* ChessEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessEngine.swift; sourceTree = "<group>"; };
@@ -695,6 +697,7 @@
 				CALL0005A000000000000001 /* CallKitManager.swift */,
 				CALL0006A000000000000001 /* VoIPPushManager.swift */,
 				CALL0007A000000000000001 /* CallRingback.swift */,
+				CALL0009A000000000000001 /* CallPictureInPicture.swift */,
 				CALL0001A000000000000001 /* NextcloudTalkClient.swift */,
 				GN0001A0000000000000001 /* GlobalNotificationCenter.swift */,
 				KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */,
@@ -1266,6 +1269,7 @@
 				CALL0006B000000000000001 /* VoIPPushManager.swift in Sources */,
 				CALL0007B000000000000001 /* CallRingback.swift in Sources */,
 				CALL0008B000000000000001 /* CallCameraPreview.swift in Sources */,
+				CALL0009B000000000000001 /* CallPictureInPicture.swift in Sources */,
 				CALL0001B000000000000001 /* NextcloudTalkClient.swift in Sources */,
 				GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */,
 				KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */,

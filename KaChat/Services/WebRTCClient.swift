@@ -26,7 +26,7 @@ final class WebRTCClient: NSObject {
     var onConnectionState: ((RTCIceConnectionState) -> Void)?
     var onRemoteVideoTrack: ((RTCVideoTrack) -> Void)?
 
-    let wantsVideo: Bool
+    private(set) var wantsVideo: Bool
 
     init(iceServers: [NextcloudTalkClient.IceServer], video: Bool) {
         wantsVideo = video
@@ -61,6 +61,22 @@ final class WebRTCClient: NSObject {
     }
 
     // MARK: - Media control
+
+    /// Turns a voice call's connection into a video one: adds the camera track (the first
+    /// offer already carried a receive-only video line, so the track attaches to it) and
+    /// starts capturing. The caller renegotiates afterwards. Returns the local track.
+    @discardableResult
+    func enableVideo() -> RTCVideoTrack? {
+        if let localVideoTrack { return localVideoTrack }
+        let videoSource = Self.factory.videoSource()
+        let track = Self.factory.videoTrack(with: videoSource, trackId: "kachat-video")
+        connection.add(track, streamIds: ["kachat"])
+        localVideoTrack = track
+        capturer = RTCCameraVideoCapturer(delegate: videoSource)
+        wantsVideo = true
+        startCaptureIfNeeded()
+        return track
+    }
 
     func startCaptureIfNeeded() {
         guard let capturer else { return }

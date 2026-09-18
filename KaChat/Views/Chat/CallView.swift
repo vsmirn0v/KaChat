@@ -19,6 +19,13 @@ struct CallView: View {
 
     private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    private var showsMinimize: Bool {
+        switch call.phase {
+        case .ringingOut, .connecting, .connected: return true
+        default: return false
+        }
+    }
+
     private var isVideoLayout: Bool {
         call.video && (call.phase == .connected || call.phase == .connecting || call.phase == .ringingOut)
     }
@@ -30,6 +37,24 @@ struct CallView: View {
                 videoLayout
             } else {
                 voiceLayout
+            }
+        }
+        // Tuck the call away: the call goes on while you use the rest of KaChat (or another
+        // app - a video call follows you as Picture in Picture, like FaceTime).
+        .overlay(alignment: .topLeading) {
+            if showsMinimize {
+                Button {
+                    callService.minimize()
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Circle().fill(Color.white.opacity(0.18)))
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 16)
+                .padding(.top, 8)
             }
         }
         .preferredColorScheme(.dark)
@@ -77,7 +102,7 @@ struct CallView: View {
                 }
             default:
                 VStack(spacing: 40) {
-                    HStack(spacing: 44) {
+                    HStack(spacing: call.phase == .connected ? 28 : 44) {
                         // Off: translucent circle, plain glyph. On: solid white circle, the
                         // "slashed mic" / "waves" glyph, and the label says so - one look tells.
                         bigButton(systemName: call.isMuted ? "mic.slash.fill" : "mic.fill",
@@ -89,6 +114,12 @@ struct CallView: View {
                                   tint: call.isSpeakerOn ? .white : Color.white.opacity(0.22),
                                   size: 84, label: call.isSpeakerOn ? "speaker on" : "speaker", foreground: call.isSpeakerOn ? .black : .white) {
                             callService.toggleSpeaker()
+                        }
+                        // Switch this call to video - both cameras come on, nobody hangs up.
+                        if call.phase == .connected {
+                            bigButton(systemName: "video.fill", tint: Color.white.opacity(0.22), size: 84, label: "video") {
+                                callService.upgradeToVideo()
+                            }
                         }
                     }
                     bigButton(systemName: "phone.down.fill", tint: .red, size: 84, label: nil) {
@@ -121,7 +152,8 @@ struct CallView: View {
                 videoTile(track: call.remoteVideoTrack,
                           name: contactsManager.displayName(for: call.contact),
                           placeholder: remotePlaceholder,
-                          address: call.contact.address)
+                          address: call.contact.address,
+                          isPictureInPictureSource: true)
                     .frame(height: tileHeight)
                 videoTile(track: call.isCameraOff ? nil : call.localVideoTrack,
                           name: "You",
@@ -148,12 +180,12 @@ struct CallView: View {
     }
 
     @ViewBuilder
-    private func videoTile(track: RTCVideoTrack?, name: String, placeholder: String, address: String?, livePreview: Bool = false) -> some View {
+    private func videoTile(track: RTCVideoTrack?, name: String, placeholder: String, address: String?, livePreview: Bool = false, isPictureInPictureSource: Bool = false) -> some View {
         ZStack(alignment: .bottomLeading) {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color(white: 0.12))
             if let track {
-                RTCVideoView(track: track)
+                RTCVideoView(track: track, isPictureInPictureSource: isPictureInPictureSource)
             } else if livePreview {
                 CallCameraPreviewView()
             } else {
@@ -200,9 +232,8 @@ struct CallView: View {
             smallControl(systemName: call.isMuted ? "mic.slash.fill" : "mic.fill", active: call.isMuted) {
                 callService.toggleMute()
             }
-            smallControl(systemName: call.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.fill", active: call.isSpeakerOn) {
-                callService.toggleSpeaker()
-            }
+            // No speaker toggle here: a video call is never at an ear, so it stays on the
+            // speaker (headphones and Bluetooth take over on their own). Mute is the control.
             smallControl(systemName: call.isCameraOff ? "video.slash.fill" : "video.fill", active: call.isCameraOff) {
                 callService.toggleCamera()
             }
@@ -284,17 +315,26 @@ struct CallView: View {
 /// A WebRTC video track on screen (Metal-backed), shown as the camera sees it - never mirrored.
 struct RTCVideoView: UIViewRepresentable {
     let track: RTCVideoTrack
+    /// The other person's tile: also the view the system Picture in Picture window grows out
+    /// of, and the track it keeps showing once the call screen is tucked away.
+    var isPictureInPictureSource: Bool = false
 
     func makeUIView(context: Context) -> RTCMTLVideoView {
         let view = RTCMTLVideoView()
         view.videoContentMode = .scaleAspectFill
         view.backgroundColor = .black
         context.coordinator.attach(track, to: view)
+        if isPictureInPictureSource {
+            CallPictureInPicture.shared.register(sourceView: view, track: track)
+        }
         return view
     }
 
     func updateUIView(_ uiView: RTCMTLVideoView, context: Context) {
         context.coordinator.attach(track, to: uiView)
+        if isPictureInPictureSource {
+            CallPictureInPicture.shared.register(sourceView: uiView, track: track)
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -308,5 +348,49 @@ struct RTCVideoView: UIViewRepresentable {
             track.add(view)
             current = track
         }
+    }
+}
+
+
+/// The green "call in progress" bar shown across the top of KaChat while a call is tucked
+/// away and not floating as Picture in Picture: the person, the timer, and a tap to return.
+struct CallReturnBar: View {
+    @ObservedObject var call: CallService.ActiveCall
+    @ObservedObject private var callService = CallService.shared
+    @EnvironmentObject private var contactsManager: ContactsManager
+    @State private var now = Date()
+    private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var timerText: String {
+        guard let start = call.connectedAt else { return call.phase == .ringingOut ? "calling\u{2026}" : "connecting\u{2026}" }
+        let seconds = max(0, Int(now.timeIntervalSince(start)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    var body: some View {
+        Button {
+            callService.restore()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: call.video ? "video.fill" : "phone.fill")
+                    .font(.subheadline.weight(.semibold))
+                Text(contactsManager.displayName(for: call.contact))
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(timerText)
+                    .font(.subheadline)
+                    .monospacedDigit()
+                Spacer(minLength: 0)
+                Text("Tap to return")
+                    .font(.caption.weight(.semibold))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(Color.green))
+            .padding(.horizontal, 12)
+        }
+        .buttonStyle(.plain)
+        .onReceive(clock) { now = $0 }
     }
 }

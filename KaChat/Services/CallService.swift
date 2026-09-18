@@ -112,6 +112,10 @@ final class CallService: ObservableObject {
     }
 
     @Published private(set) var session: ActiveCall?
+    /// The call screen is tucked away: the user is elsewhere in KaChat (or in another app)
+    /// while the call goes on. A video call floats as the system's Picture in Picture; a voice
+    /// call shows the green return bar. `restore()` brings the screen back.
+    @Published private(set) var isMinimized = false
     /// A one-line reason the last attempt failed, for a toast in the chat.
     @Published var lastError: String?
 
@@ -495,7 +499,8 @@ final class CallService: ObservableObject {
     }
 
     func toggleSpeaker() {
-        guard let call = session else { return }
+        // A video call is never at an ear: it stays on the speaker (headphones aside).
+        guard let call = session, !call.video else { return }
         // Flip from where the audio actually is, not from where we last asked it to be.
         call.speakerRequested = !call.isSpeakerOn
         call.isSpeakerOn = call.speakerRequested
@@ -516,6 +521,49 @@ final class CallService: ObservableObject {
 
     func flipCamera() {
         session?.webrtc?.flipCamera()
+    }
+
+    /// Turns the voice call into a video call, for both sides, without hanging up: our camera
+    /// goes on, the other phone is told to turn its own on, and the connection is
+    /// renegotiated with the new tracks.
+    func upgradeToVideo() {
+        guard let call = session, !call.video, let webrtc = call.webrtc else { return }
+        switch call.phase {
+        case .connecting, .connected: break
+        default: return
+        }
+        call.video = true
+        call.isCameraOff = false
+        call.speakerRequested = true
+        call.localVideoTrack = webrtc.enableVideo()
+        webrtc.setSpeaker(true)
+        CallKitManager.shared.updateCall(uuid: call.uuid, displayName: ContactsManager.shared.displayName(for: call.contact), video: true)
+        if let client = call.client {
+            let token = call.token
+            Task { await client.updateCallFlags(token: token, video: true) }
+        }
+        // Order matters and the channel keeps it: the peer turns its camera on first, so its
+        // answer to the offer that follows already carries its video.
+        send(call: call, type: "kachat_video_upgrade", payload: [:])
+        Task { await sendOffer(call: call) }
+    }
+
+    /// Puts the call screen away while the call continues. Video calls float as Picture in
+    /// Picture when the other side's video is already showing; otherwise the green return
+    /// bar is what brings the screen back.
+    func minimize() {
+        guard let call = session else { return }
+        if case .ended = call.phase { return }
+        isMinimized = true
+        if call.video, call.remoteVideoTrack != nil {
+            CallPictureInPicture.shared.start()
+        }
+    }
+
+    func restore() {
+        guard session != nil else { return }
+        isMinimized = false
+        CallPictureInPicture.shared.stop()
     }
 
     // MARK: - Talk + WebRTC plumbing
@@ -657,6 +705,23 @@ final class CallService: ObservableObject {
                 if call.isOutgoing, call.connectedAt == nil { await finish(reason: "declined") }
                 return
             }
+            if type == "kachat_video_upgrade" {
+                // The other side switched to video: turn ours on too, before their offer
+                // arrives, so the answer carries our camera.
+                if !call.video, let webrtc = call.webrtc {
+                    call.video = true
+                    call.isCameraOff = false
+                    call.speakerRequested = true
+                    call.localVideoTrack = webrtc.enableVideo()
+                    webrtc.setSpeaker(true)
+                    CallKitManager.shared.updateCall(uuid: call.uuid, displayName: ContactsManager.shared.displayName(for: call.contact), video: true)
+                    if let client = call.client {
+                        let token = call.token
+                        Task { await client.updateCallFlags(token: token, video: true) }
+                    }
+                }
+                return
+            }
             if call.peerSessionId == nil { call.peerSessionId = from }
             guard from == call.peerSessionId, let webrtc = call.webrtc else { return }
             let payload = data["payload"] as? [String: Any] ?? [:]
@@ -743,6 +808,7 @@ final class CallService: ObservableObject {
         if case .ended = call.phase { return }
         stopRinging(call)
         stopRingback()
+        CallPictureInPicture.shared.tearDown()
         if call.video { await CallCameraPreview.shared.stop() }
         call.timeoutTask?.cancel()
         call.offerFallbackTask?.cancel()
@@ -775,7 +841,13 @@ final class CallService: ObservableObject {
                 if owner { await client.deleteConversation(token: token) }
             }
         }
-        // Let the "Call ended" state show for a moment, then clear the screen.
+        // Let the "Call ended" state show for a moment, then clear the screen. A call that was
+        // tucked away has no screen to show it on: gone at once, no re-presenting to say so.
+        if isMinimized {
+            isMinimized = false
+            session = nil
+            return
+        }
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard let self, let current = self.session, current === call else { return }

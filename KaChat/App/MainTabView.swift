@@ -19,6 +19,7 @@ struct MainTabView: View {
     /// The call screen (ringing in, ringing out, connected) sits over the whole app, whichever
     /// tab is showing - a call is not a page of the chat it started from.
     @ObservedObject private var callService = CallService.shared
+    @ObservedObject private var pictureInPicture = CallPictureInPicture.shared
     /// What the Chats slot currently shows: .chats, or a masked-out tab (.kaposts/.broadcasts)
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var chatService: ChatService
@@ -130,10 +131,19 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $showInitialSyncProgress) {
             InitialSyncProgressModal(onDismiss: { showInitialSyncProgress = false })
         }
-        // Dismissal only ever comes from CallService clearing the session (the cover's own
-        // setter is deliberately inert) - swiping a live call away is not a way to hang up.
-        .fullScreenCover(item: Binding(get: { callService.session }, set: { _ in })) { call in
+        // Dismissal only ever comes from CallService clearing the session or tucking the call
+        // away (the cover's own setter is deliberately inert) - swiping a live call away is
+        // not a way to hang up.
+        .fullScreenCover(item: Binding(get: { callService.isMinimized ? nil : callService.session }, set: { _ in })) { call in
             CallView(call: call)
+        }
+        // A call tucked away and not floating as Picture in Picture: the green return bar.
+        .overlay(alignment: .top) {
+            if let call = callService.session, callService.isMinimized, !pictureInPicture.isActive {
+                CallReturnBar(call: call)
+                    .padding(.top, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .fullScreenCover(isPresented: $showWelcomeGuide) {
             WelcomeGuideView(
