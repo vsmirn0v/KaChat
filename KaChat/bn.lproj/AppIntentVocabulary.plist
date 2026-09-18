@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>IntentPhrases</key>
+	<array>
+		<dict>
+			<key>IntentName</key>
+			<string>INStartCallIntent</string>
+			<key>IntentExamples</key>
+			<array>
+				<string>KaChat-এ অ্যালেক্সকে কল করো</string>
+				<string>KaChat-এ অ্যালেক্সকে ভিডিও কল করো</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

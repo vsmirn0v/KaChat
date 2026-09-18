@@ -144,6 +144,7 @@
 		KP0009B0000000000000001 /* KaPostsSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0009A0000000000000001 /* KaPostsSearchView.swift */; };
 		KPAPI001B000000000000001 /* KaPostsAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = KPAPI001A000000000000001 /* KaPostsAPIClient.swift */; };
 		L10N000300000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L10N000200000001 /* Localizable.strings */; };
+		SIRI000300000001 /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = SIRI000200000001 /* AppIntentVocabulary.plist */; };
 		LPRVB0000000000000001 /* LinkPreviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = LPRVA0000000000000001 /* LinkPreviewService.swift */; };
 		LPRVD0000000000000001 /* LinkPreviewCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LPRVC0000000000000001 /* LinkPreviewCardView.swift */; };
 		MSGS00012F5C000100000002 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = MSGS00012F5C000100000001 /* MessageStore.swift */; };
@@ -387,6 +388,25 @@
 		KP0009A0000000000000001 /* KaPostsSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsSearchView.swift; sourceTree = "<group>"; };
 		KPAPI001A000000000000001 /* KaPostsAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsAPIClient.swift; sourceTree = "<group>"; };
 		L10N000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		SIRI000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = en; path = en.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000002 /* ar-EG */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "ar-EG"; path = "ar-EG.lproj/AppIntentVocabulary.plist"; sourceTree = "<group>"; };
+		SIRI000100000003 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = ar; path = ar.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000004 /* bn */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = bn; path = bn.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000005 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = de; path = de.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000006 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = es; path = es.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000007 /* fa */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = fa; path = fa.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000008 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = fr; path = fr.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000009 /* he */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = he; path = he.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI00010000000A /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = hi; path = hi.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI00010000000B /* id */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = id; path = id.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI00010000000C /* it */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = it; path = it.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI00010000000D /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = ja; path = ja.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI00010000000E /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = ko; path = ko.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI00010000000F /* pt */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = pt; path = pt.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000010 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = ru; path = ru.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000011 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = tr; path = tr.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000012 /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = vi; path = vi.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		SIRI000100000013 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "zh-Hans"; path = "zh-Hans.lproj/AppIntentVocabulary.plist"; sourceTree = "<group>"; };
 		L10N000100000002 /* ar-EG */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "ar-EG"; path = "ar-EG.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		L10N000100000003 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000004 /* bn */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = bn; path = bn.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -595,6 +615,7 @@
 				GRPC00010001000100000020 /* Generated */,
 				E83000042D4C000200000009 /* KaChat-Bridging-Header.h */,
 				L10N000200000001 /* Localizable.strings */,
+				SIRI000200000001 /* AppIntentVocabulary.plist */,
 			);
 			path = KaChat;
 			sourceTree = "<group>";
@@ -1146,6 +1167,7 @@
 				ENGL00012F70000100000002 /* english.txt in Resources */,
 				GEOIP00012F90000100000002 /* geoip-lite.json in Resources */,
 				L10N000300000001 /* Localizable.strings in Resources */,
+				SIRI000300000001 /* AppIntentVocabulary.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1391,6 +1413,32 @@
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
+		SIRI000200000001 /* AppIntentVocabulary.plist */ = {
+			isa = PBXVariantGroup;
+			children = (
+				SIRI000100000001 /* en */,
+				SIRI000100000002 /* ar-EG */,
+				SIRI000100000003 /* ar */,
+				SIRI000100000004 /* bn */,
+				SIRI000100000005 /* de */,
+				SIRI000100000006 /* es */,
+				SIRI000100000007 /* fa */,
+				SIRI000100000008 /* fr */,
+				SIRI000100000009 /* he */,
+				SIRI00010000000A /* hi */,
+				SIRI00010000000B /* id */,
+				SIRI00010000000C /* it */,
+				SIRI00010000000D /* ja */,
+				SIRI00010000000E /* ko */,
+				SIRI00010000000F /* pt */,
+				SIRI000100000010 /* ru */,
+				SIRI000100000011 /* tr */,
+				SIRI000100000012 /* vi */,
+				SIRI000100000013 /* zh-Hans */,
+			);
+			name = AppIntentVocabulary.plist;
+			sourceTree = "<group>";
+		};
 		L10N000200000001 /* Localizable.strings */ = {
 			isa = PBXVariantGroup;
 			children = (
