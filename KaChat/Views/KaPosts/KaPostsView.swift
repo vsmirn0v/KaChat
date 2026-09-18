@@ -4919,7 +4919,8 @@ private struct KaPostCellView: View {
                     )) { wrapper in
                         LinkActionsSheet(
                             url: wrapper.url,
-                            onOpen: { openURL(wrapper.url) },
+                            // A kachat.app link inside a post opens that post here, in-app.
+                            onOpen: { KaChatLinkRouter.openAnywhere(wrapper.url) },
                             onCopy: {
                                 UIPasteboard.general.string = wrapper.url.absoluteString
                                 Haptics.success()

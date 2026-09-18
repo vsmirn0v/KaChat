@@ -82,6 +82,15 @@ struct KaChatApp: App {
                 .onOpenURL { url in
                     handleIncomingURL(url)
                 }
+                // Every SwiftUI Link / openURL in the app: a kachat.app (or kachat://) link is
+                // routed to its post or room in-app instead of bouncing through Safari.
+                .environment(\.openURL, OpenURLAction { url in
+                    if let link = KaChatInternalLink.parse(url) {
+                        KaChatLinkRouter.open(link)
+                        return .handled
+                    }
+                    return .systemAction
+                })
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                     // Universal links (https://kachat.app/post/<txid>, and the old duckdns host) - same router.
                     if let url = activity.webpageURL {
@@ -1006,6 +1015,18 @@ enum PendingTabRoute {
 /// the in-chat preview cards (`KaChatInternalLinkCardView`), so a link opens the same screen
 /// whichever way the user reached it - and never bounces out to Safari for an in-app target.
 enum KaChatLinkRouter {
+    /// Any URL a user taps inside the app: a KaChat link (kachat.app, the old duckdns host, or
+    /// the kachat:// scheme) goes straight to its post or room; everything else leaves the
+    /// app as usual. The one call every "Open" button should make.
+    @MainActor
+    static func openAnywhere(_ url: URL) {
+        if let link = KaChatInternalLink.parse(url) {
+            open(link)
+            return
+        }
+        UIApplication.shared.open(url)
+    }
+
     @MainActor
     static func open(_ link: KaChatInternalLink) {
         switch link {

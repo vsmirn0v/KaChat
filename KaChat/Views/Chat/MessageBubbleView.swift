@@ -591,7 +591,7 @@ struct MessageBubbleView: View {
                         if let internalLink = KaChatInternalLink.parse(wrapper.url) {
                             KaChatLinkRouter.open(internalLink)
                         } else {
-                            UIApplication.shared.open(wrapper.url)
+                            KaChatLinkRouter.openAnywhere(wrapper.url)
                         }
                     },
                     onCopy: { handleCopy(wrapper.url.absoluteString, toast: "Link copied to clipboard.") },

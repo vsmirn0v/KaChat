@@ -2621,7 +2621,7 @@ private struct GroupMessageBubbleRow: View {
                         .sheet(item: Binding(get: { linkMenuURL.map(IdentifiedURL.init) }, set: { if $0 == nil { linkMenuURL = nil } })) { wrapper in
                             LinkActionsSheet(
                                 url: wrapper.url,
-                                onOpen: { UIApplication.shared.open(wrapper.url) },
+                                onOpen: { KaChatLinkRouter.openAnywhere(wrapper.url) },
                                 onCopy: {
                                     onCopy(wrapper.url.absoluteString, .success)
                                     UIPasteboard.general.string = wrapper.url.absoluteString
