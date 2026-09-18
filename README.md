@@ -193,7 +193,7 @@ See [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md) and [PUSH_EXTENSIONS.md](PUSH
 ├── external/opus/                # Vendored Opus.xcframework (voice codec)
 ├── ci_scripts/                   # Xcode Cloud hooks
 ├── scripts/                      # Build helpers and script-based tests
-├── web_site/                     # Static marketing/EULA pages
+├── web_site/                     # kachat.app: static pages + the link site (server/, see KACHAT_APP_LINKS.md)
 └── *.md                          # Architecture/protocol docs
 ```
 
@@ -276,6 +276,7 @@ Defaults are managed via `AppSettings`.
 - [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md): push delivery design
 - [PUSH_EXTENSIONS.md](PUSH_EXTENSIONS.md): push server handoff for broadcasts and KaPosts
 - [BROADCAST_INDEXER.md](BROADCAST_INDEXER.md) and [KAPOSTS_INDEXER.md](KAPOSTS_INDEXER.md): indexer build guides
+- [KACHAT_APP_LINKS.md](KACHAT_APP_LINKS.md): the kachat.app link site (share previews, Universal/App Links, download page)
 
 </details>
 

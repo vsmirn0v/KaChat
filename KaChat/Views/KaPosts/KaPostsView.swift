@@ -5523,10 +5523,14 @@ private struct KaPostCellView: View {
         .padding(.top, 2)
     }
 
+    /// A snippet and the kachat.app link. The https link is the whole story: it unfurls a
+    /// preview of the post in every chat app, opens KaChat when it is installed, and shows the
+    /// post with download buttons when it is not (KACHAT_APP_LINKS.md).
     private func shareText(remoteId: String) -> String {
         let snippet = String(post.text.prefix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
         let ellipsis = post.text.count > 60 ? "..." : ""
-        return "\"\(snippet)\(ellipsis)\"\n\nOpen in KaChat: kachat://kapost/\(remoteId)"
+        let link = KaChatInternalLink.kaPost(txId: remoteId).universalLinkString
+        return "\"\(snippet)\(ellipsis)\"\n\n\(link)"
     }
 
     private func engagementButton(icon: String, count: Int, tint: Color, action: @escaping () -> Void) -> some View {

@@ -1,0 +1,23 @@
+# kachat.app: the link site behind Caddy (automatic HTTPS from Let's Encrypt).
+# Run from the web_site/ directory:  docker compose -f server/docker-compose.yml up -d
+services:
+  links:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    expose: ["8080"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

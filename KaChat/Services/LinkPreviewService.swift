@@ -11,8 +11,8 @@ import Foundation
 ///
 /// | Target         | Custom scheme                  | Universal link                                    |
 /// |----------------|--------------------------------|---------------------------------------------------|
-/// | KaPosts post   | `kachat://kapost/<txid>`       | `https://kachat.duckdns.org/post/<txid>`          |
-/// | Broadcast room | `kachat://broadcast/<channel>` | `https://kachat.duckdns.org/broadcast/<channel>`  |
+/// | KaPosts post   | `kachat://kapost/<txid>`       | `https://kachat.app/post/<txid>`                  |
+/// | Broadcast room | `kachat://broadcast/<channel>` | `https://kachat.app/broadcast/<channel>`          |
 ///
 /// `<channel>` is the NORMALIZED room name with no leading `#` (see `BroadcastChannelName`).
 /// Everything a pasted link carries is attacker-controlled, so `parse` re-validates the channel
@@ -22,9 +22,13 @@ enum KaChatInternalLink: Equatable {
     case kaPost(txId: String)
     case broadcastRoom(channel: String)
 
-    /// The universal-link host. With the app installed iOS routes these into
-    /// `KaChatApp.handleIncomingURL`; without it, the domain 302s to the App Store.
-    static let universalLinkHost = "kachat.duckdns.org"
+    /// The universal-link host - the only host the app ever writes into a share. With KaChat
+    /// installed iOS opens these links in the app; without it, kachat.app shows the post (or
+    /// the room invite) with the download buttons, and unfurls a preview in every chat app
+    /// (see KACHAT_APP_LINKS.md).
+    static let universalLinkHost = "kachat.app"
+    /// Links from before kachat.app: still opened, never written.
+    static let legacyUniversalLinkHosts: Set<String> = ["kachat.duckdns.org"]
 
     /// The form the share sheets emit, matching KaPosts' existing share text (`KaPostsView`).
     var shareLinkString: String {
@@ -43,10 +47,10 @@ enum KaChatInternalLink: Equatable {
         }
     }
 
-    /// The share sheet's text for a broadcast-room invite - one human line, then BOTH accepted
-    /// link forms. Shape mirrors KaPosts' existing post-share text (`KaPostsView.shareText`).
-    /// Single definition so the room screen's Share button and the list row's share menu can't
-    /// drift apart.
+    /// The share sheet's text for a broadcast-room invite - one human line and the kachat.app
+    /// link. Only the https form goes out: it previews everywhere and opens the app when it
+    /// is installed, and a bare `kachat://` line previews nowhere. Single definition so the
+    /// room screen's Share button and the list row's share menu can't drift apart.
     static func broadcastRoomShareText(channel: String) -> String {
         // Through the same gate an INCOMING link goes through, so a share can never emit a link
         // this app would refuse to open (and a stray leading "#" is stripped, not doubled).
@@ -55,8 +59,7 @@ enum KaChatInternalLink: Equatable {
         return """
         Join #\(normalized) on KaChat.
 
-        Open in KaChat: \(link.shareLinkString)
-        Or: \(link.universalLinkString)
+        \(link.universalLinkString)
         """
     }
 
@@ -81,7 +84,7 @@ enum KaChatInternalLink: Equatable {
         case "http", "https":
             var host = url.host?.lowercased() ?? ""
             if host.hasPrefix("www.") { host.removeFirst(4) }
-            guard host == universalLinkHost, parts.count == 2 else { return nil }
+            guard host == universalLinkHost || legacyUniversalLinkHosts.contains(host), parts.count == 2 else { return nil }
             switch parts[0].lowercased() {
             case "post": return kaPostLink(rawTxId: parts[1])
             case "broadcast": return broadcastLink(rawChannel: parts[1])
@@ -158,7 +161,7 @@ enum KaChatInternalLink: Equatable {
     /// universal form is matched here too so it is claimed as INTERNAL before the generic
     /// preview path can fetch it over the network.
     private static let pattern =
-        #"(?:kachat://(?:kapost|broadcast)/|https?://(?:www\.)?kachat\.duckdns\.org/(?:post|broadcast)/)[^\s<>"']+"#
+        #"(?:kachat://(?:kapost|broadcast)/|https?://(?:www\.)?kachat\.(?:app|duckdns\.org)/(?:post|broadcast)/)[^\s<>"']+"#
 
     private static let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
 
@@ -190,7 +193,8 @@ enum KaChatInternalLink: Equatable {
         // Cheap bail-out before paying for the regex: neither form can appear without one of
         // these two literals, and the overwhelming majority of messages contain neither.
         let lowered = text.lowercased()
-        guard lowered.contains("kachat://") || lowered.contains(universalLinkHost) else { return nil }
+        guard lowered.contains("kachat://") || lowered.contains(universalLinkHost)
+                || legacyUniversalLinkHosts.contains(where: { lowered.contains($0) }) else { return nil }
         guard let regex else { return nil }
         let ns = text as NSString
         let full = NSRange(location: 0, length: ns.length)

@@ -1,0 +1,4 @@
+kachat.app, www.kachat.app {
+	encode gzip
+	reverse_proxy links:8080
+}

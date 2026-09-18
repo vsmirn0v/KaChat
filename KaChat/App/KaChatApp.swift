@@ -83,7 +83,7 @@ struct KaChatApp: App {
                     handleIncomingURL(url)
                 }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-                    // Universal links (https://kachat.duckdns.org/post/<txid>) - same router.
+                    // Universal links (https://kachat.app/post/<txid>, and the old duckdns host) - same router.
                     if let url = activity.webpageURL {
                         handleIncomingURL(url)
                     }

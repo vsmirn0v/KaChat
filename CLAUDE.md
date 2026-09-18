@@ -299,6 +299,7 @@ Implementation uses:
 | `BROADCAST_INDEXER.md` | Handoff/build guide for the KaChat broadcast indexer (#kaspa / #kachat-bugs history, REST spec, Docker) |
 | `TRANSLATION_SERVICE.md` | Handoff/build guide for the KaChat post translation endpoint (server-side translation of KaPosts, cached by txid; replaced the on-device Apple Translation / ML Kit path) |
 | `PUSH_EXTENSIONS.md` | Server handoff: remote push for broadcasts + KaPosts (registration fields, APNs payload specs, routing contracts) |
+| `KACHAT_APP_LINKS.md` | The kachat.app link site (`web_site/server/`): every shared link is `https://kachat.app/...` - Open Graph previews everywhere, Universal/App Links into the app, post-only page with download buttons without it |
 | `DETERMINISTIC_ALIASES.md` | Deterministic alias derivation (shipped protocol - see `Utilities/DeterministicAlias.swift`): algorithm, migration notes, legacy-alias compatibility |
 
 Historical plan/design documents were removed from the repo in the 4.0 hygiene pass; shipped code is the source of truth for those features.

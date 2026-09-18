@@ -6,6 +6,7 @@
 	<string>production</string>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
+		<string>applinks:kachat.app</string>
 		<string>applinks:kachat.duckdns.org</string>
 	</array>
 	<key>com.apple.developer.devicecheck.appattest-environment</key>
