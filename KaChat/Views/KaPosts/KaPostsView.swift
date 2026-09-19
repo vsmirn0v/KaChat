@@ -8022,7 +8022,7 @@ private struct BioClampedHeightKey: PreferenceKey {
 
 // MARK: - Persistent status chrome
 
-private extension View {
+extension View {
     /// Repeats the feed's own header indicators - green connection dot leading, chatting balance
     /// centered - on every screen that stacks in front of it. Reading a thread or a profile is
     /// still "being in KaPosts", and both indicators answer questions that come up mid-read:
