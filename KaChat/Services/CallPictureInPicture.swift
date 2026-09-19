@@ -16,25 +16,33 @@ final class CallPictureInPicture: NSObject, ObservableObject {
     static let shared = CallPictureInPicture()
 
     private var controller: AVPictureInPictureController?
-    private let contentController = AVPictureInPictureVideoCallViewController()
-    private let videoView = RTCMTLVideoView()
+    // Built on first use, not at launch: MainTabView observes this object from the app's first
+    // frame, and a Metal-backed video view plus a PiP view controller are not free to create.
+    private lazy var contentController: AVPictureInPictureVideoCallViewController = {
+        let controller = AVPictureInPictureVideoCallViewController()
+        controller.preferredContentSize = CGSize(width: 720, height: 1280)
+        videoView.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.addSubview(videoView)
+        NSLayoutConstraint.activate([
+            videoView.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
+            videoView.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
+            videoView.topAnchor.constraint(equalTo: controller.view.topAnchor),
+            videoView.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
+        ])
+        return controller
+    }()
+    private lazy var videoView: RTCMTLVideoView = {
+        let view = RTCMTLVideoView()
+        view.videoContentMode = .scaleAspectFill
+        view.backgroundColor = .black
+        return view
+    }()
     private weak var track: RTCVideoTrack?
     /// Observed by MainTabView: the green return bar shows only while the window is NOT up.
     @Published private(set) var isActive = false
 
     private override init() {
         super.init()
-        contentController.preferredContentSize = CGSize(width: 720, height: 1280)
-        videoView.videoContentMode = .scaleAspectFill
-        videoView.backgroundColor = .black
-        videoView.translatesAutoresizingMaskIntoConstraints = false
-        contentController.view.addSubview(videoView)
-        NSLayoutConstraint.activate([
-            videoView.leadingAnchor.constraint(equalTo: contentController.view.leadingAnchor),
-            videoView.trailingAnchor.constraint(equalTo: contentController.view.trailingAnchor),
-            videoView.topAnchor.constraint(equalTo: contentController.view.topAnchor),
-            videoView.bottomAnchor.constraint(equalTo: contentController.view.bottomAnchor),
-        ])
     }
 
     var isSupported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
@@ -78,7 +86,7 @@ final class CallPictureInPicture: NSObject, ObservableObject {
     /// The call is over: drop the window, the track and the source.
     func tearDown() {
         stop()
-        track?.remove(videoView)
+        if let track { track.remove(videoView) }
         track = nil
         controller = nil
         isActive = false

@@ -82,15 +82,6 @@ struct KaChatApp: App {
                 .onOpenURL { url in
                     handleIncomingURL(url)
                 }
-                // Every SwiftUI Link / openURL in the app: a kachat.app (or kachat://) link is
-                // routed to its post or room in-app instead of bouncing through Safari.
-                .environment(\.openURL, OpenURLAction { url in
-                    if let link = KaChatInternalLink.parse(url) {
-                        KaChatLinkRouter.open(link)
-                        return .handled
-                    }
-                    return .systemAction
-                })
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                     // Universal links (https://kachat.app/post/<txid>, and the old duckdns host) - same router.
                     if let url = activity.webpageURL {

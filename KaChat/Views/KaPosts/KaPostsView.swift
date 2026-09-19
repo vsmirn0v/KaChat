@@ -1409,8 +1409,6 @@ struct KaPostsView: View {
     }
 
     static func mapRemotePost(_ post: KaPostsAPIClient.KPost) -> DraftPost? {
-        // Deleted here, still served by the indexer: stays deleted on this device.
-        guard !KaPostsDeletedPosts.shared.contains(post.id) else { return nil }
         guard let content = post.decodedContent,
               let address = KaPostsAPIClient.kaspaAddress(fromPubkey: post.userPublicKey) else { return nil }
         var mapped = DraftPost(
@@ -2330,7 +2328,6 @@ struct KaPostsView: View {
             Task {
                 do {
                     _ = try await KaPostsAPIClient.shared.submitDelete(postId: remoteId)
-                    KaPostsDeletedPosts.shared.insert(remoteId)
                     withAnimation(.easeInOut(duration: 0.25)) {
                         removePostEverywhere(id: post.id)
                     }
@@ -4736,7 +4733,27 @@ private struct KaPostCellView: View {
     /// or a wall of newlines). Measured on what is actually rendered, so a translation that runs
     /// longer than its original still folds.
     private var isLongPost: Bool {
-        displayedText.count > 280 || displayedText.filter { $0 == "\n" }.count >= 8
+        // The newline count only decides short posts, so it is only counted for them.
+        displayedText.count > 280 || displayedText.prefix(281).filter { $0 == "\n" }.count >= 8
+    }
+
+    /// True while a long post is folded to eight lines.
+    private var isFolded: Bool {
+        truncatesLongText && isLongPost && !isExpandedInline
+    }
+
+    /// What the Text lays out. A folded cell shows eight lines at most, yet it was handed the
+    /// whole post - up to 25 000 characters of attributed text, detected, styled and laid out
+    /// per cell, per body pass. Eight lines never need more than the first few hundred
+    /// characters, so a folded cell renders a prefix and the full text only once expanded.
+    private var layoutText: String {
+        guard isFolded, displayedText.count > 1_200 else { return displayedText }
+        var cut = String(displayedText.prefix(1_200))
+        // Never cut a markdown span or a link mid-token: fall back to the last whitespace.
+        if let space = cut.lastIndex(where: { $0.isWhitespace }), cut.distance(from: cut.startIndex, to: space) > 600 {
+            cut = String(cut[..<space])
+        }
+        return cut + "\u{2026}"
     }
 
     /// Post Activity works for EVERYONE's posts (the KaChat indexer fork serves
@@ -4955,7 +4972,7 @@ private struct KaPostCellView: View {
                 // Text-only posts, but URLs are TAPPABLE: tapping a link opens a Copy/Open
                 // option menu (never auto-opens - OpenURLAction intercepts). No previews, no
                 // photos, no markdown - just detected links styled accent+underline.
-                Text(Self.linkified(displayedText))
+                Text(Self.linkified(layoutText))
                     .font(isFocused ? .title3 : .body)
                     .foregroundColor(.primary)
                     .tint(.accentColor)
@@ -4969,7 +4986,7 @@ private struct KaPostCellView: View {
                         tappedLinkURL = url
                         return .handled
                     })
-                    .lineLimit(truncatesLongText && isLongPost && !isExpandedInline ? 8 : nil)
+                    .lineLimit(isFolded ? 8 : nil)
                     .fixedSize(horizontal: false, vertical: true)
                     // Selectable ONLY in the post you tapped into. Anywhere else the long press
                     // and the drag belong to opening the post, and a card that both navigates and
@@ -6878,46 +6895,6 @@ final class KaPostsFollowStore: ObservableObject {
 /// Muted + blocked poster addresses, persisted locally. Both hide the author's content
 /// everywhere in KaPosts; the distinction - a muted user can still interact with you, a blocked
 /// user cannot - takes effect when real feeds/interactions are wired.
-/// Posts this account deleted, by txid, per wallet. The chain keeps the bytes and the indexer
-/// only stops serving a deleted post once it honours the `delete` action (KAPOSTS_INDEXER.md
-/// §5.8) - until then every refetch handed the post straight back. This is the device's own
-/// memory of the deletion: `mapRemotePost`, the one funnel from the indexer into the feeds,
-/// drops anything listed here. Lock-guarded rather than main-actor because that funnel runs
-/// from whichever context maps a page.
-final class KaPostsDeletedPosts {
-    static let shared = KaPostsDeletedPosts()
-
-    private let lock = NSLock()
-    private var ids: Set<String> = []
-    private var key: String?
-
-    private init() {}
-
-    func setCurrentWallet(_ address: String?) {
-        lock.lock(); defer { lock.unlock() }
-        key = address.map { "kachat_kaposts_deleted_\($0)" }
-        ids = key.flatMap { Set(UserDefaults.standard.stringArray(forKey: $0) ?? []) } ?? []
-    }
-
-    func contains(_ txId: String) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return ids.contains(txId)
-    }
-
-    func insert(_ txId: String) {
-        lock.lock(); defer { lock.unlock() }
-        ids.insert(txId)
-        // Bounded: a deletion older than the newest 2 000 is one the indexer has long honoured.
-        if ids.count > 2_000, let key {
-            let kept = Array(ids.suffix(2_000))
-            ids = Set(kept)
-            UserDefaults.standard.set(kept, forKey: key)
-        } else if let key {
-            UserDefaults.standard.set(Array(ids), forKey: key)
-        }
-    }
-}
-
 @MainActor
 final class KaPostsModerationStore: ObservableObject {
     static let shared = KaPostsModerationStore()
@@ -6942,7 +6919,6 @@ final class KaPostsModerationStore: ObservableObject {
     func setCurrentWallet(_ address: String?) {
         let normalized = address?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         walletAddress = (normalized?.isEmpty == false) ? normalized : nil
-        KaPostsDeletedPosts.shared.setCurrentWallet(walletAddress)
         guard let mutedKey, let blockedKey else {
             muted = []
             blocked = []
