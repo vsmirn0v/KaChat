@@ -6878,7 +6878,6 @@ final class KaPostsFollowStore: ObservableObject {
 /// Muted + blocked poster addresses, persisted locally. Both hide the author's content
 /// everywhere in KaPosts; the distinction - a muted user can still interact with you, a blocked
 /// user cannot - takes effect when real feeds/interactions are wired.
-@MainActor
 /// Posts this account deleted, by txid, per wallet. The chain keeps the bytes and the indexer
 /// only stops serving a deleted post once it honours the `delete` action (KAPOSTS_INDEXER.md
 /// §5.8) - until then every refetch handed the post straight back. This is the device's own
@@ -6919,6 +6918,7 @@ final class KaPostsDeletedPosts {
     }
 }
 
+@MainActor
 final class KaPostsModerationStore: ObservableObject {
     static let shared = KaPostsModerationStore()
 
