@@ -57,14 +57,16 @@ struct PortfolioTransactionsView<Header: View>: View {
                     emptyState
                 } else {
                     ForEach(viewModel.transactionsDescending) { tx in
-                        Button {
-                            editingTransaction = tx
-                        } label: {
-                            transactionRow(tx)
-                        }
-                        .buttonStyle(.plain)
-                        .tag(tx.id)
-                        .swipeActions(edge: .trailing) {
+                        // Not a Button: a button in a selectable List row swallowed the tap in
+                        // Select mode (the edit sheet opened instead of the checkmark toggling),
+                        // and out of it only the content, not the whole row, answered to a tap.
+                        // The row is plain content; in Select mode the List owns taps for
+                        // selection, otherwise a full-width tap opens the editor.
+                        transactionRow(tx)
+                            .contentShape(Rectangle())
+                            .modifier(TapToEdit(enabled: !isSelecting) { editingTransaction = tx })
+                            .tag(tx.id)
+                            .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 viewModel.deleteTransaction(id: tx.id)
                             } label: {
@@ -866,5 +868,23 @@ private struct PortfolioTransactionEditor: View {
         while text.hasSuffix("0") { text.removeLast() }
         if text.hasSuffix(".") { text.removeLast() }
         return text
+    }
+}
+
+/// A full-row tap that exists only while the list is not in Select mode, so a selecting List
+/// keeps its taps for the checkmarks.
+private struct TapToEdit: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.onTapGesture {
+                Haptics.impact(.light)
+                action()
+            }
+        } else {
+            content
+        }
     }
 }
