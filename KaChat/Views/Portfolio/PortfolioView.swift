@@ -58,6 +58,8 @@ struct PortfolioView: View {
             }
             .navigationTitle("Portfolio")
             .navigationBarTitleDisplayMode(.large)
+            // Landing here after a while: a fresh price without the whole launch burst.
+            .onAppear { viewModel.refreshSpotPriceIfStale() }
             // All three destinations live HERE, on the stack's root, not on the buttons that
             // present them. Those buttons sit inside the transactions List, and a lazy container
             // only builds a child when it is about to be drawn - so the navigation stack could

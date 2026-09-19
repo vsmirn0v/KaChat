@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 import SwiftUI
 import WidgetKit
 
@@ -44,6 +45,10 @@ final class PortfolioViewModel: ObservableObject {
     /// `AppSettings` on every `.settingsDidChange` notification, refetching both if it changed.
     private(set) var currentCurrency: AppCurrency = SettingsViewModel.loadSettings().currency
     private var settingsObserver: NSObjectProtocol?
+    private var foregroundObserver: NSObjectProtocol?
+    /// The spot-price retry (see `ensurePriceLoaded`); one at a time.
+    private var priceRetryTask: Task<Void, Never>?
+    private var lastPriceFetchAt: Date?
     /// Forwards `PortfolioManager.shared.activePortfolioId` changes into this object's own
     /// `objectWillChange` — `scopedTransactions`/`summary`/`valueHistory` are plain computed
     /// properties with no `@Published` of their own, so without this, any view that observes
@@ -143,7 +148,17 @@ final class PortfolioViewModel: ObservableObject {
 
     init(coinGecko: CoinGeckoService = .shared) {
         self.coinGecko = coinGecko
+        // The last price this device saw paints at once - a dash is never the right first
+        // frame when a number from a moment ago is on disk.
+        restorePersistedPrice()
         refreshPrice()
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshSpotPriceIfStale() }
+        }
         portfolioSwitchCancellable = PortfolioManager.shared.$activePortfolioId
             .dropFirst()
             .sink { [weak self] _ in
@@ -186,6 +201,79 @@ final class PortfolioViewModel: ObservableObject {
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
         }
+        if let foregroundObserver {
+            NotificationCenter.default.removeObserver(foregroundObserver)
+        }
+    }
+
+    // MARK: - Spot price: persisted, retried, refreshed on return
+
+    private struct PersistedPrice: Codable {
+        let price: Double
+        let change24h: Double?
+        let fetchedAt: Date
+    }
+
+    private func priceKey(_ currency: AppCurrency) -> String { "kachat_kas_price_\(currency.rawValue)" }
+
+    private func restorePersistedPrice() {
+        guard let data = UserDefaults.standard.data(forKey: priceKey(currentCurrency)),
+              let saved = try? JSONDecoder().decode(PersistedPrice.self, from: data) else { return }
+        currentPriceUsd = saved.price
+        priceChange24h = saved.change24h
+    }
+
+    private func persistPrice(_ price: Double, change24h: Double?, currency: AppCurrency) {
+        let saved = PersistedPrice(price: price, change24h: change24h, fetchedAt: Date())
+        if let data = try? JSONEncoder().encode(saved) {
+            UserDefaults.standard.set(data, forKey: priceKey(currency))
+        }
+    }
+
+    /// Records a fetched price: the published figure, the persisted copy, the retry cleared.
+    private func applyPrice(_ result: (price: Double, change24hPercent: Double?), currency: AppCurrency) {
+        currentPriceUsd = result.price
+        priceChange24h = result.change24hPercent
+        lastPriceFetchAt = Date()
+        persistPrice(result.price, change24h: result.change24hPercent, currency: currency)
+        priceRetryTask?.cancel()
+        priceRetryTask = nil
+    }
+
+    /// The spot price failed (CoinGecko's keyless tier 429s a launch burst for a while): keep
+    /// asking on a growing pause until it answers. The history fetch has always done this;
+    /// the price itself did not, so a throttled launch left a dash until pull-to-refresh.
+    private func ensurePriceLoaded() {
+        guard priceRetryTask == nil else { return }
+        let currency = currentCurrency
+        priceRetryTask = Task { [weak self] in
+            for delay in [3.0, 8.0, 20.0, 45.0, 90.0, 180.0] {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard let self, !Task.isCancelled, self.currentCurrency == currency else { return }
+                if let result = await self.coinGecko.getCurrentPrice(currency: currency) {
+                    self.applyPrice(result, currency: currency)
+                    self.publishWidgetSnapshot()
+                    return
+                }
+            }
+            self?.priceRetryTask = nil
+        }
+    }
+
+    /// Coming back to the app, or onto the Portfolio: a price older than five minutes (or
+    /// none at all) is fetched again - just the price, not the whole launch burst.
+    func refreshSpotPriceIfStale() {
+        if let last = lastPriceFetchAt, Date().timeIntervalSince(last) < 5 * 60, currentPriceUsd != nil { return }
+        let currency = currentCurrency
+        Task { [weak self] in
+            guard let self else { return }
+            if let result = await self.coinGecko.getCurrentPrice(currency: currency) {
+                self.applyPrice(result, currency: currency)
+                self.publishWidgetSnapshot()
+            } else {
+                self.ensurePriceLoaded()
+            }
+        }
     }
 
     /// Re-fetches price/history in the new currency whenever it changes - a currency switch
@@ -194,6 +282,10 @@ final class PortfolioViewModel: ObservableObject {
         let newCurrency = SettingsViewModel.loadSettings().currency
         guard newCurrency != currentCurrency else { return }
         currentCurrency = newCurrency
+        priceRetryTask?.cancel()
+        priceRetryTask = nil
+        currentPriceUsd = nil
+        restorePersistedPrice()
         refreshPrice()
     }
 
@@ -236,8 +328,9 @@ final class PortfolioViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             if let result = await self.coinGecko.getCurrentPrice(currency: currency) {
-                self.currentPriceUsd = result.price
-                self.priceChange24h = result.change24hPercent
+                self.applyPrice(result, currency: currency)
+            } else {
+                self.ensurePriceLoaded()
             }
             if let stats = await self.coinGecko.getMarketStats(currency: currency) {
                 self.marketCap = stats.marketCap
@@ -327,8 +420,9 @@ final class PortfolioViewModel: ObservableObject {
             marketCapRank = result.rank
         }
         if let result = await price {
-            currentPriceUsd = result.price
-            priceChange24h = result.change24hPercent
+            applyPrice(result, currency: currency)
+        } else {
+            ensurePriceLoaded()
         }
         let result = await history
         if !result.isEmpty {
