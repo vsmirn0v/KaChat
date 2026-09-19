@@ -83,8 +83,15 @@ struct PortfolioTransactionsView<Header: View>: View {
                         .foregroundColor(.primary)
                         .textCase(nil)
                     Spacer()
-                    addTransactionButton
-                    importExportButton
+                    if isSelecting {
+                        selectAllButton
+                        deleteSelectedButton
+                        selectToggleButton
+                    } else {
+                        selectToggleButton
+                        addTransactionButton
+                        importExportButton
+                    }
                 }
                 .padding(.bottom, 2)
             }
@@ -95,41 +102,16 @@ struct PortfolioTransactionsView<Header: View>: View {
         }
         .environment(\.editMode, $editMode)
         .toolbar {
+            // The eye: every amount on the Portfolio reads as dots while it is on (the KAS price
+            // stays). Select moved down beside the + in the Transactions header.
             ToolbarItem(placement: .navigationBarTrailing) {
-                if isSelecting {
-                    Menu {
-                        Button {
-                            toggleSelectAll()
-                        } label: {
-                            Label(
-                                selectedIDs.count == viewModel.transactionsDescending.count ? "Deselect All" : "Select All",
-                                systemImage: "checkmark.circle"
-                            )
-                        }
-                        Button(role: .destructive) {
-                            showDeleteSelectedConfirm = true
-                        } label: {
-                            Label("Delete Selected (\(selectedIDs.count))", systemImage: "trash")
-                        }
-                        .disabled(selectedIDs.isEmpty)
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .tint(.accentColor)
+                Button {
+                    Haptics.impact(.light)
+                    withAnimation(.easeInOut(duration: 0.15)) { viewModel.valuesHidden.toggle() }
+                } label: {
+                    Image(systemName: viewModel.valuesHidden ? "eye.slash" : "eye")
                 }
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(isSelecting ? "Done" : "Select") {
-                    withAnimation {
-                        if isSelecting {
-                            editMode = .inactive
-                            selectedIDs.removeAll()
-                        } else {
-                            editMode = .active
-                        }
-                    }
-                }
-                .disabled(viewModel.transactionsDescending.isEmpty && !isSelecting)
+                .accessibilityLabel(viewModel.valuesHidden ? "Show amounts" : "Hide amounts")
             }
         }
         .sheet(isPresented: $showAddSheet) {
@@ -280,9 +262,9 @@ struct PortfolioTransactionsView<Header: View>: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(Self.formatKasAmount(tx.amountKas)) KAS")
+                Text(viewModel.valuesHidden ? "\(PortfolioFormat.masked) KAS" : "\(Self.formatKasAmount(tx.amountKas)) KAS")
                     .fontWeight(.medium)
-                Text(formatCurrency(tx.fiatValue))
+                Text(viewModel.valuesHidden ? PortfolioFormat.masked : formatCurrency(tx.fiatValue))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -295,6 +277,55 @@ struct PortfolioTransactionsView<Header: View>: View {
     /// gets parsed back, unlike the plain, non-grouped formatting the editable quantity field uses.
     private static func formatKasAmount(_ value: Double) -> String {
         kasAmountFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.4f", value)
+    }
+
+    /// Select / Done, beside the + - selection is a thing you do to the transactions list, so
+    /// its switch lives on that list's header rather than up in the navigation bar.
+    private var selectToggleButton: some View {
+        Button(isSelecting ? "Done" : "Select") {
+            withAnimation {
+                if isSelecting {
+                    editMode = .inactive
+                    selectedIDs.removeAll()
+                } else {
+                    editMode = .active
+                }
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+        .buttonStyle(.plain)
+        .foregroundColor(.accentColor)
+        .disabled(viewModel.transactionsDescending.isEmpty && !isSelecting)
+    }
+
+    private var selectAllButton: some View {
+        Button {
+            toggleSelectAll()
+        } label: {
+            Image(systemName: selectedIDs.count == viewModel.transactionsDescending.count ? "checkmark.circle.fill" : "checkmark.circle")
+                .font(.system(size: 22))
+                .foregroundColor(.accentColor)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(selectedIDs.count == viewModel.transactionsDescending.count ? "Deselect all" : "Select all")
+    }
+
+    private var deleteSelectedButton: some View {
+        Button {
+            showDeleteSelectedConfirm = true
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "trash")
+                if !selectedIDs.isEmpty {
+                    Text("\(selectedIDs.count)").font(.subheadline.weight(.semibold))
+                }
+            }
+            .font(.system(size: 18))
+            .foregroundColor(selectedIDs.isEmpty ? .secondary : .red)
+        }
+        .buttonStyle(.plain)
+        .disabled(selectedIDs.isEmpty)
+        .accessibilityLabel("Delete selected")
     }
 
     private var addTransactionButton: some View {

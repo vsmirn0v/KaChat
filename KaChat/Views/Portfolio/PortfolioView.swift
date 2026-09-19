@@ -25,7 +25,7 @@ struct PortfolioView: View {
                         portfolios: portfolioManager.portfolios,
                         activePortfolioId: portfolioManager.activePortfolioId,
                         cardModel: cardModel(for:),
-                        formatCurrency: { PortfolioFormat.currency($0, currency) },
+                        formatCurrency: { viewModel.valuesHidden ? PortfolioFormat.masked : PortfolioFormat.currency($0, currency) },
                         onSelect: { portfolioManager.setActivePortfolio($0) },
                         onAdd: { portfolioManager.addPortfolio(name: $0) },
                         onRename: { portfolioManager.renamePortfolio($0, to: $1) },
@@ -79,7 +79,16 @@ struct PortfolioView: View {
                     ConnectionStatusIndicator()
                 }
                 ToolbarItem(placement: .principal) {
-                    BalanceToolbarLabel()
+                    if viewModel.valuesHidden {
+                        HStack(spacing: 6) {
+                            Image("KaspaLogo").resizable().scaledToFit().frame(width: 15, height: 15)
+                            Text("\(PortfolioFormat.masked) KAS")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        BalanceToolbarLabel()
+                    }
                 }
             }
         }
@@ -197,7 +206,7 @@ struct PortfolioView: View {
                 Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
             Spacer(minLength: 0)
-            Text(PortfolioFormat.currency(summary.currentValue, currency))
+            Text(viewModel.valuesHidden ? PortfolioFormat.masked : PortfolioFormat.currency(summary.currentValue, currency))
                 .font(.system(size: 22, weight: .bold))
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
@@ -238,6 +247,7 @@ private struct KasPriceChartScreen: View {
     @ObservedObject var viewModel: PortfolioViewModel
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @State private var scrubbed: PricePoint?
+    @State private var range: ChartRangeSelection?
 
     private var currency: AppCurrency { settingsViewModel.settings.currency }
 
@@ -246,7 +256,7 @@ private struct KasPriceChartScreen: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 chart
-                PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil })
+                PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil; range = nil })
                 KasConverterCard(priceUsd: viewModel.currentPriceUsd, currency: currency)
                 marketStatsCard
             }
@@ -300,6 +310,9 @@ private struct KasPriceChartScreen: View {
                 Text(scrub.timestamp, format: .dateTime.month().day().year().hour().minute())
                     .font(.subheadline).foregroundColor(.secondary)
             }
+            if let range {
+                ChartRangeSummary(range: range, valueText: { PortfolioFormat.price($0, currency: currency) })
+            }
             // The change sits UNDER the price rather than beside it. A long price and a long
             // change figure on one line had no room left at larger text sizes or in a currency
             // with a wordy symbol, and something had to shrink or clip. Stacked, neither
@@ -310,7 +323,7 @@ private struct KasPriceChartScreen: View {
             // disagree - and so it answers whichever range button is selected. Percent only:
             // the move in currency is the price above minus itself a moment ago, which the chart
             // already draws, and a per-KAS amount at four decimal places says very little.
-            if scrubbed == nil, let change = viewModel.priceRangeChange {
+            if scrubbed == nil, range == nil, let change = viewModel.priceRangeChange {
                 HStack(spacing: 3) {
                     Image(systemName: change.amount >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
                     Text("\(String(format: "%.2f", abs(change.percent)))%")
@@ -328,7 +341,7 @@ private struct KasPriceChartScreen: View {
     @ViewBuilder
     private var chart: some View {
         if viewModel.priceHistory.count >= 2 {
-            PortfolioAreaChart(points: viewModel.priceHistory, onScrub: { scrubbed = $0 })
+            PortfolioAreaChart(points: viewModel.priceHistory, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
                 .frame(height: 260)
         } else {
             ProgressView()
@@ -345,8 +358,14 @@ private struct PortfolioValueChartScreen: View {
     @ObservedObject var viewModel: PortfolioViewModel
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @State private var scrubbed: PricePoint?
+    @State private var range: ChartRangeSelection?
 
     private var currency: AppCurrency { settingsViewModel.settings.currency }
+
+    /// Every amount on this screen goes through here, so the eye button masks all of them.
+    private func money(_ value: Double) -> String {
+        viewModel.valuesHidden ? PortfolioFormat.masked : PortfolioFormat.currency(value, currency)
+    }
 
     var body: some View {
         let summary = viewModel.summary
@@ -357,7 +376,7 @@ private struct PortfolioValueChartScreen: View {
                 header(currentValue: summary.currentValue)
 
                 if history.count >= 2 {
-                    PortfolioAreaChart(points: history, onScrub: { scrubbed = $0 })
+                    PortfolioAreaChart(points: history, hideValues: viewModel.valuesHidden, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
                         .frame(height: 240)
                 } else {
                     Text("Not enough history yet - check back after a few days of activity.")
@@ -366,7 +385,7 @@ private struct PortfolioValueChartScreen: View {
                         .frame(maxWidth: .infinity)
                 }
 
-                PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil })
+                PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil; range = nil })
 
                 statsCard(summary)
             }
@@ -390,18 +409,23 @@ private struct PortfolioValueChartScreen: View {
                 Text(scrub.timestamp, format: .dateTime.month().day().year())
                     .font(.subheadline).foregroundColor(.secondary)
             }
+            if let range {
+                ChartRangeSummary(range: range, valueText: money)
+            }
             // The change sits UNDER the value rather than beside it - see the note on the price
             // header. A six-figure portfolio and its change had nowhere to go on one line.
-            Text(PortfolioFormat.currency(scrubbed?.value ?? currentValue, currency))
+            Text(money(scrubbed?.value ?? currentValue))
                 .font(.system(size: 34, weight: .bold))
             // Hidden while scrubbing: the big number is then a past value, and a change figure
             // for the range sitting under it would read as that point's own move.
-            if scrubbed == nil, let rangeChange {
+            if scrubbed == nil, range == nil, let rangeChange {
                 let isUp = rangeChange.amount >= 0
                 HStack(spacing: 4) {
                     Image(systemName: isUp ? "arrow.up.right" : "arrow.down.right")
                         .font(.caption.weight(.bold))
-                    Text("\(PortfolioFormat.currency(abs(rangeChange.amount), currency)) (\(String(format: "%.2f", abs(rangeChange.percent)))%)")
+                    Text(viewModel.valuesHidden
+                         ? "\(String(format: "%.2f", abs(rangeChange.percent)))%"
+                         : "\(PortfolioFormat.currency(abs(rangeChange.amount), currency)) (\(String(format: "%.2f", abs(rangeChange.percent)))%)")
                         .font(.subheadline.weight(.semibold))
                     Text(viewModel.priceRangeLabel)
                         .font(.caption.weight(.semibold))
@@ -415,15 +439,17 @@ private struct PortfolioValueChartScreen: View {
 
     private func statsCard(_ summary: PortfolioSummary) -> some View {
         VStack(spacing: 0) {
-            statRow("Holdings", PortfolioFormat.kas(summary.holdingsKas))
+            statRow("Holdings", viewModel.valuesHidden ? "\(PortfolioFormat.masked) KAS" : PortfolioFormat.kas(summary.holdingsKas))
             Divider()
-            statRow("Current Value", PortfolioFormat.currency(summary.currentValue, currency))
+            statRow("Current Value", money(summary.currentValue))
             Divider()
-            statRow("Total Invested", PortfolioFormat.currency(summary.totalInvested, currency))
+            statRow("Total Invested", money(summary.totalInvested))
             Divider()
             statRow(
                 "Total P&L",
-                "\(PortfolioFormat.currency(summary.totalPL, currency)) (\(String(format: "%.1f", summary.totalPLPercent))%)",
+                viewModel.valuesHidden
+                    ? "\(String(format: "%.1f", summary.totalPLPercent))%"
+                    : "\(PortfolioFormat.currency(summary.totalPL, currency)) (\(String(format: "%.1f", summary.totalPLPercent))%)",
                 color: summary.totalPL >= 0 ? .green : .red
             )
             if let averageBuyPriceUsd = summary.averageBuyPriceUsd {
@@ -485,6 +511,9 @@ private struct PortfolioRangePicker: View {
 /// Foundation's ISO-4217-driven `FormatStyle`, whose behavior for a non-ISO-4217 code like
 /// `.bitcoin`'s "BTC" isn't something to rely on sight-unseen.
 enum PortfolioFormat {
+    /// What every amount reads as while Portfolio's eye button is on.
+    static let masked = "••••••"
+
     static func currencySymbol(for currency: AppCurrency) -> String {
         if currency == .bitcoin { return "₿" }
         let formatter = NumberFormatter()
@@ -559,11 +588,57 @@ private func portfolioGlassBackground(cornerRadius: CGFloat) -> some View {
 /// Swift Charts area+line chart with gridlines/axes and drag-to-scrub. Replaces the old bare
 /// sparkline so the full-screen views read like a real price/value graph. `onScrub` fires the
 /// nearest point (or nil on release) so the screen's header can show the selected value/date.
+/// Two fingers on a chart: the points under them and how the value moved between them.
+struct ChartRangeSelection: Equatable {
+    let start: PricePoint
+    let end: PricePoint
+
+    var amount: Double { end.value - start.value }
+    var percent: Double? {
+        guard start.value != 0 else { return nil }
+        return (end.value - start.value) / abs(start.value) * 100
+    }
+}
+
+/// "Mar 3 → Mar 9 · ▲ 12.34% (+$1.23)": the return across a two-finger range on a chart. The
+/// screen supplies how a value is written, so the money charts mask when the eye is on.
+private struct ChartRangeSummary: View {
+    let range: ChartRangeSelection
+    let valueText: (Double) -> String
+
+    private var sameDay: Bool { Calendar.current.isDate(range.start.timestamp, inSameDayAs: range.end.timestamp) }
+
+    var body: some View {
+        let up = range.amount >= 0
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(range.start.timestamp, format: sameDay ? .dateTime.month().day().hour().minute() : .dateTime.month().day().year())
+                Image(systemName: "arrow.right").font(.caption2)
+                Text(range.end.timestamp, format: sameDay ? .dateTime.month().day().hour().minute() : .dateTime.month().day().year())
+            }
+            .font(.subheadline).foregroundColor(.secondary)
+            HStack(spacing: 4) {
+                Image(systemName: up ? "arrow.up.right" : "arrow.down.right").font(.caption.weight(.bold))
+                if let percent = range.percent {
+                    Text("\(String(format: "%.2f", abs(percent)))%").font(.subheadline.weight(.semibold))
+                }
+                Text("(\(up ? "+" : "-")\(valueText(abs(range.amount))))").font(.subheadline)
+            }
+            .foregroundColor(up ? .green : .red)
+        }
+    }
+}
+
 private struct PortfolioAreaChart: View {
     let points: [PricePoint]
+    /// The eye button: no value labels down the axis either.
+    var hideValues = false
     var onScrub: ((PricePoint?) -> Void)?
+    /// Two fingers down: the range between them, live; nil once they lift.
+    var onRange: ((ChartRangeSelection?) -> Void)?
 
     @State private var selected: PricePoint?
+    @State private var rangeSelected: ChartRangeSelection?
 
     var body: some View {
         let values = points.map(\.value)
@@ -611,6 +686,25 @@ private struct PortfolioAreaChart: View {
                     .foregroundStyle(Color.accentColor)
                     .symbolSize(120)
             }
+
+            if let range = rangeSelected {
+                let up = range.amount >= 0
+                RectangleMark(
+                    xStart: .value("From", range.start.timestamp),
+                    xEnd: .value("To", range.end.timestamp),
+                    yStart: .value("Min", lowerBound),
+                    yEnd: .value("Max", upperBound)
+                )
+                .foregroundStyle((up ? Color.green : Color.red).opacity(0.10))
+                ForEach([range.start, range.end], id: \.timestamp) { edge in
+                    RuleMark(x: .value("Time", edge.timestamp))
+                        .foregroundStyle((up ? Color.green : Color.red).opacity(0.6))
+                        .lineStyle(StrokeStyle(lineWidth: 1))
+                    PointMark(x: .value("Time", edge.timestamp), y: .value("Value", edge.value))
+                        .foregroundStyle(up ? Color.green : Color.red)
+                        .symbolSize(120)
+                }
+            }
         }
         .chartYScale(domain: lowerBound...upperBound)
         .chartXAxis {
@@ -624,36 +718,58 @@ private struct PortfolioAreaChart: View {
         .chartYAxis {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
                 AxisGridLine()
-                AxisValueLabel()
+                if !hideValues {
+                    AxisValueLabel()
+                }
             }
         }
         .chartOverlay { proxy in
             GeometryReader { geo in
-                Rectangle()
-                    .fill(Color.clear)
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                let plot = geo[proxy.plotAreaFrame]
-                                let xInPlot = value.location.x - plot.minX
-                                guard xInPlot >= 0, xInPlot <= plot.width,
-                                      let date: Date = proxy.value(atX: xInPlot) else { return }
-                                let nearest = points.min(by: {
-                                    abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date))
-                                })
-                                if selected?.timestamp != nearest?.timestamp {
-                                    selected = nearest
-                                    onScrub?(nearest)
-                                }
-                            }
-                            .onEnded { _ in
-                                selected = nil
-                                onScrub?(nil)
-                            }
-                    )
+                // One finger scrubs; two fingers select a range and read the return across it.
+                ChartTouchOverlay(
+                    onSingle: { x in
+                        guard let x, let nearest = nearestPoint(atX: x, proxy: proxy, geo: geo) else {
+                            if selected != nil { selected = nil; onScrub?(nil) }
+                            return
+                        }
+                        if selected?.timestamp != nearest.timestamp {
+                            selected = nearest
+                            onScrub?(nearest)
+                        }
+                    },
+                    onPair: { pair in
+                        guard let pair,
+                              let first = nearestPoint(atX: pair.0, proxy: proxy, geo: geo, clamped: true),
+                              let second = nearestPoint(atX: pair.1, proxy: proxy, geo: geo, clamped: true) else {
+                            if rangeSelected != nil { rangeSelected = nil; onRange?(nil) }
+                            return
+                        }
+                        let ordered = first.timestamp <= second.timestamp ? (first, second) : (second, first)
+                        let range = ChartRangeSelection(start: ordered.0, end: ordered.1)
+                        if rangeSelected != range {
+                            rangeSelected = range
+                            onRange?(range)
+                        }
+                    }
+                )
             }
         }
+    }
+
+    /// The data point nearest to an x in the overlay's coordinates. `clamped` snaps a finger
+    /// resting beyond the plot's edge to that edge, so a range can reach the first and last point.
+    private func nearestPoint(atX x: CGFloat, proxy: ChartProxy, geo: GeometryProxy, clamped: Bool = false) -> PricePoint? {
+        let plot = geo[proxy.plotAreaFrame]
+        var xInPlot = x - plot.minX
+        if clamped {
+            xInPlot = min(max(xInPlot, 0), plot.width)
+        } else {
+            guard xInPlot >= 0, xInPlot <= plot.width else { return nil }
+        }
+        guard let date: Date = proxy.value(atX: xInPlot) else { return nil }
+        return points.min(by: {
+            abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date))
+        })
     }
 }
 
@@ -831,6 +947,7 @@ private struct HashrateChartScreen: View {
     @ObservedObject private var viewModel = PortfolioViewModel.shared
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @State private var scrubbed: PricePoint?
+    @State private var range: ChartRangeSelection?
     @State private var rangeDays: Int = 90
 
     /// "All" is a real option here in a way it is not for price: the series starts at effectively
@@ -855,7 +972,7 @@ private struct HashrateChartScreen: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 if visiblePoints.count >= 2 {
-                    PortfolioAreaChart(points: visiblePoints, onScrub: { scrubbed = $0 })
+                    PortfolioAreaChart(points: visiblePoints, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
                         .frame(height: 260)
                 } else {
                     ProgressView()
@@ -891,6 +1008,9 @@ private struct HashrateChartScreen: View {
             if let scrub = scrubbed {
                 Text(scrub.timestamp, format: .dateTime.month().day().year())
                     .font(.subheadline).foregroundColor(.secondary)
+            }
+            if let range {
+                ChartRangeSummary(range: range, valueText: HashrateFormat.display)
             }
             Text((scrubbed?.value ?? networkStats.currentHashrate).map(HashrateFormat.display) ?? "—")
                 .font(.system(size: 34, weight: .bold))

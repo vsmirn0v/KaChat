@@ -30,6 +30,11 @@ final class PortfolioViewModel: ObservableObject {
     @Published private(set) var priceHistory: [PricePoint] = []
     @Published private(set) var priceRangeDays: Int = 1
     @Published var scrubbedPricePoint: PricePoint?
+    /// Portfolio's eye button: every amount on the screen reads as dots - the KAS price stays.
+    /// Persisted, so a hidden portfolio stays hidden across launches.
+    @Published var valuesHidden: Bool = UserDefaults.standard.bool(forKey: "kachat_portfolio_values_hidden") {
+        didSet { UserDefaults.standard.set(valuesHidden, forKey: "kachat_portfolio_values_hidden") }
+    }
     /// A 7-day price history kept independent of `priceHistory`'s user-selected chart range
     /// (1/7/30d) — the portfolio picker header's "today's change" per-card figures need a
     /// stable window that doesn't shift just because the user toggled the visible chart.
