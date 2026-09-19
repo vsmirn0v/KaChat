@@ -322,10 +322,10 @@ struct MainTabView: View {
 
     // MARK: - Notification routing
 
-    /// Broadcast notification or a shared room link: its own dock tab when the user has one,
-    /// otherwise Ecosystem, which always holds whatever is not in the dock. BroadcastListView
-    /// picks up the pending channel itself.
-    private func routeToBroadcasts() { routeToFeature(.broadcasts) }
+    /// Broadcast notification or a shared room link: the rooms are the Chats screen's Public
+    /// Chats tab now. ChatListView switches to that tab on the same signals, and the rooms
+    /// screen picks up the pending channel itself.
+    private func routeToBroadcasts() { selectedTab = AppTab.chats.tag }
 
     /// KaPosts notification or a shared-post link. KaPostsView picks up the pending txid itself.
     private func routeToKaPosts() { routeToFeature(.kaposts) }

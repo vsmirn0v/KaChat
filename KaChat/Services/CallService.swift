@@ -499,8 +499,7 @@ final class CallService: ObservableObject {
     }
 
     func toggleSpeaker() {
-        // A video call is never at an ear: it stays on the speaker (headphones aside).
-        guard let call = session, !call.video else { return }
+        guard let call = session else { return }
         // Flip from where the audio actually is, not from where we last asked it to be.
         call.speakerRequested = !call.isSpeakerOn
         call.isSpeakerOn = call.speakerRequested

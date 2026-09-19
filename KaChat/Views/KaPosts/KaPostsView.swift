@@ -416,6 +416,7 @@ struct KaPostsView: View {
         case bookmarks = "Bookmarks"
         case muted = "Muted"
         case blocked = "Blocked"
+        case settings = "Settings"
 
         var id: String { rawValue }
         var icon: String {
@@ -427,6 +428,7 @@ struct KaPostsView: View {
             case .bookmarks: return "bookmark"
             case .muted: return "speaker.slash"
             case .blocked: return "hand.raised"
+            case .settings: return "gearshape"
             }
         }
     }
@@ -525,6 +527,8 @@ struct KaPostsView: View {
                         // Opening the list IS seeing them - clearing on appear rather than on
                         // dismiss so the badge does not sit there while you read.
                         .onAppear { KaPostsNotificationCenter.shared.markAllSeen() }
+                case .settings:
+                    KaPostsSettingsView(onClose: { menuSheet = nil })
                 }
             }
             // Quote from a Bookmarks / my-Profile cell: presented from INSIDE this sheet,
@@ -745,9 +749,10 @@ struct KaPostsView: View {
                     menuSheet = item
                 } label: {
                     Image(systemName: item.icon)
-                        .font(.system(size: 21, weight: .semibold))
+                        .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.primary)
-                        .frame(width: 46, height: 42)
+                        // Eight icons have to fit the narrowest phones in one row.
+                        .frame(width: 42, height: 42)
                         .contentShape(Rectangle())
                         // A count rather than a plain dot: in here you are one tap from the list,
                         // so how many are waiting is worth knowing before you decide to look.
@@ -1826,17 +1831,19 @@ struct KaPostsView: View {
                         .foregroundColor(.green)
                     Text(toast.message)
                         .font(.footnote.weight(.semibold))
-                    Button {
-                        if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: toast.txId) {
-                            openURL(url)
+                    if !toast.txId.isEmpty {
+                        Button {
+                            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: toast.txId) {
+                                openURL(url)
+                            }
+                        } label: {
+                            Text("View")
+                                .font(.footnote.weight(.bold))
+                                .foregroundColor(.accentColor)
+                                .underline()
                         }
-                    } label: {
-                        Text("View")
-                            .font(.footnote.weight(.bold))
-                            .foregroundColor(.accentColor)
-                            .underline()
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
@@ -3946,7 +3953,47 @@ struct KaPostsView: View {
     /// poster's chatting address), and the payment bubble lands in the 1:1 chat.
     private func tip(_ address: String) {
         guard address != WalletManager.shared.currentWallet?.publicAddress else { return }
+        if let amount = settingsViewModel.settings.kaPostsDefaultTipSompi, amount > 0 {
+            sendDefaultTip(amount, to: address)
+            return
+        }
         tipTarget = TipTarget(address: address)
+    }
+
+    /// KaPosts > Settings > "Send a default tip instantly": the configured amount goes out at
+    /// once, through exactly the path the tip sheet's Send uses - same contact creation, same
+    /// funding source and destination rules as a payment in that person's chat. A failure
+    /// falls back to the amount screen so the tip can still be sent by hand.
+    private func sendDefaultTip(_ amountSompi: UInt64, to address: String) {
+        let recipient: Contact
+        if let existing = ContactsManager.shared.getContact(byAddress: address) {
+            recipient = existing
+        } else if let created = try? ContactsManager.shared.addContact(address: address, alias: "", isAutoAdded: true) {
+            recipient = created
+        } else {
+            tipTarget = TipTarget(address: address)
+            return
+        }
+        _ = ChatService.shared.getOrCreateConversation(for: recipient)
+        Haptics.impact(.light)
+        let name = posterDisplayName(address)
+        let kas = Double(amountSompi) / 100_000_000.0
+        var kasText = String(format: "%.8f", kas)
+        while kasText.hasSuffix("0") { kasText.removeLast() }
+        if kasText.hasSuffix(".") { kasText.removeLast() }
+        Task {
+            do {
+                let txId = try await ChatService.shared.sendPayment(to: recipient, amountSompi: amountSompi, extraFeeSompi: 0)
+                Haptics.success()
+                // A deferred send (no confirmed inputs yet) has no transaction to show; the
+                // retry timer owns it from here.
+                showActionToast("Tipped \(kasText) KAS to \(name)", txId: txId ?? "")
+            } catch {
+                AppLog.log("[KaPosts] Instant tip failed: %@", error.localizedDescription)
+                feedError = "Tip didn't send: \(error.localizedDescription)"
+                tipTarget = TipTarget(address: address)
+            }
+        }
     }
 
     /// Underline tab bar for profile feeds (Posts | Replies), matching the app's other tab

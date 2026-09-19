@@ -10,8 +10,11 @@ struct ChatListView: View {
     @EnvironmentObject var groupChatService: GroupChatService
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    enum ChatsListTab: Int {
+    enum ChatsListTab: Int, CaseIterable {
         case chats, groups
+        /// The broadcast rooms, as the third tab. They were their own "Broadcasts" feature;
+        /// now they live here, one swipe past Group Chats, under the name Public Chats.
+        case publicChats
     }
 
     @State private var searchText = ""
@@ -123,9 +126,12 @@ struct ChatListView: View {
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(editMode == .active ? "Cancel" : "Select") {
-                        withAnimation {
-                            editMode = editMode == .active ? .inactive : .active
+                    // Rooms are not selectable in bulk - the rooms page manages its own list.
+                    if selectedListTab != .publicChats {
+                        Button(editMode == .active ? "Cancel" : "Select") {
+                            withAnimation {
+                                editMode = editMode == .active ? .inactive : .active
+                            }
                         }
                     }
                 }
@@ -277,8 +283,21 @@ struct ChatListView: View {
                     .tag(ChatsListTab.chats)
                 groupsTabContent
                     .tag(ChatsListTab.groups)
+                // The broadcast rooms screen, whole, as the third page.
+                BroadcastListView(embeddedInChats: true)
+                    .tag(ChatsListTab.publicChats)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+        }
+        // A broadcast notification or a shared room link lands on this tab; the rooms screen
+        // itself opens the room once it is showing.
+        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) { selectedListTab = .publicChats }
+        }
+        .onAppear {
+            if BroadcastService.shared.pendingBroadcastNavigation != nil {
+                selectedListTab = .publicChats
+            }
         }
         .safeAreaInset(edge: .bottom) {
             if editMode == .active {
@@ -286,7 +305,8 @@ struct ChatListView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if editMode != .active {
+            // The rooms page has its own join/create affordance.
+            if editMode != .active, selectedListTab != .publicChats {
                 createChatButton
             }
         }
@@ -535,6 +555,7 @@ struct ChatListView: View {
             HStack(spacing: 0) {
                 chatsTabButton("Chats", tab: .chats)
                 chatsTabButton("Group Chats", tab: .groups)
+                chatsTabButton("Public Chats", tab: .publicChats)
             }
             Divider()
         }
@@ -551,10 +572,12 @@ struct ChatListView: View {
                 // Decisively horizontal only, so vertical list scrolling never trips it.
                 guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
                 withAnimation(.easeInOut(duration: 0.22)) {
-                    if dx < 0, selectedListTab == .chats {
-                        selectedListTab = .groups
-                    } else if dx > 0, selectedListTab == .groups {
-                        selectedListTab = .chats
+                    let tabs = ChatsListTab.allCases
+                    guard let index = tabs.firstIndex(of: selectedListTab) else { return }
+                    if dx < 0, index + 1 < tabs.count {
+                        selectedListTab = tabs[index + 1]
+                    } else if dx > 0, index > 0 {
+                        selectedListTab = tabs[index - 1]
                     }
                 }
             }
@@ -566,9 +589,12 @@ struct ChatListView: View {
         // would either strand a selection the visible list can't act on, or silently blend Chats
         // and Group Chats selections together, so the other tab is inert while editing.
         let isSwitchBlocked = editMode == .active && !isSelected
-        let unreadCount = tab == .chats
-            ? chatService.conversations.reduce(0) { $0 + $1.unreadCount }
-            : groupChatService.totalGroupUnreadCount
+        let unreadCount: Int
+        switch tab {
+        case .chats: unreadCount = chatService.conversations.reduce(0) { $0 + $1.unreadCount }
+        case .groups: unreadCount = groupChatService.totalGroupUnreadCount
+        case .publicChats: unreadCount = 0
+        }
         return Button {
             guard !isSwitchBlocked else { return }
             withAnimation(.easeInOut(duration: 0.2)) {

@@ -232,8 +232,10 @@ struct CallView: View {
             smallControl(systemName: call.isMuted ? "mic.slash.fill" : "mic.fill", active: call.isMuted) {
                 callService.toggleMute()
             }
-            // No speaker toggle here: a video call is never at an ear, so it stays on the
-            // speaker (headphones and Bluetooth take over on their own). Mute is the control.
+            // Video calls start on the speaker; the toggle stays for whoever needs it.
+            smallControl(systemName: call.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.fill", active: call.isSpeakerOn) {
+                callService.toggleSpeaker()
+            }
             smallControl(systemName: call.isCameraOff ? "video.slash.fill" : "video.fill", active: call.isCameraOff) {
                 callService.toggleCamera()
             }

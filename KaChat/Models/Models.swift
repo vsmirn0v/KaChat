@@ -1693,7 +1693,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .swap: return "Swap"
         case .profile: return "Profile"
         case .kaposts: return "KaPosts"
-        case .broadcasts: return "Broadcasts"
+        case .broadcasts: return "Public Chats"
         // Short enough for a dock label. `ecosystemTitle` carries the full name, which is what
         // the Ecosystem grid and the screen itself show.
         case .apps: return "Websites"
@@ -1763,7 +1763,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     static let pinnedToDock: [AppTab] = [.ecosystem, .profile]
 
     /// Tabs the user can place. Excludes the Hub (pinned) and the retired "+ More".
-    static let assignable: [AppTab] = [.chats, .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps]
+    static let assignable: [AppTab] = [.chats, .portfolio, .coldStorage, .swap, .kaposts, .apps]
 
     /// Ecosystem takes the dock slot Swap used to hold, so a default install shows exactly the
     /// five the dock can fit - Portfolio, Storage, Chats, Ecosystem, Profile - with Swap, KaPosts,
@@ -1776,7 +1776,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     static let defaultDock: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile]
 
     /// The rest, in the order the Hub grid shows them until the user rearranges it.
-    static let defaultHub: [AppTab] = [.kaposts, .broadcasts, .swap, .apps]
+    static let defaultHub: [AppTab] = [.kaposts, .swap, .apps]
 
     /// Slots the user can actually fill: the cap minus the pinned tabs.
     static var assignableDockSlots: Int { maxDockItems - pinnedToDock.count }
@@ -1817,7 +1817,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .coldStorage: return !settings.hideColdStorageTab
         case .swap: return !settings.hideSwapTab
         case .kaposts: return !settings.hideKaPostsTab
-        case .broadcasts: return !settings.hideBroadcasts
+        // Public Chats (the broadcast rooms) moved INTO the Chats screen as its third tab in
+        // 5.0. The case stays so saved dock/hub blobs still decode; it never renders on its own.
+        case .broadcasts: return false
         case .apps: return !settings.hideAppsTab
         case .ecosystem: return !settings.hideEcosystemTab
         // "+ More" is retired from the dock entirely (Customize Dock lives in Settings now) -
@@ -1966,6 +1968,8 @@ struct AppSettings: Codable {
     var liveUpdatesEnabled: Bool
     var requirePhotoApprovalForNewContacts: Bool
     var showFeeEstimate: Bool
+    /// KaPosts > Settings: the tip a tap on "Tip" sends at once, in sompi. nil = ask every time.
+    var kaPostsDefaultTipSompi: UInt64?
     /// Optional (unlike most fields here) - this struct has no custom `init(from:)`, so a newly
     /// added *required* field would fail this whole struct's decode for anyone with a
     /// pre-existing settings blob saved before it existed, silently resetting every other setting
@@ -2150,6 +2154,7 @@ struct AppSettings: Codable {
             liveUpdatesEnabled: false,
             requirePhotoApprovalForNewContacts: true,
             showFeeEstimate: true,
+            kaPostsDefaultTipSompi: nil,
             quickReactionEmojis: defaultQuickReactionEmojis,
             appearance: .system,
             language: .system,
@@ -2214,6 +2219,7 @@ struct AppSettings: Codable {
         case liveUpdatesEnabled
         case requirePhotoApprovalForNewContacts
         case showFeeEstimate
+        case kaPostsDefaultTipSompi
         case quickReactionEmojis
         case appearance
         case language
@@ -2279,6 +2285,7 @@ struct AppSettings: Codable {
         liveUpdatesEnabled: Bool,
         requirePhotoApprovalForNewContacts: Bool = true,
         showFeeEstimate: Bool = true,
+        kaPostsDefaultTipSompi: UInt64? = nil,
         quickReactionEmojis: [String]? = nil,
         appearance: AppAppearance = .system,
         language: AppLanguage = .system,
@@ -2334,6 +2341,7 @@ struct AppSettings: Codable {
         self.liveUpdatesEnabled = liveUpdatesEnabled
         self.requirePhotoApprovalForNewContacts = requirePhotoApprovalForNewContacts
         self.showFeeEstimate = showFeeEstimate
+        self.kaPostsDefaultTipSompi = kaPostsDefaultTipSompi
         self.quickReactionEmojis = quickReactionEmojis
         self.appearance = appearance
         self.language = language
@@ -2419,6 +2427,7 @@ struct AppSettings: Codable {
         liveUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveUpdatesEnabled) ?? false
         requirePhotoApprovalForNewContacts = try container.decodeIfPresent(Bool.self, forKey: .requirePhotoApprovalForNewContacts) ?? true
         showFeeEstimate = try container.decodeIfPresent(Bool.self, forKey: .showFeeEstimate) ?? true
+        kaPostsDefaultTipSompi = try container.decodeIfPresent(UInt64.self, forKey: .kaPostsDefaultTipSompi)
         quickReactionEmojis = try container.decodeIfPresent([String].self, forKey: .quickReactionEmojis)
         appearance = try container.decodeIfPresent(AppAppearance.self, forKey: .appearance) ?? .system
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
@@ -2531,6 +2540,7 @@ struct AppSettings: Codable {
         try container.encode(liveUpdatesEnabled, forKey: .liveUpdatesEnabled)
         try container.encode(requirePhotoApprovalForNewContacts, forKey: .requirePhotoApprovalForNewContacts)
         try container.encode(showFeeEstimate, forKey: .showFeeEstimate)
+        try container.encodeIfPresent(kaPostsDefaultTipSompi, forKey: .kaPostsDefaultTipSompi)
         try container.encodeIfPresent(quickReactionEmojis, forKey: .quickReactionEmojis)
         try container.encode(appearance, forKey: .appearance)
         try container.encode(language, forKey: .language)

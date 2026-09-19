@@ -144,6 +144,7 @@
 		KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */; };
 		KP0002B0000000000000001 /* KaPostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0002A0000000000000001 /* KaPostsView.swift */; };
 		KP0009B0000000000000001 /* KaPostsSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0009A0000000000000001 /* KaPostsSearchView.swift */; };
+		KP0010B0000000000000001 /* KaPostsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0010A0000000000000001 /* KaPostsSettingsView.swift */; };
 		KPAPI001B000000000000001 /* KaPostsAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = KPAPI001A000000000000001 /* KaPostsAPIClient.swift */; };
 		L10N000300000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L10N000200000001 /* Localizable.strings */; };
 		SIRI000300000001 /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = SIRI000200000001 /* AppIntentVocabulary.plist */; };
@@ -389,6 +390,7 @@
 		KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsNotificationCenter.swift; sourceTree = "<group>"; };
 		KP0002A0000000000000001 /* KaPostsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsView.swift; sourceTree = "<group>"; };
 		KP0009A0000000000000001 /* KaPostsSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsSearchView.swift; sourceTree = "<group>"; };
+		KP0010A0000000000000001 /* KaPostsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsSettingsView.swift; sourceTree = "<group>"; };
 		KPAPI001A000000000000001 /* KaPostsAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsAPIClient.swift; sourceTree = "<group>"; };
 		L10N000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		SIRI000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = en; path = en.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
@@ -899,6 +901,7 @@
 			children = (
 				KP0002A0000000000000001 /* KaPostsView.swift */,
 				KP0009A0000000000000001 /* KaPostsSearchView.swift */,
+				KP0010A0000000000000001 /* KaPostsSettingsView.swift */,
 				A6D18E3F52B04C7D91FA6208 /* MarkdownComposerField.swift */,
 			);
 			path = KaPosts;
@@ -1289,6 +1292,7 @@
 				SWAP004B0000000000000001 /* SwapView.swift in Sources */,
 				KP0002B0000000000000001 /* KaPostsView.swift in Sources */,
 				KP0009B0000000000000001 /* KaPostsSearchView.swift in Sources */,
+				KP0010B0000000000000001 /* KaPostsSettingsView.swift in Sources */,
 				F2B95C1D8A374E6BA07C4D95 /* MarkdownComposerField.swift in Sources */,
 				CS0010B0000000000000001 /* MultiFrameQRViews.swift in Sources */,
 				4D3D20012F72000200000002 /* MessageTextRenderPlan.swift in Sources */,

@@ -45,6 +45,9 @@ struct BroadcastListView: View {
     /// broadcast-room notification (see `ChatListView.navigateToBroadcast`), so the notification
     /// lands the user directly in the room instead of just this list.
     let initialChannel: String?
+    /// True when shown as the Chats screen's "Public Chats" tab: the Chats screen already owns
+    /// the title and the header items, so this view adds none of its own.
+    var embeddedInChats = false
 
     @State private var showJoinAlert = false
     @State private var joinFieldText = ""
@@ -60,7 +63,8 @@ struct BroadcastListView: View {
     /// user's own channels under a wall of list.
     @State private var languagesExpanded = false
 
-    init(initialChannel: String? = nil) {
+    init(initialChannel: String? = nil, embeddedInChats: Bool = false) {
+        self.embeddedInChats = embeddedInChats
         self.initialChannel = initialChannel
     }
 
@@ -128,15 +132,18 @@ struct BroadcastListView: View {
         // One page, no tabs: the curated Popular rooms pinned on top (enter/exit freely, no
         // leaving - they're permanent), then everything the user joined under Your Channels.
         combinedList
-        .navigationTitle("Broadcasts")
+        .navigationTitle(embeddedInChats ? "Chats" : "Public Chats")
         .toolbar {
             // Same header anatomy as Chats/KaPosts: green connection dot leading, total
-            // balance dead-center, actions trailing.
-            ToolbarItem(placement: .navigationBarLeading) {
-                ConnectionStatusIndicator()
-            }
-            ToolbarItem(placement: .principal) {
-                BalanceToolbarLabel()
+            // balance dead-center, actions trailing. The Chats screen supplies these itself
+            // when this is its Public Chats tab.
+            if !embeddedInChats {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    ConnectionStatusIndicator()
+                }
+                ToolbarItem(placement: .principal) {
+                    BalanceToolbarLabel()
+                }
             }
         }
         .toast(message: toastMessage, style: .success)

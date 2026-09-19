@@ -1201,9 +1201,6 @@ struct NotificationsHubPage: View {
                 settingsCategoryRow("Wallet", icon: "banknote", tint: .accentColor) {
                     WalletNotificationSettingsView()
                 }
-                settingsCategoryRow("KaPosts", icon: "square.and.pencil", tint: .accentColor) {
-                    KaPostsNotificationSettingsView()
-                }
             }
         }
         .navigationTitle("Notifications")
