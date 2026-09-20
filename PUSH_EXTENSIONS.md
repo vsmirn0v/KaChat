@@ -108,6 +108,10 @@ Honor removal counter-actions: an `unvote`/`unquote` should not generate a push.
   **The app SENDS these five fields as of 4.1**, on every register and update call, and
   re-registers the moment a switch changes. Until the server honors them, a switched-off kind
   still arrives in the background - see the delivery note below on why the device cannot stop it.
+  **Status check (5.0):** users with Likes switched OFF are still being pinged for likes, which
+  means the server is not yet skipping on these fields. Please honor them - and, until then,
+  send `"mutable-content": 1` in `aps` so the notification service extension runs and blanks
+  the switched-off push on the device (a push with empty title and body is not shown).
 - Body text (match the app's own in-app wording): `liked your post`, `disliked your post`,
   `replied to your post: <snippet>`, `quoted your post: <snippet>`, `reposted your post`,
   `followed you`. Snippets: marker-stripped (drop the leading U+2060), ~140 chars.

@@ -532,6 +532,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // launches the app is delivered to this registration.
         VoIPPushManager.shared.start()
 
+        // The notification extension's copy of the notification switches is refreshed on every
+        // launch, so an app update can never leave it stale or missing.
+        SharedDataManager.syncNotificationSettingsForExtension()
+
         // Security hygiene: wipe the legacy plaintext shared-secret blob older releases left
         // in the App Group plist (see SharedDataManager.purgeLegacySharedSecretsIfPresent).
         SharedDataManager.purgeLegacySharedSecretsIfPresent()

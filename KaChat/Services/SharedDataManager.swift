@@ -253,6 +253,17 @@ final class SharedDataManager {
     /// that moment can still return the pre-save cached copy (the cache only invalidates on the
     /// `.settingsDidChange` post, which happens after this runs in the save paths).
     static func syncNotificationSettingsForExtension(_ settings: AppSettings = AppSettings.load()) {
+        // The KaPosts switches ride with every settings save (and the launch sync), so the
+        // extension's copy can never lag the app's - it used to be written only by the groups
+        // sync, which runs on backgrounding and on the switches themselves.
+        sharedDefaults?.set([
+            "likes": settings.kaPostsNotifyLikes,
+            "dislikes": settings.kaPostsNotifyDislikes,
+            "comments": settings.kaPostsNotifyComments,
+            "reposts": settings.kaPostsNotifyReposts,
+            "follows": settings.kaPostsNotifyFollows,
+            "mentions": settings.kaPostsNotifyMentions,
+        ], forKey: Keys.kaPostsNotificationKinds)
         sharedDefaults?.set(settings.incomingNotificationSoundEnabled, forKey: Keys.incomingNotificationSoundEnabled)
         sharedDefaults?.set(settings.incomingNotificationVibrationEnabled, forKey: Keys.incomingNotificationVibrationEnabled)
         sharedDefaults?.set(settings.verboseAPILogging, forKey: Keys.verboseAPILogging)

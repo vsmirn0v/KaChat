@@ -81,6 +81,7 @@ final class PushNotificationManager: ObservableObject {
     private var declinedContactsCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
     private var groupMutedMembersCancellable: AnyCancellable?
+    private var groupSilentCancellable: AnyCancellable?
 
     // MARK: - Constants
 
@@ -111,6 +112,8 @@ final class PushNotificationManager: ObservableObject {
         conversationsCancellable?.cancel()
         declinedContactsCancellable?.cancel()
         groupsCancellable?.cancel()
+        groupMutedMembersCancellable?.cancel()
+        groupSilentCancellable?.cancel()
     }
 
     // MARK: - Public API
@@ -894,7 +897,14 @@ final class PushNotificationManager: ObservableObject {
             .map { "\($0.key):\($0.value.joined(separator: "+"))" }
         let apnsEnvironment = ApnsEnvironment.current.rawValue
         let voip = voipToken ?? ""
-        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast + ["|", kapostsKey] + ["|", apnsEnvironment] + ["|", voip]).joined(separator: ",")
+        // The KaPosts switches and the silenced groups are part of what the service holds for
+        // this device, so a change to either is a change worth an update even when the forced
+        // re-registration behind the switch could not run (permission, wallet-binding cooldown).
+        let kinds = AppSettings.load()
+        let kaPostsKinds = [kinds.kaPostsNotifyLikes, kinds.kaPostsNotifyDislikes, kinds.kaPostsNotifyComments, kinds.kaPostsNotifyReposts, kinds.kaPostsNotifyFollows]
+            .map { $0 ? "1" : "0" }.joined()
+        let silentGroups = GroupChatService.shared.groupSilentNotifications.sorted().joined(separator: "+")
+        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast + ["|", kapostsKey] + ["|", apnsEnvironment] + ["|", voip] + ["|", kaPostsKinds] + ["|", silentGroups]).joined(separator: ",")
     }
 
     /// Unregister device (call on logout/wallet delete)
@@ -1458,6 +1468,17 @@ final class PushNotificationManager: ObservableObject {
                 guard settings.notificationMode == .remotePush else { return }
                 Task { await self.updateWatchedAddresses() }
             }
+
+        // Silencing a group takes it OFF the server's watch list (see `collectWatchedGroupIds`),
+        // so the toggle has to reach the service the moment it flips.
+        groupSilentCancellable = GroupChatService.shared.$groupSilentNotifications
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let settings = AppSettings.load()
+                guard settings.notificationMode == .remotePush else { return }
+                Task { await self.updateWatchedAddresses() }
+            }
     }
 
     /// Indexer-tracked broadcast channels (#kaspa/#kachat-bugs) whose bell is on - the push
@@ -1513,6 +1534,12 @@ final class PushNotificationManager: ObservableObject {
         let myAddress = WalletManager.shared.currentWallet?.publicAddress
         var ids = Set<String>()
         for group in GroupChatService.shared.groups {
+            // A silenced group is not watched at all: no push is ever sent for it, so the
+            // silence holds whether or not the notification extension gets to run (an
+            // undecryptable or payload-less push used to fall back to a generic "New group
+            // message" banner with no way to know which group it was for). Messages still
+            // arrive through the block scan and catch-up, as they do for muted members.
+            guard !GroupChatService.shared.silentNotifications(for: group.id) else { continue }
             guard let bag = try? KeychainService.shared.loadGroupBag(groupId: group.id),
                   let blindingKey = Data(hexString: bag.blindingKey) else {
                 AppLog.log("[Push] Failed to load group bag for %@ - aborting group-id collection", group.id)
