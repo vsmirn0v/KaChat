@@ -728,6 +728,18 @@ struct ChatDetailView: View {
                     // layout reported on iPhone Pro Max, where the keyboard is tallest and the
                     // misplacement is largest.
                     .scrollDismissesKeyboard(.immediately)
+                    // Why a tapped call notification did not ring (see CallService.chatNotice).
+                    .onChange(of: callService.chatNotice) { notice in
+                        guard let notice else { return }
+                        callService.chatNotice = nil
+                        showToast(notice, style: .error)
+                    }
+                    .onAppear {
+                        if let notice = callService.chatNotice {
+                            callService.chatNotice = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showToast(notice, style: .error) }
+                        }
+                    }
                     .onChange(of: pendingJumpToTxId) { txId in
                         guard let txId else { return }
                         jumpToReplyOriginal(txId: txId, using: proxy)

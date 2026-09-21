@@ -845,6 +845,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 response.notification.request.content.userInfo
             )
         }
+        // A tapped "Incoming call" alert: ring it now if the call is still live, or tell the
+        // chat why not. A no-op for every push that is not an opening call message.
+        let tappedUserInfo = response.notification.request.content.userInfo
+        Task { @MainActor in
+            CallService.shared.handleCallNotificationTap(tappedUserInfo)
+        }
         // The threadIdentifier contains the contact address, "broadcast:<channel>" for a
         // broadcast room notification (see `BroadcastService.notifyIfEnabled`), or
         // "group:<groupId>" for a group chat notification.

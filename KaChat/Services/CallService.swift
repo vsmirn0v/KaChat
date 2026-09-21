@@ -127,6 +127,9 @@ final class CallService: ObservableObject {
     @Published private(set) var isMinimized = false
     /// A one-line reason the last attempt failed, for a toast in the chat.
     @Published var lastError: String?
+    /// Something the open chat should say about a call that did not ring - "that call already
+    /// ended", "calls are off for this contact". Shown as a toast and cleared by the chat.
+    @Published var chatNotice: String?
 
     /// How long an outgoing call rings before giving up (a phone's own calls give up after
     /// about half a minute; the chat adds a few seconds of delivery lag on top), how long the
@@ -1036,10 +1039,60 @@ final class CallService: ObservableObject {
         endedBeforeRinging.insert(uuid)
     }
 
-    private func decideVoIPCall(callId: String, uuid: UUID, sender: String, video: Bool, kind: String, timestampMs: UInt64, payloadHex: String?) {
-        let drop: (CXCallEndedReason, String) -> Void = { reason, why in
-            AppLog.log("[Call] VoIP call %@ not rung: %@", String(callId.prefix(8)), why)
+    /// A call notification was TAPPED: the call arrived as an ordinary alert (no VoIP push
+    /// reached this phone, or the app was not allowed to ring), and the person wants it. The
+    /// chat opens either way; this makes the call itself happen if it is still live - straight
+    /// from the push's own encrypted copy, after waiting for the wallet on a cold start,
+    /// rather than whenever the chat's sync gets round to the message - and says why when it
+    /// cannot, instead of opening a chat where nothing happens.
+    func handleCallNotificationTap(_ userInfo: [AnyHashable: Any]) {
+        guard let payloadHex = userInfo["payload"] as? String,
+              let sender = userInfo["sender"] as? String, !sender.isEmpty else { return }
+        let timestampMs = Self.milliseconds(userInfo["timestamp"]) ?? UInt64(Date().timeIntervalSince1970 * 1000)
+        Task { [weak self] in
+            guard let self else { return }
+            await self.waitUntilReadyForCalls()
+            guard let key = try? KeychainService.shared.loadPrivateKey(),
+                  let content = ChatService.decryptContextualMessageFromRawPayloadSync(payloadHex, privateKey: key),
+                  let envelope = CallCodec.parseAny(content) else { return }
+            let kind: String
+            let video: Bool
+            switch envelope {
+            case .invite(let invite):
+                guard invite.viaRequest != true else { return }
+                kind = "invite"; video = invite.video
+            case .request(let request):
+                kind = "request"; video = request.video
+            case .response, .end:
+                return
+            }
+            let callId = envelope.callId
+            if let current = self.session, current.id == callId {
+                self.restore()
+                return
+            }
+            self.decideVoIPCall(callId: callId, uuid: UUID(uuidString: callId) ?? UUID(), sender: sender, video: video,
+                                kind: kind, timestampMs: timestampMs, payloadHex: payloadHex, explainsDrops: true)
+        }
+    }
+
+    private func decideVoIPCall(callId: String, uuid: UUID, sender: String, video: Bool, kind: String, timestampMs: UInt64, payloadHex: String?, explainsDrops: Bool = false) {
+        let drop: (CXCallEndedReason, String) -> Void = { [weak self] reason, why in
+            AppLog.log("[Call] Call %@ not rung: %@", String(callId.prefix(8)), why)
             CallKitManager.shared.reportEnded(uuid: uuid, reason: reason)
+            guard explainsDrops, let self else { return }
+            let name = ContactsManager.shared.displayName(for: sender)
+            if why.hasPrefix("calls not enabled") {
+                self.chatNotice = "Calls are off for \(name). Tap the call button to turn them on, then call back."
+            } else if why.hasPrefix("cannot host") {
+                self.chatNotice = "\(name) asked you to host this call, which needs Nextcloud Talk set up here."
+            } else if why.hasPrefix("busy") {
+                self.chatNotice = "You're already on a call."
+            } else if why.hasPrefix("unknown sender") {
+                return
+            } else {
+                self.chatNotice = "That call from \(name) already ended. Tap the call button to call back."
+            }
         }
         if endedBeforeRinging.remove(uuid) != nil {
             markHandled(callId)
