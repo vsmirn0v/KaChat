@@ -829,7 +829,7 @@ struct WelcomeGuideView: View {
     private var giftButtonTitle: String {
         switch giftService.claimState {
         case .checking, .eligible:
-            return "Claim a Gift of 3 Kaspa to Get Started"
+            return "Claim a Gift of 2 Kaspa to Get Started"
         case .claiming:
             return "Claiming gift..."
         case .claimed:

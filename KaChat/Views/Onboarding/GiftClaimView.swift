@@ -54,12 +54,12 @@ struct GiftClaimView: View {
             Text("Welcome to KaChat!")
                 .font(.title2.bold())
 
-            Text("Claim some KAS to get started with your new account.")
+            Text("Claim a gift of 2 Kaspa to get started. Your chatting address must have 0 Kaspa and never have been used before.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
 
-            Text("This welcome gift is a community-funded initiative.")
+            Text("Claim Gift opens an email with your chatting address filled in. Add a sentence or two on how you found Kaspa and KaChat, and send it. Gifts are sent by hand, so allow some time.")
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

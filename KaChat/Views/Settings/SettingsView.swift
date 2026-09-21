@@ -4195,7 +4195,7 @@ struct GiftSettingsPage: View {
                     Text(reason)
                         .foregroundColor(.red)
                 } else {
-                    Text("A one-time gift of Kaspa to get you started, funded to your chatting address.")
+                    Text("A one-time gift of 2 Kaspa to get you started. Your chatting address must have 0 Kaspa and never have been used before. Claim Gift opens an email request with your address filled in.")
                 }
             }
         }
