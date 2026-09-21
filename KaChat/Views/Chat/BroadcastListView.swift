@@ -160,8 +160,11 @@ struct BroadcastListView: View {
         let featured = BroadcastService.featuredChannels.compactMap { name in
             broadcastService.channels.first { $0.channelName == name }
         }
+        .filter { broadcastService.isCuratedChannelShown($0.channelName) }
         let others = broadcastService.channels
             .filter { !BroadcastService.featuredChannels.contains($0.channelName) }
+            // A default room switched off in Public Chats settings stays out of the list.
+            .filter { broadcastService.isCuratedChannelShown($0.channelName) }
             .sorted { lastActivity($0) > lastActivity($1) }
         return featured + others
     }
@@ -174,7 +177,9 @@ struct BroadcastListView: View {
     /// Curated language rooms not opened yet - offered for discovery under "Other Languages".
     private var unjoinedLanguageChannels: [String] {
         let joined = Set(broadcastService.channels.map(\.channelName))
-        return BroadcastService.languageChannels.filter { !joined.contains($0) }
+        return BroadcastService.languageChannels.filter {
+            !joined.contains($0) && broadcastService.isCuratedChannelShown($0)
+        }
     }
 
     private func roomRow(_ channel: BroadcastChannel) -> some View {
@@ -609,5 +614,52 @@ struct PublicChatRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+}
+
+/// Public Chats settings, behind the gear at the top right of the tab: every default room with
+/// a switch. Off takes the room out of the list and silences it for good; on brings it back.
+struct PublicChatsSettingsView: View {
+    @EnvironmentObject var broadcastService: BroadcastService
+    @Environment(\.dismiss) private var dismiss
+
+    private func row(_ name: String) -> some View {
+        Toggle(isOn: Binding(
+            get: { broadcastService.isCuratedChannelShown(name) },
+            set: { broadcastService.setCuratedChannel(name, shown: $0) }
+        )) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("#\(name)")
+                if let language = BroadcastService.languageDisplayName(for: name) {
+                    Text(language)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ForEach(BroadcastService.featuredChannels, id: \.self) { row($0) }
+                } header: {
+                    Text("Popular")
+                } footer: {
+                    Text("A room that is switched off no longer appears in Public Chats and never sends a notification. Switch it back on at any time.")
+                }
+                Section("Other Languages") {
+                    ForEach(BroadcastService.languageChannels, id: \.self) { row($0) }
+                }
+            }
+            .navigationTitle("Public Chats")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }

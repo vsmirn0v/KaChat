@@ -10,6 +10,7 @@ struct ChatListView: View {
     @EnvironmentObject var groupChatService: GroupChatService
     /// Observed for the Public Chats tab's unread badge.
     @ObservedObject private var publicChats = BroadcastService.shared
+    @State private var showPublicChatsSettings = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     enum ChatsListTab: Int, CaseIterable {
@@ -128,13 +129,21 @@ struct ChatListView: View {
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    // Rooms are not selectable in bulk - the rooms page manages its own list.
+                    // Rooms are not selectable in bulk; their corner holds Public Chats settings
+                    // (which default rooms show at all) instead.
                     if selectedListTab != .publicChats {
                         Button(editMode == .active ? "Cancel" : "Select") {
                             withAnimation {
                                 editMode = editMode == .active ? .inactive : .active
                             }
                         }
+                    } else {
+                        Button {
+                            showPublicChatsSettings = true
+                        } label: {
+                            Image(systemName: "gearshape")
+                        }
+                        .accessibilityLabel("Public Chats settings")
                     }
                 }
             }
@@ -305,6 +314,10 @@ struct ChatListView: View {
             if editMode == .active {
                 selectionActionBar
             }
+        }
+        .sheet(isPresented: $showPublicChatsSettings) {
+            PublicChatsSettingsView()
+                .environmentObject(publicChats)
         }
         .overlay(alignment: .bottomTrailing) {
             // The rooms page draws its own copy of this button (it owns the join sheet).

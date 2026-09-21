@@ -134,6 +134,37 @@ final class BroadcastService: ObservableObject {
     /// Rooms marked unread by hand, which show a badge even with nothing new in them.
     @Published private(set) var manuallyUnreadChannels: Set<String> = []
 
+    /// Default (curated) rooms switched off in Public Chats settings: gone from the list, never
+    /// notifying, not counted. Per wallet.
+    @Published private(set) var hiddenCuratedChannels: Set<String> = []
+    private var hiddenCuratedKey: String? { walletAddress.map { "kachat_broadcast_hidden_curated_\($0)" } }
+
+    func isCuratedChannelShown(_ name: String) -> Bool {
+        !hiddenCuratedChannels.contains(BroadcastChannelName.normalize(name))
+    }
+
+    /// Off: the room leaves the list and its notifications stop (the bell goes off, which also
+    /// takes it off the push service's watch list). On: it comes back - #kaspa and
+    /// #kachat-bugs with their bell on again, as they start; the language rooms as they were.
+    func setCuratedChannel(_ rawName: String, shown: Bool) {
+        let name = BroadcastChannelName.normalize(rawName)
+        guard Self.indexedChannels.contains(name) else { return }
+        if shown {
+            hiddenCuratedChannels.remove(name)
+        } else {
+            hiddenCuratedChannels.insert(name)
+        }
+        if let key = hiddenCuratedKey {
+            UserDefaults.standard.set(Array(hiddenCuratedChannels), forKey: key)
+        }
+        let isJoined = channels.contains { $0.channelName == name }
+        if !shown, isJoined {
+            setNotifyEnabled(false, forChannel: name)
+        } else if shown, isJoined, Self.featuredChannels.contains(name) {
+            setNotifyEnabled(true, forChannel: name)
+        }
+    }
+
     private var lastReadKey: String? { walletAddress.map { "kachat_broadcast_last_read_\($0)" } }
     private var manualUnreadKey: String? { walletAddress.map { "kachat_broadcast_manual_unread_\($0)" } }
 
@@ -146,6 +177,7 @@ final class BroadcastService: ObservableObject {
             lastReadByChannel = [:]
         }
         manuallyUnreadChannels = Set(manualUnreadKey.flatMap { defaults.stringArray(forKey: $0) } ?? [])
+        hiddenCuratedChannels = Set(hiddenCuratedKey.flatMap { defaults.stringArray(forKey: $0) } ?? [])
     }
 
     private func persistReadState() {
@@ -162,7 +194,7 @@ final class BroadcastService: ObservableObject {
     /// counts from now, not from the start of its history.
     func unreadCount(forChannel name: String) -> Int {
         let channel = BroadcastChannelName.normalize(name)
-        guard !isViewing(channel: channel) else { return 0 }
+        guard !isViewing(channel: channel), !hiddenCuratedChannels.contains(channel) else { return 0 }
         let manual = manuallyUnreadChannels.contains(channel) ? 1 : 0
         guard let marker = lastReadByChannel[channel] else { return manual }
         let mine = WalletManager.shared.currentWallet?.publicAddress
@@ -211,7 +243,9 @@ final class BroadcastService: ObservableObject {
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         let joined = Set(channels.map(\.channelName))
         guard Self.featuredChannels.allSatisfy(joined.contains) else { return }
-        for name in Self.featuredChannels { store.setNotifyEnabled(true, forChannel: name) }
+        for name in Self.featuredChannels where !hiddenCuratedChannels.contains(name) {
+            store.setNotifyEnabled(true, forChannel: name)
+        }
         UserDefaults.standard.set(true, forKey: key)
         refreshChannels()
         Task { await PushNotificationManager.shared.updateWatchedAddresses() }
