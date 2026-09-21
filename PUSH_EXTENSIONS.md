@@ -63,7 +63,11 @@ in `hidden_broadcast_senders`.
 - `thread-id` MUST be `broadcast:<channel>` — the app routes taps into the room by it, and
   clears delivered notifications for that thread when the user opens the room.
 - HTTP/2 header `apns-collapse-id` = message txid (retry dedupe).
-- Preview rules: reply envelope (`{"type":"reply",...}`) → its inner `content`; file/audio
+- **Send `"mutable-content": 1`** so the app's notification extension can tidy the body
+  (reply text, base64, truncated envelopes) - it never runs without it.
+- Preview rules: reply envelope (`{"type":"reply",...,"text":...}`) → its inner **`text`**
+  (NOT `content` - that field does not exist; this doc said so by mistake), plain decoded
+  text, never base64; file/audio
   envelope → `"Voice message"`; else text verbatim, ~150 chars. Reaction envelopes
   (`{"type":"reaction",...}`) → do NOT push at all (clients render them as pills on the
   target message, never as messages).

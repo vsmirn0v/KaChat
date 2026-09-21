@@ -163,9 +163,17 @@ in-app bell toggle. The plumbing on the app side is DONE:
   - `thread-id` MUST be `broadcast:<channel>` - the app routes notification taps by that
     prefix straight into the channel screen.
   - Set the HTTP/2 header `apns-collapse-id` to the message txId so retries never duplicate.
-  - Body preview: if content is a reply envelope (`{"type":"reply",...}`) use its inner
-    `content`; if a file/audio envelope, send "Voice message"; else the text verbatim
-    (truncate ~150 chars).
+  - Body preview: if content is a reply envelope
+    (`{"type":"reply","replyToId":...,"replyToSender":...,"replyToPreview":...,"text":...}`)
+    use its inner **`text`** field (an earlier revision of this doc said `content` - there is no
+    such field, and a server that looked for it fell through to sending the raw or encoded
+    message, which is what users saw in reply notifications); if a file/audio envelope, send
+    "Voice message"; else the text verbatim (truncate ~150 chars - truncate the PREVIEW, never
+    the JSON envelope, or it stops parsing). The body is always plain decoded UTF-8 text, never
+    base64.
+  - Also send `"mutable-content": 1` in `aps`. The app's notification extension applies these
+    same preview rules itself (reply text, base64, truncated envelopes), so a body the server
+    got wrong is still shown right - but the extension only runs when that flag is set.
   - Reactions: content that is a reaction envelope
     (`{"type":"reaction","targetTxId":...,"emoji":...,"action":"add"|"remove"}`) must NOT
     generate a push at all — clients render reactions as pills on the target message, never

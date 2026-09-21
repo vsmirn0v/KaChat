@@ -1060,12 +1060,58 @@ class NotificationService: UNNotificationServiceExtension {
     /// `inGroup: true` for the reaction wording: a public room's reaction almost never targets
     /// the reader's own message, and this target has no store to check against.
     private func broadcastPreviewText(for body: String) -> String {
-        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.first == "{" else { return body }
-        return reactionPreviewText(for: body, inGroup: true)
-            ?? chessPreviewText(for: body)
-            ?? callPreviewText(for: body)
-            ?? unwrapReplyText(body)
+        var trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A body that is one unbroken base64 run is the message sent on undecoded (seen for
+        // replies): decode it when that yields readable text, and carry on with the result.
+        if trimmed.first != "{", trimmed.count >= 16,
+           trimmed.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "+/=-_".contains($0)) }) {
+            var candidate = trimmed.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            while candidate.count % 4 != 0 { candidate.append("=") }
+            if let data = Data(base64Encoded: candidate), let decoded = String(data: data, encoding: .utf8),
+               !decoded.isEmpty, !decoded.unicodeScalars.contains(where: { $0.value < 0x20 && $0 != "\n" && $0 != "\t" }) {
+                trimmed = decoded.replacingOccurrences(of: "\u{2060}", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        guard trimmed.first == "{" else { return trimmed.isEmpty ? body : trimmed }
+        if let preview = reactionPreviewText(for: trimmed, inGroup: true)
+            ?? chessPreviewText(for: trimmed)
+            ?? callPreviewText(for: trimmed) {
+            return preview
+        }
+        let unwrapped = unwrapReplyText(trimmed)
+        if unwrapped != trimmed { return unwrapped }
+        // Still JSON: most likely a reply envelope the server cut off at its preview length, so
+        // it no longer parses. Pull the reply's own text out of what is there.
+        if trimmed.contains("\"type\":\"reply\""), let text = Self.looseJSONString(named: "text", in: trimmed) {
+            return text
+        }
+        return trimmed
+    }
+
+    /// The value of a string field in JSON that may be truncated: everything after `"name":"`
+    /// up to the closing quote, or to the end when the cut came first. Common escapes undone.
+    private static func looseJSONString(named name: String, in json: String) -> String? {
+        guard let start = json.range(of: "\"\(name)\":\"") else { return nil }
+        var out = ""
+        var escaped = false
+        for character in json[start.upperBound...] {
+            if escaped {
+                switch character {
+                case "n": out.append("\n")
+                case "t": out.append("\t")
+                default: out.append(character)
+                }
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "\"" {
+                break
+            } else {
+                out.append(character)
+            }
+        }
+        let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func inlineAttachmentPreview(for text: String) -> String {
