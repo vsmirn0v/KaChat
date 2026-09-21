@@ -57,6 +57,48 @@ struct CallView: View {
                 .padding(.top, 8)
             }
         }
+        // "Alex declined video" and the like, for a few seconds.
+        .overlay(alignment: .top) {
+            if let notice = call.notice {
+                Text(notice)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.white.opacity(0.2)))
+                    .padding(.top, 60)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: call.notice)
+        // The other side asked to switch to video: yes or no, nothing happens until answered.
+        .sheet(isPresented: Binding(
+            get: { call.videoRequest == .incoming },
+            set: { if !$0, call.videoRequest == .incoming { callService.answerVideoRequest(accept: false) } }
+        )) {
+            VStack(spacing: 12) {
+                Text("\(contactsManager.displayName(for: call.contact)) wants to switch to video")
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 24)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 4)
+                ActionSheetRow(
+                    title: "Switch to video",
+                    subtitle: "Your camera turns on and the call moves to the speaker.",
+                    systemImage: "video.fill"
+                ) { callService.answerVideoRequest(accept: true) }
+                ActionSheetRow(
+                    title: "Stay on voice",
+                    subtitle: "The call carries on as it is, and they are told.",
+                    systemImage: "phone.fill"
+                ) { callService.answerVideoRequest(accept: false) }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20)
+            .presentationDetents([.height(250)])
+            .presentationDragIndicator(.visible)
+        }
         .preferredColorScheme(.dark)
         .onReceive(clock) { now = $0 }
         .onChange(of: call.phase) { phase in
@@ -117,9 +159,12 @@ struct CallView: View {
                         }
                         // Switch this call to video - both cameras come on, nobody hangs up.
                         if call.phase == .connected {
-                            bigButton(systemName: "video.fill", tint: Color.white.opacity(0.22), size: 84, label: "video") {
+                            bigButton(systemName: "video.fill", tint: Color.white.opacity(0.22), size: 84,
+                                      label: call.videoRequest == .outgoing ? "asking\u{2026}" : "video") {
                                 callService.upgradeToVideo()
                             }
+                            .opacity(call.videoRequest == .outgoing ? 0.5 : 1)
+                            .disabled(call.videoRequest != nil)
                         }
                     }
                     bigButton(systemName: "phone.down.fill", tint: .red, size: 84, label: nil) {

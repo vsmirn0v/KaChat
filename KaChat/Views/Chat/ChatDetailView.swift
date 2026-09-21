@@ -3386,6 +3386,7 @@ struct ChatDetailView: View {
                     contactsManager.updateContact(contact)
                     SharedDataManager.syncCallContactsForIntents()
                     showEnableCalls = false
+                    CallService.requestMediaPermissions()
                 }
                 ActionSheetRow(
                     title: "Not now",

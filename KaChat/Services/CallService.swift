@@ -70,6 +70,13 @@ final class CallService: ObservableObject {
         @Published var remoteVideoTrack: RTCVideoTrack?
         @Published var localVideoTrack: RTCVideoTrack?
         @Published var statusDetail: String?
+        /// A voice call being asked to become a video call: `.outgoing` while we wait for the
+        /// other side's answer, `.incoming` while they wait for ours (the call screen asks).
+        enum VideoRequest { case outgoing, incoming }
+        @Published var videoRequest: VideoRequest?
+        /// A short line shown on the call screen for a few seconds ("Alex declined video").
+        @Published var notice: String?
+        var videoRequestTimeout: Task<Void, Never>?
 
         // Plumbing - main-actor only, touched by CallService.
         var client: NextcloudTalkClient?
@@ -525,12 +532,43 @@ final class CallService: ObservableObject {
     /// Turns the voice call into a video call, for both sides, without hanging up: our camera
     /// goes on, the other phone is told to turn its own on, and the connection is
     /// renegotiated with the new tracks.
+    /// Asks the other side to turn this voice call into a video call. Nothing changes until
+    /// they say yes: a camera never comes on because someone else pressed a button.
     func upgradeToVideo() {
-        guard let call = session, !call.video, let webrtc = call.webrtc else { return }
+        guard let call = session, !call.video, call.webrtc != nil, call.videoRequest == nil else { return }
         switch call.phase {
         case .connecting, .connected: break
         default: return
         }
+        call.videoRequest = .outgoing
+        call.notice = nil
+        send(call: call, type: "kachat_video_request", payload: [:])
+        call.videoRequestTimeout?.cancel()
+        call.videoRequestTimeout = Task { [weak self, weak call] in
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard let self, let call, self.session === call, call.videoRequest == .outgoing else { return }
+            call.videoRequest = nil
+            self.showNotice("No answer to your video request", on: call)
+        }
+    }
+
+    /// The answer to the other side's video request, from the call screen's prompt.
+    func answerVideoRequest(accept: Bool) {
+        guard let call = session, call.videoRequest == .incoming else { return }
+        call.videoRequest = nil
+        guard accept else {
+            send(call: call, type: "kachat_video_decline", payload: [:])
+            return
+        }
+        // Our camera first, then the yes: the requester offers on hearing it, and our answer
+        // to that offer already carries our video.
+        switchToVideo(call)
+        send(call: call, type: "kachat_video_accept", payload: [:])
+    }
+
+    /// This side of the call becomes video: camera on, speaker on, everyone told.
+    private func switchToVideo(_ call: ActiveCall) {
+        guard !call.video, let webrtc = call.webrtc else { return }
         call.video = true
         call.isCameraOff = false
         call.speakerRequested = true
@@ -541,10 +579,23 @@ final class CallService: ObservableObject {
             let token = call.token
             Task { await client.updateCallFlags(token: token, video: true) }
         }
-        // Order matters and the channel keeps it: the peer turns its camera on first, so its
-        // answer to the offer that follows already carries its video.
-        send(call: call, type: "kachat_video_upgrade", payload: [:])
-        Task { await sendOffer(call: call) }
+    }
+
+    private func showNotice(_ text: String, on call: ActiveCall) {
+        call.notice = text
+        Task { [weak call] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if call?.notice == text { call?.notice = nil }
+        }
+    }
+
+    /// Asks iOS for the microphone and then the camera, right when calls are switched on for
+    /// someone - so the first call is not the moment two system prompts get in the way.
+    /// Each prompt appears once per install; afterwards this is a no-op.
+    static func requestMediaPermissions() {
+        AVCaptureDevice.requestAccess(for: .audio) { _ in
+            AVCaptureDevice.requestAccess(for: .video) { _ in }
+        }
     }
 
     /// Puts the call screen away while the call continues. Video calls float as Picture in
@@ -704,21 +755,28 @@ final class CallService: ObservableObject {
                 if call.isOutgoing, call.connectedAt == nil { await finish(reason: "declined") }
                 return
             }
-            if type == "kachat_video_upgrade" {
-                // The other side switched to video: turn ours on too, before their offer
-                // arrives, so the answer carries our camera.
-                if !call.video, let webrtc = call.webrtc {
-                    call.video = true
-                    call.isCameraOff = false
-                    call.speakerRequested = true
-                    call.localVideoTrack = webrtc.enableVideo()
-                    webrtc.setSpeaker(true)
-                    CallKitManager.shared.updateCall(uuid: call.uuid, displayName: ContactsManager.shared.displayName(for: call.contact), video: true)
-                    if let client = call.client {
-                        let token = call.token
-                        Task { await client.updateCallFlags(token: token, video: true) }
-                    }
-                }
+            if type == "kachat_video_request" || type == "kachat_video_upgrade" {
+                // They want video. Ask; never switch a camera on unasked. (`_upgrade` is what
+                // builds before the request flow sent - it gets the same question.) The call
+                // screen comes back up if it was tucked away, so the question is seen.
+                guard !call.video, call.videoRequest == nil else { return }
+                call.videoRequest = .incoming
+                restore()
+                return
+            }
+            if type == "kachat_video_accept" {
+                guard call.videoRequest == .outgoing else { return }
+                call.videoRequestTimeout?.cancel()
+                call.videoRequest = nil
+                switchToVideo(call)
+                await sendOffer(call: call)
+                return
+            }
+            if type == "kachat_video_decline" {
+                guard call.videoRequest == .outgoing else { return }
+                call.videoRequestTimeout?.cancel()
+                call.videoRequest = nil
+                showNotice("\(ContactsManager.shared.displayName(for: call.contact)) declined video", on: call)
                 return
             }
             if call.peerSessionId == nil { call.peerSessionId = from }
@@ -807,6 +865,8 @@ final class CallService: ObservableObject {
         if case .ended = call.phase { return }
         stopRinging(call)
         stopRingback()
+        call.videoRequestTimeout?.cancel()
+        call.videoRequest = nil
         CallPictureInPicture.shared.tearDown()
         if call.video { await CallCameraPreview.shared.stop() }
         call.timeoutTask?.cancel()

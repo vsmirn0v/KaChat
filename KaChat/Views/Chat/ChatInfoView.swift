@@ -687,6 +687,7 @@ struct ChatInfoView: View {
                             contact.callsEnabled = allowed ? true : nil
                             contactsManager.updateContact(contact)
                             SharedDataManager.syncCallContactsForIntents()
+                            if allowed { CallService.requestMediaPermissions() }
                         }
                     ))
                 } footer: {
