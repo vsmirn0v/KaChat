@@ -4151,7 +4151,7 @@ struct GiftSettingsPage: View {
         case .checking, .eligible: return "Claim Gift"
         case .claiming: return "Claiming gift..."
         case .claimed: return "Gift claimed"
-        case .alreadyClaimed: return "Gift already claimed"
+        case .alreadyClaimed: return "Gift already requested"
         case .unavailable: return "Gift unavailable"
         }
     }
@@ -4164,13 +4164,6 @@ struct GiftSettingsPage: View {
                     case .eligible:
                         guard let address = walletManager.currentWallet?.publicAddress else { return }
                         Task { await giftService.claimGift(walletAddress: address) }
-                    case .alreadyClaimed:
-                        alreadyClaimedTapCount += 1
-                        guard alreadyClaimedTapCount >= 10 else { return }
-                        alreadyClaimedTapCount = 0
-                        giftService.resetClaimStateForRetry()
-                        Haptics.success()
-                        toastMessage = "Gift claim reset. You can request it again."
                     default:
                         break
                     }

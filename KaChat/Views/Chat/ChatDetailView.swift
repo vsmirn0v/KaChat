@@ -5163,7 +5163,7 @@ struct ZeroBalanceFundingCardView: View {
             // an inert note instead of a button that would dead-end.
             switch giftService.claimState {
             case .claimed, .alreadyClaimed:
-                Label("Gift already claimed", systemImage: "gift")
+                Label("Gift already requested", systemImage: "gift")
                     .font(.caption)
                     .foregroundColor(.secondary)
             default:

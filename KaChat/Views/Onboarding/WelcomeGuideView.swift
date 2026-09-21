@@ -835,7 +835,7 @@ struct WelcomeGuideView: View {
         case .claimed:
             return "Gift claimed"
         case .alreadyClaimed:
-            return "Gift already claimed"
+            return "Gift already requested"
         case .unavailable:
             return "Gift unavailable"
         }

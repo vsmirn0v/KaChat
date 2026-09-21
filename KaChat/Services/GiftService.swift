@@ -1,4 +1,6 @@
 import Foundation
+import MessageUI
+import Security
 import UIKit
 
 enum GiftClaimState: Equatable {
@@ -7,28 +9,36 @@ enum GiftClaimState: Equatable {
     case claiming
     /// Kept for the screens that switch over it; the email flow never produces a txid.
     case claimed(txId: String)
+    /// The request has been sent from this device (or a gift was claimed through the old
+    /// server). Final: the button is retired here for good.
     case alreadyClaimed
     case unavailable(String)
 }
 
 /// The welcome gift, by email.
 ///
-/// There is no gift server any more - no claim endpoint, no DeviceCheck, no attestation, no
-/// network call of any kind. "Claim Gift" opens the phone's mail composer addressed to the
-/// person who hands the gifts out, with the request already written and the chatting address
-/// filled in; a human reads it and sends the Kaspa. The service keeps the shape the claim
-/// buttons around the app were built on (`claimState`, `claimGift(walletAddress:)`), so every
-/// one of them now opens that email.
+/// There is no gift server: no claim endpoint, no DeviceCheck, no network call. "Claim Gift"
+/// puts up the system mail composer, addressed to the person who hands the gifts out, with the
+/// request written and the chatting address filled in.
+///
+/// ONE request per device. The composer reports how it was dismissed, and `.sent` - the person
+/// tapped Send - retires the gift here permanently: the flag goes into UserDefaults and into the
+/// Keychain, and a Keychain item outlives deleting and reinstalling the app, so reinstalling
+/// does not bring the button back. Cancelling or saving a draft changes nothing. There is no
+/// reset gesture any more.
+///
+/// A phone with no Mail account cannot show the composer (Gmail-app-only users); it gets a
+/// `mailto:` hand-off instead, which cannot report what happened next. Opening it counts as the
+/// request, after a confirmation that says so - otherwise the limit would not exist for them.
 @MainActor
 final class GiftService: NSObject, ObservableObject {
     static let shared = GiftService()
 
     @Published private(set) var claimState: GiftClaimState = .eligible
-
     static let requestEmail = "kaspasilver@gmail.com"
-    /// Set by builds that claimed through the old server: that gift was paid out, so the
-    /// button stays retired on this device.
     private static let claimedKey = "kachat_gift_claimed"
+    private static let keychainService = "com.kachat.app"
+    private static let keychainAccount = "gift_request_sent"
 
     private override init() {
         super.init()
@@ -36,7 +46,9 @@ final class GiftService: NSObject, ObservableObject {
     }
 
     private func checkInitialState() {
-        claimState = UserDefaults.standard.bool(forKey: Self.claimedKey) ? .alreadyClaimed : .eligible
+        let used = UserDefaults.standard.bool(forKey: Self.claimedKey) || Self.keychainFlagIsSet()
+        claimState = used ? .alreadyClaimed : .eligible
+        if used { retireForGood() }
     }
 
     func checkEligibility() async {
@@ -44,13 +56,11 @@ final class GiftService: NSObject, ObservableObject {
         checkInitialState()
     }
 
-    func resetClaimStateForRetry() {
-        UserDefaults.standard.removeObject(forKey: Self.claimedKey)
-        checkInitialState()
-    }
+    /// Kept so existing callers compile; a sent request is final and nothing resets it.
+    func resetClaimStateForRetry() {}
 
-    /// The request as the email carries it. The chatting address is filled in; the rest is for
-    /// the person to write.
+    // MARK: - The request
+
     static func requestBody(walletAddress: String) -> String {
         """
         To claim a gift of 2 Kaspa to get started, fill out these fields.
@@ -65,10 +75,35 @@ final class GiftService: NSObject, ObservableObject {
         """
     }
 
-    /// Opens the gift request email. Nothing is sent by the app: the person sends the email
-    /// themselves, so the button stays available (they may need to open it again).
     func claimGift(walletAddress: String) async {
         guard claimState != .alreadyClaimed else { return }
+        guard let presenter = Self.topViewController() else { return }
+        guard MFMailComposeViewController.canSendMail() else {
+            // No Mail account: ask first, because opening the other mail app IS the request.
+            // A UIKit alert on the topmost controller, so it shows over the gift sheet or the
+            // welcome guide, whichever the button was in.
+            let alert = UIAlertController(
+                title: "Send your gift request?",
+                message: "This opens your mail app with the request written for you. You can request the gift once on this device, and opening it counts as that request.",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Open Mail App", style: .default) { [weak self] _ in
+                Task { @MainActor in await self?.sendThroughExternalMailApp(walletAddress: walletAddress) }
+            })
+            presenter.present(alert, animated: true)
+            return
+        }
+        let composer = MFMailComposeViewController()
+        composer.mailComposeDelegate = self
+        composer.setToRecipients([Self.requestEmail])
+        composer.setSubject("KaChat gift request")
+        composer.setMessageBody(Self.requestBody(walletAddress: walletAddress), isHTML: false)
+        presenter.present(composer, animated: true)
+    }
+
+    /// The confirmed mailto hand-off.
+    private func sendThroughExternalMailApp(walletAddress: String) async {
         var components = URLComponents()
         components.scheme = "mailto"
         components.path = Self.requestEmail
@@ -77,14 +112,62 @@ final class GiftService: NSObject, ObservableObject {
             URLQueryItem(name: "body", value: Self.requestBody(walletAddress: walletAddress))
         ]
         guard let url = components.url else { return }
-        let opened = await UIApplication.shared.open(url)
-        if opened {
-            claimState = .eligible
+        if await UIApplication.shared.open(url) {
+            retireForGood()
         } else {
-            // No mail app set up to take a mailto link: put the request on the clipboard and
-            // say where to send it.
             UIPasteboard.general.string = Self.requestBody(walletAddress: walletAddress)
             claimState = .unavailable("No mail app is set up on this device. The request was copied - paste it into an email to \(Self.requestEmail).")
+        }
+    }
+
+    private func retireForGood() {
+        UserDefaults.standard.set(true, forKey: Self.claimedKey)
+        Self.setKeychainFlag()
+        if claimState != .alreadyClaimed { claimState = .alreadyClaimed }
+    }
+
+    // MARK: - Keychain flag (survives reinstall)
+
+    private static var keychainQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount
+        ]
+    }
+
+    private static func keychainFlagIsSet() -> Bool {
+        var query = keychainQuery
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    private static func setKeychainFlag() {
+        guard !keychainFlagIsSet() else { return }
+        var query = keychainQuery
+        query[kSecValueData as String] = Data("1".utf8)
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        query[kSecAttrSynchronizable as String] = kCFBooleanFalse!
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    private static func topViewController() -> UIViewController? {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        var top = scene?.windows.first(where: \.isKeyWindow)?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        return top
+    }
+}
+
+extension GiftService: MFMailComposeViewControllerDelegate {
+    nonisolated func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
+        let sent = result == .sent
+        Task { @MainActor in
+            controller.dismiss(animated: true)
+            // Only Send ends it. Cancel, a saved draft and a failure leave the gift claimable.
+            if sent { self.retireForGood() }
         }
     }
 }

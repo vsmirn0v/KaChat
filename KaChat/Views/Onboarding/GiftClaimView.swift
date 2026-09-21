@@ -120,10 +120,10 @@ struct GiftClaimView: View {
                 .font(.system(size: 56))
                 .foregroundColor(.secondary)
 
-            Text("Gift already claimed")
+            Text("Gift already requested")
                 .font(.title3.bold())
 
-            Text("This device has already received the welcome gift.")
+            Text("Your request has been sent from this device. Gifts are sent by hand, so allow some time. Each device can request the gift once.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

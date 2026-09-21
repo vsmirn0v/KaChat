@@ -76,7 +76,7 @@ struct ProfileView: View {
                         settingsSection
                         helpSection
                         // Only while there is something to claim. Once it is claimed the row was
-                        // a permanent "Gift already claimed" line on the main profile screen -
+                        // a permanent "Gift already requested" line on the main profile screen -
                         // an answer to a question nobody is still asking. It keeps its own
                         // section in Settings, where the state (and the reset gesture) stays
                         // reachable forever.
@@ -1321,13 +1321,6 @@ struct ProfileView: View {
                 case .eligible:
                     guard let address = walletManager.currentWallet?.publicAddress else { return }
                     Task { await giftService.claimGift(walletAddress: address) }
-                case .alreadyClaimed:
-                    giftAlreadyClaimedTapCount += 1
-                    guard giftAlreadyClaimedTapCount >= 10 else { return }
-                    giftAlreadyClaimedTapCount = 0
-                    giftService.resetClaimStateForRetry()
-                    Haptics.success()
-                    showToast("Gift claim reset. You can request it again.")
                 default:
                     break
                 }
@@ -1372,7 +1365,7 @@ struct ProfileView: View {
         case .claimed:
             return "Gift claimed"
         case .alreadyClaimed:
-            return "Gift already claimed"
+            return "Gift already requested"
         case .unavailable:
             return "Gift unavailable"
         }
