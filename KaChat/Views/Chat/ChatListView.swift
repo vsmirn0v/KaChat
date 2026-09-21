@@ -1598,7 +1598,7 @@ struct ConversationRow: View {
 /// at the phone. Any message carrying an http(s) link previews as an attachment instead,
 /// whatever else it says. Only web links count: a message that is a `kaspa:` address must keep
 /// reading as one, and the detector would otherwise take that for a URL too.
-private enum LinkSafePreview {
+enum LinkSafePreview {
     static let sentALink = "📎 Sent a link"
 
     /// Keyed the same way `formatPreview`'s cache is - the group row has no cache of its own and
