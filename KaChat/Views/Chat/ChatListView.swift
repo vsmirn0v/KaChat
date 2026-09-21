@@ -8,6 +8,8 @@ struct ChatListView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var groupChatService: GroupChatService
+    /// Observed for the Public Chats tab's unread badge.
+    @ObservedObject private var publicChats = BroadcastService.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     enum ChatsListTab: Int, CaseIterable {
@@ -593,7 +595,7 @@ struct ChatListView: View {
         switch tab {
         case .chats: unreadCount = chatService.conversations.reduce(0) { $0 + $1.unreadCount }
         case .groups: unreadCount = groupChatService.totalGroupUnreadCount
-        case .publicChats: unreadCount = 0
+        case .publicChats: unreadCount = publicChats.totalUnreadCount
         }
         return Button {
             guard !isSwitchBlocked else { return }

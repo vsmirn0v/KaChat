@@ -55,6 +55,8 @@ struct BroadcastListView: View {
     @State private var joinError: String?
     @State private var selectedChannel: String?
     @State private var channelToLeave: String?
+    /// The room whose long-press half sheet is up.
+    @State private var roomActionTarget: String?
     @State private var retentionSettingsChannel: BroadcastChannel?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
@@ -195,207 +197,202 @@ struct BroadcastListView: View {
             }
     }
 
-    /// The Popular section's rows: the two auto-joined curated rooms, then the collapsible
-    /// "Other Languages" category and, when expanded, the curated language rooms. Split out of
-    /// `combinedList` purely to keep each SwiftUI view builder small enough to type-check
-    /// quickly (this file has hit "unable to type-check in reasonable time" before).
-    @ViewBuilder
-    private var popularSectionRows: some View {
-        ForEach(BroadcastService.featuredChannels, id: \.self) { name in
-            let channel = broadcastService.channels.first { $0.channelName == name }
-            HStack(spacing: 4) {
-                Button {
-                    selectedChannel = name
-                } label: {
-                    Text("#\(name)")
-                        .font(.body)
-                        .fontWeight(.bold)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+    // MARK: - Rooms, laid out like the Chats and Group Chats lists
 
-                // Curated rooms are permanent (no Leave) with fixed 3-day retention
-                // (no gear) and indexer-backed history (no listen toggle) - the bell
-                // is the only control, gating in-app banners AND remote push.
-                if let channel {
-                    Button {
-                        toggleNotify(channel)
-                    } label: {
-                        Image(systemName: channel.notifyEnabled ? "bell.fill" : "bell.slash")
-                            .foregroundColor(channel.notifyEnabled ? .accentColor : .secondary)
-                            .frame(width: 32, height: 32)
-                    }
-                    .buttonStyle(.borderless)
-                }
-            }
-            .padding(16)
-            .background(Color(UIColor.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-            .contextMenu { roomShareMenuItems(name) }
+    /// The rooms in the list: the two curated rooms pinned on top, then every other joined room
+    /// (your own, and any language room you opened) by latest activity.
+    private var listedChannels: [BroadcastChannel] {
+        let featured = BroadcastService.featuredChannels.compactMap { name in
+            broadcastService.channels.first { $0.channelName == name }
         }
+        let others = broadcastService.channels
+            .filter { !BroadcastService.featuredChannels.contains($0.channelName) }
+            .sorted { lastActivity($0) > lastActivity($1) }
+        return featured + others
+    }
 
-        // "Other Languages": a collapsed category inside Popular (so the section
-        // header's 30-day retention note covers these rooms too, which it correctly
-        // does - they are indexer-tracked exactly like the two above).
+    private func lastActivity(_ channel: BroadcastChannel) -> Int64 {
+        broadcastService.messages(forChannel: channel.channelName).last?.blockTime
+            ?? Int64((channel.joinedAt ?? .distantPast).timeIntervalSince1970 * 1000)
+    }
+
+    /// Curated language rooms not opened yet - offered for discovery under "Other Languages".
+    private var unjoinedLanguageChannels: [String] {
+        let joined = Set(broadcastService.channels.map(\.channelName))
+        return BroadcastService.languageChannels.filter { !joined.contains($0) }
+    }
+
+    private func roomRow(_ channel: BroadcastChannel) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.2)) { languagesExpanded.toggle() }
+            selectedChannel = channel.channelName
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "globe")
-                    .foregroundColor(.accentColor)
-                Text("Other Languages")
-                    .font(.body.weight(.bold))
-                    .foregroundColor(.primary)
-                Spacer(minLength: 0)
-                Text("\(BroadcastService.languageChannels.count)")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Image(systemName: "chevron.down")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(.secondary)
-                    .rotationEffect(.degrees(languagesExpanded ? 0 : -90))
-            }
-            .contentShape(Rectangle())
+            PublicChatRow(channelName: channel.channelName, channel: channel)
         }
         .buttonStyle(.plain)
-        .padding(16)
-        .background(Color(UIColor.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-
-        if languagesExpanded {
-            ForEach(BroadcastService.languageChannels, id: \.self) { name in
-                languageChannelRow(name)
+        // A Button label needs simultaneousGesture for the long press (as in the chat lists).
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                Haptics.impact(.medium)
+                roomActionTarget = channel.channelName
             }
-        }
+        )
+        .listRowBackground(Color.clear)
     }
 
     private var combinedList: some View {
         List {
-            // Both section titles are ordinary ROWS rather than `header:` closures: a plain
-            // List pins real section headers to the top while scrolling, so "Popular" and its
-            // retention note used to hover over the list the whole way down. As rows they
-            // scroll away with their content, and the styling is unchanged.
-            Section {
-                // The retention note lives beside the title since the in-room banner was
-                // removed to keep the chat itself clean.
-                HStack(alignment: .firstTextBaseline) {
-                    sectionHeader("Popular")
-                    Spacer()
-                    Text("All messages persist for 30 days")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .padding(.trailing, 4)
-                }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
-
-                popularSectionRows
+            ForEach(listedChannels) { channel in
+                roomRow(channel)
             }
 
-            Section {
-                HStack {
-                    sectionHeader("Your Channels")
-                    Spacer()
-                    Button {
-                        Haptics.impact(.light)
-                        joinFieldText = ""
-                        joinError = nil
-                        showJoinAlert = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.accentColor)
+            if !unjoinedLanguageChannels.isEmpty {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { languagesExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.2))
+                            .frame(width: 50, height: 50)
+                            .overlay(Image(systemName: "globe").font(.system(size: 20)).foregroundColor(.accentColor))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Other Languages").font(.headline)
+                            Text("\(unjoinedLanguageChannels.count) rooms").font(.subheadline).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .rotationEffect(.degrees(languagesExpanded ? 0 : -90))
                     }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 4)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
                 }
-                .listRowSeparator(.hidden)
+                .buttonStyle(.plain)
                 .listRowBackground(Color.clear)
-                // Extra top inset stands in for the spacing the section header used to provide.
-                .listRowInsets(EdgeInsets(top: 20, leading: 16, bottom: 4, trailing: 16))
 
-                // Every curated room (Popular and the language rooms) is already rendered above,
-                // so a joined language room must not also appear here as one of "your" channels.
-                let ownChannels = broadcastService.channels.filter {
-                    !BroadcastService.indexedChannels.contains($0.channelName)
-                }
-                if ownChannels.isEmpty {
-                    Text("No channels yet - tap + to join or create one.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .listRowSeparator(.hidden)
+                if languagesExpanded {
+                    ForEach(unjoinedLanguageChannels, id: \.self) { name in
+                        Button {
+                            openCuratedChannel(name)
+                        } label: {
+                            PublicChatRow(channelName: name, channel: nil)
+                        }
+                        .buttonStyle(.plain)
                         .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                } else {
-                    ForEach(ownChannels) { channel in
-                        ownChannelRow(channel)
                     }
                 }
             }
-        }
-        .listStyle(.plain)
-    }
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.subheadline.weight(.bold))
-            .foregroundColor(.accentColor)
-            .textCase(nil)
-            .padding(.leading, 4)
-    }
-
-    /// One curated language room. Indented under the "Other Languages" card, showing the native
-    /// language name over its channel name. These rooms are NOT auto-joined, so the store row
-    /// (and with it the bell state) may not exist yet - both actions create it on demand.
-    private func languageChannelRow(_ name: String) -> some View {
-        let channel = broadcastService.channels.first { $0.channelName == name }
-        return HStack(spacing: 4) {
             Button {
-                openCuratedChannel(name)
+                Haptics.impact(.light)
+                joinFieldText = ""
+                joinError = nil
+                showJoinAlert = true
             } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(BroadcastService.languageDisplayName(for: name) ?? "#\(name)")
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(.primary)
-                    Text("#\(name)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                Label("Join or create a room", systemImage: "plus.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
 
-            Button {
-                toggleNotifyForCuratedChannel(name)
-            } label: {
-                let isOn = channel?.notifyEnabled ?? false
-                Image(systemName: isOn ? "bell.fill" : "bell.slash")
-                    .foregroundColor(isOn ? .accentColor : .secondary)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.borderless)
+            Text("Public rooms are open to everyone. #kaspa, #kachat-bugs and the language rooms keep 30 days of history.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
         }
-        .padding(16)
-        .background(Color(UIColor.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-        // Deeper leading inset than the cards above: these read as children of the
-        // "Other Languages" row they slid out from.
-        .listRowInsets(EdgeInsets(top: 4, leading: 32, bottom: 4, trailing: 16))
-        .contextMenu { roomShareMenuItems(name) }
+        .listStyle(.plain)
+        .onAppear { broadcastService.primeChannelSummaries() }
+        .onChange(of: broadcastService.channels) { _ in broadcastService.primeChannelSummaries() }
+        .sheet(item: Binding(
+            get: { roomActionTarget.map(RoomActionTarget.init) },
+            set: { if $0 == nil { roomActionTarget = nil } }
+        )) { target in
+            roomActionSheet(for: target.id)
+        }
+    }
+
+    private struct RoomActionTarget: Identifiable { let id: String }
+
+    /// The long-press half sheet, same shape as a group's: read state, notifications, the room
+    /// link, and - for rooms you added yourself - listening, retention and delete. Curated rooms
+    /// are permanent, so they offer no delete.
+    @ViewBuilder
+    private func roomActionSheet(for name: String) -> some View {
+        let channel = broadcastService.channels.first { $0.channelName == name }
+        let isCurated = BroadcastService.indexedChannels.contains(name)
+        let notifyOn = channel?.notifyEnabled ?? false
+        VStack(spacing: 12) {
+            Text("#\(name)")
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
+            if broadcastService.unreadCount(forChannel: name) > 0 {
+                ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this room.", systemImage: "envelope.open") {
+                    roomActionTarget = nil
+                    broadcastService.markChannelRead(name)
+                }
+            } else {
+                ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
+                    roomActionTarget = nil
+                    broadcastService.markChannelUnread(name)
+                }
+            }
+
+            ActionSheetRow(
+                title: notifyOn ? "Turn Off Notifications" : "Turn On Notifications",
+                subtitle: notifyOn
+                    ? "No notification for new messages in this room."
+                    : (isCurated ? "Notifies you of new messages, even when the app is closed."
+                                 : "Notifies you of new messages while the app is open."),
+                systemImage: notifyOn ? "bell.slash" : "bell"
+            ) {
+                roomActionTarget = nil
+                if let channel { toggleNotify(channel) }
+            }
+
+            ActionSheetRow(title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", systemImage: "link") {
+                roomActionTarget = nil
+                UIPasteboard.general.string = KaChatInternalLink.broadcastRoom(channel: name).universalLinkString
+                showToast("Room link copied")
+            }
+
+            if let channel, !isCurated {
+                ActionSheetRow(
+                    title: channel.alwaysListen ? "Stop Listening in the Background" : "Listen While the App Is Open",
+                    subtitle: channel.alwaysListen
+                        ? "Messages arrive only while you are in the room."
+                        : "Collects this room's messages whenever the app is open.",
+                    systemImage: channel.alwaysListen ? "speaker.slash" : "speaker.wave.2"
+                ) {
+                    roomActionTarget = nil
+                    toggleAlwaysListen(channel)
+                }
+                ActionSheetRow(title: "Message Retention", subtitle: "How long this room's messages stay on this device.", systemImage: "gearshape") {
+                    roomActionTarget = nil
+                    DispatchQueue.main.async { retentionSettingsChannel = channel }
+                }
+                ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
+                    roomActionTarget = nil
+                    DispatchQueue.main.async { channelToLeave = name }
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(isCurated ? 330 : 560)])
+        .presentationDragIndicator(.visible)
     }
 
     /// Opens a curated room, creating its store row first when it has none (the language rooms
@@ -405,103 +402,6 @@ struct BroadcastListView: View {
             broadcastService.joinChannel(name)
         }
         selectedChannel = name
-    }
-
-    /// Bell for a curated room that may have no store row yet - join first, then toggle, so the
-    /// very first tap turns notifications ON rather than silently creating an off row.
-    private func toggleNotifyForCuratedChannel(_ name: String) {
-        if let channel = broadcastService.channels.first(where: { $0.channelName == name }) {
-            toggleNotify(channel)
-            return
-        }
-        broadcastService.joinChannel(name)
-        guard let joined = broadcastService.channels.first(where: { $0.channelName == name }) else { return }
-        // A fresh row starts with the bell off, so this first toggle turns it on.
-        toggleNotify(joined)
-    }
-
-    private func ownChannelRow(_ channel: BroadcastChannel) -> some View {
-        HStack(spacing: 4) {
-            Button {
-                selectedChannel = channel.channelName
-            } label: {
-                Text("#\(channel.channelName)")
-                    .font(.body)
-                    .fontWeight(.bold)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                toggleAlwaysListen(channel)
-            } label: {
-                Image(systemName: channel.alwaysListen ? "speaker.wave.2.fill" : "speaker.slash")
-                    .foregroundColor(channel.alwaysListen ? .accentColor : .secondary)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.borderless)
-
-            Button {
-                toggleNotify(channel)
-            } label: {
-                Image(systemName: channel.notifyEnabled ? "bell.fill" : "bell.slash")
-                    .foregroundColor(channel.notifyEnabled ? .accentColor : .secondary)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.borderless)
-
-            Button {
-                retentionSettingsChannel = channel
-            } label: {
-                Image(systemName: "gearshape")
-                    .foregroundColor(.secondary)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.borderless)
-
-            Button {
-                channelToLeave = channel.channelName
-            } label: {
-                Text("Leave")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.borderless)
-        }
-        .padding(16)
-        .background(Color(UIColor.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-        .contextMenu { roomShareMenuItems(channel.channelName) }
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                channelToLeave = channel.channelName
-            } label: {
-                Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
-            }
-        }
-    }
-
-    /// Share / copy this room's invite link, offered from a long press on any room row (the room
-    /// screen itself carries the same thing as a toolbar Share button). Emits BOTH accepted
-    /// forms - see `KaChatInternalLink`.
-    @ViewBuilder
-    private func roomShareMenuItems(_ name: String) -> some View {
-        let normalized = BroadcastChannelName.normalize(name)
-        let link = KaChatInternalLink.broadcastRoom(channel: normalized)
-        ShareLink(item: KaChatInternalLink.broadcastRoomShareText(channel: normalized)) {
-            Label("Share Room Link", systemImage: "square.and.arrow.up")
-        }
-        Button {
-            UIPasteboard.general.string = link.shareLinkString
-            showToast("Room link copied")
-        } label: {
-            Label("Copy Room Link", systemImage: "doc.on.doc")
-        }
     }
 
     private func toggleAlwaysListen(_ channel: BroadcastChannel) {
@@ -760,5 +660,98 @@ private struct RetentionSettingsView: View {
     NavigationStack {
         BroadcastListView()
             .environmentObject(BroadcastService.shared)
+    }
+}
+
+/// One public room, drawn like a chat row: a "#" avatar, the room name, the newest message and
+/// its time, a bell-off mark when notifications are off, and the unread count.
+struct PublicChatRow: View {
+    let channelName: String
+    /// nil for a curated room not opened yet (no store row): shows its language name instead.
+    let channel: BroadcastChannel?
+    @EnvironmentObject var broadcastService: BroadcastService
+    @ObservedObject private var knsService = KNSService.shared
+
+    private var lastMessage: BroadcastMessage? {
+        broadcastService.messages(forChannel: channelName).last
+    }
+
+    private func senderName(_ address: String) -> String {
+        if address == WalletManager.shared.currentWallet?.publicAddress { return "You" }
+        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName { return assigned }
+        if let domain = knsService.profileCache[address]?.domainName, !domain.isEmpty { return domain }
+        return Contact.generateDefaultAlias(from: address)
+    }
+
+    private func timeText(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return SharedFormatting.chatTime.string(from: date) }
+        if calendar.isDateInYesterday(date) { return "Yesterday" }
+        return date.formatted(.dateTime.month(.abbreviated).day())
+    }
+
+    private var emptyText: String {
+        guard channel == nil else { return "No messages yet" }
+        return BroadcastService.languageDisplayName(for: channelName).map { "\($0) - tap to open" } ?? "Tap to open"
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(Color.accentColor.opacity(0.2))
+                .frame(width: 50, height: 50)
+                .overlay(
+                    Text("#")
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundColor(.accentColor)
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("#\(channelName)")
+                        .font(.headline)
+                        .lineLimit(1)
+                    if let channel, !channel.notifyEnabled {
+                        Image(systemName: "bell.slash.fill")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .accessibilityLabel("Notifications off")
+                    }
+                    Spacer()
+                    if let lastMessage {
+                        Text(timeText(Date(timeIntervalSince1970: TimeInterval(lastMessage.blockTime) / 1000)))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                HStack {
+                    if let lastMessage {
+                        Text("\(senderName(lastMessage.senderAddress)): \(LinkSafePreview.apply(to: MessageReplyCodec.previewText(for: lastMessage.content)))")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(emptyText)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .italic()
+                    }
+                    Spacer()
+                    let unread = channel == nil ? 0 : broadcastService.unreadCount(forChannel: channelName)
+                    if unread > 0 {
+                        Text("\(unread)")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }

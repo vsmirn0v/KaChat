@@ -116,11 +116,105 @@ final class BroadcastService: ObservableObject {
     /// `MessageStore.shared.setCurrentWallet` at every wallet-lifecycle transition.
     func setCurrentWallet(_ walletAddress: String?) {
         store.setCurrentWallet(walletAddress)
+        self.walletAddress = walletAddress?.lowercased()
         messagesByChannel = [:]
         reactionsByChannel = [:]
         liveViewRefCounts = [:]
+        loadReadState()
         refreshChannels()
+        applyFeaturedNotifyDefaultIfNeeded()
         updateScanningStateIfNeeded()
+    }
+
+    // MARK: - Read state (the Public Chats list's unread counts)
+
+    private var walletAddress: String?
+    /// Per room, the block time (ms) up to which the reader has seen it. Per wallet.
+    @Published private(set) var lastReadByChannel: [String: Int64] = [:]
+    /// Rooms marked unread by hand, which show a badge even with nothing new in them.
+    @Published private(set) var manuallyUnreadChannels: Set<String> = []
+
+    private var lastReadKey: String? { walletAddress.map { "kachat_broadcast_last_read_\($0)" } }
+    private var manualUnreadKey: String? { walletAddress.map { "kachat_broadcast_manual_unread_\($0)" } }
+
+    private func loadReadState() {
+        let defaults = UserDefaults.standard
+        if let key = lastReadKey, let data = defaults.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([String: Int64].self, from: data) {
+            lastReadByChannel = decoded
+        } else {
+            lastReadByChannel = [:]
+        }
+        manuallyUnreadChannels = Set(manualUnreadKey.flatMap { defaults.stringArray(forKey: $0) } ?? [])
+    }
+
+    private func persistReadState() {
+        let defaults = UserDefaults.standard
+        if let key = lastReadKey, let data = try? JSONEncoder().encode(lastReadByChannel) {
+            defaults.set(data, forKey: key)
+        }
+        if let key = manualUnreadKey {
+            defaults.set(Array(manuallyUnreadChannels), forKey: key)
+        }
+    }
+
+    /// Messages from other people newer than the read marker. A room seen for the first time
+    /// counts from now, not from the start of its history.
+    func unreadCount(forChannel name: String) -> Int {
+        let channel = BroadcastChannelName.normalize(name)
+        guard !isViewing(channel: channel) else { return 0 }
+        let manual = manuallyUnreadChannels.contains(channel) ? 1 : 0
+        guard let marker = lastReadByChannel[channel] else { return manual }
+        let mine = WalletManager.shared.currentWallet?.publicAddress
+        let count = (messagesByChannel[channel] ?? []).reduce(0) { total, message in
+            message.blockTime > marker && message.senderAddress != mine ? total + 1 : total
+        }
+        return max(count, manual)
+    }
+
+    var totalUnreadCount: Int {
+        channels.reduce(0) { $0 + unreadCount(forChannel: $1.channelName) }
+    }
+
+    func markChannelRead(_ name: String) {
+        let channel = BroadcastChannelName.normalize(name)
+        let newest = messagesByChannel[channel]?.last?.blockTime ?? 0
+        lastReadByChannel[channel] = max(newest, Int64(Date().timeIntervalSince1970 * 1000))
+        manuallyUnreadChannels.remove(channel)
+        persistReadState()
+    }
+
+    func markChannelUnread(_ name: String) {
+        manuallyUnreadChannels.insert(BroadcastChannelName.normalize(name))
+        persistReadState()
+    }
+
+    /// Loads every joined room's stored messages so the list can show last message, time and
+    /// unread count, and starts a read marker for rooms that have none.
+    func primeChannelSummaries() {
+        var seeded = false
+        for channel in channels {
+            if messagesByChannel[channel.channelName] == nil { loadMessages(for: channel.channelName) }
+            if lastReadByChannel[channel.channelName] == nil {
+                lastReadByChannel[channel.channelName] = Int64(Date().timeIntervalSince1970 * 1000)
+                seeded = true
+            }
+        }
+        if seeded { persistReadState() }
+    }
+
+    /// #kaspa and #kachat-bugs notify by default. Applied once per wallet, so a bell the user
+    /// later switches off stays off.
+    private func applyFeaturedNotifyDefaultIfNeeded() {
+        guard let walletAddress else { return }
+        let key = "kachat_broadcast_featured_notify_default_\(walletAddress)"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        let joined = Set(channels.map(\.channelName))
+        guard Self.featuredChannels.allSatisfy(joined.contains) else { return }
+        for name in Self.featuredChannels { store.setNotifyEnabled(true, forChannel: name) }
+        UserDefaults.standard.set(true, forKey: key)
+        refreshChannels()
+        Task { await PushNotificationManager.shared.updateWatchedAddresses() }
     }
 
     // MARK: - Channel membership
@@ -141,6 +235,7 @@ final class BroadcastService: ObservableObject {
             _ = store.joinChannel(name)
         }
         refreshChannels()
+        applyFeaturedNotifyDefaultIfNeeded()
     }
 
     @discardableResult
@@ -273,6 +368,7 @@ final class BroadcastService: ObservableObject {
         liveViewRefCounts[normalized, default: 0] += 1
         store.pruneExpiredMessages()
         loadMessages(for: normalized)
+        markChannelRead(normalized)
         loadReactions(for: normalized)
         updateScanningStateIfNeeded()
         startIndexerPollingIfConfigured(channel: normalized)
@@ -447,6 +543,8 @@ final class BroadcastService: ObservableObject {
         let normalized = BroadcastChannelName.normalize(name)
         guard let count = liveViewRefCounts[normalized] else { return }
         if count <= 1 {
+            // Everything that arrived while the room was open has been seen.
+            markChannelRead(normalized)
             liveViewRefCounts.removeValue(forKey: normalized)
             stopIndexerPolling(channel: normalized)
         } else {
