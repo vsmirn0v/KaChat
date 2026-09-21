@@ -641,7 +641,7 @@ final class CallService: ObservableObject {
         }
         try await client.joinCall(token: call.token, video: call.video)
 
-        let webrtc = WebRTCClient(iceServers: settings.iceServers, video: call.video)
+        let webrtc = try WebRTCClient(iceServers: settings.iceServers, video: call.video)
         // With CallKit on the call, iOS activates the audio session itself (see
         // `CallKitManager.provider(_:didActivate:)`); WebRTC must not.
         webrtc.audioManagedByCallKit = CallKitManager.shared.isKnown(call.uuid)

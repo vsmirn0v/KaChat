@@ -108,7 +108,7 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
 
-        NSLog("[NotificationService] Processing push: type=%@, sender=%@", messageType, senderAddress)
+        NSLog("[NotificationService] Processing push: type=%@", messageType)
 
         // Group pushes have no reliable on-chain sender/receiver address to key the usual
         // contact-lookup/self-suppression/thread-grouping logic off (see PushEventKind's doc

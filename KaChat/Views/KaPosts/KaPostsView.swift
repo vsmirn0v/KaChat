@@ -4764,8 +4764,32 @@ private struct KaPostCellView: View {
 
     /// Title, rows, padding - sized to its rows so the sheet is never taller than its content.
     private var overflowSheetHeight: CGFloat {
-        let rows = (showsPostActivityRow ? 1 : 0) + (showsEditRow ? 1 : 0) + (showsDeleteRow ? 1 : 0) + (isOwnPost ? 0 : 2)
+        let rows = (showsPostActivityRow ? 1 : 0) + (showsEditRow ? 1 : 0) + (showsDeleteRow ? 1 : 0) + (isOwnPost ? 0 : 3)
         return 88 + CGFloat(rows) * 78
+    }
+
+    /// Reporting (App Store guideline 1.2): the post's id, author and text go to support by
+    /// email, where a person reads them. Posts are on a public chain and cannot be taken down by
+    /// anyone, so the remedies that act at once are the two rows under this one - Mute and Block
+    /// remove the author from this reader's KaPosts on the spot.
+    private func reportPost() {
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = "support@kachat.app"
+        components.queryItems = [
+            URLQueryItem(name: "subject", value: "KaPosts report"),
+            URLQueryItem(name: "body", value: """
+            I want to report this post.
+
+            Post: \(post.remoteId ?? "not yet on chain")
+            Author: \(post.posterAddress)
+            Text: \(String(post.text.prefix(500)))
+
+            What is wrong with it:
+
+            """)
+        ]
+        if let url = components.url { openURL(url) }
     }
 
     /// "1h 12m left" / "8m left" for the Edit row.
@@ -4819,6 +4843,15 @@ private struct KaPostCellView: View {
                     }
                 }
                 if !isOwnPost {
+                    ActionSheetRow(
+                        title: "Report",
+                        subtitle: "Tell KaChat about abusive or objectionable content. Opens an email with this post attached.",
+                        systemImage: "flag",
+                        tint: .red
+                    ) {
+                        showOverflowSheet = false
+                        reportPost()
+                    }
                     ActionSheetRow(
                         title: "Mute \(displayName)",
                         subtitle: "Hides their posts everywhere. They can still interact with you.",

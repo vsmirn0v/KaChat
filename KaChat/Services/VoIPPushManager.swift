@@ -26,6 +26,8 @@ final class VoIPPushManager: NSObject {
     func start() {
         guard registry == nil else { return }
         CallKitManager.shared.prepare()
+        // No CallKit, no VoIP pushes: iOS requires every one to become a CallKit call.
+        guard CallKitManager.isAvailable else { return }
         let registry = PKPushRegistry(queue: .main)
         registry.delegate = self
         registry.desiredPushTypes = [.voIP]

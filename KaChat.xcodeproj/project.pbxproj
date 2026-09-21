@@ -180,6 +180,7 @@
 		RDSS00010001000100000001 /* ReadStatusSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = RDSS00010001000000000001 /* ReadStatusSyncManager.swift */; };
 		RS0001B0000000000000001 /* RevealableSecureField.swift in Sources */ = {isa = PBXBuildFile; fileRef = RS0001A0000000000000001 /* RevealableSecureField.swift */; };
 		RSTM00012F4C000100000002 /* Resolvers.toml in Resources */ = {isa = PBXBuildFile; fileRef = RSTM00012F4C000100000001 /* Resolvers.toml */; };
+		PRIV00010001000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = PRIV00010001000000000001 /* PrivacyInfo.xcprivacy */; };
 		SA0001B0000000000000001 /* ManageAddressesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SA0001A0000000000000001 /* ManageAddressesView.swift */; };
 		SECV00010001000100000001 /* SecureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SECV00010001000000000001 /* SecureView.swift */; };
 		SHREXT000100010001000001 /* KaChatShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = SHREXT000100010000000002 /* KaChatShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -463,6 +464,7 @@
 		RDSS00010001000000000001 /* ReadStatusSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadStatusSyncManager.swift; sourceTree = "<group>"; };
 		RS0001A0000000000000001 /* RevealableSecureField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealableSecureField.swift; sourceTree = "<group>"; };
 		RSTM00012F4C000100000001 /* Resolvers.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = Resolvers.toml; sourceTree = "<group>"; };
+		PRIV00010001000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		SA0001A0000000000000001 /* ManageAddressesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManageAddressesView.swift; sourceTree = "<group>"; };
 		SECV00010001000000000001 /* SecureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureView.swift; sourceTree = "<group>"; };
 		SHREXT000100010000000002 /* KaChatShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -779,6 +781,7 @@
 			children = (
 				E81000042D4C000100000003 /* Assets.xcassets */,
 				RSTM00012F4C000100000001 /* Resolvers.toml */,
+				PRIV00010001000000000001 /* PrivacyInfo.xcprivacy */,
 				ENGL00012F70000100000001 /* english.txt */,
 				GEOIP00012F90000100000001 /* geoip-lite.json */,
 			);
@@ -1173,6 +1176,7 @@
 			files = (
 				E81000052D4C000100000003 /* Assets.xcassets in Resources */,
 				RSTM00012F4C000100000002 /* Resolvers.toml in Resources */,
+				PRIV00010001000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 				ENGL00012F70000100000002 /* english.txt in Resources */,
 				GEOIP00012F90000100000002 /* geoip-lite.json in Resources */,
 				L10N000300000001 /* Localizable.strings in Resources */,

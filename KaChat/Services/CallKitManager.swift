@@ -17,7 +17,18 @@ import WebRTC
 final class CallKitManager: NSObject {
     static let shared = CallKitManager()
 
-    private let provider: CXProvider
+    /// nil where CallKit must not be used (see `isAvailable`): every call then rings in-app.
+    private let provider: CXProvider?
+
+    /// CallKit is not permitted in mainland China (an App Store requirement for the China
+    /// storefront); an app that uses it there is pulled. On a device whose region is China the
+    /// provider is never created and VoIP pushes are never registered for - a VoIP push MUST be
+    /// answered with a CallKit call, so the two go together. Calls still work, ringing inside
+    /// the app and through ordinary notifications.
+    static let isAvailable: Bool = {
+        let region = Locale.current.region?.identifier.uppercased() ?? ""
+        return region != "CN" && region != "CHN"
+    }()
     private let controller = CXCallController()
     /// True from `didActivate` to `didDeactivate` of the audio session for the current call:
     /// iOS owns activation then, and WebRTC must not touch it.
@@ -37,9 +48,9 @@ final class CallKitManager: NSObject {
         if let icon = UIImage(named: "CallKitIcon") ?? UIImage(systemName: "phone.fill") {
             config.iconTemplateImageData = icon.pngData()
         }
-        provider = CXProvider(configuration: config)
+        provider = Self.isAvailable ? CXProvider(configuration: config) : nil
         super.init()
-        provider.setDelegate(self, queue: nil)
+        provider?.setDelegate(self, queue: nil)
         // WebRTC must not start or stop the audio unit on its own once CallKit is in the
         // picture: iOS activates the session when a call is answered or started and tells us
         // in `didActivate`. Set once, before any peer connection exists.
@@ -67,6 +78,10 @@ final class CallKitManager: NSObject {
         update.supportsGrouping = false
         update.supportsUngrouping = false
         update.supportsDTMF = false
+        guard let provider else {
+            completion(CXErrorCodeIncomingCallError(.unknown))
+            return
+        }
         knownCalls.insert(uuid)
         provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
             if let error {
@@ -89,7 +104,7 @@ final class CallKitManager: NSObject {
         let update = CXCallUpdate()
         update.localizedCallerName = displayName
         update.hasVideo = video
-        provider.reportCall(with: uuid, updated: update)
+        provider?.reportCall(with: uuid, updated: update)
     }
 
     /// A VoIP push that did not turn into a ringing call (stale, calls off for that contact,
@@ -98,7 +113,7 @@ final class CallKitManager: NSObject {
     /// is what it was.
     func reportDroppedIncoming(uuid: UUID, displayName: String, handle: String, video: Bool, reason: CXCallEndedReason) {
         reportIncoming(uuid: uuid, displayName: displayName, handle: handle, video: video) { [weak self] _ in
-            self?.provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
+            self?.provider?.reportCall(with: uuid, endedAt: Date(), reason: reason)
             self?.knownCalls.remove(uuid)
         }
     }
@@ -109,6 +124,7 @@ final class CallKitManager: NSObject {
         let action = CXStartCallAction(call: uuid, handle: CXHandle(type: .generic, value: handle))
         action.contactIdentifier = displayName
         action.isVideo = video
+        guard provider != nil else { completion(false); return }
         knownCalls.insert(uuid)
         controller.request(CXTransaction(action: action)) { [weak self] error in
             if let error {
@@ -119,7 +135,7 @@ final class CallKitManager: NSObject {
                 let update = CXCallUpdate()
                 update.localizedCallerName = displayName
                 update.hasVideo = video
-                self?.provider.reportCall(with: uuid, updated: update)
+                self?.provider?.reportCall(with: uuid, updated: update)
                 completion(true)
             }
         }
@@ -127,12 +143,12 @@ final class CallKitManager: NSObject {
 
     func reportOutgoingConnecting(uuid: UUID) {
         guard knownCalls.contains(uuid) else { return }
-        provider.reportOutgoingCall(with: uuid, startedConnectingAt: Date())
+        provider?.reportOutgoingCall(with: uuid, startedConnectingAt: Date())
     }
 
     func reportOutgoingConnected(uuid: UUID) {
         guard knownCalls.contains(uuid) else { return }
-        provider.reportOutgoingCall(with: uuid, connectedAt: Date())
+        provider?.reportOutgoingCall(with: uuid, connectedAt: Date())
     }
 
     /// The call ended for a reason that did not come through a CallKit action (the other side
@@ -140,7 +156,7 @@ final class CallKitManager: NSObject {
     func reportEnded(uuid: UUID, reason: CXCallEndedReason) {
         guard knownCalls.contains(uuid) else { return }
         knownCalls.remove(uuid)
-        provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
+        provider?.reportCall(with: uuid, endedAt: Date(), reason: reason)
     }
 
     func isKnown(_ uuid: UUID) -> Bool {
@@ -208,7 +224,7 @@ extension CallKitManager: CXProviderDelegate {
             }
             CallKitManager.configureAudioSession(video: call.video)
             action.fulfill()
-            self.provider.reportOutgoingCall(with: action.callUUID, startedConnectingAt: Date())
+            self.provider?.reportOutgoingCall(with: action.callUUID, startedConnectingAt: Date())
         }
     }
 

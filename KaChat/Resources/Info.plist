@@ -27,11 +27,13 @@
 	     INFOPLIST_KEY_* build settings, and the camera key was in BOTH with different wording, so
 	     which sentence Apple showed depended on merge precedence nobody had written down. -->
 	<key>NSCameraUsageDescription</key>
-	<string>KaChat uses the camera to scan QR codes when adding contacts and to take photos to send in a chat.</string>
+	<string>KaChat uses the camera for video calls, to scan QR codes when adding contacts, and to take photos to send in a chat.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>KaChat uses Contacts to import Kaspa addresses and link names from your address book.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Microphone access is needed to record and send audio messages.</string>
+	<string>KaChat uses the microphone for voice and video calls and to record audio messages.</string>
+	<key>NSSiriUsageDescription</key>
+	<string>Lets you start a KaChat call by asking Siri.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save received images to your photo library.</string>
 	<!-- Drag payload for Settings > Customize Dock. App-private on purpose: dragging a tab out

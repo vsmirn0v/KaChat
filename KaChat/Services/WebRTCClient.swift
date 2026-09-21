@@ -28,7 +28,11 @@ final class WebRTCClient: NSObject {
 
     private(set) var wantsVideo: Bool
 
-    init(iceServers: [NextcloudTalkClient.IceServer], video: Bool) {
+    struct SetupError: LocalizedError {
+        var errorDescription: String? { "Could not start the call connection." }
+    }
+
+    init(iceServers: [NextcloudTalkClient.IceServer], video: Bool) throws {
         wantsVideo = video
         let config = RTCConfiguration()
         config.iceServers = iceServers.map { server in
@@ -41,7 +45,7 @@ final class WebRTCClient: NSObject {
         config.continualGatheringPolicy = .gatherContinually
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let connection = Self.factory.peerConnection(with: config, constraints: constraints, delegate: nil) else {
-            fatalError("WebRTC: could not create a peer connection")
+            throw SetupError()
         }
         self.connection = connection
 
