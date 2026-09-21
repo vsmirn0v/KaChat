@@ -130,9 +130,21 @@ final class WebRTCClient: NSObject {
     /// mid-call must not stop the override, and a failed override must not stop activation.
     func setSpeaker(_ speaker: Bool) {
         let session = RTCAudioSession.sharedInstance()
+        let options: AVAudioSession.CategoryOptions = speaker ? [.defaultToSpeaker, .allowBluetoothHFP] : [.allowBluetoothHFP]
+        // `.videoChat` is the mode whose default route IS the speaker; `.voiceChat` defaults to
+        // the earpiece and quietly wins back the route.
+        let mode: AVAudioSession.Mode = speaker ? .videoChat : .voiceChat
+        // WebRTC re-applies ITS OWN stored configuration when it starts the audio unit - and
+        // the stock one is voiceChat without defaultToSpeaker, which is what put a video call
+        // back on the earpiece a moment after we had chosen the speaker. Store ours.
+        let webRTCConfiguration = RTCAudioSessionConfiguration.webRTC()
+        webRTCConfiguration.category = AVAudioSession.Category.playAndRecord.rawValue
+        webRTCConfiguration.mode = mode.rawValue
+        webRTCConfiguration.categoryOptions = options
+        RTCAudioSessionConfiguration.setWebRTC(webRTCConfiguration)
         session.lockForConfiguration()
         do {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: speaker ? [.defaultToSpeaker, .allowBluetoothHFP] : [.allowBluetoothHFP])
+            try session.setCategory(.playAndRecord, mode: mode, options: options)
         } catch {
             AppLog.log("[WebRTC] Audio category failed: %@", error.localizedDescription)
         }

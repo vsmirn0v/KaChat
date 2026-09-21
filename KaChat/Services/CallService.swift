@@ -66,6 +66,8 @@ final class CallService: ObservableObject {
         /// What the user asked for (video calls start on the speaker); applied whenever the
         /// audio session comes up, and what `isSpeakerOn` converges to.
         var speakerRequested: Bool
+        /// How many times the speaker was put back after the system took it (see `routeChanged`).
+        var speakerReasserts = 0
         @Published var isCameraOff = false
         @Published var remoteVideoTrack: RTCVideoTrack?
         @Published var localVideoTrack: RTCVideoTrack?
@@ -509,6 +511,7 @@ final class CallService: ObservableObject {
         guard let call = session else { return }
         // Flip from where the audio actually is, not from where we last asked it to be.
         call.speakerRequested = !call.isSpeakerOn
+        call.speakerReasserts = 0
         call.isSpeakerOn = call.speakerRequested
         call.webrtc?.setSpeaker(call.speakerRequested)
         // The route change notification settles the displayed state a moment later.
@@ -1131,8 +1134,19 @@ final class CallService: ObservableObject {
     /// activation): show where the sound really comes out. Only once audio is running - before
     /// that the route says nothing about the call.
     private func routeChanged() {
-        guard let call = session, call.webrtc != nil else { return }
-        let onSpeaker = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
+        guard let call = session, let webrtc = call.webrtc else { return }
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+        let onSpeaker = outputs.contains { $0.portType == .builtInSpeaker }
+        // The speaker was asked for and the phone slid back to the earpiece (audio activation
+        // and the audio unit starting both reset the override): put it back. Only from the
+        // earpiece - headphones or Bluetooth taking over is the user's doing - and only a few
+        // times, so this can never fight the system in a loop.
+        if call.speakerRequested, !onSpeaker, call.speakerReasserts < 4,
+           outputs.contains(where: { $0.portType == .builtInReceiver }) {
+            call.speakerReasserts += 1
+            webrtc.setSpeaker(true)
+            return
+        }
         if call.isSpeakerOn != onSpeaker { call.isSpeakerOn = onSpeaker }
     }
 

@@ -183,7 +183,7 @@ final class CallKitManager: NSObject {
         session.lockForConfiguration()
         defer { session.unlockForConfiguration() }
         do {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: video ? [.defaultToSpeaker, .allowBluetoothHFP] : [.allowBluetoothHFP])
+            try session.setCategory(.playAndRecord, mode: video ? .videoChat : .voiceChat, options: video ? [.defaultToSpeaker, .allowBluetoothHFP] : [.allowBluetoothHFP])
         } catch {
             AppLog.log("[CallKit] Audio session category failed: %@", error.localizedDescription)
         }
