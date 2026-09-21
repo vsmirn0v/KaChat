@@ -36,9 +36,15 @@ final class GiftService: NSObject, ObservableObject {
 
     @Published private(set) var claimState: GiftClaimState = .eligible
     static let requestEmail = "kaspasilver@gmail.com"
-    private static let claimedKey = "kachat_gift_claimed"
+    /// Version 2 of both flags: 5.0 starts everyone fresh. Whatever an older build recorded - a
+    /// gift claimed through the old server ("kachat_gift_claimed"), or a request sent while the
+    /// email flow was being tested ("gift_request_sent") - is not read, and is cleaned up once.
+    /// To start everyone fresh again in a later release, bump the suffix.
+    private static let claimedKey = "kachat_gift_request_sent_v2"
     private static let keychainService = "com.kachat.app"
-    private static let keychainAccount = "gift_request_sent"
+    private static let keychainAccount = "gift_request_sent_v2"
+    private static let legacyClaimedKey = "kachat_gift_claimed"
+    private static let legacyKeychainAccount = "gift_request_sent"
 
     private override init() {
         super.init()
@@ -46,9 +52,26 @@ final class GiftService: NSObject, ObservableObject {
     }
 
     private func checkInitialState() {
+        Self.removeLegacyFlags()
+        #if DEBUG
+        // Builds run from Xcode never hold the gift back, so the flow can be tested repeatedly.
+        // TestFlight and App Store builds are Release and enforce the one request.
+        claimState = .eligible
+        return
+        #else
         let used = UserDefaults.standard.bool(forKey: Self.claimedKey) || Self.keychainFlagIsSet()
         claimState = used ? .alreadyClaimed : .eligible
         if used { retireForGood() }
+        #endif
+    }
+
+    private static func removeLegacyFlags() {
+        UserDefaults.standard.removeObject(forKey: legacyClaimedKey)
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: legacyKeychainAccount
+        ] as CFDictionary)
     }
 
     func checkEligibility() async {
@@ -121,8 +144,10 @@ final class GiftService: NSObject, ObservableObject {
     }
 
     private func retireForGood() {
+        #if !DEBUG
         UserDefaults.standard.set(true, forKey: Self.claimedKey)
         Self.setKeychainFlag()
+        #endif
         if claimState != .alreadyClaimed { claimState = .alreadyClaimed }
     }
 
