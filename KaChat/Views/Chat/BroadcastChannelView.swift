@@ -68,6 +68,7 @@ struct BroadcastChannelView: View {
     /// the proxy lives). Mirrors how `pendingJumpToTxId` reaches the same place.
     @State private var pendingJumpToStart = false
     @State private var showRoomInfo = false
+    @State private var showOwnRoomExplainer = false
     @State private var highlightedMessageID: String?
     /// Which message (if any) currently has its double-tap quick-reaction bar open - mirrors
     /// group chat's identical `GroupChatDetailView.activeQuickReactionMessageId`, except broadcast
@@ -211,6 +212,34 @@ struct BroadcastChannelView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
             }
+            // A room you made yourself: what "public" does and does not mean here. The curated
+            // rooms are indexed, so they need no such warning.
+            if !BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName)) {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showOwnRoomExplainer = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .accessibilityLabel("About this room")
+                }
+            }
+        }
+        .sheet(isPresented: $showOwnRoomExplainer) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("About this room")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 24)
+                Text("No one can see your messages in here unless they are also active in the room at the same time.")
+                Text("If you want messages to persist and be seen by anyone who joins, you need to run your own indexer and have users add it to the room.")
+                Spacer(minLength: 0)
+            }
+            .font(.body)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+            .presentationDetents([.height(280)])
+            .presentationDragIndicator(.visible)
         }
         // Empty, because the name is drawn by `roomTitleChip` in the list's top inset now - same
         // arrangement as 1:1 and group threads.

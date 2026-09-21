@@ -258,12 +258,6 @@ final class BroadcastService: ObservableObject {
         updateScanningStateIfNeeded()
     }
 
-    func setAlwaysListen(_ enabled: Bool, forChannel name: String) {
-        store.setAlwaysListen(enabled, forChannel: name)
-        refreshChannels()
-        updateScanningStateIfNeeded()
-    }
-
     func setNotifyEnabled(_ enabled: Bool, forChannel name: String) {
         // Indexed channels' bells also gate remote push - sync the registration so the push
         // service starts/stops sending for this channel.
@@ -273,13 +267,6 @@ final class BroadcastService: ObservableObject {
         store.setNotifyEnabled(enabled, forChannel: name)
         refreshChannels()
         updateScanningStateIfNeeded()
-    }
-
-    func setRetentionMillis(_ millis: Int64, forChannel name: String) {
-        store.setRetentionMillis(millis, forChannel: name)
-        refreshChannels()
-        store.pruneExpiredMessages()
-        loadMessages(for: BroadcastChannelName.normalize(name))
     }
 
     // MARK: - Hidden senders
@@ -555,10 +542,10 @@ final class BroadcastService: ObservableObject {
 
     private var wantedChannels: Set<String> {
         var wanted = Set(liveViewRefCounts.keys)
-        // Indexed channels have no listen toggle - while the app is OPEN they scan whenever
-        // their bell is on (so in-app banners fire); remote push covers the closed-app case.
-        for channel in channels where channel.alwaysListen
-            || (Self.indexedChannels.contains(channel.channelName) && channel.notifyEnabled) {
+        // The bell is the one control: a room with notifications on is listened to while the app
+        // is open (that is what lets it notify, and count unread), any room. The separate
+        // "listen" switch is gone; a value stored by an older build is no longer read.
+        for channel in channels where channel.notifyEnabled {
             wanted.insert(channel.channelName)
         }
         return wanted

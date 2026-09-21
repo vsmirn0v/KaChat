@@ -57,7 +57,10 @@ struct BroadcastRoomInfoView: View {
         broadcastService.channels.first { $0.channelName == normalized }
     }
 
+    /// Only the curated rooms have history worth a number: the indexer keeps theirs. A room you
+    /// made holds nothing for anyone who was not there (see the room's info button).
     private var retentionDescription: String? {
+        guard BroadcastService.indexedChannels.contains(normalized) else { return nil }
         guard let millis = channel?.retentionMillis, millis > 0 else { return nil }
         let days = Int((Double(millis) / 86_400_000).rounded())
         return days == 1 ? "1 day" : "\(days) days"

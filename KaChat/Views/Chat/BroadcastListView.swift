@@ -1,43 +1,5 @@
 import SwiftUI
 
-/// A per-channel local retention setting: how long messages stay cached on this device once
-/// joined, up to `BroadcastStore.maxRetentionMillis`. Mirrors Android's `BroadcastRetention.Unit`.
-enum BroadcastRetentionUnit: String, CaseIterable, Identifiable {
-    case seconds, minutes, hours, days
-
-    var id: String { rawValue }
-    var label: String { rawValue }
-
-    var millisPerUnit: Int64 {
-        switch self {
-        case .seconds: return 1_000
-        case .minutes: return 60_000
-        case .hours: return 60 * 60 * 1_000
-        case .days: return 24 * 60 * 60 * 1_000
-        }
-    }
-
-    var maxAmount: Int64 {
-        BroadcastStore.maxRetentionMillis / millisPerUnit
-    }
-
-    /// Splits a stored millis value into an (amount, unit) pair for pre-filling the retention
-    /// sheet - picks the largest unit that divides it evenly, falling back to seconds.
-    static func fromMillis(_ millis: Int64) -> (amount: Int64, unit: BroadcastRetentionUnit) {
-        for unit in [BroadcastRetentionUnit.days, .hours, .minutes] {
-            let amount = millis / unit.millisPerUnit
-            if millis % unit.millisPerUnit == 0, amount >= 1, amount <= unit.maxAmount {
-                return (amount, unit)
-            }
-        }
-        return (max(1, millis / BroadcastRetentionUnit.seconds.millisPerUnit), .seconds)
-    }
-}
-
-/// Join/create broadcast channels and browse joined + popular channels.
-/// Pushed from `ChatListView`'s "Broadcasts" row - mirrors Android's placement
-/// (reachable from the Chats screen, not a separate tab) while keeping iOS's own
-/// list/row visual language.
 struct BroadcastListView: View {
     @EnvironmentObject var broadcastService: BroadcastService
 
@@ -57,7 +19,6 @@ struct BroadcastListView: View {
     @State private var channelToLeave: String?
     /// The room whose long-press half sheet is up.
     @State private var roomActionTarget: String?
-    @State private var retentionSettingsChannel: BroadcastChannel?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var hasAppliedInitialChannel = false
@@ -174,12 +135,6 @@ struct BroadcastListView: View {
             Button("Cancel", role: .cancel) { channelToLeave = nil }
         } message: {
             Text("Leaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone - rejoining later starts with no history.")
-        }
-        .sheet(item: $retentionSettingsChannel) { channel in
-            NavigationStack {
-                RetentionSettingsView(channel: channel)
-            }
-            .presentationDetents([.medium])
         }
     }
 
@@ -373,21 +328,7 @@ struct BroadcastListView: View {
                 showToast("Room link copied")
             }
 
-            if let channel, !isCurated {
-                ActionSheetRow(
-                    title: channel.alwaysListen ? "Stop Listening in the Background" : "Listen While the App Is Open",
-                    subtitle: channel.alwaysListen
-                        ? "Messages arrive only while you are in the room."
-                        : "Collects this room's messages whenever the app is open.",
-                    systemImage: channel.alwaysListen ? "speaker.slash" : "speaker.wave.2"
-                ) {
-                    roomActionTarget = nil
-                    toggleAlwaysListen(channel)
-                }
-                ActionSheetRow(title: "Message Retention", subtitle: "How long this room's messages stay on this device.", systemImage: "gearshape") {
-                    roomActionTarget = nil
-                    DispatchQueue.main.async { retentionSettingsChannel = channel }
-                }
+            if channel != nil, !isCurated {
                 ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
                     roomActionTarget = nil
                     DispatchQueue.main.async { channelToLeave = name }
@@ -399,7 +340,7 @@ struct BroadcastListView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(isCurated ? 330 : 560)])
+        .presentationDetents([.height(isCurated ? 330 : 410)])
         .presentationDragIndicator(.visible)
     }
 
@@ -410,14 +351,6 @@ struct BroadcastListView: View {
             broadcastService.joinChannel(name)
         }
         selectedChannel = name
-    }
-
-    private func toggleAlwaysListen(_ channel: BroadcastChannel) {
-        let newValue = !channel.alwaysListen
-        broadcastService.setAlwaysListen(newValue, forChannel: channel.channelName)
-        showToast(newValue
-            ? "You will now listen for new chats as long as your app remains open"
-            : "You will no longer see messages in this broadcast unless you are in the broadcast at the same time chats come in")
     }
 
     private func toggleNotify(_ channel: BroadcastChannel) {
@@ -583,91 +516,6 @@ private struct BroadcastChannelDestination: ViewModifier {
                 }
             }
         }
-    }
-}
-
-/// Per-channel message retention settings, matching Android's retention dialog.
-private struct RetentionSettingsView: View {
-    let channel: BroadcastChannel
-    @EnvironmentObject var broadcastService: BroadcastService
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var amountText: String
-    @State private var selectedUnit: BroadcastRetentionUnit
-
-    init(channel: BroadcastChannel) {
-        self.channel = channel
-        let (amount, unit) = BroadcastRetentionUnit.fromMillis(channel.retentionMillis)
-        _amountText = State(initialValue: String(amount))
-        _selectedUnit = State(initialValue: unit)
-    }
-
-    private var amount: Int64? { Int64(amountText) }
-    private var isValid: Bool {
-        guard let amount else { return false }
-        return amount >= 1 && amount <= selectedUnit.maxAmount
-    }
-
-    var body: some View {
-        Form {
-            Section {
-                HStack {
-                    TextField("Amount", text: $amountText)
-                        .keyboardType(.numberPad)
-                        .numericKeyboardDoneButton()
-                    Picker("Unit", selection: $selectedUnit) {
-                        ForEach(BroadcastRetentionUnit.allCases) { unit in
-                            Text(unit.label).tag(unit)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                }
-            } header: {
-                Text("Message Retention for #\(channel.channelName)")
-            } footer: {
-                Text("How long messages in this broadcast stay cached on this device, up to a maximum of 3 days. Max: \(selectedUnit.maxAmount) \(selectedUnit.label).")
-            }
-
-            Section {
-                Text("Longer retention means more messages stay cached on your device - this can slow the app down over time, especially for busy rooms.")
-                    .font(.caption)
-                    .foregroundColor(.orange)
-            }
-        }
-        .navigationTitle("Message Retention")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button("Cancel") { dismiss() }
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Save") {
-                    // Dismiss first, then apply on the next run-loop tick: `setRetentionMillis`
-                    // prunes messages and mutates `@Published channels`/`messagesByChannel`, which
-                    // the presenting `BroadcastListView` observes for both this sheet and its own
-                    // `navigationDestination(isPresented:)` push into a room - mutating that state
-                    // in the same transaction as `dismiss()` races SwiftUI's presentation
-                    // bookkeeping and can leave a room's row tap silently inert until the list view
-                    // is torn down and recreated (e.g. backing out to Chats and back in).
-                    let millis = amount.map { $0 * selectedUnit.millisPerUnit }
-                    dismiss()
-                    if let millis {
-                        DispatchQueue.main.async {
-                            broadcastService.setRetentionMillis(millis, forChannel: channel.channelName)
-                        }
-                    }
-                }
-                .disabled(!isValid)
-            }
-        }
-    }
-}
-
-
-#Preview {
-    NavigationStack {
-        BroadcastListView()
-            .environmentObject(BroadcastService.shared)
     }
 }
 
