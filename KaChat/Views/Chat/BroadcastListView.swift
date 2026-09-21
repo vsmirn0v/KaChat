@@ -283,22 +283,6 @@ struct BroadcastListView: View {
                 }
             }
 
-            Button {
-                Haptics.impact(.light)
-                joinFieldText = ""
-                joinError = nil
-                showJoinAlert = true
-            } label: {
-                Label("Join or create a room", systemImage: "plus.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.accentColor)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-
             Text("Public rooms are open to everyone. #kaspa, #kachat-bugs and the language rooms keep 30 days of history.")
                 .font(.footnote)
                 .foregroundColor(.secondary)
@@ -308,6 +292,30 @@ struct BroadcastListView: View {
                 .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
+        // The same floating button the Chats and Group Chats pages carry, here for joining or
+        // creating a room.
+        .overlay(alignment: .bottomTrailing) {
+            Button {
+                Haptics.impact(.light)
+                joinFieldText = ""
+                joinError = nil
+                showJoinAlert = true
+            } label: {
+                Image(systemName: "plus.bubble")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(width: 56, height: 56)
+                    .background(
+                        Circle()
+                            .fill(.regularMaterial)
+                            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+                    )
+            }
+            .accessibilityLabel("Join or create a public room")
+            .padding(.trailing, 20)
+            .padding(.bottom, 16)
+        }
         .onAppear { broadcastService.primeChannelSummaries() }
         .onChange(of: broadcastService.channels) { _ in broadcastService.primeChannelSummaries() }
         .sheet(item: Binding(

@@ -307,7 +307,7 @@ struct ChatListView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            // The rooms page has its own join/create affordance.
+            // The rooms page draws its own copy of this button (it owns the join sheet).
             if editMode != .active, selectedListTab != .publicChats {
                 createChatButton
             }
