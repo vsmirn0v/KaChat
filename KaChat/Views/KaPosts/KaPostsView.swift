@@ -4775,7 +4775,7 @@ private struct KaPostCellView: View {
     private func reportPost() {
         var components = URLComponents()
         components.scheme = "mailto"
-        components.path = "support@kachat.app"
+        components.path = "kaspasilver@gmail.com"
         components.queryItems = [
             URLQueryItem(name: "subject", value: "KaPosts report"),
             URLQueryItem(name: "body", value: """
