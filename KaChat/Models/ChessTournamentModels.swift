@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 // MARK: - Wire protocol (CHESS_TOURNAMENTS.md §2)
 
@@ -22,6 +23,8 @@ struct ChessTournamentMessage: Codable, Equatable {
     /// Promotion piece letter: q r b n.
     var promo: String? = nil
     var text: String? = nil
+    /// Private tournaments only: proof the creator holds the creator code (§2.1).
+    var k: String? = nil
 }
 
 enum ChessTournamentCodec {
@@ -30,6 +33,40 @@ enum ChessTournamentCodec {
     static let clockMs: Int64 = 5 * 60 * 1000
     static let nameMaxLength = 40
     static let chatMaxLength = 280
+
+    // MARK: Public rooms and private tournaments (CHESS_TOURNAMENTS.md §2.1)
+
+    /// Public rooms are numbered: `public-1`, `public-2`, ... One is open at a time; a join to
+    /// room N is accepted only when room N-1 is full, so the queue never forks. Nobody creates
+    /// them - the first join is the creation.
+    static let publicIdPrefix = "public-"
+    static func publicId(_ number: Int) -> String { "\(publicIdPrefix)\(number)" }
+    static func publicNumber(of id: String) -> Int? {
+        guard id.hasPrefix(publicIdPrefix), let n = Int(id.dropFirst(publicIdPrefix.count)), n >= 1 else { return nil }
+        return n
+    }
+    static func isPublic(_ id: String) -> Bool { publicNumber(of: id) != nil }
+
+    /// The creator code for private tournaments. Whoever has it can open a room for friends;
+    /// the room's id is what they share to let people in. Change here (and in the other apps)
+    /// to rotate it. The chain carries only `k` = SHA-256(code + id), so the code itself never
+    /// appears on chain and a key from one tournament is no use for another.
+    static let privateCreateCode = "KACHAT-CHESS"
+
+    static func createKey(code: String, id: String) -> String {
+        let digest = SHA256.hash(data: Data((code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() + ":" + id).utf8))
+        return digest.map { String(format: "%02x", $0) }.joined().prefix(24).description
+    }
+    static func isValidCreateKey(_ key: String?, id: String) -> Bool {
+        guard let key else { return false }
+        return key == createKey(code: privateCreateCode, id: id)
+    }
+
+    /// Private ids are short and shareable: eight lowercase letters and digits.
+    static func newPrivateId() -> String {
+        let alphabet = Array("abcdefghjkmnpqrstuvwxyz23456789")
+        return String((0..<8).map { _ in alphabet[Int.random(in: 0..<alphabet.count)] })
+    }
 
     static func encode(_ message: ChessTournamentMessage) -> String {
         let encoder = JSONEncoder()
@@ -48,8 +85,8 @@ enum ChessTournamentCodec {
         return message
     }
 
-    static func create(id: String, name: String) -> ChessTournamentMessage {
-        ChessTournamentMessage(t: id, a: "create", name: String(name.prefix(nameMaxLength)))
+    static func create(id: String, name: String, code: String) -> ChessTournamentMessage {
+        ChessTournamentMessage(t: id, a: "create", name: String(name.prefix(nameMaxLength)), k: createKey(code: code, id: id))
     }
     static func join(id: String) -> ChessTournamentMessage { ChessTournamentMessage(t: id, a: "join") }
     static func cancel(id: String) -> ChessTournamentMessage { ChessTournamentMessage(t: id, a: "cancel") }
@@ -174,6 +211,8 @@ struct ChessTournament: Identifiable, Equatable {
     }
     var champion: String? { games["3-0"]?.winner }
     var seatsLeft: Int { max(0, ChessTournamentCodec.playerCount - players.count) }
+    var isPublic: Bool { ChessTournamentCodec.isPublic(id) }
+    var isFull: Bool { players.count >= ChessTournamentCodec.playerCount }
 
     func seed(of address: String) -> Int? { players.firstIndex(of: address).map { $0 + 1 } }
 

@@ -10,34 +10,49 @@ struct ChessTournamentsView: View {
     @EnvironmentObject private var walletManager: WalletManager
     @State private var showCreate = false
     @State private var newName = ""
+    @State private var creatorCode = ""
     @State private var isCreating = false
+    @State private var showJoinPrivate = false
+    @State private var privateCode = ""
+    @State private var isJoining = false
     @State private var openTournamentId: String?
     @State private var showLeaderboard = false
+
+    private var me: String? { walletManager.currentWallet?.publicAddress }
 
     var body: some View {
         NavigationStack {
             List {
-                if let mine = service.myActiveTournament {
-                    Section("Your tournament") {
-                        tournamentRow(mine, action: mine.status == .open ? "Waiting for players" : "In play")
-                    }
+                Section {
+                    publicRoomCard
+                } header: {
+                    Text("Public")
+                } footer: {
+                    Text("There is always a public room waiting for players. When it fills, it starts and the next one opens. Eight players, single elimination, five minutes a side. Every move is a Kaspa transaction (about 0.0017 KAS each).")
                 }
                 Section {
-                    let open = service.openTournaments.filter { $0.id != service.myActiveTournament?.id }
-                    if open.isEmpty {
-                        Text("No one is waiting for players right now. Start a tournament and seven others can join.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                    ForEach(service.myPrivateTournaments) { tournament in
+                        tournamentRow(tournament, action: tournament.status == .open ? "\(tournament.seatsLeft) seat\(tournament.seatsLeft == 1 ? "" : "s") left" : "In play")
                     }
-                    ForEach(open) { tournament in
-                        tournamentRow(tournament, action: "\(tournament.seatsLeft) seat\(tournament.seatsLeft == 1 ? "" : "s") left")
+                    Button {
+                        privateCode = ""
+                        showJoinPrivate = true
+                    } label: {
+                        Label("Join with a code", systemImage: "key")
+                    }
+                    Button {
+                        newName = ""
+                        creatorCode = ""
+                        showCreate = true
+                    } label: {
+                        Label("Create a private tournament", systemImage: "plus.circle")
                     }
                 } header: {
-                    Text("Open")
+                    Text("Private")
                 } footer: {
-                    Text("Eight players, single elimination, five minutes a side. Every move is a Kaspa transaction (about 0.0017 KAS each).")
+                    Text("A private tournament is for friends: the creator shares its eight-character code. Creating one needs the creator code.")
                 }
-                let live = service.liveTournaments.filter { $0.id != service.myActiveTournament?.id }
+                let live = service.liveTournaments.filter { $0.isPublic && $0.id != service.myActiveTournament?.id }
                 if !live.isEmpty {
                     Section("In play") {
                         ForEach(live) { tournament in
@@ -45,7 +60,7 @@ struct ChessTournamentsView: View {
                         }
                     }
                 }
-                let done = Array(service.finishedTournaments.prefix(20))
+                let done = Array(service.finishedTournaments.filter { $0.isPublic }.prefix(20))
                 if !done.isEmpty {
                     Section("Finished") {
                         ForEach(done) { tournament in
@@ -69,29 +84,6 @@ struct ChessTournamentsView: View {
                     .accessibilityLabel("Leaderboard")
                 }
             }
-            .overlay(alignment: .bottomTrailing) {
-                if service.myActiveTournament == nil {
-                    Button {
-                        Haptics.impact(.light)
-                        newName = ""
-                        showCreate = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundColor(.accentColor)
-                            .frame(width: 56, height: 56)
-                            .background(
-                                Circle()
-                                    .fill(.regularMaterial)
-                                    .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-                                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-                            )
-                    }
-                    .accessibilityLabel("Start a tournament")
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 16)
-                }
-            }
             .navigationDestination(isPresented: Binding(
                 get: { openTournamentId != nil },
                 set: { if !$0 { openTournamentId = nil } }
@@ -103,21 +95,40 @@ struct ChessTournamentsView: View {
             .navigationDestination(isPresented: $showLeaderboard) {
                 ChessLeaderboardView()
             }
-            .alert("Start a tournament", isPresented: $showCreate) {
+            .alert("Create a private tournament", isPresented: $showCreate) {
                 TextField("Name", text: $newName)
+                TextField("Creator code", text: $creatorCode)
                 Button("Cancel", role: .cancel) {}
-                Button(isCreating ? "Starting…" : "Start") {
+                Button(isCreating ? "Creating…" : "Create") {
                     guard !isCreating else { return }
                     isCreating = true
                     Task {
-                        if let id = await service.createTournament(named: newName) {
+                        if let id = await service.createPrivateTournament(named: newName, code: creatorCode) {
                             openTournamentId = id
                         }
                         isCreating = false
                     }
                 }
             } message: {
-                Text("You take the first seat. The tournament starts the moment eight players have joined. Creating it is one transaction.")
+                Text("You take the first seat and get a code to share. It starts when eight players have joined. Creating it is one transaction.")
+            }
+            .alert("Join a private tournament", isPresented: $showJoinPrivate) {
+                TextField("Code", text: $privateCode)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Cancel", role: .cancel) {}
+                Button(isJoining ? "Joining…" : "Join") {
+                    guard !isJoining else { return }
+                    isJoining = true
+                    Task {
+                        if await service.joinPrivate(code: privateCode) {
+                            openTournamentId = privateCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        }
+                        isJoining = false
+                    }
+                }
+            } message: {
+                Text("The eight-character code the creator shared. Joining is one transaction.")
             }
             .toast(message: service.lastError, style: .error)
             .onAppear { service.acquire() }
@@ -125,8 +136,81 @@ struct ChessTournamentsView: View {
         }
     }
 
+    /// The one public room taking players: its seats, and Join - or "you're in" once joined.
+    private var publicRoomCard: some View {
+        let room = service.currentPublicRoom
+        let number = ChessTournamentCodec.publicNumber(of: service.currentPublicRoomId) ?? 1
+        let count = room?.players.count ?? 0
+        let inThisRoom = me.map { room?.players.contains($0) ?? false } ?? false
+        let busyElsewhere = service.myActiveTournament != nil && !inThisRoom
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: "person.3.fill")
+                    .font(.title3)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 32)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Public tournament #\(number)").font(.headline)
+                    Text("\(count) of \(ChessTournamentCodec.playerCount) players waiting").font(.caption).foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            HStack(spacing: 6) {
+                ForEach(0..<ChessTournamentCodec.playerCount, id: \.self) { seat in
+                    Circle()
+                        .fill(seat < count ? Color.accentColor : Color.secondary.opacity(0.25))
+                        .frame(width: 12, height: 12)
+                }
+            }
+            if inThisRoom, let room {
+                Button {
+                    openTournamentId = room.id
+                } label: {
+                    Text("You're in. Waiting for \(room.seatsLeft) more…")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor.opacity(0.15))
+                        .foregroundColor(.accentColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            } else if let mine = service.myActiveTournament, busyElsewhere {
+                Button {
+                    openTournamentId = mine.id
+                } label: {
+                    Text(mine.status == .open ? "You're waiting in \(mine.name)" : "You're playing in \(mine.name)")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor.opacity(0.15))
+                        .foregroundColor(.accentColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    guard !isJoining else { return }
+                    Haptics.impact(.light)
+                    isJoining = true
+                    Task { await service.joinPublicQueue(); isJoining = false }
+                } label: {
+                    Text(isJoining ? "Joining…" : "Join (one transaction)")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
     private func name(for address: String) -> String {
-        if address == walletManager.currentWallet?.publicAddress { return "You" }
+        if address == me { return "You" }
         return ContactsManager.shared.displayName(for: address)
     }
 
@@ -135,7 +219,7 @@ struct ChessTournamentsView: View {
             openTournamentId = tournament.id
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: tournament.status == .finished ? "trophy.fill" : "checkerboard.rectangle")
+                Image(systemName: tournament.status == .finished ? "trophy.fill" : (tournament.isPublic ? "person.3.fill" : "lock.fill"))
                     .font(.title3)
                     .foregroundColor(.accentColor)
                     .frame(width: 32)
@@ -143,7 +227,7 @@ struct ChessTournamentsView: View {
                     Text(tournament.name)
                         .font(.headline)
                         .lineLimit(1)
-                    Text("\(tournament.players.count) of \(ChessTournamentCodec.playerCount) players · by \(name(for: tournament.creator))")
+                    Text("\(tournament.players.count) of \(ChessTournamentCodec.playerCount) players" + (tournament.isPublic ? "" : " · code \(tournament.id)"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(1)

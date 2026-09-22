@@ -79,6 +79,14 @@ final class ChessTournamentService: ObservableObject {
         let reduced = ChessTournamentEngine.reduce(events)
         tournaments = reduced
         leaderboard = ChessTournamentEngine.leaderboard(from: Array(reduced.values))
+        // Asked to join a public room that filled first: queue into the next one, once.
+        if let queued = queuedPublicRoomId, let me = myAddress, let room = reduced[queued],
+           room.isFull, !room.players.contains(me) {
+            queuedPublicRoomId = nil
+            Task { await self.joinPublicQueue() }
+        } else if let queued = queuedPublicRoomId, let me = myAddress, reduced[queued]?.players.contains(me) == true {
+            queuedPublicRoomId = nil
+        }
         // A move of ours that the chain now shows is no longer pending.
         let mine = myAddress
         pendingMoveGames = pendingMoveGames.filter { key in
@@ -93,6 +101,24 @@ final class ChessTournamentService: ObservableObject {
     }
 
     // MARK: - Lists
+
+    /// The public room taking players right now: the first numbered room that is not full.
+    /// Its id exists before anyone has joined it (the first join creates it), so the lobby can
+    /// always show "Public tournament #N" with its seats.
+    var currentPublicRoomId: String {
+        var number = 1
+        while let room = tournaments[ChessTournamentCodec.publicId(number)], room.isFull { number += 1 }
+        return ChessTournamentCodec.publicId(number)
+    }
+    var currentPublicRoom: ChessTournament? { tournaments[currentPublicRoomId] }
+
+    /// Private tournaments this player is in, still open or in play.
+    var myPrivateTournaments: [ChessTournament] {
+        guard let me = myAddress else { return [] }
+        return tournaments.values
+            .filter { !$0.isPublic && ($0.status == .open || $0.status == .live) && $0.players.contains(me) }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
 
     var openTournaments: [ChessTournament] {
         tournaments.values.filter { $0.status == .open }.sorted { $0.createdAt > $1.createdAt }
@@ -115,11 +141,42 @@ final class ChessTournamentService: ObservableObject {
 
     // MARK: - Actions (each one a broadcast transaction)
 
-    func createTournament(named name: String) async -> String? {
-        let id = UUID().uuidString.lowercased()
+    /// Joins the public room taking players now. If that room fills before this join lands
+    /// (someone else got the last seat), `reduce` notices and joins the next room.
+    func joinPublicQueue() async {
+        guard let me = myAddress, myActiveTournament == nil else { return }
+        let id = currentPublicRoomId
+        if let room = tournaments[id], room.players.contains(me) { return }
+        queuedPublicRoomId = id
+        _ = await send(ChessTournamentCodec.join(id: id))
+    }
+
+    /// The room this player asked to join and is waiting to appear in.
+    private var queuedPublicRoomId: String?
+
+    /// A private tournament for friends. Needs the creator code; returns nil (with a message)
+    /// when it is wrong, without sending anything.
+    func createPrivateTournament(named name: String, code: String) async -> String? {
+        guard ChessTournamentCodec.isValidCreateKey(ChessTournamentCodec.createKey(code: code, id: "check"), id: "check") else {
+            lastError = "That creator code is not right."
+            return nil
+        }
+        let id = ChessTournamentCodec.newPrivateId()
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard await send(ChessTournamentCodec.create(id: id, name: clean.isEmpty ? "Tournament" : clean)) else { return nil }
+        guard await send(ChessTournamentCodec.create(id: id, name: clean.isEmpty ? "Private tournament" : clean, code: code)) else { return nil }
         return id
+    }
+
+    /// Joins a friend's private tournament by its code (the tournament id).
+    func joinPrivate(code raw: String) async -> Bool {
+        let id = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let tournament = tournaments[id], !tournament.isPublic else {
+            lastError = "No open tournament with that code. Codes are eight characters; the tournament must exist and still have seats."
+            return false
+        }
+        guard tournament.status == .open else { lastError = "That tournament has already started."; return false }
+        await join(tournament)
+        return true
     }
 
     func join(_ tournament: ChessTournament) async {

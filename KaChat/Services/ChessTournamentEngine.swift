@@ -25,7 +25,9 @@ enum ChessTournamentEngine {
         let message = event.message
         switch message.a {
         case "create":
-            guard tournaments[message.t] == nil else { return }
+            // Public rooms are never created by message, and a private one needs the creator key.
+            guard tournaments[message.t] == nil, !ChessTournamentCodec.isPublic(message.t),
+                  ChessTournamentCodec.isValidCreateKey(message.k, id: message.t) else { return }
             var tournament = ChessTournament(
                 id: message.t,
                 name: (message.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Tournament" : String((message.name ?? "").prefix(ChessTournamentCodec.nameMaxLength)),
@@ -36,6 +38,16 @@ enum ChessTournamentEngine {
             tournament.players = [event.sender]
             tournaments[message.t] = tournament
         case "join":
+            if tournaments[message.t] == nil, let number = ChessTournamentCodec.publicNumber(of: message.t) {
+                // The first join opens a public room - but only the NEXT one in the sequence,
+                // once the previous is full, so everyone queues into the same room.
+                let previousFull = number == 1 || (tournaments[ChessTournamentCodec.publicId(number - 1)]?.isFull ?? false)
+                guard previousFull else { return }
+                tournaments[message.t] = ChessTournament(
+                    id: message.t, name: "Public tournament #\(number)", creator: event.sender,
+                    createdAt: event.blockTime, createTxId: event.txId
+                )
+            }
             guard var tournament = tournaments[message.t], tournament.status == .open,
                   !tournament.players.contains(event.sender) else { return }
             tournament.players.append(event.sender)
@@ -45,7 +57,7 @@ enum ChessTournamentEngine {
             tournaments[message.t] = tournament
         case "cancel":
             guard var tournament = tournaments[message.t], tournament.status == .open,
-                  tournament.creator == event.sender else { return }
+                  !tournament.isPublic, tournament.creator == event.sender else { return }
             tournament.cancelled = true
             tournaments[message.t] = tournament
         case "move":

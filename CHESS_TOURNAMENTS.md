@@ -26,15 +26,31 @@ tournament id (a lowercase UUID chosen by the creator).
 
 | `a` | Fields | Meaning |
 |---|---|---|
-| `create` | `t`, `name` (≤ 40 chars) | Opens a tournament. The creator is player 1. |
-| `join` | `t` | Takes a seat. The first eight distinct addresses (creator included) are the players; later joins are ignored. |
-| `cancel` | `t` | Creator only, before the eighth join: the tournament is withdrawn. |
+| `create` | `t`, `name` (≤ 40 chars), `k` | Opens a private tournament (§2.1). The creator is player 1. |
+| `join` | `t` | Takes a seat (and opens a public room, §2.1). The first eight distinct addresses are the players; later joins are ignored. |
+| `cancel` | `t` | Private only, creator only, before the eighth join: the tournament is withdrawn. |
 | `move` | `t`, `g`, `n`, `from`, `to`, `promo`? | A move in game `g` (`"<round>-<index>"`, e.g. `"1-3"`), `n` = the ply number (1 = white's first move), squares in algebraic (`e2`), `promo` in `q r b n`. |
 | `resign` | `t`, `g` | The sender resigns game `g`. |
 | `claim` | `t`, `g` | The sender claims game `g` on time: the opponent's clock had run out (§4). |
 | `chat` | `t`, `g`, `text` (≤ 280) | A line under the board of game `g` (`g` may be `""` for the tournament lobby). |
 
 Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from":"e2","to":"e4"}`
+
+### 2.1 Public rooms and private tournaments
+
+- **Public rooms** are numbered `public-1`, `public-2`, ... and nobody creates them: the first
+  `join` to a room opens it, and the app shows "Public tournament #N" with its seats at all
+  times. Exactly one is taking players: a `join` to room N is accepted only when room N-1 is
+  full (or N = 1), so everyone queues into the same room and the moment it fills - which is the
+  moment it starts - the next one opens. A `join` that arrives after the last seat went is
+  ignored, and the app re-joins the next room by itself. Public rooms cannot be cancelled.
+- **Private tournaments** are for friends. `create` needs `k` = first 24 hex chars of
+  SHA-256(`CODE:id`), where CODE is the creator code (upper-cased, trimmed; `KACHAT-CHESS`
+  as shipped - change `ChessTournamentCodec.privateCreateCode` on every platform to rotate
+  it) and `id` is the tournament's eight-character id (`a-z 2-9`, no confusable letters).
+  A `create` with a wrong or missing `k` is ignored by everyone. The id is the code the
+  creator shares; `join` with it takes a seat. Private tournaments are listed only to their
+  players.
 
 ## 3. Bracket
 
@@ -71,9 +87,9 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
 
 ## 5. Spectating and the lobby
 
-- The lobby lists every tournament in the last 30 days of `#chess-arena`: open (fewer than
-  eight players), in play, finished. Anyone can open a tournament and watch any game live,
-  since all games are the same public stream.
+- The lobby shows the public room taking players, the player's own private tournaments,
+  public tournaments in play and recently finished. Anyone can open a public tournament and
+  watch any game live, since all games are the same public stream.
 - A winner waiting for the next round can watch the other game of their pair; the moment it
   ends their game exists (§3) and their screen switches to it.
 

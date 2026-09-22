@@ -155,9 +155,26 @@ struct ChessTournamentView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
-                } else if tournament.creator == me {
+                } else if tournament.creator == me, !tournament.isPublic {
                     Button("Cancel tournament", role: .destructive) { showCancelConfirm = true }
                         .font(.subheadline)
+                }
+                if !tournament.isPublic {
+                    HStack(spacing: 8) {
+                        Text("Code: \(tournament.id)")
+                            .font(.subheadline.monospaced().weight(.semibold))
+                        Spacer()
+                        Button {
+                            UIPasteboard.general.string = tournament.id
+                            Haptics.success()
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc").font(.caption.weight(.semibold))
+                        }
+                        ShareLink(item: "Join my KaChat chess tournament: open Kaspa Hub > Chess > Join with a code, and enter \(tournament.id)") {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                    }
+                    .padding(.top, 4)
                 }
             }
         case .live:
