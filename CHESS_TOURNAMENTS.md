@@ -113,7 +113,13 @@ fewest losses breaking ties. For the full history the KaChat broadcast indexer m
 
 1. **Track `chess-arena`** like the curated rooms (30-day history served by `/get-broadcasts`),
    so a phone that opens Chess sees every tournament of the last month, not only what it
-   scanned itself.
+   scanned itself. **This one is a config change, and it is what makes two phones find each
+   other:** add the channel to the broadcast indexer's allowlist -
+   `CHANNELS: "kaspa,kachat-bugs,chess-arena"` in its `docker-compose.yml` - and restart it.
+   The app already polls `/get-broadcasts?channel=chess-arena` every 8 s while Chess is open
+   and merges what comes back. Without it a phone only learns of a join or a move it
+   happened to scan live from a block, so the other player's join is missed whenever the
+   phone was locked, reconnecting, or not yet on the Chess screen when it landed.
 2. **Serve `GET /chess/leaderboard?limit=100`** →
    `{"players":[{"address":"kaspa:…","wins":12,"losses":4,"tournamentsPlayed":5,"tournamentsWon":2,"lastPlayedAt":<ms>}], "generatedAt":<ms>}`,
    sorted by `wins` desc, then `losses` asc. Computed by replaying the arena with the
