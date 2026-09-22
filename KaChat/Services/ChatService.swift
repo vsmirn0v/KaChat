@@ -212,6 +212,9 @@ final class ChatService: ObservableObject {
     // default unless explicitly marked `nonisolated` too.
     nonisolated static let inMemoryConversationWindowSize = 160
 
+    /// The background load of the open chat's whole history (see `loadFullHistory`).
+    var fullHistoryLoadTask: Task<Void, Never>?
+
     /// Whether the app posts its OWN banners for the messages, group traffic, broadcasts and
     /// KaPosts activity it discovers itself - through the UTXO subscription, the sweep, the
     /// open-chat poll, background fetch, or a silent push.

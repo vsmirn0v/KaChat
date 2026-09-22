@@ -13,6 +13,7 @@ extension ChatService {
         activeConversationAddress = address
         AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
         startActiveChatPoll(for: address)
+        loadFullHistory(for: address)
         // Straight away, not on the poll's first tick two seconds out: a chat opened from a
         // tapped notification showed its stored history and nothing newer until the reader
         // left and came back. The tapped push's own message lands through the push handler;
@@ -49,6 +50,27 @@ extension ChatService {
     /// reads and decrypt work off the main actor. The final in-memory merge still happens on
     /// the main actor for published state consistency.
     @discardableResult
+    /// Pulls the whole stored history of the open chat into memory, page after page, in the
+    /// background. The list then only ever grows its rendered window over messages already in
+    /// memory - scrolling up never waits on a store read, and the top of the chat is there
+    /// the moment the reader reaches it. The open conversation is exempt from the memory trim
+    /// (see `trimMessagesForMemory`'s callers), so what is loaded here stays until the chat is
+    /// left, when `leaveConversation`'s normal trim lets it go again.
+    private func loadFullHistory(for address: String) {
+        fullHistoryLoadTask?.cancel()
+        fullHistoryLoadTask = Task { @MainActor [weak self] in
+            var pages = 0
+            while let self, !Task.isCancelled, self.activeConversationAddress == address, pages < 400 {
+                let loaded = await self.loadOlderMessagesPageAsync(for: address, pageSize: 500)
+                if loaded == 0 { break }
+                pages += 1
+                // A breath between pages: the merge publishes the conversation each time, and
+                // the reader is scrolling this very list.
+                try? await Task.sleep(nanoseconds: 40_000_000)
+            }
+        }
+    }
+
     func loadOlderMessagesPageAsync(for contactAddress: String, pageSize: Int) async -> Int {
         guard pageSize > 0 else { return 0 }
         guard !olderHistoryExhaustedContacts.contains(contactAddress) else { return 0 }
@@ -119,6 +141,8 @@ extension ChatService {
         }
         activeChatPollTask?.cancel()
         activeChatPollTask = nil
+        fullHistoryLoadTask?.cancel()
+        fullHistoryLoadTask = nil
         activeConversationAddress = nil
         AppLog.log("[ChatService] Left conversation")
     }
