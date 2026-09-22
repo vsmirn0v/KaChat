@@ -15,7 +15,21 @@ struct BroadcastListView: View {
     @State private var joinFieldText = ""
     @FocusState private var joinFieldFocused: Bool
     @State private var joinError: String?
-    @State private var selectedChannel: String?
+    @State private var ownSelectedChannel: String?
+    /// When embedded in the Chats screen, the room selection lives THERE - the paged TabView
+    /// this list sits in is a lazy container, and a navigation destination declared inside
+    /// one is ignored (SwiftUI warns, and will drop it in a future release). The Chats screen
+    /// owns the binding and declares the destination beside its chat and group ones.
+    private var externalSelection: Binding<String?>?
+    private var selectedChannel: String? {
+        get { externalSelection?.wrappedValue ?? ownSelectedChannel }
+        nonmutating set {
+            if let externalSelection { externalSelection.wrappedValue = newValue } else { _ownSelectedChannel.wrappedValue = newValue }
+        }
+    }
+    private var selectedChannelBinding: Binding<String?> {
+        externalSelection ?? $ownSelectedChannel
+    }
     @State private var channelToLeave: String?
     /// The room whose long-press half sheet is up.
     @State private var roomActionTarget: String?
@@ -26,9 +40,10 @@ struct BroadcastListView: View {
     /// user's own channels under a wall of list.
     @State private var languagesExpanded = false
 
-    init(initialChannel: String? = nil, embeddedInChats: Bool = false) {
+    init(initialChannel: String? = nil, embeddedInChats: Bool = false, selection: Binding<String?>? = nil) {
         self.embeddedInChats = embeddedInChats
         self.initialChannel = initialChannel
+        self.externalSelection = selection
     }
 
     var body: some View {
@@ -41,8 +56,13 @@ struct BroadcastListView: View {
                     broadcastListContent
                 }
             case .navigationDestination:
-                broadcastListContent
-                    .modifier(BroadcastChannelDestination(selectedChannel: $selectedChannel))
+                if externalSelection != nil {
+                    // The host declares the destination (see `externalSelection`).
+                    broadcastListContent
+                } else {
+                    broadcastListContent
+                        .modifier(BroadcastChannelDestination(selectedChannel: selectedChannelBinding))
+                }
             }
         }
         .onAppear {
@@ -495,7 +515,7 @@ private func glassBackground(cornerRadius: CGFloat) -> some View {
 /// inert until the list view is torn down and recreated. Binding directly to the optional item is
 /// the API SwiftUI provides specifically for this swap; iOS 16 falls back to the older, slightly
 /// more race-prone pattern since `item:` isn't available there.
-private struct BroadcastChannelDestination: ViewModifier {
+struct BroadcastChannelDestination: ViewModifier {
     @Binding var selectedChannel: String?
 
     func body(content: Content) -> some View {

@@ -11,6 +11,8 @@ struct ChatListView: View {
     /// Observed for the Public Chats tab's unread badge.
     @ObservedObject private var publicChats = BroadcastService.shared
     @State private var showPublicChatsSettings = false
+    /// The public room open on top of this list (see BroadcastListView.externalSelection).
+    @State private var selectedPublicRoom: String?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     enum ChatsListTab: Int, CaseIterable {
@@ -86,6 +88,7 @@ struct ChatListView: View {
                             startInPaymentMode: selectedContactStartInPaymentMode
                         ))
                         .modifier(GroupChatDetailNavigationDestination(selectedGroup: $selectedGroup))
+                        .modifier(BroadcastChannelDestination(selectedChannel: $selectedPublicRoom))
                 }
             }
         }
@@ -294,8 +297,9 @@ struct ChatListView: View {
                     .tag(ChatsListTab.chats)
                 groupsTabContent
                     .tag(ChatsListTab.groups)
-                // The broadcast rooms screen, whole, as the third page.
-                BroadcastListView(embeddedInChats: true)
+                // The broadcast rooms screen, whole, as the third page. Its room selection is
+                // ours: the destination has to be declared outside this (lazy) TabView.
+                BroadcastListView(embeddedInChats: true, selection: $selectedPublicRoom)
                     .tag(ChatsListTab.publicChats)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
