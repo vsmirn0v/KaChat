@@ -793,11 +793,47 @@ actor LinkPreviewService {
                 return nil
             }
 
-            return parse(html: html, url: url)
+            let parsed = parse(html: html, url: url)
+            if let host = url.host?.lowercased(), Self.metaScrapeHosts.contains(host), host.contains("instagram") {
+                return Self.instagramFallback(for: url, scraped: parsed)
+            }
+            return parsed
         } catch {
             AppLog.log("[LinkPreview] fetch failed for %@: %@", url.absoluteString, error.localizedDescription)
+            if let host = url.host?.lowercased(), host.contains("instagram") {
+                return Self.instagramFallback(for: url, scraped: nil)
+            }
             return nil
         }
+    }
+
+    /// Instagram stopped serving Open Graph data - title, description and above all
+    /// `og:image` - to anyone not logged in, whatever the User-Agent (checked 2026-09-22 with a
+    /// browser UA, Meta's own crawler UA and Twitterbot: every post, reel and profile page
+    /// comes back as a bare "Instagram" shell, and the oEmbed endpoint now needs a Meta API
+    /// token). So an Instagram link cannot show the post's picture without a logged-in
+    /// session. Rather than an empty image box, the card names what the link is from the URL
+    /// itself: the account, and whether it is a post, a reel or a profile.
+    private static func instagramFallback(for url: URL, scraped: LinkPreviewData?) -> LinkPreviewData? {
+        if let scraped, scraped.imageURLString != nil { return scraped }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        let title: String
+        let description: String
+        switch parts.first?.lowercased() {
+        case "p": title = "Instagram post"; description = "Open in Instagram to see the post."
+        case "reel", "reels": title = "Instagram reel"; description = "Open in Instagram to watch the reel."
+        case "stories": title = "Instagram story"; description = "Open in Instagram to see the story."
+        case let handle? where !handle.isEmpty && !["explore", "accounts", "direct"].contains(handle):
+            title = "@\(handle) on Instagram"; description = "Open in Instagram to see the profile."
+        default: title = "Instagram"; description = "Open in Instagram."
+        }
+        return LinkPreviewData(
+            url: url,
+            title: scraped?.title.flatMap { $0 == "Instagram" ? nil : $0 } ?? title,
+            description: scraped?.description ?? description,
+            imageURLString: nil,
+            siteName: "Instagram"
+        )
     }
 
     private struct YouTubeOEmbedResponse: Decodable {

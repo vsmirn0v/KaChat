@@ -84,9 +84,10 @@ final class GlobalNotificationCenter: ObservableObject {
     func reload() {
         if let data = UserDefaults.standard.data(forKey: entriesKey),
            let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
-            // Drops KaPosts rows an earlier build persisted. They live in KaPosts' own bell now,
-            // and leaving them would keep the profile bell double-counting until they aged out.
-            let kept = decoded.filter { $0.source != .kaposts }
+            // Drops KaPosts rows an earlier build persisted (they live in KaPosts' own bell now)
+            // and broadcast rows (public rooms live in the Chats tab now); leaving either would
+            // keep the profile bell double-counting until they aged out.
+            let kept = decoded.filter { $0.source != .kaposts && $0.source != .broadcast }
             entries = kept
             if kept.count != decoded.count { persist() }
         } else {
@@ -145,18 +146,10 @@ final class GlobalNotificationCenter: ObservableObject {
 
     // MARK: - Broadcasts (called from BroadcastService on merged rows)
 
-    func recordBroadcastIfLive(channel: String, senderAddress: String, content: String, txId: String, blockTime: Int64) {
-        guard blockTime >= Self.sessionStartMs,
-              senderAddress != WalletManager.shared.currentWallet?.publicAddress else { return }
-        record(
-            id: "broadcast-\(txId)",
-            source: .broadcast,
-            title: "\(displayName(for: senderAddress)) in #\(channel)",
-            body: String(content.prefix(90)),
-            timestamp: blockTime,
-            targetId: channel
-        )
-    }
+    /// Public rooms live in the Chats tab now, with their own unread counts and long-press
+    /// controls, so their messages no longer go through the bell. Kept as a no-op for the
+    /// call site; rows an older build recorded are dropped on load (see `load`).
+    func recordBroadcastIfLive(channel: String, senderAddress: String, content: String, txId: String, blockTime: Int64) {}
 
     // MARK: - KaPosts poll
 
@@ -258,7 +251,7 @@ struct GlobalNotificationListView: View {
                             .foregroundColor(.secondary)
                         Text("No notifications yet")
                             .font(.headline)
-                        Text("KaPosts activity, group @mentions, and live broadcast messages show up here.")
+                        Text("KaPosts activity, group @mentions, and Kaspa arriving in your wallets show up here.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
