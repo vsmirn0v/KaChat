@@ -9,8 +9,9 @@ struct ChessTournamentView: View {
     @EnvironmentObject private var walletManager: WalletManager
     @State private var openGameId: String?
     @State private var autoOpenedGameId: String?
-    @State private var chatText = ""
     @State private var isJoining = false
+    @State private var isLeaving = false
+    @Environment(\.dismiss) private var dismiss
     @State private var showCancelConfirm = false
 
     private var tournament: ChessTournament? { service.tournaments[tournamentId] }
@@ -93,29 +94,6 @@ struct ChessTournamentView: View {
                     }
                 }
             }
-            Section("Lobby chat") {
-                let lines = tournament.chat.filter { $0.game.isEmpty }.suffix(50)
-                if lines.isEmpty {
-                    Text("Say hello.").font(.subheadline).foregroundColor(.secondary)
-                }
-                ForEach(Array(lines)) { line in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(name(for: line.sender)).font(.caption.weight(.semibold)).foregroundColor(.secondary)
-                        Text(line.text).font(.subheadline)
-                    }
-                }
-                HStack(spacing: 8) {
-                    TextField("Message (one transaction)", text: $chatText)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { sendChat(tournament) }
-                    Button {
-                        sendChat(tournament)
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.title2)
-                    }
-                    .disabled(chatText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
         }
         .listStyle(.insetGrouped)
         .confirmationDialog("Cancel this tournament?", isPresented: $showCancelConfirm, titleVisibility: .visible) {
@@ -127,12 +105,6 @@ struct ChessTournamentView: View {
         .toast(message: service.lastError, style: .error)
     }
 
-    private func sendChat(_ tournament: ChessTournament) {
-        let text = chatText
-        chatText = ""
-        Task { await service.sendChat(text, tournament: tournament, game: nil) }
-    }
-
     @ViewBuilder
     private func statusRow(_ tournament: ChessTournament) -> some View {
         switch tournament.status {
@@ -142,7 +114,26 @@ struct ChessTournamentView: View {
                      ? "Waiting for your opponent. The game starts by itself when they join."
                      : "Waiting for \(tournament.seatsLeft) more player\(tournament.seatsLeft == 1 ? "" : "s"). It starts by itself when the eighth joins.")
                     .font(.subheadline)
-                if let me, !tournament.players.contains(me) {
+                if let me, tournament.players.contains(me) {
+                    Button {
+                        guard !isLeaving else { return }
+                        isLeaving = true
+                        Task {
+                            await service.leave(tournament)
+                            isLeaving = false
+                            dismiss()
+                        }
+                    } label: {
+                        Text(isLeaving ? "Leaving…" : "Leave (one transaction)")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.secondary.opacity(0.15))
+                            .foregroundColor(.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                } else if let me, !tournament.players.contains(me) {
                     Button {
                         guard !isJoining else { return }
                         isJoining = true
@@ -157,7 +148,8 @@ struct ChessTournamentView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
-                } else if tournament.creator == me, !tournament.isPublic {
+                }
+                if tournament.creator == me, !tournament.isPublic {
                     Button("Cancel tournament", role: .destructive) { showCancelConfirm = true }
                         .font(.subheadline)
                 }

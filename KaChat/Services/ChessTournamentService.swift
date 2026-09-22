@@ -218,6 +218,13 @@ final class ChessTournamentService: ObservableObject {
         _ = await send(ChessTournamentCodec.join(id: tournament.id))
     }
 
+    /// Gives the seat back while the room is still waiting (one transaction).
+    func leave(_ tournament: ChessTournament) async {
+        guard let me = myAddress, tournament.status == .open, tournament.players.contains(me) else { return }
+        queuedPublicRoomId = nil
+        _ = await send(ChessTournamentCodec.leave(id: tournament.id))
+    }
+
     func cancel(_ tournament: ChessTournament) async {
         guard tournament.creator == myAddress, tournament.status == .open else { return }
         _ = await send(ChessTournamentCodec.cancel(id: tournament.id))

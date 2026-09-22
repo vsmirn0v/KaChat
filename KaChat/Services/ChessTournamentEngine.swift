@@ -68,6 +68,13 @@ enum ChessTournamentEngine {
                 start(&tournament, at: event.blockTime)
             }
             tournaments[message.t] = tournament
+        case "leave":
+            // A seat given back while the room is still waiting. Once it has started there is
+            // no leaving - only resigning the game.
+            guard var tournament = tournaments[message.t], tournament.status == .open,
+                  let index = tournament.players.firstIndex(of: event.sender) else { return }
+            tournament.players.remove(at: index)
+            tournaments[message.t] = tournament
         case "cancel":
             guard var tournament = tournaments[message.t], tournament.status == .open,
                   !tournament.isPublic, tournament.creator == event.sender else { return }

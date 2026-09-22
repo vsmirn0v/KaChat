@@ -101,6 +101,7 @@ enum ChessTournamentCodec {
         ChessTournamentMessage(t: id, a: "create", name: String(name.prefix(nameMaxLength)), p: 2)
     }
     static func join(id: String) -> ChessTournamentMessage { ChessTournamentMessage(t: id, a: "join") }
+    static func leave(id: String) -> ChessTournamentMessage { ChessTournamentMessage(t: id, a: "leave") }
     static func cancel(id: String) -> ChessTournamentMessage { ChessTournamentMessage(t: id, a: "cancel") }
     static func move(id: String, game: String, ply: Int, from: String, to: String, promotion: String?) -> ChessTournamentMessage {
         ChessTournamentMessage(t: id, a: "move", g: game, n: ply, from: from, to: to, promo: promotion)
