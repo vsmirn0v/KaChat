@@ -2703,6 +2703,14 @@ private struct SpendingAddressTransactionHistoryView: View {
                         .fontWeight(.semibold)
                         .foregroundColor(info.isOutgoing ? .red : .green)
                 }
+                // The network fee this transaction paid (inputs minus outputs). Every
+                // transaction has one, whoever sent it; on a received one it is what the
+                // sender paid.
+                if let fee = tx.feeText() {
+                    Text(fee)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
                 Image(systemName: "arrow.up.right.square")
                     .font(.caption)
                     .foregroundColor(.accentColor)

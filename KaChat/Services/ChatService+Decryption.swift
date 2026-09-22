@@ -621,6 +621,28 @@ extension KaspaFullTransactionResponse {
     /// usually the actual payment; change back to the sender is usually larger). Returns nil for
     /// a transaction with no clear relevance to `address` at all (shouldn't normally occur for a
     /// transaction that was fetched for this exact address in the first place).
+    /// The transaction's fee: inputs minus outputs. Known only when the API resolved every
+    /// input's amount (`resolve_previous_outpoints=light`, which the history fetches ask for);
+    /// nil for a coinbase or when an input amount is missing.
+    var feeSompi: UInt64? {
+        guard let inputs, !inputs.isEmpty else { return nil }
+        var totalIn: UInt64 = 0
+        for input in inputs {
+            guard let amount = input.previousOutpointAmount else { return nil }
+            totalIn += amount
+        }
+        let totalOut = outputs.reduce(UInt64(0)) { $0 + $1.amount }
+        return totalIn >= totalOut ? totalIn - totalOut : nil
+    }
+
+    /// "Fee 0.0001 KAS" for a history row, or nil when the fee cannot be known.
+    func feeText() -> String? {
+        guard let fee = feeSompi else { return nil }
+        let kas = Double(fee) / 100_000_000.0
+        let text = kas >= 0.001 ? String(format: "%.4f", kas) : String(format: "%.8f", kas)
+        return "Fee \(text) KAS"
+    }
+
     func direction(for address: String) -> (isOutgoing: Bool, amountSompi: UInt64)? {
         let weAreSender = (inputs ?? []).contains { $0.previousOutpointAddress == address }
 

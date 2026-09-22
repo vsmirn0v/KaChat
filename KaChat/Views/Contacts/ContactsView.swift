@@ -4097,6 +4097,12 @@ struct ChattingAddressManageView: View {
                         .fontWeight(.semibold)
                         .foregroundColor(info.isOutgoing ? .red : .green)
                 }
+                // The network fee this transaction paid (inputs minus outputs).
+                if let fee = tx.feeText() {
+                    Text(fee)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
                 Image(systemName: "arrow.up.right.square")
                     .font(.caption)
                     .foregroundColor(.accentColor)
