@@ -30,16 +30,21 @@ struct ChessTournamentsView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("", selection: $mode) {
-                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                // The same underline tab bar the Chats screen uses (see chatsTopTabBar there),
+                // so a tab is a tab wherever it appears in the app.
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        ForEach(Mode.allCases) { tabButton($0) }
+                    }
+                    Divider()
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+                .gesture(tabSwipe())
                 List {
                     if mode == .duel { duelSections } else { tournamentSections }
                 }
                 .listStyle(.insetGrouped)
+                .gesture(tabSwipe())
             }
             .navigationTitle("Chess")
             .navigationBarTitleDisplayMode(.inline)
@@ -111,6 +116,38 @@ struct ChessTournamentsView: View {
             .onAppear { service.acquire() }
             .onDisappear { service.release() }
         }
+    }
+
+    private func tabButton(_ tab: Mode) -> some View {
+        let isSelected = mode == tab
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) { mode = tab }
+        } label: {
+            VStack(spacing: 8) {
+                Text(tab.rawValue)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
+                Rectangle()
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .frame(height: 2.5)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Swipe between the two tabs, as on the Chats screen.
+    private func tabSwipe() -> some Gesture {
+        DragGesture(minimumDistance: 25, coordinateSpace: .global)
+            .onEnded { value in
+                let dx = value.translation.width, dy = value.translation.height
+                guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    if dx < 0, mode == .duel { mode = .tournament }
+                    else if dx > 0, mode == .tournament { mode = .duel }
+                }
+            }
     }
 
     // MARK: - 1v1
