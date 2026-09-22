@@ -68,6 +68,12 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
   later of its two feeding games.
 - **Colours:** in round 1 the lower seed is white. Afterwards, the player who has had white
   fewer times in this tournament is white; if equal, the lower seed.
+- **Seats expire.** A seat in a waiting room lasts five minutes from the join. A room that
+  has not filled by then has lost that seat: at the next `join` to the room, every phone first
+  drops seats older than five minutes (judged at that join's block time), then seats the
+  joiner. So a player who closed the app, or walked away, is out of the queue by themselves
+  - no message needed - and a room can never fill with players who left long ago. The app
+  shows the time a seat is held for, and the lobby counts only live seats.
 - A game with no message from one player is still a game: its clock runs from the start
   (§4). There is no "waiting for both players": if you are not there, you lose on time.
 

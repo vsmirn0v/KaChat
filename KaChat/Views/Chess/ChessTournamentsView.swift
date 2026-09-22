@@ -251,8 +251,9 @@ struct ChessTournamentsView: View {
 
     /// The one public room taking players: its seats, and Join - or where you already are.
     private func publicRoomCard(room: ChessTournament?, id: String, title: String, capacity: Int, join: @escaping () async -> Void) -> some View {
-        let count = room?.players.count ?? 0
-        let inThisRoom = me.map { room?.players.contains($0) ?? false } ?? false
+        let seated = room?.seatedPlayers(at: service.now) ?? []
+        let count = seated.count
+        let inThisRoom = me.map { seated.contains($0) } ?? false
         let busyElsewhere = service.myActiveTournament != nil && !inThisRoom
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
@@ -274,7 +275,13 @@ struct ChessTournamentsView: View {
                 }
             }
             if inThisRoom, let room {
-                pill("You're in. Waiting for \(room.seatsLeft) more…", filled: false) { openTournamentId = room.id }
+                pill("You're in. Waiting for \(max(0, capacity - count)) more…", filled: false) { openTournamentId = room.id }
+                if let me, let expiry = room.seatExpiry(of: me) {
+                    let left = max(0, Int((expiry - service.now) / 1000))
+                    Text("Your seat is held for \(left / 60):\(String(format: "%02d", left % 60)). If the room hasn't filled by then, you're out of the queue.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             } else if let mine = service.myActiveTournament, busyElsewhere {
                 pill(mine.status == .open ? "You're waiting in \(mine.name)" : "You're playing in \(mine.name)", filled: false) { openTournamentId = mine.id }
             } else {

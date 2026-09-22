@@ -33,6 +33,9 @@ enum ChessTournamentCodec {
     static let arenaChannel = "chess-arena"
     static let playerCount = 8
     static let clockMs: Int64 = 5 * 60 * 1000
+    /// A seat in a waiting room lasts this long: if the room has not filled by then, the seat
+    /// expires and the player is out of the queue - with the app closed, on a walk, whatever.
+    static let seatTTLMs: Int64 = 5 * 60 * 1000
     static let nameMaxLength = 40
     static let chatMaxLength = 280
 
@@ -211,6 +214,8 @@ struct ChessTournament: Identifiable, Equatable {
     let capacity: Int
     /// Seat order: index 0 is seed 1 (the creator).
     var players: [String] = []
+    /// Block time each seated player took their seat (for seat expiry while waiting).
+    var joinedAt: [String: Int64] = [:]
     var startedAt: Int64?
     var cancelled = false
     var games: [String: ChessTournamentGame] = [:]
@@ -229,6 +234,20 @@ struct ChessTournament: Identifiable, Equatable {
     }
     var champion: String? { games[finalGameId]?.winner }
     var seatsLeft: Int { max(0, capacity - players.count) }
+
+    /// The players whose seats are still good at `now` (chain or wall time): while a room
+    /// waits, a seat older than `seatTTLMs` has expired. Once the room has started every
+    /// player stays.
+    func seatedPlayers(at now: Int64) -> [String] {
+        guard status == .open else { return players }
+        return players.filter { (joinedAt[$0] ?? createdAt) + ChessTournamentCodec.seatTTLMs > now }
+    }
+    func isSeated(_ address: String, at now: Int64) -> Bool { seatedPlayers(at: now).contains(address) }
+    /// When `address`'s seat runs out, while waiting.
+    func seatExpiry(of address: String) -> Int64? {
+        guard status == .open, players.contains(address) else { return nil }
+        return (joinedAt[address] ?? createdAt) + ChessTournamentCodec.seatTTLMs
+    }
     var isPublic: Bool { ChessTournamentCodec.isPublic(id) }
     var isFull: Bool { players.count >= capacity }
 

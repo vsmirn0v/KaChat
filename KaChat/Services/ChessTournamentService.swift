@@ -24,7 +24,6 @@ final class ChessTournamentService: ObservableObject {
     private var arenaJoined = false
     /// Claims already posted for a game - one is enough; the chain confirms it.
     private var claimedGames: Set<String> = []
-    private var lastReducedRowCount = -1
 
     private init() {
         BroadcastService.shared.$messagesByChannel
@@ -69,8 +68,10 @@ final class ChessTournamentService: ObservableObject {
     }
 
     private func reduce(_ rows: [BroadcastMessage]) {
-        guard rows.count != lastReducedRowCount || tournaments.isEmpty else { return }
-        lastReducedRowCount = rows.count
+        // Every change, not only a change in row COUNT: our own sends replace a pending row in
+        // place when the transaction lands, so the count stays the same - and a count guard
+        // here left a player's own leave (and moves) unapplied until the next unrelated row or
+        // a relaunch. The publisher already drops identical arrays.
         let events: [ChessArenaEvent] = rows.compactMap { row in
             guard row.deliveryStatus == .sent, !row.id.hasPrefix("pending_"),
                   let message = ChessTournamentCodec.decode(row.content) else { return nil }
@@ -147,11 +148,12 @@ final class ChessTournamentService: ObservableObject {
         tournaments.values.filter { $0.status == .finished }.sorted { ($0.startedAt ?? 0) > ($1.startedAt ?? 0) }
     }
 
-    /// The tournament this player is in that is not over, if any.
+    /// The tournament this player is in that is not over, if any. A waiting seat that has
+    /// expired does not count: the player is free to join elsewhere.
     var myActiveTournament: ChessTournament? {
         guard let me = myAddress else { return nil }
         return tournaments.values
-            .filter { ($0.status == .open || $0.status == .live) && $0.players.contains(me) }
+            .filter { ($0.status == .live && $0.players.contains(me)) || ($0.status == .open && $0.isSeated(me, at: now)) }
             .sorted { $0.createdAt > $1.createdAt }
             .first
     }

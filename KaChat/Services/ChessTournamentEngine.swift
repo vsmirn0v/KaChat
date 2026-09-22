@@ -40,6 +40,7 @@ enum ChessTournamentEngine {
                 capacity: capacity
             )
             tournament.players = [event.sender]
+            tournament.joinedAt[event.sender] = event.blockTime
             tournaments[message.t] = tournament
         case "join":
             if tournaments[message.t] == nil {
@@ -61,9 +62,14 @@ enum ChessTournamentEngine {
                     )
                 }
             }
-            guard var tournament = tournaments[message.t], tournament.status == .open,
-                  !tournament.players.contains(event.sender) else { return }
+            guard var tournament = tournaments[message.t], tournament.status == .open else { return }
+            // Seats that ran out while the room waited are given back first - so a room can
+            // never fill with players who left long ago, and a returning player takes a fresh
+            // seat. Deterministic: judged at this join's block time, the same on every phone.
+            expireSeats(&tournament, at: event.blockTime)
+            guard !tournament.players.contains(event.sender) else { return }
             tournament.players.append(event.sender)
+            tournament.joinedAt[event.sender] = event.blockTime
             if tournament.players.count == tournament.capacity {
                 start(&tournament, at: event.blockTime)
             }
@@ -74,6 +80,7 @@ enum ChessTournamentEngine {
             guard var tournament = tournaments[message.t], tournament.status == .open,
                   let index = tournament.players.firstIndex(of: event.sender) else { return }
             tournament.players.remove(at: index)
+            tournament.joinedAt[event.sender] = nil
             tournaments[message.t] = tournament
         case "cancel":
             guard var tournament = tournaments[message.t], tournament.status == .open,
@@ -155,6 +162,13 @@ enum ChessTournamentEngine {
         default:
             return
         }
+    }
+
+    private static func expireSeats(_ tournament: inout ChessTournament, at time: Int64) {
+        let kept = tournament.players.filter { (tournament.joinedAt[$0] ?? tournament.createdAt) + ChessTournamentCodec.seatTTLMs > time }
+        guard kept.count != tournament.players.count else { return }
+        for gone in tournament.players where !kept.contains(gone) { tournament.joinedAt[gone] = nil }
+        tournament.players = kept
     }
 
     // MARK: - Bracket

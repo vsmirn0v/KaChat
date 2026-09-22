@@ -70,11 +70,12 @@ struct ChessTournamentView: View {
                 statusRow(tournament)
             }
             if tournament.status == .open {
-                Section("Players (\(tournament.players.count) of \(tournament.capacity))") {
-                    ForEach(Array(tournament.players.enumerated()), id: \.offset) { index, address in
+                let seated = tournament.seatedPlayers(at: service.now)
+                Section("Players (\(seated.count) of \(tournament.capacity))") {
+                    ForEach(Array(seated.enumerated()), id: \.offset) { index, address in
                         playerRow(seed: index + 1, address: address)
                     }
-                    ForEach(0..<tournament.seatsLeft, id: \.self) { _ in
+                    ForEach(0..<max(0, tournament.capacity - seated.count), id: \.self) { _ in
                         HStack(spacing: 12) {
                             Circle().strokeBorder(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4]))
                                 .frame(width: 36, height: 36)
@@ -114,7 +115,13 @@ struct ChessTournamentView: View {
                      ? "Waiting for your opponent. The game starts by itself when they join."
                      : "Waiting for \(tournament.seatsLeft) more player\(tournament.seatsLeft == 1 ? "" : "s"). It starts by itself when the eighth joins.")
                     .font(.subheadline)
-                if let me, tournament.players.contains(me) {
+                if let me, tournament.isSeated(me, at: service.now) {
+                    if let expiry = tournament.seatExpiry(of: me) {
+                        let left = max(0, Int((expiry - service.now) / 1000))
+                        Text("Your seat is held for \(left / 60):\(String(format: "%02d", left % 60)). If the room hasn't filled by then, you're out of the queue - close the app or walk away and it takes care of itself.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                     Button {
                         guard !isLeaving else { return }
                         isLeaving = true
@@ -133,7 +140,7 @@ struct ChessTournamentView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
-                } else if let me, !tournament.players.contains(me) {
+                } else if let me, !tournament.isSeated(me, at: service.now) {
                     Button {
                         guard !isJoining else { return }
                         isJoining = true
