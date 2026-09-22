@@ -1318,8 +1318,11 @@ struct ChatDetailView: View {
     }
 
     private func olderHistoryBatchSize() -> Int {
-        // Larger burst for smoother continuous upward scrolling.
-        max(messagePageSize * 3, 1)
+        // One page per trigger. Three pages at once (the previous burst) meant a 120-row
+        // prepend, whose measurement ran over several frames and stuttered the fling; the
+        // hidden backlog (prefetched pages, see prefetchOlderMessagesIfNeeded) is what keeps
+        // the next trigger free of a store read.
+        max(messagePageSize, 1)
     }
 
     private func nearTopPrefetchThresholdIndex() -> Int {
@@ -1485,16 +1488,6 @@ struct ChatDetailView: View {
         // dropped. On iOS 16 there is no default anchor to lean on, so only skip while the
         // finger is literally down (tracking/dragging) and still restore through deceleration -
         // stopping the fling is the lesser evil there versus losing the reading position.
-        if #available(iOS 17.0, *) {
-            if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
-                pendingPrependViewportSnapshot = nil
-                return true
-            }
-        } else if scrollView.isTracking || scrollView.isDragging {
-            pendingPrependViewportSnapshot = nil
-            return true
-        }
-
         let deltaHeight = scrollView.contentSize.height - snapshot.contentHeight
         // Wait for layout/content size to settle.
         guard abs(deltaHeight) > 0.5 else { return false }
@@ -1512,10 +1505,22 @@ struct ChatDetailView: View {
         return true
     }
 
+    /// Puts the reader back exactly where they were after older rows were added above them.
+    ///
+    /// Works from the scroll view's own numbers (content height before and after, offset before)
+    /// so it is exact to the point, and keeps checking for up to half a second because a big
+    /// prepend into a LazyVStack grows the content over several frames, not one.
+    ///
+    /// There is deliberately NO fallback that scrolls to a message. The old one scrolled to
+    /// `topVisibleMessageId`, which is the FIRST row of the rendered window (it is set from the
+    /// row at index 0), not the row the reader was looking at - so whenever the exact restore
+    /// gave up, the list snapped to the top of everything loaded. That was the "randomly
+    /// spawn at the very top" while scrolling up. If the numbers never settle, leaving the
+    /// offset alone is always better than that.
     private func restoreViewportAfterPrepend(
         using proxy: ScrollViewProxy,
         fallbackAnchorMessageId: UUID?,
-        attemptsLeft: Int = 4
+        attemptsLeft: Int = 30
     ) {
         DispatchQueue.main.async {
             if restoreViewportFromPrependSnapshotIfPossible() {
@@ -1523,10 +1528,9 @@ struct ChatDetailView: View {
             }
             guard attemptsLeft > 0 else {
                 pendingPrependViewportSnapshot = nil
-                preserveViewport(using: proxy, anchorMessageId: fallbackAnchorMessageId)
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) {
                 restoreViewportAfterPrepend(
                     using: proxy,
                     fallbackAnchorMessageId: fallbackAnchorMessageId,
@@ -1628,8 +1632,8 @@ struct ChatDetailView: View {
 
         let batchSize = olderHistoryBatchSize()
         let hiddenBacklog = max(0, messages.count - loadedMessageCount)
-        // Keep 2-3 pages hidden so top-scroll fetches stay invisible.
-        guard hiddenBacklog < (batchSize * 3) else { return }
+        // Keep several pages hidden so a top-scroll trigger is a window move, never a store read.
+        guard hiddenBacklog < (batchSize * 6) else { return }
 
         let now = Date()
         guard now.timeIntervalSince(lastOlderPrefetchAt) > 0.08 else { return }
