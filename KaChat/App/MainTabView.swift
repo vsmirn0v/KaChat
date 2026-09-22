@@ -69,6 +69,8 @@ struct MainTabView: View {
                             // one Label with a varying image rather than two Labels behind an if.
                             if tab.usesKaspaLogo, let logo = Self.dockKaspaLogo {
                                 logo
+                            } else if tab == .chess {
+                                Image(uiImage: ChessTabIcon.image(side: 24))
                             } else {
                                 Image(systemName: tab.icon)
                             }

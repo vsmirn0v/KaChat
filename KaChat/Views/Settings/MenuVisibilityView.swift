@@ -255,6 +255,8 @@ struct MenuVisibilityView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)
+        } else if tab == .chess {
+            ChessTabIcon.view(side: size)
         } else {
             Image(systemName: tab.icon)
                 .font(.system(size: size, weight: .medium))

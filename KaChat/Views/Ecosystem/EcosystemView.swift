@@ -174,6 +174,8 @@ struct EcosystemView: View {
                                     .resizable()
                                     .scaledToFit()
                                     .frame(width: 26, height: 26)
+                            } else if tab == .chess {
+                                ChessTabIcon.view(side: 26)
                             } else {
                                 Image(systemName: tab.icon)
                                     .font(.system(size: 26, weight: .medium))
