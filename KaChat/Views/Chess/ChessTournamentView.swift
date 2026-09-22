@@ -120,7 +120,7 @@ struct ChessTournamentView: View {
                         isJoining = true
                         Task { await service.join(tournament); isJoining = false }
                     } label: {
-                        Text(isJoining ? "Joining…" : "Join (one transaction)")
+                        Text(isJoining ? "Joining…" : service.joinLabel(roomId: tournament.id))
                             .font(.subheadline.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)

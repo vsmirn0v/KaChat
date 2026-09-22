@@ -158,6 +158,28 @@ final class ChessTournamentService: ObservableObject {
             .first
     }
 
+    // MARK: - Fees
+
+    /// What sending `message` costs right now, as "0.00170000 KAS", for a button label. An arena
+    /// message is a fixed-size payload, so this is the same estimate the composer shows while
+    /// typing, without a network round trip (one input, like every arena send).
+    func feeText(for message: ChessTournamentMessage) -> String? {
+        guard let wallet = WalletManager.shared.currentWallet,
+              let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else { return nil }
+        let payload = KasiaTransactionBuilder.buildBroadcastPayload(
+            channel: ChessTournamentCodec.arenaChannel,
+            content: ChessTournamentCodec.encode(message)
+        )
+        let sompi = KasiaTransactionBuilder.estimateBroadcastFee(payload: payload, inputCount: 1, senderScriptPubKey: senderScriptPubKey)
+        return String(format: "%.8f KAS", Double(sompi) / 100_000_000)
+    }
+
+    /// The join button's label: "Join (Fee: 0.00170000 KAS)".
+    func joinLabel(roomId: String) -> String {
+        guard let fee = feeText(for: ChessTournamentCodec.join(id: roomId)) else { return "Join" }
+        return "Join (Fee: \(fee))"
+    }
+
     // MARK: - Actions (each one a broadcast transaction)
 
     /// Joins the public room taking players now. If that room fills before this join lands

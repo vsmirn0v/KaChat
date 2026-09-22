@@ -139,7 +139,7 @@ struct ChessTournamentsView: View {
                     }
                 }
             } message: {
-                Text("The eight-character code the creator shared. Joining is one transaction.")
+                Text("The eight-character code the creator shared. Joining is one transaction (fee: \(service.feeText(for: ChessTournamentCodec.join(id: "abcdefgh")) ?? "--")).")
             }
             .toast(message: service.lastError, style: .error)
             .onAppear { service.acquire() }
@@ -316,7 +316,7 @@ struct ChessTournamentsView: View {
                     if mine.status == .open { waitingRoomId = mine.id } else { openTournamentId = mine.id }
                 }
             } else {
-                pill(isJoining ? "Joining…" : "Join (one transaction)", filled: true) {
+                pill(isJoining ? "Joining…" : service.joinLabel(roomId: id), filled: true) {
                     guard !isJoining else { return }
                     Haptics.impact(.light)
                     isJoining = true
