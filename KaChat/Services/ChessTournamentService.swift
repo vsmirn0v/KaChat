@@ -186,9 +186,22 @@ final class ChessTournamentService: ObservableObject {
     /// Joins the public room taking players now. If that room fills before this join lands
     /// (someone else got the last seat), `reduce` notices and joins the next room.
     func joinPublicQueue() async {
-        guard let me = myAddress, myActiveTournament == nil else { return }
-        let id = currentPublicRoomId
-        if let room = tournaments[id], room.players.contains(me) { return }
+        await joinPublicRoom(id: currentPublicRoomId)
+    }
+
+    /// The seat that ran out is still in `players` until the next join drops it (the engine
+    /// judges that at the join's block time) - so "already in" means seated NOW, never the
+    /// stale list, or a returning player's tap would do nothing at all.
+    private func joinPublicRoom(id: String) async {
+        guard let me = myAddress else { return }
+        if let busy = myActiveTournament {
+            lastError = busy.status == .open ? "You're already waiting in \(busy.name)." : "You're still playing in \(busy.name)."
+            return
+        }
+        if let room = tournaments[id], room.isSeated(me, at: now) {
+            lastError = "You're already in this room."
+            return
+        }
         queuedPublicRoomId = id
         _ = await send(ChessTournamentCodec.join(id: id))
     }
@@ -198,11 +211,7 @@ final class ChessTournamentService: ObservableObject {
 
     /// Joins the public 1v1 room taking players now; same race handling as the tournaments.
     func joinPublicDuelQueue() async {
-        guard let me = myAddress, myActiveTournament == nil else { return }
-        let id = currentDuelRoomId
-        if let room = tournaments[id], room.players.contains(me) { return }
-        queuedPublicRoomId = id
-        _ = await send(ChessTournamentCodec.join(id: id))
+        await joinPublicRoom(id: currentDuelRoomId)
     }
 
     /// A private 1v1 for a friend: no creator code, an eight-character code to share.
@@ -239,13 +248,18 @@ final class ChessTournamentService: ObservableObject {
     }
 
     func join(_ tournament: ChessTournament) async {
-        guard let me = myAddress, !tournament.players.contains(me), tournament.status == .open else { return }
+        guard let me = myAddress, tournament.status == .open else { return }
+        if tournament.isSeated(me, at: now) { lastError = "You're already in this room."; return }
+        if let busy = myActiveTournament, busy.id != tournament.id {
+            lastError = busy.status == .open ? "You're already waiting in \(busy.name)." : "You're still playing in \(busy.name)."
+            return
+        }
         _ = await send(ChessTournamentCodec.join(id: tournament.id))
     }
 
     /// Gives the seat back while the room is still waiting (one transaction).
     func leave(_ tournament: ChessTournament) async {
-        guard let me = myAddress, tournament.status == .open, tournament.players.contains(me) else { return }
+        guard let me = myAddress, tournament.status == .open, tournament.isSeated(me, at: now) else { return }
         queuedPublicRoomId = nil
         _ = await send(ChessTournamentCodec.leave(id: tournament.id))
     }
