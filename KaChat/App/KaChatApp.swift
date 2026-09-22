@@ -120,7 +120,29 @@ struct KaChatApp: App {
             guard let windowScene = scene as? UIWindowScene else { continue }
             for window in windowScene.windows {
                 window.overrideUserInterfaceStyle = style
+                // The tab bar at the bottom kept the OLD theme's colours after a switch until
+                // the app was relaunched: UIKit caches its resolved appearance and does not
+                // re-resolve it for a window override change. Walking the bar and re-applying
+                // the (dynamic-colour) appearance forces the repaint.
+                Self.refreshTabBars(in: window.rootViewController)
             }
+        }
+    }
+
+    private static func refreshTabBars(in root: UIViewController?) {
+        guard let root else { return }
+        var queue: [UIViewController] = [root]
+        while let controller = queue.popLast() {
+            if let tabs = controller as? UITabBarController {
+                let appearance = UITabBarAppearance()
+                appearance.configureWithDefaultBackground()
+                tabs.tabBar.standardAppearance = appearance
+                tabs.tabBar.scrollEdgeAppearance = appearance
+                tabs.tabBar.setNeedsLayout()
+                tabs.tabBar.layoutIfNeeded()
+            }
+            queue.append(contentsOf: controller.children)
+            if let presented = controller.presentedViewController { queue.append(presented) }
         }
     }
 

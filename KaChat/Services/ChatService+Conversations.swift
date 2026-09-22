@@ -13,6 +13,14 @@ extension ChatService {
         activeConversationAddress = address
         AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
         startActiveChatPoll(for: address)
+        // Straight away, not on the poll's first tick two seconds out: a chat opened from a
+        // tapped notification showed its stored history and nothing newer until the reader
+        // left and came back. The tapped push's own message lands through the push handler;
+        // everything else that arrived while the app was away comes from this fetch.
+        Task { [weak self] in
+            guard let self, self.activeConversationAddress == address else { return }
+            await self.fetchNewMessages(forActiveOnly: address)
+        }
         // Nextcloud mirror runs on an adaptive cadence keyed off the open chat; wake its
         // change watcher so this chat picks up other devices' uploads immediately.
         NextcloudService.shared.noteChatOpened()

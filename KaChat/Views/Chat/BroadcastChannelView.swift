@@ -123,8 +123,14 @@ struct BroadcastChannelView: View {
         chrome
         .onAppear {
             broadcastService.acquire(channelName)
+            // What was typed here last time, exactly as 1:1 chats do.
+            if messageText.isEmpty {
+                let saved = ChatService.shared.draft(for: "room:\(BroadcastChannelName.normalize(channelName))")
+                if !saved.isEmpty { messageText = saved }
+            }
         }
         .onDisappear {
+            ChatService.shared.setDraft(messageText, for: "room:\(BroadcastChannelName.normalize(channelName))")
             broadcastService.release(channelName)
         }
         .task {
@@ -1670,7 +1676,7 @@ private struct BroadcastMessageRow: View {
                 )
             } else {
                 bubbleContent(voicePayload: voicePayload)
-                    .background(isOwnMessage ? Color.accentColor : Color(UIColor.secondarySystemBackground))
+                    .background(isOwnMessage ? OutgoingBubble.color : Color(UIColor.secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     // Only the plain bubble gets this menu - `LinkPreviewCardView` carries its
                     // own (Open Link / Copy Link / View in Explorer), and stacking a second

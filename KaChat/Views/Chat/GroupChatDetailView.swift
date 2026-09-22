@@ -785,6 +785,11 @@ struct GroupChatDetailView: View {
         // `scrollToBottom` carries a retry for exactly this kind of timing.
         .task(id: timelineCacheKey) { rebuildTimelineIfNeeded() }
         .task {
+            // What was typed here last time, exactly as 1:1 chats do.
+            if draft.isEmpty {
+                let saved = chatService.draft(for: "group:\(group.id)")
+                if !saved.isEmpty { draft = saved }
+            }
             groupChatService.loadMessages(for: group.id)
             groupChatService.enterGroup(group.id)
             groupChatService.markGroupAsRead(group.id)
@@ -796,6 +801,7 @@ struct GroupChatDetailView: View {
             await knsService.refreshIfNeeded(for: group.members.map(\.address))
         }
         .onDisappear {
+            chatService.setDraft(draft, for: "group:\(group.id)")
             groupChatService.exitGroup()
             // Voice-note playback is owned per bubble; the thread going away is what ends it.
             LazyAudioBubble.stopAllPlayback()
@@ -2297,7 +2303,7 @@ private struct GroupMessageBubbleRow: View {
     /// mirrors `MessageBubbleView`'s identical fix) - matches 1:1 chat's own `linkMenuURL`.
     @State private var linkMenuURL: URL?
 
-    private static let bubbleColor = Color(red: 112.0 / 255.0, green: 199.0 / 255.0, blue: 186.0 / 255.0)
+    private static let bubbleColor = OutgoingBubble.color
 
     /// Same resolution as `GroupChatDetailView.displayName(for:)` - duplicated rather than
     /// threaded down as a closure, matching this file's existing pattern of each row/screen

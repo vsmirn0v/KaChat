@@ -1091,7 +1091,8 @@ final class PushNotificationManager: ObservableObject {
     private var groupCatchUpInFlight = false
     private var groupCatchUpNeedsRerun = false
 
-    private func runGroupCatchUp() async {
+    /// One catch-up at a time; a request during one queues exactly one more.
+    func runGroupCatchUp() async {
         if groupCatchUpInFlight {
             groupCatchUpNeedsRerun = true
             return

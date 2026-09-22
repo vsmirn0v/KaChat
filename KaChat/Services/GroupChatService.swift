@@ -521,6 +521,15 @@ final class GroupChatService: ObservableObject {
     func enterGroup(_ groupId: String) {
         activeGroupId = groupId
         loadGroupReactions(for: groupId)
+        // What arrived while the app was away, now - a thread opened from a tapped
+        // notification used to show its stored history and wait for the next app-active
+        // catch-up for the message the notification was about.
+        Task { [weak self] in
+            guard let self, self.activeGroupId == groupId else { return }
+            // Through the push manager's coalescing gate, so a tapped push (which runs the same
+            // catch-up) and this open never run two full syncs at once.
+            await PushNotificationManager.shared.runGroupCatchUp()
+        }
         // Nextcloud mirror runs on an adaptive cadence keyed off the open chat; wake its
         // change watcher so this thread picks up other devices' uploads immediately.
         NextcloudService.shared.noteChatOpened()

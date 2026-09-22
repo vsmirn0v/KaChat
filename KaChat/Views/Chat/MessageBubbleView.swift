@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 import YbridOpus
 #endif
 
-private let kaspaBubbleColor = Color(red: 112.0 / 255.0, green: 199.0 / 255.0, blue: 186.0 / 255.0)
+private let kaspaBubbleColor = OutgoingBubble.color
 
 struct MessageBubbleView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
