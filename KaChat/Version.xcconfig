@@ -38,9 +38,9 @@
 // for each beta - and plain "5.0" once KACHAT_IS_RELEASE is flipped to YES for the App Store
 // release. Cloud's own number stays in diagnostics archives, where matching the upload matters.
 KACHAT_BUILD_NUMBER = 1
-KACHAT_IS_RELEASE = YES
+KACHAT_IS_RELEASE = NO
 CURRENT_PROJECT_VERSION = 1
-MARKETING_VERSION = 5.0
+MARKETING_VERSION = 5.1
 
 // Required for `agvtool` (used by ci_scripts/ci_pre_xcodebuild.sh) to be able to write
 // CURRENT_PROJECT_VERSION for every target - without this, agvtool fails with "not using
