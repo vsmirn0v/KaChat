@@ -66,6 +66,7 @@ extension AppSettings {
         hideKaPostsTab = overlay.hiddenTabs.contains(AppTab.kaposts.rawValue)
         hideBroadcasts = overlay.hiddenTabs.contains(AppTab.broadcasts.rawValue)
         hideAppsTab = overlay.hiddenTabs.contains(AppTab.apps.rawValue)
+        hideChessTab = overlay.hiddenTabs.contains(AppTab.chess.rawValue)
         hideMoreItem = overlay.hiddenTabs.contains(AppTab.more.rawValue)
     }
 
@@ -81,6 +82,7 @@ extension AppSettings {
         if hideKaPostsTab { hidden.append(AppTab.kaposts.rawValue) }
         if hideBroadcasts { hidden.append(AppTab.broadcasts.rawValue) }
         if hideAppsTab { hidden.append(AppTab.apps.rawValue) }
+        if hideChessTab { hidden.append(AppTab.chess.rawValue) }
         if hideMoreItem { hidden.append(AppTab.more.rawValue) }
         return DockOverlay(tabOrder: tabOrder, hiddenTabs: hidden, dockTabs: dockTabs, hubTabs: hubTabs)
     }

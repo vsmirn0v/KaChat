@@ -195,6 +195,12 @@
 		SPMPB000100010001 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = SPMPB000100010002 /* SwiftProtobuf */; };
 		SPMWEBRTC00010001001 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = SPMWEBRTC00010001003 /* WebRTC */; };
 		SWAP001B0000000000000001 /* SwapModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP001A0000000000000001 /* SwapModels.swift */; };
+		CHS0001B000000000000001 /* ChessTournamentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0001A000000000000001 /* ChessTournamentModels.swift */; };
+		CHS0002B000000000000001 /* ChessTournamentEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0002A000000000000001 /* ChessTournamentEngine.swift */; };
+		CHS0003B000000000000001 /* ChessTournamentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0003A000000000000001 /* ChessTournamentService.swift */; };
+		CHS0004B000000000000001 /* ChessTournamentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0004A000000000000001 /* ChessTournamentsView.swift */; };
+		CHS0005B000000000000001 /* ChessTournamentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0005A000000000000001 /* ChessTournamentView.swift */; };
+		CHS0006B000000000000001 /* ChessTournamentGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0006A000000000000001 /* ChessTournamentGameView.swift */; };
 		SWAP002B0000000000000001 /* ChangeNowAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP002A0000000000000001 /* ChangeNowAPIClient.swift */; };
 		SWAP003B0000000000000001 /* SwapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP003A0000000000000001 /* SwapService.swift */; };
 		SWAP004B0000000000000001 /* SwapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP004A0000000000000001 /* SwapView.swift */; };
@@ -474,6 +480,12 @@
 		SHRT000100010000000002 /* KaChatShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatShortcuts.swift; sourceTree = "<group>"; };
 		SHSH00010001000000000001 /* SharedOutboundShare.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedOutboundShare.swift; sourceTree = "<group>"; };
 		SWAP001A0000000000000001 /* SwapModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwapModels.swift; sourceTree = "<group>"; };
+		CHS0001A000000000000001 /* ChessTournamentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessTournamentModels.swift; sourceTree = "<group>"; };
+		CHS0002A000000000000001 /* ChessTournamentEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessTournamentEngine.swift; sourceTree = "<group>"; };
+		CHS0003A000000000000001 /* ChessTournamentService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessTournamentService.swift; sourceTree = "<group>"; };
+		CHS0004A000000000000001 /* ChessTournamentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessTournamentsView.swift; sourceTree = "<group>"; };
+		CHS0005A000000000000001 /* ChessTournamentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessTournamentView.swift; sourceTree = "<group>"; };
+		CHS0006A000000000000001 /* ChessTournamentGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessTournamentGameView.swift; sourceTree = "<group>"; };
 		SWAP002A0000000000000001 /* ChangeNowAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeNowAPIClient.swift; sourceTree = "<group>"; };
 		SWAP003A0000000000000001 /* SwapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwapService.swift; sourceTree = "<group>"; };
 		SWAP004A0000000000000001 /* SwapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwapView.swift; sourceTree = "<group>"; };
@@ -647,6 +659,7 @@
 				E81000202D4C000100000011 /* Models.swift */,
 				PF0001A0000000000000001 /* PortfolioModels.swift */,
 				SWAP001A0000000000000001 /* SwapModels.swift */,
+				CHS0001A000000000000001 /* ChessTournamentModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -705,6 +718,8 @@
 				CALL0005A000000000000001 /* CallKitManager.swift */,
 				CALL0006A000000000000001 /* VoIPPushManager.swift */,
 				CALL0007A000000000000001 /* CallRingback.swift */,
+				CHS0002A000000000000001 /* ChessTournamentEngine.swift */,
+				CHS0003A000000000000001 /* ChessTournamentService.swift */,
 				CALL0009A000000000000001 /* CallPictureInPicture.swift */,
 				CALL0001A000000000000001 /* NextcloudTalkClient.swift */,
 				GN0001A0000000000000001 /* GlobalNotificationCenter.swift */,
@@ -735,6 +750,7 @@
 				SWAP005G0000000000000001 /* Swap */,
 				KP0001G0000000000000001 /* KaPosts */,
 				ECO0001G0000000000000001 /* Ecosystem */,
+				CHS0000G000000000000001 /* Chess */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -883,6 +899,16 @@
 				CAMV0000000000000002 /* CameraCaptureView.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		CHS0000G000000000000001 /* Chess */ = {
+			isa = PBXGroup;
+			children = (
+				CHS0004A000000000000001 /* ChessTournamentsView.swift */,
+				CHS0005A000000000000001 /* ChessTournamentView.swift */,
+				CHS0006A000000000000001 /* ChessTournamentGameView.swift */,
+			);
+			path = Chess;
 			sourceTree = "<group>";
 		};
 		ECO0001G0000000000000001 /* Ecosystem */ = {
@@ -1298,6 +1324,12 @@
 				CS0009B0000000000000001 /* ColdStorageSendEngine.swift in Sources */,
 				KPAPI001B000000000000001 /* KaPostsAPIClient.swift in Sources */,
 				SWAP001B0000000000000001 /* SwapModels.swift in Sources */,
+				CHS0001B000000000000001 /* ChessTournamentModels.swift in Sources */,
+				CHS0002B000000000000001 /* ChessTournamentEngine.swift in Sources */,
+				CHS0003B000000000000001 /* ChessTournamentService.swift in Sources */,
+				CHS0004B000000000000001 /* ChessTournamentsView.swift in Sources */,
+				CHS0005B000000000000001 /* ChessTournamentView.swift in Sources */,
+				CHS0006B000000000000001 /* ChessTournamentGameView.swift in Sources */,
 				SWAP002B0000000000000001 /* ChangeNowAPIClient.swift in Sources */,
 				SWAP003B0000000000000001 /* SwapService.swift in Sources */,
 				SWAP004B0000000000000001 /* SwapView.swift in Sources */,

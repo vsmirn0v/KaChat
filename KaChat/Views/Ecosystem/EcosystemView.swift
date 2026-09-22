@@ -89,6 +89,8 @@ struct EcosystemView: View {
             NavigationStack { BroadcastListView() }
         case .swap:
             SwapView()
+        case .chess:
+            ChessTournamentsView()
         case .apps:
             NavigationStack {
                 // ProfileAppsView sets its own title; only the shared header items are added.

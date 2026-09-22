@@ -163,6 +163,7 @@ struct BroadcastListView: View {
         .filter { broadcastService.isCuratedChannelShown($0.channelName) }
         let others = broadcastService.channels
             .filter { !BroadcastService.featuredChannels.contains($0.channelName) }
+            .filter { !BroadcastService.serviceChannels.contains($0.channelName) }
             // A default room switched off in Public Chats settings stays out of the list.
             .filter { broadcastService.isCuratedChannelShown($0.channelName) }
             .sorted { lastActivity($0) > lastActivity($1) }

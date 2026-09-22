@@ -1,0 +1,97 @@
+# Chess Tournaments (5.1)
+
+Eight-player single-elimination chess tournaments where **every move is a Kaspa transaction**.
+Lives in Kaspa Hub > Chess. This document is the protocol (Android and desktop replicate it
+byte for byte) and the indexer handoff for the leaderboard.
+
+## 1. How it works
+
+- A tournament is a room in the public **`#chess-arena`** broadcast channel. Every tournament
+  message - create, join, move, resign, timeout claim, chat - is an ordinary plaintext
+  broadcast payload (`kchat:1:bcast:chess-arena:<json>`), so the sender of every message is
+  the transaction's signer: nothing can be forged, and no extra signature is needed.
+- The channel is machinery, not a chat: the app hides it from Public Chats, never notifies for
+  it, and only scans it while a chess screen is open.
+- **There is no referee.** Every phone reads the same messages in the same order (block time,
+  then txid) and applies the same rules below, so they all arrive at the same bracket, the same
+  boards and the same clocks. A message that breaks a rule (a move out of turn, an illegal
+  move, a ninth join) is simply ignored by everyone.
+- Cost: one transaction per move, about 0.0017 KAS each. A 40-move game is ~0.07 KAS per
+  player; a full tournament (3 rounds) ~0.2 KAS per finalist.
+
+## 2. Messages
+
+All are JSON in the broadcast content. `type` is always `"chess_t"`, `v` is `1`, `t` is the
+tournament id (a lowercase UUID chosen by the creator).
+
+| `a` | Fields | Meaning |
+|---|---|---|
+| `create` | `t`, `name` (≤ 40 chars) | Opens a tournament. The creator is player 1. |
+| `join` | `t` | Takes a seat. The first eight distinct addresses (creator included) are the players; later joins are ignored. |
+| `cancel` | `t` | Creator only, before the eighth join: the tournament is withdrawn. |
+| `move` | `t`, `g`, `n`, `from`, `to`, `promo`? | A move in game `g` (`"<round>-<index>"`, e.g. `"1-3"`), `n` = the ply number (1 = white's first move), squares in algebraic (`e2`), `promo` in `q r b n`. |
+| `resign` | `t`, `g` | The sender resigns game `g`. |
+| `claim` | `t`, `g` | The sender claims game `g` on time: the opponent's clock had run out (§4). |
+| `chat` | `t`, `g`, `text` (≤ 280) | A line under the board of game `g` (`g` may be `""` for the tournament lobby). |
+
+Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from":"e2","to":"e4"}`
+
+## 3. Bracket
+
+- **Seeds** are join order: the creator is seed 1, the eighth joiner seed 8. The tournament
+  starts at the block time of the eighth join.
+- **Round 1:** games `1-0` … `1-3` are seeds 1v8, 2v7, 3v6, 4v5. **Round 2:** `2-0` = winner
+  of `1-0` v winner of `1-1`, `2-1` = winners of `1-2` and `1-3`. **Round 3** (`3-0`) is the
+  final. A round-2 or final game starts at the block time of the message that decided the
+  later of its two feeding games.
+- **Colours:** in round 1 the lower seed is white. Afterwards, the player who has had white
+  fewer times in this tournament is white; if equal, the lower seed.
+- A game with no message from one player is still a game: its clock runs from the start
+  (§4). There is no "waiting for both players": if you are not there, you lose on time.
+
+## 4. Clocks and results
+
+- **5 minutes per side, no increment.** Time is measured in *chain time*: a player's clock
+  is charged the block time of their move minus the block time of the previous event
+  (the opponent's move, or the game start). The phone shows the side to move's clock running
+  from the last event's block time by its own wall clock. Whatever a phone claims about its
+  own thinking time is irrelevant; the chain decides.
+- **Flagging:** when the side to move's remaining time reaches zero, the *opponent* posts
+  `claim`. Everyone accepts it if, at the claim's block time, the mover's clock had indeed
+  run out. A claim that arrives early is ignored. (The app posts the claim itself the moment
+  it sees the opponent flagged.) A player may also resign.
+- **Game over:** checkmate (mover wins), resignation, time claim, or a draw (stalemate,
+  insufficient material, fifty moves, threefold repetition). Knockout needs a winner, so a
+  **draw goes to the player with more clock left**; if equal, to black.
+- **Reconnecting:** leaving the app does not stop your clock. Come back within your remaining
+  time and play on; otherwise the opponent claims the win. (The clock IS the grace period - a
+  separate one-minute rule would be shorter than a long think in a five-minute game.)
+- Ply `n` must be exactly the next ply; the sender must own the side to move; the move must
+  be legal from the current position. Anything else is ignored and the game is unchanged.
+
+## 5. Spectating and the lobby
+
+- The lobby lists every tournament in the last 30 days of `#chess-arena`: open (fewer than
+  eight players), in play, finished. Anyone can open a tournament and watch any game live,
+  since all games are the same public stream.
+- A winner waiting for the next round can watch the other game of their pair; the moment it
+  ends their game exists (§3) and their screen switches to it.
+
+## 6. Leaderboard (indexer handoff)
+
+The app builds a leaderboard from what it has read (wins, tournaments won, games played, by
+address). For the full history the KaChat broadcast indexer must:
+
+1. **Track `chess-arena`** like the curated rooms (30-day history served by `/get-broadcasts`),
+   so a phone that opens Chess sees every tournament of the last month, not only what it
+   scanned itself.
+2. **Serve `GET /chess/leaderboard?limit=100`** →
+   `{"players":[{"address":"kaspa:…","wins":12,"losses":4,"tournamentsPlayed":5,"tournamentsWon":2,"lastPlayedAt":<ms>}], "generatedAt":<ms>}`,
+   sorted by `tournamentsWon` desc, then `wins` desc. Computed by replaying the arena with the
+   rules above (the reference reducer is `ChessTournamentEngine.swift` in this repo; port it,
+   do not reinterpret it). Also `GET /chess/player?address=` → the same row for one player.
+3. Optional: `GET /chess/tournaments?status=open|live|done&limit=` → the lobby list
+   precomputed, for phones that want it without scanning.
+
+Until (1) and (2) exist the lobby shows what the phone has scanned in-session plus whatever
+the store retains, and the leaderboard is local.

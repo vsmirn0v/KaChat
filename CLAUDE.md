@@ -53,6 +53,7 @@ The app uses MVVM architecture with global singleton services injected via Swift
 | `ContactsManager` | Address book persistence, KNS domain integration |
 | `KNSService` | Kaspa Name Service API client for domain resolution |
 | `KasiaTransactionBuilder` | Constructs signed Kaspa transactions |
+| `ChessTournamentService` | Chess tournaments: watches `#chess-arena` through `BroadcastService`, reduces it with `ChessTournamentEngine` (pure, deterministic - the indexer ports it), sends create/join/move/resign/claim/chat as broadcast transactions. Views in `Views/Chess/` |
 | `CallService` | Voice/video calls over Nextcloud Talk + WebRTC (`NextcloudTalkClient`, `WebRTCClient`, `CallView`); ringing rides the 1:1 chat as `call_*` envelopes. `CallKitManager` mirrors every call into CallKit (lock-screen ringing, Recents, system audio session); `VoIPPushManager` receives the PushKit VoIP push the caller's phone requests from the push service so a closed app rings |
 
 ### Messaging Protocol
@@ -299,6 +300,7 @@ Implementation uses:
 | `BROADCAST_INDEXER.md` | Handoff/build guide for the KaChat broadcast indexer (#kaspa / #kachat-bugs history, REST spec, Docker) |
 | `TRANSLATION_SERVICE.md` | Handoff/build guide for the KaChat post translation endpoint (server-side translation of KaPosts, cached by txid; replaced the on-device Apple Translation / ML Kit path) |
 | `PUSH_EXTENSIONS.md` | Server handoff: remote push for broadcasts + KaPosts (registration fields, APNs payload specs, routing contracts) |
+| `CHESS_TOURNAMENTS.md` | Chess tournaments (5.1): 8-player knockout in Kaspa Hub, every move a transaction in the `#chess-arena` room, no referee (deterministic rules in `ChessTournamentEngine`), 5-minute chain-time clocks; leaderboard handoff for the indexer |
 | `KACHAT_APP_LINKS.md` | The kachat.app link site (`web_site/server/`): every shared link is `https://kachat.app/...` - Open Graph previews everywhere, Universal/App Links into the app, post-only page with download buttons without it |
 | `DETERMINISTIC_ALIASES.md` | Deterministic alias derivation (shipped protocol - see `Utilities/DeterministicAlias.swift`): algorithm, migration notes, legacy-alias compatibility |
 

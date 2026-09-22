@@ -261,6 +261,8 @@ struct MainTabView: View {
             }
         case .ecosystem:
             EcosystemView()
+        case .chess:
+            ChessTournamentsView()
         case .apps:
             NavigationStack {
                 ProfileAppsView()

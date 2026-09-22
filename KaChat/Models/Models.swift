@@ -1672,6 +1672,8 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case kaposts
     case broadcasts
     case apps
+    /// Chess tournaments (5.1) - Kaspa Hub > Chess. See CHESS_TOURNAMENTS.md.
+    case chess
     /// The container the other feature tabs live in when they are not in the dock themselves -
     /// see `ecosystemSections(from:)`. Displayed as "Kaspa Hub"; the case name and its raw
     /// value stay `ecosystem` because the raw value is PERSISTED in `tabOrder`, so renaming it
@@ -1697,6 +1699,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         // Short enough for a dock label. `ecosystemTitle` carries the full name, which is what
         // the Ecosystem grid and the screen itself show.
         case .apps: return "Websites"
+        case .chess: return "Chess"
         case .ecosystem: return "Kaspa Hub"
         case .more: return "More"
         }
@@ -1712,6 +1715,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .kaposts: return "square.and.pencil"
         case .broadcasts: return "dot.radiowaves.left.and.right"
         case .apps: return "globe"
+        case .chess: return "checkerboard.rectangle"
         // Kaspa Hub wears the Kaspa mark itself, not an SF Symbol - see `usesKaspaLogo`.
         case .ecosystem: return "circle.hexagongrid"
         case .more: return "plus.circle"
@@ -1729,6 +1733,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     var ecosystemTitle: String {
         switch self {
         case .apps: return "Kaspa Websites"
+        case .chess: return "Chess Tournaments"
         // ChangeNOW's own capitalization, matching how the app already names it everywhere else
         // (swap transaction rows, the settings section).
         case .swap: return "ChangeNOW Swap"
@@ -1747,6 +1752,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .more: return 7
         case .broadcasts: return 8
         case .apps: return 9
+        case .chess: return 11
         case .ecosystem: return 10
         }
     }
@@ -1763,13 +1769,13 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     static let pinnedToDock: [AppTab] = [.ecosystem, .profile]
 
     /// Tabs the user can place. Excludes the Hub (pinned) and the retired "+ More".
-    static let assignable: [AppTab] = [.chats, .portfolio, .coldStorage, .swap, .kaposts, .apps]
+    static let assignable: [AppTab] = [.chats, .portfolio, .coldStorage, .swap, .kaposts, .apps, .chess]
 
     /// Ecosystem takes the dock slot Swap used to hold, so a default install shows exactly the
     /// five the dock can fit - Portfolio, Storage, Chats, Ecosystem, Profile - with Swap, KaPosts,
     /// Broadcasts and the websites list still ENABLED but living inside Ecosystem rather than
     /// competing for a dock slot.
-    static let defaultOrder: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile, .swap, .kaposts, .broadcasts, .apps]
+    static let defaultOrder: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile, .swap, .kaposts, .broadcasts, .apps, .chess]
 
     /// What a fresh install starts with: the three that were asked for, in that order, plus the
     /// two that fill the dock to its cap. Everything else starts in Kaspa Hub.
@@ -1821,6 +1827,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         // 5.0. The case stays so saved dock/hub blobs still decode; it never renders on its own.
         case .broadcasts: return false
         case .apps: return !settings.hideAppsTab
+        case .chess: return !settings.hideChessTab && !settings.childModeEnabled
         case .ecosystem: return !settings.hideEcosystemTab
         // "+ More" is retired from the dock entirely (Customize Dock lives in Settings now) -
         // hard-hidden regardless of what an old saved blob says.
@@ -1995,6 +2002,7 @@ struct AppSettings: Codable {
     /// Apps (ecosystem link bubbles) as a dock tab. Hidden (default) = the Apps row lives on
     /// the Profile screen instead; toggled on = dock tab, Profile row disappears.
     var hideAppsTab: Bool
+    var hideChessTab: Bool
     var hideEcosystemTab: Bool
     /// Raw values of `AppTab`, in display order - user-customizable via Settings > Customization
     /// > Menu's drag-to-reorder preview strip.
@@ -2173,6 +2181,7 @@ struct AppSettings: Codable {
             hideMoreItem: true,
             hideBroadcasts: false,
             hideAppsTab: false,
+            hideChessTab: false,
             hideEcosystemTab: false,
             tabOrder: AppTab.defaultOrder.map { $0.rawValue },
             dockTabs: AppTab.defaultDock.map { $0.rawValue },
@@ -2231,6 +2240,7 @@ struct AppSettings: Codable {
         case hideMoreItem
         case hideBroadcasts
         case hideAppsTab
+        case hideChessTab
         case hideEcosystemTab
         case tabOrder
         case dockTabs
@@ -2297,6 +2307,7 @@ struct AppSettings: Codable {
         hideMoreItem: Bool = true,
         hideBroadcasts: Bool = false,
         hideAppsTab: Bool = false,
+        hideChessTab: Bool = false,
         hideEcosystemTab: Bool = false,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
         dockTabs: [String] = AppTab.defaultDock.map { $0.rawValue },
@@ -2353,6 +2364,7 @@ struct AppSettings: Codable {
         self.hideMoreItem = hideMoreItem
         self.hideBroadcasts = hideBroadcasts
         self.hideAppsTab = hideAppsTab
+        self.hideChessTab = hideChessTab
         self.hideEcosystemTab = hideEcosystemTab
         self.tabOrder = tabOrder
         self.dockTabs = dockTabs
@@ -2445,6 +2457,7 @@ struct AppSettings: Codable {
         // it now lives in Ecosystem, where it costs nothing, so an install that predates this key
         // should have it rather than not.
         hideAppsTab = try container.decodeIfPresent(Bool.self, forKey: .hideAppsTab) ?? false
+        hideChessTab = try container.decodeIfPresent(Bool.self, forKey: .hideChessTab) ?? false
         // Defaults to SHOWN for everyone, new and existing: Ecosystem is where Swap, KaPosts,
         // Broadcasts and the websites list live now, so hiding it by default would strand them.
         hideEcosystemTab = try container.decodeIfPresent(Bool.self, forKey: .hideEcosystemTab) ?? false
@@ -2552,6 +2565,7 @@ struct AppSettings: Codable {
         try container.encode(hideMoreItem, forKey: .hideMoreItem)
         try container.encode(hideBroadcasts, forKey: .hideBroadcasts)
         try container.encode(hideAppsTab, forKey: .hideAppsTab)
+        try container.encode(hideChessTab, forKey: .hideChessTab)
         try container.encode(hideEcosystemTab, forKey: .hideEcosystemTab)
         try container.encode(tabOrder, forKey: .tabOrder)
         try container.encode(dockTabs, forKey: .dockTabs)

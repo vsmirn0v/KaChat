@@ -45,6 +45,10 @@ final class BroadcastService: ObservableObject {
     /// skip. Only auto-join and the pinned Popular list use `featuredChannels` alone.
     nonisolated static let indexedChannels = featuredChannels + languageChannels
 
+    /// Rooms the app uses as machinery, never shown as chats: the chess arena
+    /// (CHESS_TOURNAMENTS.md). Hidden from Public Chats, no unread, no banners.
+    nonisolated static let serviceChannels: Set<String> = [ChessTournamentCodec.arenaChannel]
+
     /// Native-language label for a curated language room, e.g. "kaspa-espanol" -> "Español".
     /// Native names (not English ones) so a speaker scanning the list finds their own language.
     nonisolated static func languageDisplayName(for channel: String) -> String? {
@@ -205,7 +209,8 @@ final class BroadcastService: ObservableObject {
     }
 
     var totalUnreadCount: Int {
-        channels.reduce(0) { $0 + unreadCount(forChannel: $1.channelName) }
+        channels.filter { !Self.serviceChannels.contains($0.channelName) }
+            .reduce(0) { $0 + unreadCount(forChannel: $1.channelName) }
     }
 
     func markChannelRead(_ name: String) {
@@ -1260,6 +1265,7 @@ final class BroadcastService: ObservableObject {
     /// "Enable Notifications" toggle - like block scanning itself, this only ever fires while the
     /// app is alive (foreground or briefly backgrounded), never for a fully closed/terminated app.
     private func notifyIfEnabled(channel: String, senderAddress: String, content: String, txId: String) {
+        guard !Self.serviceChannels.contains(channel) else { return }
         guard senderAddress != WalletManager.shared.currentWallet?.publicAddress else { return }
         guard channels.first(where: { $0.channelName == channel })?.notifyEnabled == true else { return }
         guard !store.hiddenSenderAddresses(forChannel: channel).contains(senderAddress) else { return }

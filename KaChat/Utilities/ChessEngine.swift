@@ -109,7 +109,7 @@ struct ChessMove: Equatable, Identifiable {
     var id: String { "\(from.algebraic)-\(to.algebraic)-\(promotion?.rawValue ?? "")" }
 }
 
-struct ChessBoard {
+struct ChessBoard: Equatable {
     /// squares[rank][file], rank 0 = rank "1".
     var squares: [[ChessPiece?]]
     var sideToMove: ChessColor
