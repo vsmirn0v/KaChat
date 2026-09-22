@@ -160,7 +160,7 @@ final class ChessTournamentService: ObservableObject {
 
     // MARK: - Fees
 
-    /// What sending `message` costs right now, as "0.00170000 KAS", for a button label. An arena
+    /// What sending `message` costs right now, as "0.0017 KAS", for a button label. An arena
     /// message is a fixed-size payload, so this is the same estimate the composer shows while
     /// typing, without a network round trip (one input, like every arena send).
     func feeText(for message: ChessTournamentMessage) -> String? {
@@ -171,10 +171,11 @@ final class ChessTournamentService: ObservableObject {
             content: ChessTournamentCodec.encode(message)
         )
         let sompi = KasiaTransactionBuilder.estimateBroadcastFee(payload: payload, inputCount: 1, senderScriptPubKey: senderScriptPubKey)
-        return String(format: "%.8f KAS", Double(sompi) / 100_000_000)
+        // Four decimals: "0.0017 KAS" reads at a glance; the exact sompi is in the transaction.
+        return String(format: "%.4f KAS", Double(sompi) / 100_000_000)
     }
 
-    /// The join button's label: "Join (Fee: 0.00170000 KAS)".
+    /// The join button's label: "Join (Fee: 0.0017 KAS)".
     func joinLabel(roomId: String) -> String {
         guard let fee = feeText(for: ChessTournamentCodec.join(id: roomId)) else { return "Join" }
         return "Join (Fee: \(fee))"
