@@ -49,7 +49,6 @@ extension ChatService {
     /// Async/background fetch variant that keeps Core Data page
     /// reads and decrypt work off the main actor. The final in-memory merge still happens on
     /// the main actor for published state consistency.
-    @discardableResult
     /// Pulls the whole stored history of the open chat into memory, page after page, in the
     /// background. The list then only ever grows its rendered window over messages already in
     /// memory - scrolling up never waits on a store read, and the top of the chat is there
@@ -71,6 +70,7 @@ extension ChatService {
         }
     }
 
+    @discardableResult
     func loadOlderMessagesPageAsync(for contactAddress: String, pageSize: Int) async -> Int {
         guard pageSize > 0 else { return 0 }
         guard !olderHistoryExhaustedContacts.contains(contactAddress) else { return 0 }
