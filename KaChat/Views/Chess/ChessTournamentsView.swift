@@ -385,44 +385,109 @@ struct ChessTournamentsView: View {
 /// Wins and losses for every address that has played here - 1v1s and tournaments alike,
 /// nothing from the 1:1 chat's casual games. The indexer's version (CHESS_TOURNAMENTS.md §6)
 /// will cover all history; this is what the phone has read.
+/// Two boards under the same underline tabs as the lobby: 1v1 (wins and losses in 1v1 games)
+/// and Tournaments (tournaments won, then the wins and losses inside them).
 struct ChessLeaderboardView: View {
     @ObservedObject private var service = ChessTournamentService.shared
     @EnvironmentObject private var walletManager: WalletManager
+    @State private var mode: ChessTournamentsView.Mode = .duel
+
+    private var rows: [ChessLeaderboardRow] {
+        mode == .duel
+            ? ChessTournamentEngine.duelLeaderboard(service.leaderboard)
+            : ChessTournamentEngine.tournamentLeaderboard(service.leaderboard)
+    }
 
     var body: some View {
-        List {
-            if service.leaderboard.isEmpty {
-                Text("No finished games yet.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    ForEach(ChessTournamentsView.Mode.allCases) { tabButton($0) }
+                }
+                Divider()
             }
-            ForEach(Array(service.leaderboard.enumerated()), id: \.element.id) { index, row in
-                HStack(spacing: 12) {
-                    Text("\(index + 1)")
-                        .font(.subheadline.monospacedDigit().weight(.semibold))
+            .contentShape(Rectangle())
+            .gesture(tabSwipe())
+            List {
+                if rows.isEmpty {
+                    Text(mode == .duel ? "No finished 1v1 games yet." : "No finished tournaments yet.")
+                        .font(.subheadline)
                         .foregroundColor(.secondary)
-                        .frame(width: 28, alignment: .trailing)
-                    KNSAvatarView(
-                        avatarURLString: KNSService.shared.profileCache[row.address]?.avatarURL,
-                        fallbackText: ContactsManager.shared.displayName(for: row.address),
-                        size: 36,
-                        contactAddress: row.address
-                    )
-                    Text(row.address == walletManager.currentWallet?.publicAddress ? "You" : ContactsManager.shared.displayName(for: row.address))
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Spacer()
-                    HStack(spacing: 10) {
-                        Text("\(row.wins) W").foregroundColor(.green)
-                        Text("\(row.losses) L").foregroundColor(.red)
+                }
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    HStack(spacing: 12) {
+                        Text("\(index + 1)")
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .frame(width: 28, alignment: .trailing)
+                        KNSAvatarView(
+                            avatarURLString: KNSService.shared.profileCache[row.address]?.avatarURL,
+                            fallbackText: ContactsManager.shared.displayName(for: row.address),
+                            size: 36,
+                            contactAddress: row.address
+                        )
+                        Text(row.address == walletManager.currentWallet?.publicAddress ? "You" : ContactsManager.shared.displayName(for: row.address))
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Spacer()
+                        if mode == .duel {
+                            HStack(spacing: 10) {
+                                Text("\(row.duelWins) W").foregroundColor(.green)
+                                Text("\(row.duelLosses) L").foregroundColor(.red)
+                            }
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                        } else {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Label("\(row.tournamentsWon)", systemImage: "trophy.fill")
+                                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                                    .foregroundColor(.yellow)
+                                HStack(spacing: 8) {
+                                    Text("\(row.tournamentGameWins) W").foregroundColor(.green)
+                                    Text("\(row.tournamentGameLosses) L").foregroundColor(.red)
+                                }
+                                .font(.caption.monospacedDigit().weight(.semibold))
+                            }
+                        }
                     }
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
                 }
             }
+            .listStyle(.insetGrouped)
+            .gesture(tabSwipe())
         }
         .navigationTitle("Leaderboard")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { service.acquire() }
         .onDisappear { service.release() }
+    }
+
+    private func tabButton(_ tab: ChessTournamentsView.Mode) -> some View {
+        let isSelected = mode == tab
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) { mode = tab }
+        } label: {
+            VStack(spacing: 8) {
+                Text(tab.rawValue)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
+                Rectangle()
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .frame(height: 2.5)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func tabSwipe() -> some Gesture {
+        DragGesture(minimumDistance: 25, coordinateSpace: .global)
+            .onEnded { value in
+                let dx = value.translation.width, dy = value.translation.height
+                guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    if dx < 0, mode == .duel { mode = .tournament }
+                    else if dx > 0, mode == .tournament { mode = .duel }
+                }
+            }
     }
 }

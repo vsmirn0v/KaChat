@@ -265,19 +265,30 @@ enum ChessTournamentEngine {
         var rows: [String: ChessLeaderboardRow] = [:]
         func row(_ address: String) -> ChessLeaderboardRow { rows[address] ?? ChessLeaderboardRow(address: address) }
         for tournament in tournaments where tournament.startedAt != nil {
-            for player in tournament.players {
-                var r = row(player)
-                r.tournamentsPlayed += 1
-                r.lastPlayedAt = max(r.lastPlayedAt, tournament.startedAt ?? 0)
-                rows[player] = r
+            // A 1v1 is not a tournament: it counts on the 1v1 board only.
+            if !tournament.isDuel {
+                for player in tournament.players {
+                    var r = row(player)
+                    r.tournamentsPlayed += 1
+                    r.lastPlayedAt = max(r.lastPlayedAt, tournament.startedAt ?? 0)
+                    rows[player] = r
+                }
             }
             for game in tournament.games.values where game.isOver {
                 guard let winner = game.winner else { continue }
                 let loser = winner == game.white ? game.black : game.white
-                var w = row(winner); w.wins += 1; w.lastPlayedAt = max(w.lastPlayedAt, game.endedAt ?? 0); rows[winner] = w
-                var l = row(loser); l.losses += 1; l.lastPlayedAt = max(l.lastPlayedAt, game.endedAt ?? 0); rows[loser] = l
+                var w = row(winner)
+                w.wins += 1
+                if tournament.isDuel { w.duelWins += 1 } else { w.tournamentGameWins += 1 }
+                w.lastPlayedAt = max(w.lastPlayedAt, game.endedAt ?? 0)
+                rows[winner] = w
+                var l = row(loser)
+                l.losses += 1
+                if tournament.isDuel { l.duelLosses += 1 } else { l.tournamentGameLosses += 1 }
+                l.lastPlayedAt = max(l.lastPlayedAt, game.endedAt ?? 0)
+                rows[loser] = l
             }
-            if let champion = tournament.champion {
+            if !tournament.isDuel, let champion = tournament.champion {
                 var c = row(champion); c.tournamentsWon += 1; rows[champion] = c
             }
         }
@@ -285,6 +296,26 @@ enum ChessTournamentEngine {
         return rows.values.sorted {
             if $0.wins != $1.wins { return $0.wins > $1.wins }
             if $0.losses != $1.losses { return $0.losses < $1.losses }
+            return $0.lastPlayedAt > $1.lastPlayedAt
+        }
+    }
+
+    /// The 1v1 board: players with a 1v1 game behind them, most wins first, fewest losses
+    /// breaking ties.
+    static func duelLeaderboard(_ rows: [ChessLeaderboardRow]) -> [ChessLeaderboardRow] {
+        rows.filter { $0.duelWins + $0.duelLosses > 0 }.sorted {
+            if $0.duelWins != $1.duelWins { return $0.duelWins > $1.duelWins }
+            if $0.duelLosses != $1.duelLosses { return $0.duelLosses < $1.duelLosses }
+            return $0.lastPlayedAt > $1.lastPlayedAt
+        }
+    }
+
+    /// The tournament board: tournaments won first, then the record inside them.
+    static func tournamentLeaderboard(_ rows: [ChessLeaderboardRow]) -> [ChessLeaderboardRow] {
+        rows.filter { $0.tournamentsPlayed > 0 }.sorted {
+            if $0.tournamentsWon != $1.tournamentsWon { return $0.tournamentsWon > $1.tournamentsWon }
+            if $0.tournamentGameWins != $1.tournamentGameWins { return $0.tournamentGameWins > $1.tournamentGameWins }
+            if $0.tournamentGameLosses != $1.tournamentGameLosses { return $0.tournamentGameLosses < $1.tournamentGameLosses }
             return $0.lastPlayedAt > $1.lastPlayedAt
         }
     }

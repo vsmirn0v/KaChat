@@ -273,11 +273,20 @@ struct ChessTournament: Identifiable, Equatable {
 }
 
 /// A row of the leaderboard the phone computes from what it has read.
+/// One player's record. Two boards read it: 1v1 (duel games, public and private) and
+/// Tournaments (tournaments won, then the games inside them). `wins`/`losses` are the totals
+/// over both, the figures the indexer's `/chess/leaderboard` serves.
 struct ChessLeaderboardRow: Identifiable, Equatable {
     var id: String { address }
     let address: String
     var wins = 0
     var losses = 0
+    /// 1v1 games (`duel-N` rooms and private 1v1s).
+    var duelWins = 0
+    var duelLosses = 0
+    /// Games inside eight-player tournaments.
+    var tournamentGameWins = 0
+    var tournamentGameLosses = 0
     var tournamentsPlayed = 0
     var tournamentsWon = 0
     var lastPlayedAt: Int64 = 0

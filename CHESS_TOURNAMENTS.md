@@ -107,9 +107,17 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
 
 ## 6. Leaderboard (indexer handoff)
 
-The leaderboard is wins and losses, by address, over every game played here (public and
-private 1v1s, tournament games) - never the casual games inside 1:1 chats. Most wins first,
-fewest losses breaking ties. For the full history the KaChat broadcast indexer must:
+The leaderboard is two boards, by address, over the games played here - never the casual
+games inside 1:1 chats:
+
+- **1v1**: wins and losses in 1v1 games (`duel-N` rooms and private 1v1s). Most wins first,
+  fewest losses breaking ties.
+- **Tournaments**: tournaments won (champion of an eight-player bracket), then wins and losses
+  in the games inside tournaments. Most tournaments won first, then most game wins, then
+  fewest game losses. A 1v1 never counts here.
+
+`wins`/`losses` in the row below are the totals over both. For the full history the KaChat
+broadcast indexer must:
 
 1. **Track `chess-arena`** like the curated rooms (30-day history served by `/get-broadcasts`),
    so a phone that opens Chess sees every tournament of the last month, not only what it
@@ -121,8 +129,9 @@ fewest losses breaking ties. For the full history the KaChat broadcast indexer m
    happened to scan live from a block, so the other player's join is missed whenever the
    phone was locked, reconnecting, or not yet on the Chess screen when it landed.
 2. **Serve `GET /chess/leaderboard?limit=100`** →
-   `{"players":[{"address":"kaspa:…","wins":12,"losses":4,"tournamentsPlayed":5,"tournamentsWon":2,"lastPlayedAt":<ms>}], "generatedAt":<ms>}`,
-   sorted by `wins` desc, then `losses` asc. Computed by replaying the arena with the
+   `{"players":[{"address":"kaspa:…","wins":12,"losses":4,"duelWins":9,"duelLosses":3,"tournamentGameWins":3,"tournamentGameLosses":1,"tournamentsPlayed":5,"tournamentsWon":2,"lastPlayedAt":<ms>}], "generatedAt":<ms>}`,
+   sorted by `wins` desc, then `losses` asc (the phone sorts each board itself, see
+   `ChessTournamentEngine.duelLeaderboard` / `tournamentLeaderboard`). Computed by replaying the arena with the
    rules above (the reference reducer is `ChessTournamentEngine.swift` in this repo; port it,
    do not reinterpret it). Also `GET /chess/player?address=` → the same row for one player.
 3. Optional: `GET /chess/tournaments?status=open|live|done&limit=` → the lobby list
