@@ -1,17 +1,11 @@
 import Foundation
 import SwiftUI
 
-/// Global notification center backing the bell on the Profile screen - ONE feed aggregating
-/// KaPosts activity (likes/replies/quotes/follows/@mentions), group-chat @mentions of your own
-/// KNS domain, and live broadcast messages. Mirrors the desktop's top-bar bell: entries are
-/// account-scoped, persisted, deduped by id, and capped; opening the list marks everything seen.
-///
-/// Sources push in via `record(...)`:
-///  - KaPosts: fed by KaPostsNotificationService's single 30s poll via
-///    `ingestKaPostsNotifications` (independent of the banner pinger's per-type/remote-push
-///    gates - the center always lists activity).
-///  - Group mentions: GroupChatService calls `recordGroupMentionIfNeeded` on incoming messages.
-///  - Broadcasts: BroadcastService records live (session-gated) incoming channel messages.
+/// The bell on the Profile screen: Kaspa arriving in one of your own wallets - the chatting
+/// wallet, a spending address, cold storage (fed by AddressActivityNotifier). Nothing else:
+/// KaPosts has its own bell, and group chats and public rooms carry their own unread counts in
+/// the Chats tab. Entries are account-scoped, persisted, deduped by id, and capped; opening the
+/// list marks everything seen.
 @MainActor
 final class GlobalNotificationCenter: ObservableObject {
     static let shared = GlobalNotificationCenter()
@@ -84,10 +78,10 @@ final class GlobalNotificationCenter: ObservableObject {
     func reload() {
         if let data = UserDefaults.standard.data(forKey: entriesKey),
            let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
-            // Drops KaPosts rows an earlier build persisted (they live in KaPosts' own bell now)
-            // and broadcast rows (public rooms live in the Chats tab now); leaving either would
-            // keep the profile bell double-counting until they aged out.
-            let kept = decoded.filter { $0.source != .kaposts && $0.source != .broadcast }
+            // Wallet rows only. KaPosts rows live in KaPosts' own bell, group mentions and public
+            // rooms carry their own unread counts in the Chats tab; anything an older build saved
+            // for those is dropped here so the bell never double-counts.
+            let kept = decoded.filter { $0.source == .wallet }
             entries = kept
             if kept.count != decoded.count { persist() }
         } else {
@@ -129,20 +123,10 @@ final class GlobalNotificationCenter: ObservableObject {
 
     /// Records a center entry (the OS banner stays GroupChatService's business) when `text`
     /// @mentions one of the current wallet's own KNS domains.
-    func recordGroupMentionIfNeeded(groupId: String, groupName: String, senderAddress: String, text: String, txId: String?, timestampMs: Int64) {
-        guard let myAddress = WalletManager.shared.currentWallet?.publicAddress,
-              senderAddress != myAddress else { return }
-        let myDomains = Self.bareDomains(for: myAddress)
-        guard !myDomains.isEmpty, Self.mentionedDomains(in: text).contains(where: myDomains.contains) else { return }
-        record(
-            id: "group-mention-\(txId ?? UUID().uuidString)",
-            source: .group,
-            title: "\(displayName(for: senderAddress)) mentioned you in \(groupName)",
-            body: String(text.prefix(90)),
-            timestamp: timestampMs,
-            targetId: groupId
-        )
-    }
+    /// Group chats carry their own unread counts and mention handling in the Chats tab, so
+    /// mentions no longer go through the bell. Kept as a no-op for the call site; rows an
+    /// older build recorded are dropped on load (see `reload`).
+    func recordGroupMentionIfNeeded(groupId: String, groupName: String, senderAddress: String, text: String, txId: String?, timestampMs: Int64) {}
 
     // MARK: - Broadcasts (called from BroadcastService on merged rows)
 
@@ -156,39 +140,9 @@ final class GlobalNotificationCenter: ObservableObject {
     /// Feeds the bell center from a notifications page some OTHER poller already fetched
     /// (KaPostsNotificationService's 30s loop) — one request, two consumers. Runs regardless
     /// of the OS-ping gates so the bell fills even with notifications disabled.
-    func ingestKaPostsNotifications(_ notifications: [KaPostsAPIClient.KNotification]) async {
-        guard WalletManager.shared.currentWallet != nil else { return }
-        guard !AppSettings.load().childModeEnabled else { return }
-        guard let newest = notifications.map(\.timestamp).max() else { return }
-        let baseline = (UserDefaults.standard.object(forKey: kaPostsBaselineKey) as? NSNumber)?.int64Value
-        guard let lastSeen = baseline else {
-            // First run for this wallet: baseline silently, history never floods the center.
-            UserDefaults.standard.set(NSNumber(value: newest), forKey: kaPostsBaselineKey)
-            return
-        }
-        UserDefaults.standard.set(NSNumber(value: max(newest, lastSeen)), forKey: kaPostsBaselineKey)
-        let myAddress = WalletManager.shared.currentWallet?.publicAddress
-        // Counted, not listed. The KaPosts notifications screen already serves these rows from
-        // the indexer with richer formatting, so keeping a second copy here reported the same
-        // like or reply twice and let one busy feed dominate the profile bell's count. What the
-        // indexer cannot tell us is how many the user has not looked at, which is what this feeds.
-        // Gated by the per-kind switches, same as the banner. Switching Likes off and then
-        // finding a hundred likes waiting in the bell is the switch not working: the setting is
-        // "do not tell me about this", not "do not interrupt me about this".
-        let settings = AppSettings.load()
-        var arrivals = 0
-        for notification in notifications where notification.timestamp > lastSeen {
-            guard let actorAddress = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
-                  actorAddress != myAddress,
-                  !KaPostsModerationStore.shared.isHidden(actorAddress),
-                  settings.shouldNotifyKaPostsAction(
-                      contentType: notification.contentType,
-                      voteType: notification.voteType
-                  ) else { continue }
-            arrivals += 1
-        }
-        KaPostsNotificationCenter.shared.recordArrivals(arrivals)
-    }
+    /// KaPosts has its own bell inside KaPosts; nothing from it goes through this one. Kept as a
+    /// no-op for the poller's call site.
+    func ingestKaPostsNotifications(_ notifications: [KaPostsAPIClient.KNotification]) async {}
 
     // MARK: - Helpers
 
@@ -251,7 +205,7 @@ struct GlobalNotificationListView: View {
                             .foregroundColor(.secondary)
                         Text("No notifications yet")
                             .font(.headline)
-                        Text("KaPosts activity, group @mentions, and Kaspa arriving in your wallets show up here.")
+                        Text("Kaspa arriving in your wallets and cold storage shows up here.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
