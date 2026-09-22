@@ -25,33 +25,46 @@ enum ChessTournamentEngine {
         let message = event.message
         switch message.a {
         case "create":
-            // Public rooms are never created by message, and a private one needs the creator key.
+            // Public rooms are never created by message. A private tournament (8) needs the
+            // creator key; a private 1v1 (2) is open to anyone.
+            let capacity = message.p == 2 ? 2 : ChessTournamentCodec.playerCount
             guard tournaments[message.t] == nil, !ChessTournamentCodec.isPublic(message.t),
-                  ChessTournamentCodec.isValidCreateKey(message.k, id: message.t) else { return }
+                  capacity == 2 || ChessTournamentCodec.isValidCreateKey(message.k, id: message.t) else { return }
+            let cleanName = (message.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             var tournament = ChessTournament(
                 id: message.t,
-                name: (message.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Tournament" : String((message.name ?? "").prefix(ChessTournamentCodec.nameMaxLength)),
+                name: cleanName.isEmpty ? (capacity == 2 ? "1v1" : "Tournament") : String(cleanName.prefix(ChessTournamentCodec.nameMaxLength)),
                 creator: event.sender,
                 createdAt: event.blockTime,
-                createTxId: event.txId
+                createTxId: event.txId,
+                capacity: capacity
             )
             tournament.players = [event.sender]
             tournaments[message.t] = tournament
         case "join":
-            if tournaments[message.t] == nil, let number = ChessTournamentCodec.publicNumber(of: message.t) {
+            if tournaments[message.t] == nil {
                 // The first join opens a public room - but only the NEXT one in the sequence,
                 // once the previous is full, so everyone queues into the same room.
-                let previousFull = number == 1 || (tournaments[ChessTournamentCodec.publicId(number - 1)]?.isFull ?? false)
-                guard previousFull else { return }
-                tournaments[message.t] = ChessTournament(
-                    id: message.t, name: "Public tournament #\(number)", creator: event.sender,
-                    createdAt: event.blockTime, createTxId: event.txId
-                )
+                if let number = ChessTournamentCodec.publicNumber(of: message.t) {
+                    let previousFull = number == 1 || (tournaments[ChessTournamentCodec.publicId(number - 1)]?.isFull ?? false)
+                    guard previousFull else { return }
+                    tournaments[message.t] = ChessTournament(
+                        id: message.t, name: "Public tournament #\(number)", creator: event.sender,
+                        createdAt: event.blockTime, createTxId: event.txId, capacity: ChessTournamentCodec.playerCount
+                    )
+                } else if let number = ChessTournamentCodec.duelNumber(of: message.t) {
+                    let previousFull = number == 1 || (tournaments[ChessTournamentCodec.duelId(number - 1)]?.isFull ?? false)
+                    guard previousFull else { return }
+                    tournaments[message.t] = ChessTournament(
+                        id: message.t, name: "Public 1v1 #\(number)", creator: event.sender,
+                        createdAt: event.blockTime, createTxId: event.txId, capacity: 2
+                    )
+                }
             }
             guard var tournament = tournaments[message.t], tournament.status == .open,
                   !tournament.players.contains(event.sender) else { return }
             tournament.players.append(event.sender)
-            if tournament.players.count == ChessTournamentCodec.playerCount {
+            if tournament.players.count == tournament.capacity {
                 start(&tournament, at: event.blockTime)
             }
             tournaments[message.t] = tournament
@@ -142,7 +155,7 @@ enum ChessTournamentEngine {
     private static func start(_ tournament: inout ChessTournament, at time: Int64) {
         tournament.startedAt = time
         let seeds = tournament.players
-        let pairs = [(0, 7), (1, 6), (2, 5), (3, 4)]
+        let pairs = tournament.isDuel ? [(0, 1)] : [(0, 7), (1, 6), (2, 5), (3, 4)]
         for (index, pair) in pairs.enumerated() {
             let white = seeds[pair.0], black = seeds[pair.1]
             tournament.games["1-\(index)"] = makeGame(round: 1, index: index, white: white, black: black, at: time)
@@ -151,7 +164,7 @@ enum ChessTournamentEngine {
     }
 
     private static func advance(_ tournament: inout ChessTournament, after game: ChessTournamentGame) {
-        guard game.round < 3, let time = game.endedAt else { return }
+        guard game.round < tournament.rounds, let time = game.endedAt else { return }
         let nextRound = game.round + 1
         let nextIndex = game.index / 2
         let feederA = tournament.game(game.round, nextIndex * 2)
@@ -247,9 +260,10 @@ enum ChessTournamentEngine {
                 var c = row(champion); c.tournamentsWon += 1; rows[champion] = c
             }
         }
+        // Wins and losses are the leaderboard: most wins first, fewest losses breaking ties.
         return rows.values.sorted {
-            if $0.tournamentsWon != $1.tournamentsWon { return $0.tournamentsWon > $1.tournamentsWon }
             if $0.wins != $1.wins { return $0.wins > $1.wins }
+            if $0.losses != $1.losses { return $0.losses < $1.losses }
             return $0.lastPlayedAt > $1.lastPlayedAt
         }
     }

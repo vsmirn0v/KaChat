@@ -69,7 +69,7 @@ struct ChessTournamentView: View {
                 statusRow(tournament)
             }
             if tournament.status == .open {
-                Section("Players (\(tournament.players.count) of \(ChessTournamentCodec.playerCount))") {
+                Section("Players (\(tournament.players.count) of \(tournament.capacity))") {
                     ForEach(Array(tournament.players.enumerated()), id: \.offset) { index, address in
                         playerRow(seed: index + 1, address: address)
                     }
@@ -82,10 +82,10 @@ struct ChessTournamentView: View {
                     }
                 }
             } else {
-                ForEach([1, 2, 3], id: \.self) { round in
+                ForEach(Array(1...tournament.rounds), id: \.self) { round in
                     let games = tournament.games(inRound: round)
                     if !games.isEmpty {
-                        Section(round == 3 ? "Final" : (round == 2 ? "Semifinals" : "Round 1")) {
+                        Section(tournament.isDuel ? "Game" : (round == 3 ? "Final" : (round == 2 ? "Semifinals" : "Round 1"))) {
                             ForEach(games) { game in
                                 gameRow(game, tournament: tournament)
                             }
@@ -138,7 +138,9 @@ struct ChessTournamentView: View {
         switch tournament.status {
         case .open:
             VStack(alignment: .leading, spacing: 8) {
-                Text("Waiting for \(tournament.seatsLeft) more player\(tournament.seatsLeft == 1 ? "" : "s"). It starts by itself when the eighth joins.")
+                Text(tournament.isDuel
+                     ? "Waiting for your opponent. The game starts by itself when they join."
+                     : "Waiting for \(tournament.seatsLeft) more player\(tournament.seatsLeft == 1 ? "" : "s"). It starts by itself when the eighth joins.")
                     .font(.subheadline)
                 if let me, !tournament.players.contains(me) {
                     Button {
@@ -201,7 +203,7 @@ struct ChessTournamentView: View {
             }
         case .finished:
             if let champion = tournament.champion {
-                Label("\(name(for: champion)) won the tournament", systemImage: "trophy.fill")
+                Label(tournament.isDuel ? "\(name(for: champion)) won" : "\(name(for: champion)) won the tournament", systemImage: "trophy.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.yellow)
             }
@@ -211,7 +213,8 @@ struct ChessTournamentView: View {
     }
 
     private func roundName(_ round: Int) -> String {
-        round == 3 ? "the final" : (round == 2 ? "the semifinal" : "round 1")
+        guard let tournament, !tournament.isDuel else { return "the game" }
+        return round == 3 ? "the final" : (round == 2 ? "the semifinal" : "round 1")
     }
 
     private func playerRow(seed: Int, address: String) -> some View {

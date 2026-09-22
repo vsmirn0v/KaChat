@@ -25,6 +25,8 @@ struct ChessTournamentMessage: Codable, Equatable {
     var text: String? = nil
     /// Private tournaments only: proof the creator holds the creator code (§2.1).
     var k: String? = nil
+    /// `create` only: how many players - 2 (a 1v1) or 8 (a tournament). Absent = 8.
+    var p: Int? = nil
 }
 
 enum ChessTournamentCodec {
@@ -40,12 +42,18 @@ enum ChessTournamentCodec {
     /// room N is accepted only when room N-1 is full, so the queue never forks. Nobody creates
     /// them - the first join is the creation.
     static let publicIdPrefix = "public-"
+    /// Public 1v1 rooms: the same queue, two seats: `duel-1`, `duel-2`, ...
+    static let duelIdPrefix = "duel-"
     static func publicId(_ number: Int) -> String { "\(publicIdPrefix)\(number)" }
-    static func publicNumber(of id: String) -> Int? {
-        guard id.hasPrefix(publicIdPrefix), let n = Int(id.dropFirst(publicIdPrefix.count)), n >= 1 else { return nil }
+    static func duelId(_ number: Int) -> String { "\(duelIdPrefix)\(number)" }
+    static func publicNumber(of id: String) -> Int? { number(of: id, prefix: publicIdPrefix) }
+    static func duelNumber(of id: String) -> Int? { number(of: id, prefix: duelIdPrefix) }
+    private static func number(of id: String, prefix: String) -> Int? {
+        guard id.hasPrefix(prefix), let n = Int(id.dropFirst(prefix.count)), n >= 1 else { return nil }
         return n
     }
-    static func isPublic(_ id: String) -> Bool { publicNumber(of: id) != nil }
+    /// Public = a numbered room of either kind.
+    static func isPublic(_ id: String) -> Bool { publicNumber(of: id) != nil || duelNumber(of: id) != nil }
 
     /// The creator code for private tournaments. Whoever has it can open a room for friends;
     /// the room's id is what they share to let people in. Change here (and in the other apps)
@@ -86,7 +94,11 @@ enum ChessTournamentCodec {
     }
 
     static func create(id: String, name: String, code: String) -> ChessTournamentMessage {
-        ChessTournamentMessage(t: id, a: "create", name: String(name.prefix(nameMaxLength)), k: createKey(code: code, id: id))
+        ChessTournamentMessage(t: id, a: "create", name: String(name.prefix(nameMaxLength)), k: createKey(code: code, id: id), p: playerCount)
+    }
+    /// A private 1v1 needs no creator code: anyone can open one for a friend.
+    static func createDuel(id: String, name: String) -> ChessTournamentMessage {
+        ChessTournamentMessage(t: id, a: "create", name: String(name.prefix(nameMaxLength)), p: 2)
     }
     static func join(id: String) -> ChessTournamentMessage { ChessTournamentMessage(t: id, a: "join") }
     static func cancel(id: String) -> ChessTournamentMessage { ChessTournamentMessage(t: id, a: "cancel") }
@@ -194,6 +206,8 @@ struct ChessTournament: Identifiable, Equatable {
     let creator: String
     let createdAt: Int64
     let createTxId: String
+    /// 2 for a 1v1, 8 for a tournament.
+    let capacity: Int
     /// Seat order: index 0 is seed 1 (the creator).
     var players: [String] = []
     var startedAt: Int64?
@@ -203,16 +217,19 @@ struct ChessTournament: Identifiable, Equatable {
     /// White games per player so far, for colour assignment after round 1.
     var whiteCount: [String: Int] = [:]
 
+    var isDuel: Bool { capacity == 2 }
+    var rounds: Int { isDuel ? 1 : 3 }
+    var finalGameId: String { "\(rounds)-0" }
     var status: Status {
         if cancelled { return .cancelled }
         if startedAt == nil { return .open }
-        if let final = games["3-0"], final.isOver { return .finished }
+        if let final = games[finalGameId], final.isOver { return .finished }
         return .live
     }
-    var champion: String? { games["3-0"]?.winner }
-    var seatsLeft: Int { max(0, ChessTournamentCodec.playerCount - players.count) }
+    var champion: String? { games[finalGameId]?.winner }
+    var seatsLeft: Int { max(0, capacity - players.count) }
     var isPublic: Bool { ChessTournamentCodec.isPublic(id) }
-    var isFull: Bool { players.count >= ChessTournamentCodec.playerCount }
+    var isFull: Bool { players.count >= capacity }
 
     func seed(of address: String) -> Int? { players.firstIndex(of: address).map { $0 + 1 } }
 
@@ -220,7 +237,7 @@ struct ChessTournament: Identifiable, Equatable {
 
     /// The games of a round, in bracket order.
     func games(inRound round: Int) -> [ChessTournamentGame] {
-        let count = round == 1 ? 4 : (round == 2 ? 2 : 1)
+        let count = isDuel ? 1 : (round == 1 ? 4 : (round == 2 ? 2 : 1))
         return (0..<count).compactMap { games["\(round)-\($0)"] }
     }
 

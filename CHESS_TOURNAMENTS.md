@@ -1,7 +1,7 @@
-# Chess Tournaments (5.1)
+# Chess (5.1): 1v1 and tournaments
 
-Eight-player single-elimination chess tournaments where **every move is a Kaspa transaction**.
-Lives in Kaspa Hub > Chess. This document is the protocol (Android and desktop replicate it
+Public 1v1 games and eight-player single-elimination tournaments where **every move is a Kaspa
+transaction**. Lives in Kaspa Hub > Chess, in two tabs: 1v1 and Tournaments. This document is the protocol (Android and desktop replicate it
 byte for byte) and the indexer handoff for the leaderboard.
 
 ## 1. How it works
@@ -26,7 +26,7 @@ tournament id (a lowercase UUID chosen by the creator).
 
 | `a` | Fields | Meaning |
 |---|---|---|
-| `create` | `t`, `name` (≤ 40 chars), `k` | Opens a private tournament (§2.1). The creator is player 1. |
+| `create` | `t`, `name` (≤ 40 chars), `p` (2 or 8), `k` (8 only) | Opens a private 1v1 or tournament (§2.1). The creator is player 1. |
 | `join` | `t` | Takes a seat (and opens a public room, §2.1). The first eight distinct addresses are the players; later joins are ignored. |
 | `cancel` | `t` | Private only, creator only, before the eighth join: the tournament is withdrawn. |
 | `move` | `t`, `g`, `n`, `from`, `to`, `promo`? | A move in game `g` (`"<round>-<index>"`, e.g. `"1-3"`), `n` = the ply number (1 = white's first move), squares in algebraic (`e2`), `promo` in `q r b n`. |
@@ -38,13 +38,18 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
 
 ### 2.1 Public rooms and private tournaments
 
-- **Public rooms** are numbered `public-1`, `public-2`, ... and nobody creates them: the first
+- **Public 1v1 rooms** are numbered `duel-1`, `duel-2`, ... with two seats, and work exactly
+  like the public tournament rooms below: the first join opens a room, one takes players at a
+  time, and it starts (a single game, seed 1 white) the moment the second player joins.
+- **Public tournament rooms** are numbered `public-1`, `public-2`, ... and nobody creates them: the first
   `join` to a room opens it, and the app shows "Public tournament #N" with its seats at all
   times. Exactly one is taking players: a `join` to room N is accepted only when room N-1 is
   full (or N = 1), so everyone queues into the same room and the moment it fills - which is the
   moment it starts - the next one opens. A `join` that arrives after the last seat went is
   ignored, and the app re-joins the next room by itself. Public rooms cannot be cancelled.
-- **Private tournaments** are for friends. `create` needs `k` = first 24 hex chars of
+- **Private 1v1s** are for playing a friend: `create` with `p: 2` needs no code; the id is the
+  code to share. They count on the leaderboard exactly like public games.
+- **Private tournaments** are for friends. `create` (`p: 8`, or absent) needs `k` = first 24 hex chars of
   SHA-256(`CODE:id`), where CODE is the creator code (upper-cased, trimmed; `KACHAT-CHESS`
   as shipped - change `ChessTournamentCodec.privateCreateCode` on every platform to rotate
   it) and `id` is the tournament's eight-character id (`a-z 2-9`, no confusable letters).
@@ -95,15 +100,16 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
 
 ## 6. Leaderboard (indexer handoff)
 
-The app builds a leaderboard from what it has read (wins, tournaments won, games played, by
-address). For the full history the KaChat broadcast indexer must:
+The leaderboard is wins and losses, by address, over every game played here (public and
+private 1v1s, tournament games) - never the casual games inside 1:1 chats. Most wins first,
+fewest losses breaking ties. For the full history the KaChat broadcast indexer must:
 
 1. **Track `chess-arena`** like the curated rooms (30-day history served by `/get-broadcasts`),
    so a phone that opens Chess sees every tournament of the last month, not only what it
    scanned itself.
 2. **Serve `GET /chess/leaderboard?limit=100`** →
    `{"players":[{"address":"kaspa:…","wins":12,"losses":4,"tournamentsPlayed":5,"tournamentsWon":2,"lastPlayedAt":<ms>}], "generatedAt":<ms>}`,
-   sorted by `tournamentsWon` desc, then `wins` desc. Computed by replaying the arena with the
+   sorted by `wins` desc, then `losses` asc. Computed by replaying the arena with the
    rules above (the reference reducer is `ChessTournamentEngine.swift` in this repo; port it,
    do not reinterpret it). Also `GET /chess/player?address=` → the same row for one player.
 3. Optional: `GET /chess/tournaments?status=open|live|done&limit=` → the lobby list

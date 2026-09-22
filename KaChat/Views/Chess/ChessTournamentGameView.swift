@@ -41,7 +41,8 @@ struct ChessTournamentGameView: View {
     }
 
     private func roundLabel(_ game: ChessTournamentGame) -> String {
-        game.round == 3 ? "Final" : (game.round == 2 ? "Semifinal" : "Round 1")
+        if tournament?.isDuel == true { return "1v1" }
+        return game.round == 3 ? "Final" : (game.round == 2 ? "Semifinal" : "Round 1")
     }
 
     private func name(for address: String) -> String {

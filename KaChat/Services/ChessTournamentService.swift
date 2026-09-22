@@ -83,7 +83,8 @@ final class ChessTournamentService: ObservableObject {
         if let queued = queuedPublicRoomId, let me = myAddress, let room = reduced[queued],
            room.isFull, !room.players.contains(me) {
             queuedPublicRoomId = nil
-            Task { await self.joinPublicQueue() }
+            let wasDuel = ChessTournamentCodec.duelNumber(of: queued) != nil
+            Task { if wasDuel { await self.joinPublicDuelQueue() } else { await self.joinPublicQueue() } }
         } else if let queued = queuedPublicRoomId, let me = myAddress, reduced[queued]?.players.contains(me) == true {
             queuedPublicRoomId = nil
         }
@@ -112,11 +113,27 @@ final class ChessTournamentService: ObservableObject {
     }
     var currentPublicRoom: ChessTournament? { tournaments[currentPublicRoomId] }
 
+    /// The public 1v1 room taking players right now.
+    var currentDuelRoomId: String {
+        var number = 1
+        while let room = tournaments[ChessTournamentCodec.duelId(number)], room.isFull { number += 1 }
+        return ChessTournamentCodec.duelId(number)
+    }
+    var currentDuelRoom: ChessTournament? { tournaments[currentDuelRoomId] }
+
+    /// Private 1v1s this player is in, still open or in play.
+    var myPrivateDuels: [ChessTournament] {
+        guard let me = myAddress else { return [] }
+        return tournaments.values
+            .filter { !$0.isPublic && $0.isDuel && ($0.status == .open || $0.status == .live) && $0.players.contains(me) }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
     /// Private tournaments this player is in, still open or in play.
     var myPrivateTournaments: [ChessTournament] {
         guard let me = myAddress else { return [] }
         return tournaments.values
-            .filter { !$0.isPublic && ($0.status == .open || $0.status == .live) && $0.players.contains(me) }
+            .filter { !$0.isPublic && !$0.isDuel && ($0.status == .open || $0.status == .live) && $0.players.contains(me) }
             .sorted { $0.createdAt > $1.createdAt }
     }
 
@@ -153,6 +170,23 @@ final class ChessTournamentService: ObservableObject {
 
     /// The room this player asked to join and is waiting to appear in.
     private var queuedPublicRoomId: String?
+
+    /// Joins the public 1v1 room taking players now; same race handling as the tournaments.
+    func joinPublicDuelQueue() async {
+        guard let me = myAddress, myActiveTournament == nil else { return }
+        let id = currentDuelRoomId
+        if let room = tournaments[id], room.players.contains(me) { return }
+        queuedPublicRoomId = id
+        _ = await send(ChessTournamentCodec.join(id: id))
+    }
+
+    /// A private 1v1 for a friend: no creator code, an eight-character code to share.
+    func createPrivateDuel(named name: String) async -> String? {
+        let id = ChessTournamentCodec.newPrivateId()
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard await send(ChessTournamentCodec.createDuel(id: id, name: clean.isEmpty ? "1v1" : clean)) else { return nil }
+        return id
+    }
 
     /// A private tournament for friends. Needs the creator code; returns nil (with a message)
     /// when it is wrong, without sending anything.
