@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// One tournament: the bracket, the players, and the lobby chat. A player is taken straight to
-/// their game the moment it exists (round 1 at the eighth join; later rounds when the pair's
-/// other game ends), and can tap any game to watch it meanwhile.
+/// One tournament: the bracket and the players. A player is taken straight to their game the
+/// moment it exists (round 1 at the eighth join; later rounds when the pair's other game ends),
+/// and can tap any game to watch it meanwhile. Waiting for a room to fill happens in
+/// ChessWaitingRoomView, which covers everything until it does.
 struct ChessTournamentView: View {
     let tournamentId: String
     @ObservedObject private var service = ChessTournamentService.shared
@@ -10,8 +11,6 @@ struct ChessTournamentView: View {
     @State private var openGameId: String?
     @State private var autoOpenedGameId: String?
     @State private var isJoining = false
-    @State private var isLeaving = false
-    @Environment(\.dismiss) private var dismiss
     @State private var showCancelConfirm = false
 
     private var tournament: ChessTournament? { service.tournaments[tournamentId] }
@@ -115,32 +114,7 @@ struct ChessTournamentView: View {
                      ? "Waiting for your opponent. The game starts by itself when they join."
                      : "Waiting for \(tournament.seatsLeft) more player\(tournament.seatsLeft == 1 ? "" : "s"). It starts by itself when the eighth joins.")
                     .font(.subheadline)
-                if let me, tournament.isSeated(me, at: service.now) {
-                    if let expiry = tournament.seatExpiry(of: me) {
-                        let left = max(0, Int((expiry - service.now) / 1000))
-                        Text("Your seat is held for \(left / 60):\(String(format: "%02d", left % 60)). If the room hasn't filled by then, you're out of the queue - close the app or walk away and it takes care of itself.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Button {
-                        guard !isLeaving else { return }
-                        isLeaving = true
-                        Task {
-                            await service.leave(tournament)
-                            isLeaving = false
-                            dismiss()
-                        }
-                    } label: {
-                        Text(isLeaving ? "Leaving…" : "Leave (one transaction)")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(Color.secondary.opacity(0.15))
-                            .foregroundColor(.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                } else if let me, !tournament.isSeated(me, at: service.now) {
+                if let me, !tournament.isSeated(me, at: service.now) {
                     Button {
                         guard !isJoining else { return }
                         isJoining = true

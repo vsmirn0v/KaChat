@@ -531,7 +531,14 @@ final class BroadcastService: ObservableObject {
             let rows = visible
                 .filter { MessageReactionCodec.parse($0.content) == nil }
                 .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
-            let insertedCount = await store.insertMessages(rows)
+            var insertedCount = await store.insertMessages(rows)
+            if Self.serviceChannels.contains(channel) {
+                // Rows this phone sent carry its own clock until the chain's time reaches us -
+                // see processBroadcastHits.
+                for row in rows where store.updateBlockTime(id: row.id, blockTime: row.blockTime) {
+                    insertedCount += 1
+                }
+            }
             if insertedCount > 0 {
                 store.pruneExpiredMessages()
                 loadMessages(for: channel)
@@ -1245,6 +1252,12 @@ final class BroadcastService: ObservableObject {
             if inserted {
                 touchedChannels.insert(hit.channel)
                 notifyIfEnabled(channel: hit.channel, senderAddress: hit.senderAddress, content: hit.content, txId: hit.txId)
+            } else if Self.serviceChannels.contains(hit.channel),
+                      store.updateBlockTime(id: hit.txId, blockTime: hit.blockTime) {
+                // Our own arena row, stamped with this phone's clock when it was submitted: the
+                // block's time is what every other phone sees, so take it (the reducer orders
+                // joins and runs the clocks by it).
+                touchedChannels.insert(hit.channel)
             }
         }
 

@@ -302,6 +302,28 @@ final class BroadcastStore {
     }
 
     /// Update an existing message's delivery status in place (e.g. failed -> pending on retry).
+    /// Sets a row's block time to the chain's, once the transaction is seen in a block. A row
+    /// this device sent was stamped with its own clock at submit time; the chess arena orders
+    /// seats and runs the clocks by block time, so every phone must hold the same value.
+    /// Returns true when the row existed and the time changed.
+    @discardableResult
+    func updateBlockTime(id: String, blockTime: Int64) -> Bool {
+        guard isLoaded else { return false }
+        let context = viewContext
+        var changed = false
+        context.performAndWait {
+            let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+            request.predicate = NSPredicate(format: "id == %@", id)
+            request.fetchLimit = 1
+            guard let message = (try? context.fetch(request))?.first, message.blockTime != blockTime else { return }
+            message.blockTime = blockTime
+            message.deliveryStatus = BroadcastMessage.DeliveryStatus.sent.rawValue
+            save(context)
+            changed = true
+        }
+        return changed
+    }
+
     func updateMessageStatus(id: String, status: BroadcastMessage.DeliveryStatus) {
         let context = viewContext
         context.performAndWait {

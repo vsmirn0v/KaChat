@@ -24,6 +24,9 @@ struct ChessTournamentsView: View {
     @State private var isJoining = false
     @State private var openTournamentId: String?
     @State private var showLeaderboard = false
+    /// The waiting room on screen (full-screen, nothing else reachable) - see ChessWaitingRoomView.
+    @State private var waitingRoomId: String?
+    @State private var waitingNotice: String?
 
     private var me: String? { walletManager.currentWallet?.publicAddress }
 
@@ -71,6 +74,31 @@ struct ChessTournamentsView: View {
             .navigationDestination(isPresented: $showLeaderboard) {
                 ChessLeaderboardView()
             }
+            .fullScreenCover(isPresented: Binding(
+                get: { waitingRoomId != nil },
+                set: { if !$0 { waitingRoomId = nil } }
+            )) {
+                if let id = waitingRoomId {
+                    ChessWaitingRoomView(
+                        tournamentId: id,
+                        onStarted: { started in
+                            waitingRoomId = nil
+                            // The tournament screen opens the player's game the moment it exists.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openTournamentId = started }
+                        },
+                        onFinished: { expired in
+                            waitingRoomId = nil
+                            if expired { waitingNotice = "No one joined in time. You're out of the queue - join again whenever you like." }
+                        }
+                    )
+                    .environmentObject(walletManager)
+                }
+            }
+            .toast(message: waitingNotice, style: .error)
+            // Back on this screen with a live seat (a relaunch, a tap on a public room card):
+            // the waiting room is the only place to be.
+            .onChange(of: service.myActiveTournament?.id) { _ in showWaitingRoomIfSeated() }
+            .onAppear { showWaitingRoomIfSeated() }
             .alert(mode == .duel ? "Create a private 1v1" : "Create a private tournament", isPresented: $showCreate) {
                 TextField("Name", text: $newName)
                 if mode == .tournament {
@@ -85,7 +113,8 @@ struct ChessTournamentsView: View {
                         let id = asDuel
                             ? await service.createPrivateDuel(named: newName)
                             : await service.createPrivateTournament(named: newName, code: creatorCode)
-                        if let id { openTournamentId = id }
+                        // The creator holds the first seat: straight into the waiting room.
+                        if let id { waitingRoomId = id }
                         isCreating = false
                     }
                 }
@@ -104,7 +133,7 @@ struct ChessTournamentsView: View {
                     isJoining = true
                     Task {
                         if await service.joinPrivate(code: privateCode) {
-                            openTournamentId = privateCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                            waitingRoomId = privateCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                         }
                         isJoining = false
                     }
@@ -148,6 +177,12 @@ struct ChessTournamentsView: View {
                     else if dx > 0, mode == .tournament { mode = .duel }
                 }
             }
+    }
+
+    private func showWaitingRoomIfSeated() {
+        guard let mine = service.myActiveTournament, mine.status == .open, let me,
+              mine.isSeated(me, at: service.now) else { return }
+        if waitingRoomId != mine.id { waitingRoomId = mine.id }
     }
 
     // MARK: - 1v1
@@ -275,21 +310,22 @@ struct ChessTournamentsView: View {
                 }
             }
             if inThisRoom, let room {
-                pill("You're in. Waiting for \(max(0, capacity - count)) more…", filled: false) { openTournamentId = room.id }
-                if let me, let expiry = room.seatExpiry(of: me) {
-                    let left = max(0, Int((expiry - service.now) / 1000))
-                    Text("Your seat is held for \(left / 60):\(String(format: "%02d", left % 60)). If the room hasn't filled by then, you're out of the queue.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                pill("You're in. Waiting for \(max(0, capacity - count)) more…", filled: false) { waitingRoomId = room.id }
             } else if let mine = service.myActiveTournament, busyElsewhere {
-                pill(mine.status == .open ? "You're waiting in \(mine.name)" : "You're playing in \(mine.name)", filled: false) { openTournamentId = mine.id }
+                pill(mine.status == .open ? "You're waiting in \(mine.name)" : "You're playing in \(mine.name)", filled: false) {
+                    if mine.status == .open { waitingRoomId = mine.id } else { openTournamentId = mine.id }
+                }
             } else {
                 pill(isJoining ? "Joining…" : "Join (one transaction)", filled: true) {
                     guard !isJoining else { return }
                     Haptics.impact(.light)
                     isJoining = true
-                    Task { await join(); isJoining = false }
+                    Task {
+                        await join()
+                        isJoining = false
+                        // Into the waiting room as soon as the seat is ours on chain.
+                        showWaitingRoomIfSeated()
+                    }
                 }
             }
         }
