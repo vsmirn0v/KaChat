@@ -11,9 +11,9 @@ struct ChessTournamentsView: View {
         case tournament = "Tournaments"
         var id: String { rawValue }
     }
-    enum Tab: CaseIterable { case play, activeGames, leaderboard }
-    /// Both screens: play, Active games (watch-only), Leaderboard.
-    private var tabs: [Tab] { [.play, .activeGames, .leaderboard] }
+    enum Tab: CaseIterable { case play, activeGames, finished, leaderboard }
+    /// Both screens: play, Active (watch-only), Finished, Leaderboard.
+    private var tabs: [Tab] { [.play, .activeGames, .finished, .leaderboard] }
 
     /// Fixed for the screen's life: this is the 1v1 screen or the Tournaments screen.
     let mode: Mode
@@ -56,6 +56,8 @@ struct ChessTournamentsView: View {
                     if mode == .duel { duelSections } else { tournamentSections }
                 case .activeGames:
                     activeGamesSection
+                case .finished:
+                    finishedSection
                 case .leaderboard:
                     ChessLeaderboardRows(mode: mode)
                 }
@@ -159,7 +161,8 @@ struct ChessTournamentsView: View {
     private func tabTitle(_ tab: Tab) -> String {
         switch tab {
         case .play: return mode.rawValue
-        case .activeGames: return "Active games"
+        case .activeGames: return "Active"
+        case .finished: return "Finished"
         case .leaderboard: return "Leaderboard"
         }
     }
@@ -172,6 +175,8 @@ struct ChessTournamentsView: View {
             VStack(spacing: 8) {
                 Text(tabTitle(tab))
                     .font(.subheadline.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
                     .frame(maxWidth: .infinity)
                     .padding(.top, 12)
@@ -237,11 +242,24 @@ struct ChessTournamentsView: View {
         } footer: {
             Text("Play a friend: create a 1v1, share its code. Private 1v1s count on the leaderboard too.")
         }
-        let done = Array(service.finishedTournaments.filter { $0.isDuel && $0.isPublic }.prefix(20))
-        if !done.isEmpty {
-            Section("Finished") {
-                ForEach(done) { tournamentRow($0, action: $0.champion.map { "Won by \(name(for: $0))" } ?? "Finished") }
+    }
+
+    // MARK: - Finished
+
+    /// Every public game of this kind that has ended, newest first - the result on the row,
+    /// the board (and its chat) a tap away.
+    @ViewBuilder
+    private var finishedSection: some View {
+        let done = Array(service.finishedTournaments.filter { $0.isDuel == (mode == .duel) && $0.isPublic }.prefix(100))
+        Section {
+            if done.isEmpty {
+                Text(mode == .duel ? "No finished 1v1 games yet." : "No finished tournaments yet.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
+            ForEach(done) { tournamentRow($0, action: $0.champion.map { "Won by \(name(for: $0))" } ?? "Finished") }
+        } header: {
+            Text(mode == .duel ? "Finished 1v1 games" : "Finished tournaments")
         }
     }
 
@@ -368,12 +386,6 @@ struct ChessTournamentsView: View {
             Text("Private")
         } footer: {
             Text("A private tournament is for friends: the creator shares its eight-character code. Creating one needs the creator code.")
-        }
-        let done = Array(service.finishedTournaments.filter { !$0.isDuel && $0.isPublic }.prefix(20))
-        if !done.isEmpty {
-            Section("Finished") {
-                ForEach(done) { tournamentRow($0, action: $0.champion.map { "Won by \(name(for: $0))" } ?? "Finished") }
-            }
         }
     }
 
