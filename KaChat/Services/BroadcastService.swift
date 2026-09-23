@@ -33,6 +33,7 @@ final class BroadcastService: ObservableObject {
         "kaspa-portugues",
         "kaspa-romania",
         "kaspa-slovak",
+        "kaspa-russian",
         "kaspa-chinese",
         "kaspa-japanese",
         "kaspa-korean",
@@ -61,6 +62,7 @@ final class BroadcastService: ObservableObject {
         case "kaspa-portugues": return "Português"
         case "kaspa-romania": return "Română"
         case "kaspa-slovak": return "Slovenčina"
+        case "kaspa-russian": return "Русский"
         case "kaspa-chinese": return "中文"
         case "kaspa-japanese": return "日本語"
         case "kaspa-korean": return "한국어"
