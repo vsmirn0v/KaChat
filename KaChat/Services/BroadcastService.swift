@@ -114,6 +114,15 @@ final class BroadcastService: ObservableObject {
                 self?.updateScanningStateIfNeeded()
             }
             .store(in: &cancellables)
+        // The closed-room sweep runs only while the app is on screen (see sweepClosedRooms).
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.startForegroundSweep() }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.stopForegroundSweep() }
+            .store(in: &cancellables)
     }
 
     // MARK: - Wallet lifecycle
@@ -130,6 +139,91 @@ final class BroadcastService: ObservableObject {
         refreshChannels()
         applyFeaturedNotifyDefaultIfNeeded()
         updateScanningStateIfNeeded()
+        sweptChannels = []
+        if UIApplication.shared.applicationState == .active { startForegroundSweep() }
+    }
+
+    // MARK: - Foreground sweep of closed rooms
+
+    /// The loop behind `sweepClosedRooms`, alive while the app is active.
+    private var foregroundSweepTask: Task<Void, Never>?
+    /// Rooms the sweep has asked about at least once this session: only rows found AFTER that
+    /// first pass are news worth a banner - the first pass is history catching up.
+    private var sweptChannels: Set<String> = []
+    private static let foregroundSweepIntervalNanos: UInt64 = 20 * 1_000_000_000
+    /// Rows older than this are not bannered even when new to the store - they are backlog,
+    /// not a message that just arrived.
+    private static let sweepBannerWindowMs: Int64 = 3 * 60 * 1000
+
+    /// While the app is on screen, a room the user is NOT looking at used to be refreshed only
+    /// by the live block scan - which misses blocks whenever the stream reconnects, and is off
+    /// altogether for indexed rooms on cellular (`scanWantedChannels`) where the remote push
+    /// that covers them is dropped in the foreground. So a message in #kaspa showed up only
+    /// once the room was opened. This is the fix, the same shape as 1:1 chat's foreground
+    /// contact sweep: every 20 s, each joined room with its bell on that is not open asks the
+    /// indexer for its newest rows (one small request per room, sequential). The open room
+    /// keeps its own 8 s poll; the block scan stays as the fast path.
+    func startForegroundSweep() {
+        guard foregroundSweepTask == nil else { return }
+        foregroundSweepTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if UIApplication.shared.applicationState == .active {
+                    await self.sweepClosedRooms()
+                }
+                try? await Task.sleep(nanoseconds: Self.foregroundSweepIntervalNanos)
+            }
+        }
+    }
+
+    func stopForegroundSweep() {
+        foregroundSweepTask?.cancel()
+        foregroundSweepTask = nil
+    }
+
+    private func sweepClosedRooms() async {
+        let targets = channels.filter {
+            $0.notifyEnabled && !isViewing(channel: $0.channelName)
+                && !Self.serviceChannels.contains($0.channelName)
+                && !Self.indexerBaseURL(forChannel: $0.channelName).isEmpty
+        }
+        for channel in targets {
+            guard !Task.isCancelled, UIApplication.shared.applicationState == .active else { return }
+            await fetchNewestAndMerge(channel: channel.channelName)
+            try? await Task.sleep(nanoseconds: 150_000_000)
+        }
+    }
+
+    /// One small newest-page fetch for a closed room, merged like any other indexer page;
+    /// rows that are new to the store and recent get the same in-app banner the scan gives.
+    private func fetchNewestAndMerge(channel: String) async {
+        let base = Self.indexerBaseURL(forChannel: channel)
+        guard !base.isEmpty else { return }
+        do {
+            let page = try await BroadcastIndexerClient.fetchHistoryPage(baseURL: base, channel: channel, limit: 40)
+            indexerFetchedChannels.insert(channel)
+            let hidden = store.hiddenSenderAddresses(forChannel: channel)
+            let rows = page.messages
+                .filter { !hidden.contains($0.senderAddress) && MessageReactionCodec.parse($0.content) == nil }
+                .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
+            let known = Set(store.messages(forChannel: channel).map(\.id))
+            let fresh = rows.filter { !known.contains($0.id) }
+            let firstPass = !sweptChannels.contains(channel)
+            sweptChannels.insert(channel)
+            guard !fresh.isEmpty else { return }
+            let inserted = await store.insertMessages(fresh)
+            guard inserted > 0 else { return }
+            store.pruneExpiredMessages()
+            loadMessages(for: channel)
+            guard !firstPass else { return }
+            let cutoff = Int64(Date().timeIntervalSince1970 * 1000) - Self.sweepBannerWindowMs
+            for row in fresh where row.blockTime > cutoff {
+                notifyIfEnabled(channel: channel, senderAddress: row.senderAddress, content: row.content, txId: row.id)
+            }
+        } catch {
+            // Best-effort; the next sweep tries again.
+            AppLog.log("%@", "[Broadcast] Sweep fetch failed for #\(channel): \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Read state (the Public Chats list's unread counts)

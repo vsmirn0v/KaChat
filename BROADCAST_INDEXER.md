@@ -188,8 +188,14 @@ in-app bell toggle. The plumbing on the app side is DONE:
   inserts rows into its local Core Data store (dedupe by txId; hidden-sender filter and local
   retention pruning still apply), and refreshes the visible list.
 - Live messages keep arriving via the app's own block scanning while the app is open (for the
-  two indexed channels, scanning follows the bell toggle - they have no "always listen"
+  indexed channels, scanning follows the bell toggle - they have no "always listen"
   toggle); remote push (§5) covers the closed-app case.
+- While the app is on screen, every joined indexed room with its bell on that is NOT open is
+  also swept: one `/get-broadcasts?limit=40` per room every 20 s, sequential
+  (`BroadcastService.sweepClosedRooms`). The block scan misses blocks around reconnects and
+  is off for indexed rooms on cellular, and the push that covers them is dropped in the
+  foreground - without the sweep a message in #kaspa showed up only once the room was opened.
+  Budget accordingly: a phone with N bell-on rooms makes N small requests every 20 s.
 - The two tracked channels match the app's curated "Popular" list
   (`BroadcastService.featuredChannels = ["kaspa", "kachat-bugs"]`). If more channels get
   curated later, the allowlist is the only thing to extend.
