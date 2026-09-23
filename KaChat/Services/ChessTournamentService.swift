@@ -17,6 +17,8 @@ final class ChessTournamentService: ObservableObject {
     /// Moves sent and not yet seen back from the chain, so the board shows them at once and
     /// the player cannot double-send.
     @Published private(set) var pendingMoveGames: Set<String> = []
+    /// Chat of ours not yet returned by the chain (`ChessPendingChatLine`), oldest first.
+    @Published private(set) var pendingChat: [ChessPendingChatLine] = []
 
     private var cancellables = Set<AnyCancellable>()
     private var clockTask: Task<Void, Never>?
@@ -80,6 +82,13 @@ final class ChessTournamentService: ObservableObject {
         }
         let reduced = ChessTournamentEngine.reduce(events)
         tournaments = reduced
+        pendingChat = rows.compactMap { row in
+            guard row.deliveryStatus != .sent, row.senderAddress == myAddress,
+                  let message = ChessTournamentCodec.decode(row.content), message.a == "chat",
+                  let text = message.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            let line = ChessTournamentChatLine(id: row.id, sender: row.senderAddress, text: text, blockTime: row.blockTime, game: message.g ?? "")
+            return ChessPendingChatLine(id: row.id, tournament: message.t, line: line, failed: row.deliveryStatus == .failed)
+        }
         leaderboard = ChessTournamentEngine.leaderboard(from: Array(reduced.values))
         resolveNames(for: Set(reduced.values.flatMap(\.players)))
         // Asked to join a public room that filled first: queue into the next one, once.

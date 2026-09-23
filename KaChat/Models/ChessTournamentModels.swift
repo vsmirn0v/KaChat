@@ -135,6 +135,16 @@ struct ChessTournamentChatLine: Identifiable, Equatable {
     let game: String
 }
 
+/// A chat line of this phone's that is still on its way (or failed): shown under the board with
+/// a clock (or a red mark) until the chain returns it, when it becomes a `ChessTournamentChatLine`
+/// with the green check - the same three states a 1:1 chat bubble has.
+struct ChessPendingChatLine: Identifiable, Equatable {
+    let id: String
+    let tournament: String
+    let line: ChessTournamentChatLine
+    let failed: Bool
+}
+
 struct ChessTournamentGame: Identifiable, Equatable {
     enum Outcome: Equatable {
         case checkmate

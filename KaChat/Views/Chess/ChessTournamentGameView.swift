@@ -12,7 +12,12 @@ struct ChessTournamentGameView: View {
     @State private var pendingPromotion: ChessMove?
     @State private var showResignConfirm = false
     @State private var chatText = ""
-    @State private var reportedEnd = false
+    /// End-of-game flow: the overlay over the board, then the result screen (players only).
+    @State private var showEndOverlay = false
+    @State private var showResult = false
+    @State private var endHandledForGame: String?
+    /// The player's record as it stood while the game was on - the result screen counts up from it.
+    @State private var recordBeforeEnd: ChessLeaderboardRow?
 
     private var tournament: ChessTournament? { service.tournaments[tournamentId] }
     private var game: ChessTournamentGame? { tournament?.games[gameId] }
@@ -36,8 +41,40 @@ struct ChessTournamentGameView: View {
         .navigationTitle(game.map { roundLabel($0) } ?? "Game")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { BalanceToolbarLabel() } }
-        .onAppear { service.acquire() }
+        .onAppear { service.acquire(); rememberRecord() }
         .onDisappear { service.release() }
+        .onChange(of: game?.isOver) { _ in gameEndedIfNeeded() }
+        // Keep the "before" record fresh while the game is on (the arena may still be loading
+        // when the screen opens); once the game is over it is left alone.
+        .onChange(of: service.leaderboard) { _ in rememberRecord() }
+        .onAppear { gameEndedIfNeeded() }
+        .fullScreenCover(isPresented: $showResult) {
+            ChessGameResultView(tournamentId: tournamentId, gameId: gameId, before: recordBeforeEnd) {
+                showResult = false
+            }
+            .environmentObject(walletManager)
+        }
+    }
+
+    /// The record before the end lands, so the result screen can count up from it.
+    private func rememberRecord() {
+        guard let me, let game, !game.isOver else { return }
+        recordBeforeEnd = service.leaderboard.first { $0.address == me } ?? ChessLeaderboardRow(address: me)
+    }
+
+    /// The game just ended: the burst over the board for a couple of seconds, then - for the
+    /// two players, not for someone watching - the result screen with the record.
+    private func gameEndedIfNeeded() {
+        guard let game, game.isOver, game.winner != nil, endHandledForGame != game.id else { return }
+        // Opened on a game that was already over (watching a finished bracket): nothing to show.
+        let justEnded = (game.endedAt ?? 0) > service.now - 60_000
+        endHandledForGame = game.id
+        guard justEnded else { return }
+        withAnimation(.easeOut(duration: 0.25)) { showEndOverlay = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+            withAnimation { showEndOverlay = false }
+            if myColor != nil { showResult = true }
+        }
     }
 
     private func roundLabel(_ game: ChessTournamentGame) -> String {
@@ -53,25 +90,27 @@ struct ChessTournamentGameView: View {
 
     @ViewBuilder
     private func content(_ tournament: ChessTournament, _ game: ChessTournamentGame) -> some View {
+        // The board and clocks stay put; the chat below is its own scrolling area, like the
+        // message list of a 1:1 chat, with the composer pinned under it.
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 12) {
-                    clockRow(game, color: flipped ? .white : .black)
-                    board(game)
-                        .padding(.horizontal, 12)
-                    clockRow(game, color: flipped ? .black : .white)
+            VStack(spacing: 10) {
+                clockRow(game, color: flipped ? .white : .black)
+                board(game)
+                    .padding(.horizontal, 12)
+                clockRow(game, color: flipped ? .black : .white)
+                HStack(spacing: 16) {
                     statusLine(game)
                     if myColor != nil, !game.isOver {
                         Button(role: .destructive) { showResignConfirm = true } label: {
                             Label("Resign", systemImage: "flag.fill").font(.subheadline.weight(.semibold))
                         }
-                        .padding(.top, 2)
                     }
-                    Divider().padding(.vertical, 6)
-                    chatSection(tournament, game)
                 }
-                .padding(.vertical, 12)
             }
+            .padding(.vertical, 10)
+            Divider()
+            chatSection(tournament, game)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             composer(tournament, game)
         }
         .sheet(isPresented: $showResignConfirm) {
@@ -207,13 +246,23 @@ struct ChessTournamentGameView: View {
             let size = proxy.size.width / 8
             let ranks = flipped ? Array(0..<8) : Array((0..<8).reversed())
             let files = flipped ? Array((0..<8).reversed()) : Array(0..<8)
-            VStack(spacing: 0) {
-                ForEach(ranks, id: \.self) { rank in
-                    HStack(spacing: 0) {
-                        ForEach(files, id: \.self) { file in
-                            square(file: file, rank: rank, game: game, size: size)
+            ZStack {
+                VStack(spacing: 0) {
+                    ForEach(ranks, id: \.self) { rank in
+                        HStack(spacing: 0) {
+                            ForEach(files, id: \.self) { file in
+                                square(file: file, rank: rank, game: game, size: size)
+                            }
                         }
                     }
+                }
+                // Same "Waiting on opponent..." as the 1:1 board, while it is their move.
+                if let myColor, !game.isOver, game.sideToMove != myColor {
+                    WaitingOnOpponentOverlay()
+                }
+                if showEndOverlay, let winner = game.winner, let outcome = game.outcome {
+                    ChessGameEndOverlay(winnerName: name(for: winner), outcome: outcome, iWon: myColor == nil ? nil : winner == me)
+                        .transition(.opacity)
                 }
             }
         }
@@ -288,31 +337,68 @@ struct ChessTournamentGameView: View {
 
     // MARK: - Chat under the board
 
+    /// One bubble's delivery state - the three a 1:1 chat bubble has.
+    private enum LineStatus { case sent, pending, failed }
+
+    /// The game's chat: lines the chain returned (green check on ours), then ours still on the
+    /// way (clock) or failed (red). Scrolls on its own and follows the newest line.
     private func chatSection(_ tournament: ChessTournament, _ game: ChessTournamentGame) -> some View {
-        let lines = tournament.chat.filter { $0.game == game.id }.suffix(80)
-        return VStack(alignment: .leading, spacing: 8) {
-            if lines.isEmpty {
-                Text("No messages yet.").font(.caption).foregroundColor(.secondary).padding(.horizontal, 16)
-            }
-            ForEach(Array(lines)) { line in
-                let mine = line.sender == me
-                HStack {
-                    if mine { Spacer(minLength: 40) }
-                    VStack(alignment: .leading, spacing: 2) {
-                        if !mine {
-                            Text(name(for: line.sender)).font(.caption2.weight(.semibold)).foregroundColor(.secondary)
-                        }
-                        Text(line.text).font(.subheadline).foregroundColor(mine ? .white : .primary)
+        let sent = tournament.chat.filter { $0.game == game.id }.suffix(120).map { ($0, LineStatus.sent) }
+        let pending = service.pendingChat
+            .filter { $0.tournament == tournament.id && $0.line.game == game.id }
+            .map { ($0.line, $0.failed ? LineStatus.failed : .pending) }
+        let lines = sent + pending
+        return ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    if lines.isEmpty {
+                        Text("No messages yet. Each message is one transaction.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 16)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(mine ? OutgoingBubble.color : Color(.systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    if !mine { Spacer(minLength: 40) }
+                    ForEach(lines, id: \.0.id) { item in
+                        chatBubble(item.0, status: item.1)
+                            .id(item.0.id)
+                    }
                 }
-                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+            .onAppear { if let last = lines.last { proxy.scrollTo(last.0.id, anchor: .bottom) } }
+            .onChange(of: lines.map(\.0.id)) { ids in
+                if let last = ids.last { withAnimation { proxy.scrollTo(last, anchor: .bottom) } }
             }
         }
+    }
+
+    private func chatBubble(_ line: ChessTournamentChatLine, status: LineStatus) -> some View {
+        let mine = line.sender == me
+        return HStack(alignment: .bottom) {
+            if mine { Spacer(minLength: 48) }
+            VStack(alignment: mine ? .trailing : .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
+                    if !mine {
+                        Text(name(for: line.sender)).font(.caption2.weight(.semibold)).foregroundColor(.secondary)
+                    }
+                    Text(line.text).font(.body).foregroundColor(mine ? .white : .primary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(mine ? OutgoingBubble.color : Color(.systemGray5))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                if mine {
+                    // Under the bubble, as in a 1:1 chat: green check once the chain has it.
+                    switch status {
+                    case .sent: Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundColor(.green)
+                    case .pending: Image(systemName: "clock").font(.caption2).foregroundColor(.secondary)
+                    case .failed: Image(systemName: "exclamationmark.circle.fill").font(.caption2).foregroundColor(.red)
+                    }
+                }
+            }
+            if !mine { Spacer(minLength: 48) }
+        }
+        .padding(.horizontal, 12)
     }
 
     private func composer(_ tournament: ChessTournament, _ game: ChessTournamentGame) -> some View {

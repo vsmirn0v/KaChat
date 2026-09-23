@@ -922,7 +922,8 @@ private struct ChessChatComposer: View {
 /// looking frozen/stuck. Self-contained `.task` loop starts/stops automatically as SwiftUI mounts/
 /// unmounts this view (see `boardView`'s conditional inclusion), so nothing leaks a timer while
 /// it isn't actually the opponent's turn.
-private struct WaitingOnOpponentOverlay: View {
+/// Shared with the tournament board (`ChessTournamentGameView`), which waits the same way.
+struct WaitingOnOpponentOverlay: View {
     @State private var dotCount = 1
 
     var body: some View {
