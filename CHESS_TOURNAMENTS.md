@@ -91,12 +91,21 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
 
 - **5 minutes per side, no increment.** Time is measured in *chain time*: a player's clock
   is charged the block time of their move minus the block time of the previous event
-  (the opponent's move, or the game start). The phone shows the side to move's clock running
-  from the last event's block time by its own wall clock. Whatever a phone claims about its
-  own thinking time is irrelevant; the chain decides.
+  (the opponent's move, or the game start), **less the move's allowance**: 60 s for a side's
+  first move (ply 1 and ply 2), 10 s for every move after (`ChessTournamentCodec.moveDelayMs`,
+  `firstMoveGraceMs`, `allowanceMs(ply:)`; the charge is `max(0, elapsed - allowance)`). The
+  ten seconds cover what a move spends reaching the other phone - a block, the indexer's
+  poll - so propagation is nobody's thinking time. The minute is the gate on a simultaneous
+  join: the game starts at the second join's block time, but neither clock runs until that
+  side has shown up with a move, so nobody loses time before their phone has even shown the
+  board. A side that never shows up is not stuck either: after the minute their five minutes
+  run and the opponent claims. The phone shows the side to move's clock from the last
+  event's block time by its own wall clock, frozen while the allowance lasts. Whatever a
+  phone claims about its own thinking time is irrelevant; the chain decides.
 - **Flagging:** when the side to move's remaining time reaches zero, the *opponent* posts
   `claim`. Everyone accepts it if, at the claim's block time, the mover's clock had indeed
-  run out. A claim that arrives early is ignored. (The app posts the claim itself the moment
+  run out (the same allowance applies: elapsed − allowance ≥ remaining). A claim that
+  arrives early is ignored. (The app posts the claim itself the moment
   it sees the opponent flagged.) A player may also resign.
 - **Game over:** checkmate (mover wins), resignation, time claim, or a draw (stalemate,
   insufficient material, fifty moves, threefold repetition). Knockout needs a winner, so a

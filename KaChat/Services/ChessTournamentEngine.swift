@@ -96,7 +96,9 @@ enum ChessTournamentEngine {
                   let fromText = message.from, let toText = message.to,
                   let from = ChessSquare(algebraic: fromText), let to = ChessSquare(algebraic: toText) else { return }
             // A move after the mover's clock ran out is void: the opponent's claim decides.
-            let elapsed = max(0, event.blockTime - game.lastEventAt)
+            // Charged past the move's allowance (a minute for a side's first move, ten seconds
+            // after) - see ChessTournamentCodec.allowanceMs.
+            let elapsed = game.chargedMs(elapsed: event.blockTime - game.lastEventAt)
             let remaining = ChessTournamentCodec.clockMs - game.usedMs(game.sideToMove)
             guard elapsed < remaining else { return }
             var move = ChessMove(from: from, to: to, promotion: ChessPieceType.fromPromotionLetter(message.promo))
@@ -143,8 +145,9 @@ enum ChessTournamentEngine {
             guard var tournament = tournaments[message.t], tournament.status == .live,
                   let gameId = message.g, var game = tournament.games[gameId], !game.isOver,
                   let claimant = game.color(of: event.sender), claimant != game.sideToMove else { return }
-            // Valid only if, by chain time, the side to move had indeed run out.
-            let elapsed = max(0, event.blockTime - game.lastEventAt)
+            // Valid only if, by chain time, the side to move had indeed run out - past the
+            // same allowance a move gets.
+            let elapsed = game.chargedMs(elapsed: event.blockTime - game.lastEventAt)
             let remaining = ChessTournamentCodec.clockMs - game.usedMs(game.sideToMove)
             guard elapsed >= remaining else { return }
             if game.sideToMove == .white { game.whiteUsedMs = ChessTournamentCodec.clockMs } else { game.blackUsedMs = ChessTournamentCodec.clockMs }
