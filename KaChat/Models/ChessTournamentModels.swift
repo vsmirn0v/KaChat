@@ -41,8 +41,19 @@ enum ChessTournamentCodec {
     /// This is the gate on a simultaneous join - the clock does not run for either side
     /// until they have shown up with a move (or the minute is up).
     static let firstMoveGraceMs: Int64 = 60 * 1000
-    /// The allowance for the move at `ply` (1 = white's first, 2 = black's first).
-    static func allowanceMs(ply: Int) -> Int64 { ply <= 2 ? firstMoveGraceMs : moveDelayMs }
+    /// The allowances apply to games that STARTED at or after this block time
+    /// (2026-09-24 00:00 UTC). A rule change must never reach back: the games before it
+    /// were decided under the rules of their day, and re-judging them re-opened games
+    /// that had ended (a claim valid at 5:00 became "early" under the minute's grace) and
+    /// let a player resign a finished game for a second loss. Every platform ships the
+    /// same instant.
+    static let allowanceFromMs: Int64 = 1_790_208_000_000
+    /// The allowance for the move at `ply` (1 = white's first, 2 = black's first) in a game
+    /// started at `startedAt`; zero for games from before `allowanceFromMs`.
+    static func allowanceMs(ply: Int, startedAt: Int64) -> Int64 {
+        guard startedAt >= allowanceFromMs else { return 0 }
+        return ply <= 2 ? firstMoveGraceMs : moveDelayMs
+    }
     /// A seat in a waiting room lasts this long: if the room has not filled by then, the seat
     /// expires and the player is out of the queue - with the app closed, on a walk, whatever.
     static let seatTTLMs: Int64 = 5 * 60 * 1000
@@ -209,14 +220,14 @@ struct ChessTournamentGame: Identifiable, Equatable {
     /// What the side to move is charged for `elapsed` ms of chain time since the last event:
     /// the time past this ply's allowance (`ChessTournamentCodec.allowanceMs`).
     func chargedMs(elapsed: Int64) -> Int64 {
-        max(0, elapsed - ChessTournamentCodec.allowanceMs(ply: moves.count + 1))
+        max(0, elapsed - ChessTournamentCodec.allowanceMs(ply: moves.count + 1, startedAt: startedAt))
     }
 
     /// The allowance still unspent on the current move, for the phone to show ("clock starts
     /// in 0:42"); zero once the clock is running.
     func allowanceLeftMs(at now: Int64) -> Int64 {
         guard !isOver else { return 0 }
-        return max(0, ChessTournamentCodec.allowanceMs(ply: moves.count + 1) - max(0, now - lastEventAt))
+        return max(0, ChessTournamentCodec.allowanceMs(ply: moves.count + 1, startedAt: startedAt) - max(0, now - lastEventAt))
     }
 }
 

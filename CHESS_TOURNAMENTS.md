@@ -93,7 +93,13 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
   is charged the block time of their move minus the block time of the previous event
   (the opponent's move, or the game start), **less the move's allowance**: 60 s for a side's
   first move (ply 1 and ply 2), 10 s for every move after (`ChessTournamentCodec.moveDelayMs`,
-  `firstMoveGraceMs`, `allowanceMs(ply:)`; the charge is `max(0, elapsed - allowance)`). The
+  `firstMoveGraceMs`, `allowanceMs(ply:startedAt:)`; the charge is `max(0, elapsed - allowance)`).
+  **The allowances apply to games started at or after `allowanceFromMs` = 1790208000000
+  (2026-09-24 00:00 UTC); earlier games have none.** A rule change never reaches back: the
+  games before it were decided under the rules of their day, and re-judging them re-opened
+  finished games (a claim valid at 5:00 became "early") and let a player resign a finished
+  game for a second loss. Any future clock rule change gets its own activation instant the
+  same way, shipped identically on every platform. The
   ten seconds cover what a move spends reaching the other phone - a block, the indexer's
   poll - so propagation is nobody's thinking time. The minute is the gate on a simultaneous
   join: the game starts at the second join's block time, but neither clock runs until that
