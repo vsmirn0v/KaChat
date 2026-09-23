@@ -44,18 +44,19 @@ enum ChessTournamentEngine {
             tournaments[message.t] = tournament
         case "join":
             if tournaments[message.t] == nil {
-                // The first join opens a public room - but only the NEXT one in the sequence,
-                // once the previous is full, so everyone queues into the same room.
+                // The first join opens a public room - whichever number it names. There used to
+                // be a rule that room N counts only once room N-1 is full; it made every phone's
+                // view depend on holding the complete history back to room 1, and a phone
+                // missing the early rooms (indexer window, retention, a late backfill) then
+                // rejected every later room outright and queued into a room the others had
+                // long finished. Which room is "current" is a client choice now
+                // (`ChessTournamentService.currentPublicRoomId`: the lowest open room).
                 if let number = ChessTournamentCodec.publicNumber(of: message.t) {
-                    let previousFull = number == 1 || (tournaments[ChessTournamentCodec.publicId(number - 1)]?.isFull ?? false)
-                    guard previousFull else { return }
                     tournaments[message.t] = ChessTournament(
                         id: message.t, name: "Public tournament #\(number)", creator: event.sender,
                         createdAt: event.blockTime, createTxId: event.txId, capacity: ChessTournamentCodec.playerCount
                     )
                 } else if let number = ChessTournamentCodec.duelNumber(of: message.t) {
-                    let previousFull = number == 1 || (tournaments[ChessTournamentCodec.duelId(number - 1)]?.isFull ?? false)
-                    guard previousFull else { return }
                     tournaments[message.t] = ChessTournament(
                         id: message.t, name: "Public 1v1 #\(number)", creator: event.sender,
                         createdAt: event.blockTime, createTxId: event.txId, capacity: 2

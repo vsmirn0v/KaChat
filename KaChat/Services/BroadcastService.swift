@@ -406,6 +406,9 @@ final class BroadcastService: ObservableObject {
     /// session — the deep backfill runs once per room per launch; the 8s poll then only needs
     /// the newest page to stay fresh.
     private var deepBackfilledChannels: Set<String> = []
+    /// Channels the indexer has answered at least once this session - the chess arena waits
+    /// for this before letting a player pick a room (`ChessTournamentService.historyReady`).
+    @Published private(set) var indexerFetchedChannels: Set<String> = []
     /// Where an interrupted deep backfill picks up: the `before` cursor of the next page to
     /// ask for, and how many pages of the safety valve are left. Session-only, like the
     /// completed set above. Without this a single thrown page - one timeout on page 30 of a
@@ -453,6 +456,7 @@ final class BroadcastService: ObservableObject {
             var messages = try await BroadcastIndexerClient.fetchHistoryPage(
                 baseURL: baseURL, channel: channel, limit: steadyStateLimit
             )
+            indexerFetchedChannels.insert(channel)
             // One-shot deep backfill per room per session: page older history with `before`
             // until the indexer runs out or we reach its 30-day window. Without this, rooms
             // only ever showed the newest single page (200 rows) — busy rooms like

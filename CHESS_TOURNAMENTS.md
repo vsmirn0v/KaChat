@@ -43,11 +43,16 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
   like the public tournament rooms below: the first join opens a room, one takes players at a
   time, and it starts (a single game, seed 1 white) the moment the second player joins.
 - **Public tournament rooms** are numbered `public-1`, `public-2`, ... and nobody creates them: the first
-  `join` to a room opens it, and the app shows "Public tournament #N" with its seats at all
-  times. Exactly one is taking players: a `join` to room N is accepted only when room N-1 is
-  full (or N = 1), so everyone queues into the same room and the moment it fills - which is the
-  moment it starts - the next one opens. A `join` that arrives after the last seat went is
-  ignored, and the app re-joins the next room by itself. Public rooms cannot be cancelled.
+  `join` to a room opens it, whichever number it names, and the app shows "Public tournament #N"
+  with its seats at all times. Which room is taking players is the client's choice, the same
+  rule on every platform: **the lowest-numbered room still open (not full); when none is, one
+  past the highest room the phone knows**. Before joining, a phone waits for the arena's
+  history to come back from the indexer, so it never picks room 1 from an empty view. (There
+  used to be a rule that a join to room N counts only once room N-1 is full; it made every
+  phone depend on the complete history back to room 1, and a phone missing the early rooms
+  rejected every later one and queued alone. Dropped.) A `join` that arrives after the last
+  seat went is ignored, and the app re-joins the next room by itself. Public rooms cannot be
+  cancelled.
 - **Private 1v1s** are for playing a friend: `create` with `p: 2` needs no code; the id is the
   code to share. They count on the leaderboard exactly like public games.
 - **Private tournaments** are for friends. `create` (`p: 8`, or absent) needs `k` = first 24 hex chars of

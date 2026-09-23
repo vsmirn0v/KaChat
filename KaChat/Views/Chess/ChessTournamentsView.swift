@@ -315,8 +315,8 @@ struct ChessTournamentsView: View {
                     if mine.status == .open { waitingRoomId = mine.id } else { openTournamentId = mine.id }
                 }
             } else {
-                pill(isJoining ? "Joining…" : service.joinLabel(roomId: id), filled: true) {
-                    guard !isJoining else { return }
+                pill(isJoining ? "Joining…" : (service.historyReady ? service.joinLabel(roomId: id) : "Loading rooms…"), filled: service.historyReady) {
+                    guard !isJoining, service.historyReady else { return }
                     Haptics.impact(.light)
                     isJoining = true
                     Task {

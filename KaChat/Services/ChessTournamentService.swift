@@ -51,6 +51,16 @@ final class ChessTournamentService: ObservableObject {
         arenaJoined = true
         broadcast.acquire(ChessTournamentCodec.arenaChannel)
         if let me = myAddress { resolveNames(for: [me]) }
+        historyReady = false
+        Task { [weak self] in
+            let deadline = Date().addingTimeInterval(8)
+            while Date() < deadline {
+                if BroadcastService.shared.indexerFetchedChannels.contains(ChessTournamentCodec.arenaChannel)
+                    || BroadcastService.indexerBaseURL(forChannel: ChessTournamentCodec.arenaChannel).isEmpty { break }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            self?.historyReady = true
+        }
         clockTask?.cancel()
         clockTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -119,19 +129,35 @@ final class ChessTournamentService: ObservableObject {
     /// Its id exists before anyone has joined it (the first join creates it), so the lobby can
     /// always show "Public tournament #N" with its seats.
     var currentPublicRoomId: String {
-        var number = 1
-        while let room = tournaments[ChessTournamentCodec.publicId(number)], room.isFull { number += 1 }
-        return ChessTournamentCodec.publicId(number)
+        ChessTournamentCodec.publicId(currentRoomNumber(numberOf: ChessTournamentCodec.publicNumber(of:)))
     }
     var currentPublicRoom: ChessTournament? { tournaments[currentPublicRoomId] }
 
     /// The public 1v1 room taking players right now.
     var currentDuelRoomId: String {
-        var number = 1
-        while let room = tournaments[ChessTournamentCodec.duelId(number)], room.isFull { number += 1 }
-        return ChessTournamentCodec.duelId(number)
+        ChessTournamentCodec.duelId(currentRoomNumber(numberOf: ChessTournamentCodec.duelNumber(of:)))
     }
     var currentDuelRoom: ChessTournament? { tournaments[currentDuelRoomId] }
+
+    /// The room to queue into: the lowest-numbered public room of that kind still waiting for
+    /// players; when none is, one past the highest room this phone knows. Every phone with the
+    /// same recent history lands on the same number - and it does not need the history back to
+    /// room 1 (see the engine's join rule).
+    private func currentRoomNumber(numberOf: (String) -> Int?) -> Int {
+        var open: Int?
+        var highest = 0
+        for room in tournaments.values {
+            guard let number = numberOf(room.id) else { continue }
+            highest = max(highest, number)
+            if room.status == .open, !room.isFull { open = min(open ?? number, number) }
+        }
+        return open ?? highest + 1
+    }
+
+    /// True once the arena's history has come back from the indexer (or, without one, once the
+    /// first rows arrived / a few seconds passed). A join before that would pick a room from an
+    /// empty view - room 1 - which everyone else finished long ago.
+    @Published private(set) var historyReady = false
 
     /// Private 1v1s this player is in, still open or in play.
     var myPrivateDuels: [ChessTournament] {
@@ -224,6 +250,7 @@ final class ChessTournamentService: ObservableObject {
     /// stale list, or a returning player's tap would do nothing at all.
     private func joinPublicRoom(id: String) async {
         guard let me = myAddress else { return }
+        guard historyReady else { lastError = "Still loading the rooms - try again in a moment."; return }
         if let busy = myActiveTournament {
             lastError = busy.status == .open ? "You're already waiting in \(busy.name)." : "You're still playing in \(busy.name)."
             return
