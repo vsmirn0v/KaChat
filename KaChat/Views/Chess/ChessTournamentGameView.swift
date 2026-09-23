@@ -11,6 +11,9 @@ struct ChessTournamentGameView: View {
     @State private var selectedSquare: ChessSquare?
     @State private var pendingPromotion: ChessMove?
     @State private var showResignConfirm = false
+    /// The back button while a player's game is on: leaving means resigning, and it asks.
+    @State private var showLeaveWarning = false
+    @Environment(\.dismiss) private var dismiss
     @State private var chatText = ""
     /// End-of-game flow: the overlay over the board, then the result screen (players only).
     @State private var showEndOverlay = false
@@ -29,6 +32,9 @@ struct ChessTournamentGameView: View {
     }
     /// The board is drawn from the viewer's side: black players see black at the bottom.
     private var flipped: Bool { myColor == .black }
+    /// A player in a game that is still on: no wandering off - the back button asks, the
+    /// swipe-back is off, the dock is hidden. A spectator, or a game that is over, is free.
+    private var isLockedIn: Bool { myColor != nil && game?.isOver == false }
 
     var body: some View {
         Group {
@@ -40,7 +46,38 @@ struct ChessTournamentGameView: View {
         }
         .navigationTitle(game.map { roundLabel($0) } ?? "Game")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .principal) { BalanceToolbarLabel() } }
+        .toolbar {
+            ToolbarItem(placement: .principal) { BalanceToolbarLabel() }
+            if isLockedIn {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showLeaveWarning = true
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.body.weight(.semibold))
+                    }
+                    .accessibilityLabel("Back")
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showResignConfirm = true
+                    } label: {
+                        Text("Resign")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+        }
+        .navigationBarBackButtonHidden(isLockedIn)
+        .toolbar(isLockedIn ? .hidden : .visible, for: .tabBar)
+        .sheet(isPresented: $showLeaveWarning) {
+            if let tournament, let game {
+                resignSheet(tournament, game, leaving: true)
+                    .presentationDetents([.height(300)])
+                    .presentationDragIndicator(.visible)
+            }
+        }
         .onAppear { service.acquire(); rememberRecord() }
         .onDisappear { service.release() }
         .onChange(of: game?.isOver) { _ in gameEndedIfNeeded() }
@@ -111,7 +148,7 @@ struct ChessTournamentGameView: View {
             composer(tournament, game)
         }
         .sheet(isPresented: $showResignConfirm) {
-            resignSheet(tournament, game)
+            resignSheet(tournament, game, leaving: false)
                 .presentationDetents([.height(300)])
                 .presentationDragIndicator(.visible)
         }
@@ -123,18 +160,21 @@ struct ChessTournamentGameView: View {
 
     // MARK: - Resign
 
-    /// The half sheet behind the Resign button: what it means, then Resign or Keep playing.
-    private func resignSheet(_ tournament: ChessTournament, _ game: ChessTournamentGame) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "flag.fill")
+    /// The half sheet behind Resign - and behind the back button while the game is on, where
+    /// leaving means resigning: what it means, then Resign (and leave) or stay.
+    private func resignSheet(_ tournament: ChessTournament, _ game: ChessTournamentGame, leaving: Bool) -> some View {
+        let opponent = name(for: game.address(of: myColor == .white ? .black : .white))
+        let consequence = tournament.isDuel
+            ? "\(opponent) wins, and it counts as a loss on the leaderboard. Resigning is one transaction."
+            : "\(opponent) goes through and you are out of the tournament. It counts as a loss on the leaderboard. Resigning is one transaction."
+        return VStack(spacing: 16) {
+            Image(systemName: leaving ? "rectangle.portrait.and.arrow.right" : "flag.fill")
                 .font(.system(size: 34))
                 .foregroundColor(.red)
                 .padding(.top, 28)
-            Text("Resign this game?")
+            Text(leaving ? "Leave the game?" : "Resign this game?")
                 .font(.title3.weight(.bold))
-            Text(tournament.isDuel
-                 ? "\(name(for: game.address(of: myColor == .white ? .black : .white))) wins, and it counts as a loss on the leaderboard. Resigning is one transaction."
-                 : "\(name(for: game.address(of: myColor == .white ? .black : .white))) goes through and you are out of the tournament. It counts as a loss on the leaderboard. Resigning is one transaction.")
+            Text(leaving ? "If you leave, you resign the game. \(consequence)" : consequence)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -143,9 +183,13 @@ struct ChessTournamentGameView: View {
             VStack(spacing: 10) {
                 Button {
                     showResignConfirm = false
-                    Task { await service.resign(tournament, game: game) }
+                    showLeaveWarning = false
+                    Task {
+                        await service.resign(tournament, game: game)
+                        if leaving { dismiss() }
+                    }
                 } label: {
-                    Text("Resign")
+                    Text(leaving ? "Resign and leave" : "Resign")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -156,8 +200,9 @@ struct ChessTournamentGameView: View {
                 .buttonStyle(.plain)
                 Button {
                     showResignConfirm = false
+                    showLeaveWarning = false
                 } label: {
-                    Text("Keep playing")
+                    Text(leaving ? "Stay" : "Keep playing")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -187,14 +232,7 @@ struct ChessTournamentGameView: View {
                     .font(.headline)
                     .lineLimit(1)
             }
-            HStack(spacing: 12) {
-                statusLine(game)
-                if myColor != nil, !game.isOver {
-                    Button(role: .destructive) { showResignConfirm = true } label: {
-                        Label("Resign", systemImage: "flag.fill").font(.caption.weight(.semibold))
-                    }
-                }
-            }
+            statusLine(game)
         }
         .padding(.horizontal)
     }
