@@ -22,6 +22,11 @@ final class ChessTournamentService: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var clockTask: Task<Void, Never>?
+    /// While this player is waiting in a room or playing, the arena is pulled from the indexer
+    /// every two seconds on top of the room's 8 s poll and the block scan - the other side's
+    /// join or move should be on this phone in a couple of seconds, not ten.
+    private var fastPollTask: Task<Void, Never>?
+    private static let fastPollIntervalNanos: UInt64 = 2 * 1_000_000_000
     private var refCount = 0
     private var arenaJoined = false
     /// Claims already posted for a game - one is enough; the chain confirms it.
@@ -70,6 +75,17 @@ final class ChessTournamentService: ObservableObject {
                 self.claimTimeoutsIfDue()
             }
         }
+        fastPollTask?.cancel()
+        fastPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.fastPollIntervalNanos)
+                guard let self, !Task.isCancelled else { return }
+                // Only while it matters: a seat held or a game on. Idle in the lobby, the
+                // room's own poll is plenty.
+                guard self.myActiveTournament != nil else { continue }
+                await BroadcastService.shared.refreshFromIndexerNow(channel: ChessTournamentCodec.arenaChannel)
+            }
+        }
     }
 
     func release() {
@@ -78,6 +94,8 @@ final class ChessTournamentService: ObservableObject {
         BroadcastService.shared.release(ChessTournamentCodec.arenaChannel)
         clockTask?.cancel()
         clockTask = nil
+        fastPollTask?.cancel()
+        fastPollTask = nil
     }
 
     private func reduce(_ rows: [BroadcastMessage]) {
