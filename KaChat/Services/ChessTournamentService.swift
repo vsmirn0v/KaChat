@@ -48,6 +48,7 @@ final class ChessTournamentService: ObservableObject {
         }
         arenaJoined = true
         broadcast.acquire(ChessTournamentCodec.arenaChannel)
+        if let me = myAddress { resolveNames(for: [me]) }
         clockTask?.cancel()
         clockTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -80,6 +81,7 @@ final class ChessTournamentService: ObservableObject {
         let reduced = ChessTournamentEngine.reduce(events)
         tournaments = reduced
         leaderboard = ChessTournamentEngine.leaderboard(from: Array(reduced.values))
+        resolveNames(for: Set(reduced.values.flatMap(\.players)))
         // Asked to join a public room that filled first: queue into the next one, once.
         if let queued = queuedPublicRoomId, let me = myAddress, let room = reduced[queued],
            room.isFull, !room.players.contains(me) {
@@ -156,6 +158,25 @@ final class ChessTournamentService: ObservableObject {
             .filter { ($0.status == .live && $0.players.contains(me)) || ($0.status == .open && $0.isSeated(me, at: now)) }
             .sorted { $0.createdAt > $1.createdAt }
             .first
+    }
+
+    // MARK: - Names
+
+    /// Addresses whose KNS profile was asked for this session.
+    private var resolvedNames: Set<String> = []
+
+    /// Names in the arena follow the app's rule - contact name, then KNS domain, then the
+    /// shortened address (`ContactsManager.displayName`) - and the domain part needs the
+    /// profile in `KNSService.profileCache`. Fetched once per address per session; the cache
+    /// answers after that, and `KNSService` publishes so rows re-render when it lands.
+    private func resolveNames(for addresses: Set<String>) {
+        let fresh = addresses.subtracting(resolvedNames)
+        guard !fresh.isEmpty else { return }
+        resolvedNames.formUnion(fresh)
+        let network = AppSettings.load().networkType
+        for address in fresh {
+            Task { _ = await KNSService.shared.fetchProfile(for: address, network: network) }
+        }
     }
 
     // MARK: - Fees

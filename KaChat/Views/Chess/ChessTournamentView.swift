@@ -57,9 +57,9 @@ struct ChessTournamentView: View {
         openGameId = game.id
     }
 
+    /// Contact name, then KNS domain, then the shortened address - for the player too.
     private func name(for address: String) -> String {
-        if address == me { return "You" }
-        return ContactsManager.shared.displayName(for: address)
+        ContactsManager.shared.displayName(for: address)
     }
 
     @ViewBuilder

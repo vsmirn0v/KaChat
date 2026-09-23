@@ -100,7 +100,7 @@ struct ChessWaitingRoomView: View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: 18), count: capacity == 2 ? 2 : 4)
         return LazyVGrid(columns: columns, spacing: 18) {
             ForEach(shown, id: \.self) { address in
-                seat(address: address, label: address == me ? "You" : ContactsManager.shared.displayName(for: address))
+                seat(address: address, label: ContactsManager.shared.displayName(for: address))
             }
             ForEach(0..<max(0, capacity - shown.count), id: \.self) { _ in
                 emptySeat

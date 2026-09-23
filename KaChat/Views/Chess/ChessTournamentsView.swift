@@ -345,9 +345,9 @@ struct ChessTournamentsView: View {
         .buttonStyle(.plain)
     }
 
+    /// Contact name, then KNS domain, then the shortened address - for the player too.
     private func name(for address: String) -> String {
-        if address == me { return "You" }
-        return ContactsManager.shared.displayName(for: address)
+        ContactsManager.shared.displayName(for: address)
     }
 
     private func tournamentRow(_ tournament: ChessTournament, action: String) -> some View {
@@ -426,7 +426,7 @@ struct ChessLeaderboardView: View {
                             size: 36,
                             contactAddress: row.address
                         )
-                        Text(row.address == walletManager.currentWallet?.publicAddress ? "You" : ContactsManager.shared.displayName(for: row.address))
+                        Text(ContactsManager.shared.displayName(for: row.address))
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                         Spacer()

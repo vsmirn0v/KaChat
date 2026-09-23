@@ -45,9 +45,10 @@ struct ChessTournamentGameView: View {
         return game.round == 3 ? "Final" : (game.round == 2 ? "Semifinal" : "Round 1")
     }
 
+    /// Contact name, then KNS domain, then the shortened address - the app's rule, and the
+    /// same for the player themselves (their own domain or address, never "You").
     private func name(for address: String) -> String {
-        if address == me { return "You" }
-        return ContactsManager.shared.displayName(for: address)
+        ContactsManager.shared.displayName(for: address)
     }
 
     @ViewBuilder
@@ -73,14 +74,66 @@ struct ChessTournamentGameView: View {
             }
             composer(tournament, game)
         }
-        .confirmationDialog("Resign this game?", isPresented: $showResignConfirm, titleVisibility: .visible) {
-            Button("Resign", role: .destructive) { Task { await service.resign(tournament, game: game) } }
-            Button("Keep playing", role: .cancel) {}
+        .sheet(isPresented: $showResignConfirm) {
+            resignSheet(tournament, game)
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
         }
         .sheet(item: $pendingPromotion) { move in
             promotionSheet(move, tournament: tournament, game: game)
         }
         .toast(message: service.lastError, style: .error)
+    }
+
+    // MARK: - Resign
+
+    /// The half sheet behind the Resign button: what it means, then Resign or Keep playing.
+    private func resignSheet(_ tournament: ChessTournament, _ game: ChessTournamentGame) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "flag.fill")
+                .font(.system(size: 34))
+                .foregroundColor(.red)
+                .padding(.top, 28)
+            Text("Resign this game?")
+                .font(.title3.weight(.bold))
+            Text(tournament.isDuel
+                 ? "\(name(for: game.address(of: myColor == .white ? .black : .white))) wins, and it counts as a loss on the leaderboard. Resigning is one transaction."
+                 : "\(name(for: game.address(of: myColor == .white ? .black : .white))) goes through and you are out of the tournament. It counts as a loss on the leaderboard. Resigning is one transaction.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 28)
+            Spacer(minLength: 0)
+            VStack(spacing: 10) {
+                Button {
+                    showResignConfirm = false
+                    Task { await service.resign(tournament, game: game) }
+                } label: {
+                    Text("Resign")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                Button {
+                    showResignConfirm = false
+                } label: {
+                    Text("Keep playing")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.secondary.opacity(0.15))
+                        .foregroundColor(.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
+        }
     }
 
     // MARK: - Clocks and status
