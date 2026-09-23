@@ -58,26 +58,71 @@ struct ChessWaitingRoomView: View {
             }
         }
         .interactiveDismissDisabled()
-        .alert("Leave the queue?", isPresented: $showLeaveWarning) {
-            Button("Leave", role: .destructive) {
-                guard let tournament, !isLeaving else { return }
-                isLeaving = true
-                Task {
-                    await service.leave(tournament)
-                    isLeaving = false
-                    handedOff = true
-                    onFinished(false)
-                }
-            }
-            Button("Keep waiting", role: .cancel) {}
-        } message: {
-            Text("Leaving means you will no longer be searching for another player. It is one transaction.")
+        .sheet(isPresented: $showLeaveWarning) {
+            leaveSheet
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
         }
         .onAppear { service.acquire(); check() }
         .onDisappear { service.release() }
         .onChange(of: tournament?.status) { _ in check() }
         .onChange(of: service.now) { _ in check() }
         .toast(message: service.lastError, style: .error)
+    }
+
+    /// The half sheet behind Leave: what leaving means, then Leave or Keep waiting - the same
+    /// shape as the Resign sheet on the board.
+    private var leaveSheet: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "figure.walk.departure")
+                .font(.system(size: 34))
+                .foregroundColor(.red)
+                .padding(.top, 28)
+            Text("Leave the queue?")
+                .font(.title3.weight(.bold))
+            Text("Leaving means you will no longer be searching for another player. Leaving is one transaction; you can join again any time.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 28)
+            Spacer(minLength: 0)
+            VStack(spacing: 10) {
+                Button {
+                    guard let tournament, !isLeaving else { return }
+                    isLeaving = true
+                    showLeaveWarning = false
+                    Task {
+                        await service.leave(tournament)
+                        isLeaving = false
+                        handedOff = true
+                        onFinished(false)
+                    }
+                } label: {
+                    Text(isLeaving ? "Leaving…" : "Leave")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                Button {
+                    showLeaveWarning = false
+                } label: {
+                    Text("Keep waiting")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.secondary.opacity(0.15))
+                        .foregroundColor(.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
+        }
     }
 
     /// Filled, or the seat ran out: hand the screen over. Runs on every tick.
