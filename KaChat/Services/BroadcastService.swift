@@ -210,7 +210,7 @@ final class BroadcastService: ObservableObject {
     @discardableResult
     private func fetchNewestAndMerge(channel: String) async -> Bool {
         let base = Self.indexerBaseURL(forChannel: channel)
-        guard !base.isEmpty else { return }
+        guard !base.isEmpty else { return false }
         do {
             let page = try await BroadcastIndexerClient.fetchHistoryPage(baseURL: base, channel: channel, limit: 40)
             indexerFetchedChannels.insert(channel)
