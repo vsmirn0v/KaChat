@@ -11,7 +11,9 @@ struct ChessTournamentsView: View {
         case tournament = "Tournaments"
         var id: String { rawValue }
     }
-    enum Tab: CaseIterable { case play, leaderboard }
+    enum Tab: CaseIterable { case play, activeGames, leaderboard }
+    /// The 1v1 screen has an Active games tab (watch-only) between play and the leaderboard.
+    private var tabs: [Tab] { mode == .duel ? [.play, .activeGames, .leaderboard] : [.play, .leaderboard] }
 
     /// Fixed for the screen's life: this is the 1v1 screen or the Tournaments screen.
     let mode: Mode
@@ -28,6 +30,8 @@ struct ChessTournamentsView: View {
     @State private var privateCode = ""
     @State private var isJoining = false
     @State private var openTournamentId: String?
+    /// A game opened straight from Active games, to watch.
+    @State private var watchGame: (tournament: String, game: String)?
     /// The waiting room on screen (full-screen, nothing else reachable) - see ChessWaitingRoomView.
     @State private var waitingRoomId: String?
     @State private var waitingNotice: String?
@@ -40,7 +44,7 @@ struct ChessTournamentsView: View {
             // so a tab is a tab wherever it appears in the app.
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
-                    ForEach(Tab.allCases, id: \.self) { tabButton($0) }
+                    ForEach(tabs, id: \.self) { tabButton($0) }
                 }
                 Divider()
             }
@@ -50,6 +54,8 @@ struct ChessTournamentsView: View {
                 switch tab {
                 case .play:
                     if mode == .duel { duelSections } else { tournamentSections }
+                case .activeGames:
+                    activeGamesSection
                 case .leaderboard:
                     ChessLeaderboardRows(mode: mode)
                 }
@@ -68,6 +74,14 @@ struct ChessTournamentsView: View {
         )) {
             if let id = openTournamentId {
                 ChessTournamentView(tournamentId: id)
+            }
+        }
+        .navigationDestination(isPresented: Binding(
+            get: { watchGame != nil },
+            set: { if !$0 { watchGame = nil } }
+        )) {
+            if let watchGame {
+                ChessTournamentGameView(tournamentId: watchGame.tournament, gameId: watchGame.game)
             }
         }
         .fullScreenCover(isPresented: Binding(
@@ -143,7 +157,11 @@ struct ChessTournamentsView: View {
     }
 
     private func tabTitle(_ tab: Tab) -> String {
-        tab == .play ? mode.rawValue : "Leaderboard"
+        switch tab {
+        case .play: return mode.rawValue
+        case .activeGames: return "Active games"
+        case .leaderboard: return "Leaderboard"
+        }
     }
 
     private func tabButton(_ tab: Tab) -> some View {
@@ -172,8 +190,9 @@ struct ChessTournamentsView: View {
                 let dx = value.translation.width, dy = value.translation.height
                 guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
                 withAnimation(.easeInOut(duration: 0.22)) {
-                    if dx < 0, tab == .play { tab = .leaderboard }
-                    else if dx > 0, tab == .leaderboard { tab = .play }
+                    guard let index = tabs.firstIndex(of: tab) else { return }
+                    if dx < 0, index + 1 < tabs.count { tab = tabs[index + 1] }
+                    else if dx > 0, index > 0 { tab = tabs[index - 1] }
                 }
             }
     }
@@ -218,18 +237,75 @@ struct ChessTournamentsView: View {
         } footer: {
             Text("Play a friend: create a 1v1, share its code. Private 1v1s count on the leaderboard too.")
         }
-        let live = service.liveTournaments.filter { $0.isDuel && $0.isPublic && $0.id != service.myActiveTournament?.id }
-        if !live.isEmpty {
-            Section("In play") {
-                ForEach(live) { tournamentRow($0, action: "Watch") }
-            }
-        }
         let done = Array(service.finishedTournaments.filter { $0.isDuel && $0.isPublic }.prefix(20))
         if !done.isEmpty {
             Section("Finished") {
                 ForEach(done) { tournamentRow($0, action: $0.champion.map { "Won by \(name(for: $0))" } ?? "Finished") }
             }
         }
+    }
+
+    // MARK: - Active games (watch only)
+
+    /// Every public 1v1 being played right now, for anyone to watch - board and clocks live,
+    /// no chat, no moves (the game screen keeps its composer for the two players only).
+    @ViewBuilder
+    private var activeGamesSection: some View {
+        let live = service.liveTournaments.filter { $0.isDuel && $0.isPublic }
+        Section {
+            if live.isEmpty {
+                Text("No 1v1 games are being played right now. When one starts, it shows up here to watch.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            ForEach(live) { duel in
+                if let game = duel.games.values.first {
+                    Button {
+                        watchGame = (duel.id, game.id)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "eye.fill")
+                                .font(.title3)
+                                .foregroundColor(.accentColor)
+                                .frame(width: 32)
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(name(for: game.white)).fontWeight(.semibold)
+                                    Text("vs").foregroundColor(.secondary)
+                                    Text(name(for: game.black)).fontWeight(.semibold)
+                                }
+                                .font(.subheadline)
+                                .lineLimit(1)
+                                Text("\(duel.name) · move \(game.moves.count / 2 + 1) · \(game.sideToMove == .white ? "white" : "black") to move")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Text(clockText(game.remainingMs(game.sideToMove, at: service.now)))
+                                .font(.caption.monospacedDigit().weight(.semibold))
+                                .foregroundColor(.secondary)
+                            Text("Watch")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.accentColor)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } header: {
+            Text("Live now")
+        } footer: {
+            Text("Watching is free - nothing is sent. Only the two players can move or chat.")
+        }
+    }
+
+    private func clockText(_ ms: Int64) -> String {
+        let seconds = Int(ms / 1000)
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
     // MARK: - Tournaments

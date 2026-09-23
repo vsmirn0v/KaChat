@@ -145,7 +145,10 @@ struct ChessTournamentGameView: View {
         }
         .padding(.top, 8)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            composer(tournament, game)
+            // Watching is watching: only the two players get the composer.
+            if myColor != nil {
+                composer(tournament, game)
+            }
         }
         .sheet(isPresented: $showResignConfirm) {
             resignSheet(tournament, game, leaving: false)
