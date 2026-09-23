@@ -121,6 +121,7 @@
 		CHS0007B000000000000001 /* ChessTabIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0007A000000000000001 /* ChessTabIcon.swift */; };
 		CHS0008B000000000000001 /* ChessWaitingRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0008A000000000000001 /* ChessWaitingRoomView.swift */; };
 		CHS0009B000000000000001 /* ChessGameResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0009A000000000000001 /* ChessGameResultView.swift */; };
+		CHS0010B000000000000001 /* ChessHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0010A000000000000001 /* ChessHomeView.swift */; };
 		ENGL00012F70000100000002 /* english.txt in Resources */ = {isa = PBXBuildFile; fileRef = ENGL00012F70000100000001 /* english.txt */; };
 		ERPK00010001000100000001 /* EmojiReactionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = ERPK00010001000000000001 /* EmojiReactionPicker.swift */; };
 		F2B95C1D8A374E6BA07C4D95 /* MarkdownComposerField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D18E3F52B04C7D91FA6208 /* MarkdownComposerField.swift */; };
@@ -380,6 +381,7 @@
 		CHS0007A000000000000001 /* ChessTabIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessTabIcon.swift; sourceTree = "<group>"; };
 		CHS0008A000000000000001 /* ChessWaitingRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessWaitingRoomView.swift; sourceTree = "<group>"; };
 		CHS0009A000000000000001 /* ChessGameResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameResultView.swift; sourceTree = "<group>"; };
+		CHS0010A000000000000001 /* ChessHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessHomeView.swift; sourceTree = "<group>"; };
 		ENGL00012F70000100000001 /* english.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = english.txt; sourceTree = "<group>"; };
 		ERPK00010001000000000001 /* EmojiReactionPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiReactionPicker.swift; sourceTree = "<group>"; };
 		FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatTransactionBuilder.swift; sourceTree = "<group>"; };
@@ -916,6 +918,7 @@
 				CHS0006A000000000000001 /* ChessTournamentGameView.swift */,
 				CHS0008A000000000000001 /* ChessWaitingRoomView.swift */,
 				CHS0009A000000000000001 /* ChessGameResultView.swift */,
+				CHS0010A000000000000001 /* ChessHomeView.swift */,
 			);
 			path = Chess;
 			sourceTree = "<group>";
@@ -1364,6 +1367,7 @@
 				CHS0007B000000000000001 /* ChessTabIcon.swift in Sources */,
 				CHS0008B000000000000001 /* ChessWaitingRoomView.swift in Sources */,
 				CHS0009B000000000000001 /* ChessGameResultView.swift in Sources */,
+				CHS0010B000000000000001 /* ChessHomeView.swift in Sources */,
 				DECI00010001000100000001 /* DecimalInput.swift in Sources */,
 				RS0001B0000000000000001 /* RevealableSecureField.swift in Sources */,
 				E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */,

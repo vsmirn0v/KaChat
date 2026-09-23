@@ -198,7 +198,7 @@ struct ChessWaitingRoomView: View {
                 } label: {
                     Image(systemName: "doc.on.doc")
                 }
-                ShareLink(item: "Play me at chess in KaChat: open Kaspa Hub > Chess > \(tournament.isDuel ? "1v1" : "Tournaments") > Join with a code, and enter \(tournament.id)") {
+                ShareLink(item: "Play me at chess in KaChat: open Kaspa Hub > Chess Online > \(tournament.isDuel ? "1v1" : "Tournaments") > Join with a code, and enter \(tournament.id)") {
                     Image(systemName: "square.and.arrow.up")
                 }
             }

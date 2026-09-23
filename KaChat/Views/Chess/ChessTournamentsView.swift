@@ -1,20 +1,25 @@
 import SwiftUI
 
-/// Kaspa Hub > Chess. Two tabs: 1v1 (a public room that pairs the next two joiners, plus
-/// private 1v1s by code) and Tournaments (eight-player knockouts: a public room that fills
-/// and starts, plus private ones behind the creator code). Every row reads from
-/// `ChessTournamentService`, which reduces the arena the moment a screen here is up.
+/// Chess Online > 1v1 or Tournaments: one kind of game per screen, chosen on ChessHomeView.
+/// Two tabs in the app's underline style: the play tab (a public room that pairs the next
+/// joiners or fills to eight, plus private games by code) and that kind's leaderboard. Every
+/// row reads from `ChessTournamentService`, which reduces the arena the moment a screen here is up.
 struct ChessTournamentsView: View {
+    /// Which game: also the name of the play tab.
     enum Mode: String, CaseIterable, Identifiable {
         case duel = "1v1"
         case tournament = "Tournaments"
         var id: String { rawValue }
     }
+    enum Tab: CaseIterable { case play, leaderboard }
+
+    /// Fixed for the screen's life: this is the 1v1 screen or the Tournaments screen.
+    let mode: Mode
 
     @ObservedObject private var service = ChessTournamentService.shared
     @ObservedObject private var knsService = KNSService.shared
     @EnvironmentObject private var walletManager: WalletManager
-    @State private var mode: Mode = .duel
+    @State private var tab: Tab = .play
     @State private var showCreate = false
     @State private var newName = ""
     @State private var creatorCode = ""
@@ -23,7 +28,6 @@ struct ChessTournamentsView: View {
     @State private var privateCode = ""
     @State private var isJoining = false
     @State private var openTournamentId: String?
-    @State private var showLeaderboard = false
     /// The waiting room on screen (full-screen, nothing else reachable) - see ChessWaitingRoomView.
     @State private var waitingRoomId: String?
     @State private var waitingNotice: String?
@@ -31,129 +35,124 @@ struct ChessTournamentsView: View {
     private var me: String? { walletManager.currentWallet?.publicAddress }
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            // The same underline tab bar the Chats screen uses (see chatsTopTabBar there),
+            // so a tab is a tab wherever it appears in the app.
             VStack(spacing: 0) {
-                // The same underline tab bar the Chats screen uses (see chatsTopTabBar there),
-                // so a tab is a tab wherever it appears in the app.
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        ForEach(Mode.allCases) { tabButton($0) }
-                    }
-                    Divider()
+                HStack(spacing: 0) {
+                    ForEach(Tab.allCases, id: \.self) { tabButton($0) }
                 }
-                .contentShape(Rectangle())
-                .gesture(tabSwipe())
-                List {
+                Divider()
+            }
+            .contentShape(Rectangle())
+            .gesture(tabSwipe())
+            List {
+                switch tab {
+                case .play:
                     if mode == .duel { duelSections } else { tournamentSections }
-                }
-                .listStyle(.insetGrouped)
-                .gesture(tabSwipe())
-            }
-            .navigationTitle("Chess")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) { ConnectionStatusIndicator() }
-                ToolbarItem(placement: .principal) { BalanceToolbarLabel() }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showLeaderboard = true
-                    } label: {
-                        Image(systemName: "trophy")
-                    }
-                    .accessibilityLabel("Leaderboard")
+                case .leaderboard:
+                    ChessLeaderboardRows(mode: mode)
                 }
             }
-            .navigationDestination(isPresented: Binding(
-                get: { openTournamentId != nil },
-                set: { if !$0 { openTournamentId = nil } }
-            )) {
-                if let id = openTournamentId {
-                    ChessTournamentView(tournamentId: id)
-                }
-            }
-            .navigationDestination(isPresented: $showLeaderboard) {
-                ChessLeaderboardView()
-            }
-            .fullScreenCover(isPresented: Binding(
-                get: { waitingRoomId != nil },
-                set: { if !$0 { waitingRoomId = nil } }
-            )) {
-                if let id = waitingRoomId {
-                    ChessWaitingRoomView(
-                        tournamentId: id,
-                        onStarted: { started in
-                            waitingRoomId = nil
-                            // The tournament screen opens the player's game the moment it exists.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openTournamentId = started }
-                        },
-                        onFinished: { expired in
-                            waitingRoomId = nil
-                            if expired { waitingNotice = "No one joined in time. You're out of the queue - join again whenever you like." }
-                        }
-                    )
-                    .environmentObject(walletManager)
-                }
-            }
-            .toast(message: waitingNotice, style: .error)
-            // Back on this screen with a live seat (a relaunch, a tap on a public room card):
-            // the waiting room is the only place to be.
-            .onChange(of: service.myActiveTournament?.id) { _ in showWaitingRoomIfSeated() }
-            .onAppear { showWaitingRoomIfSeated() }
-            .alert(mode == .duel ? "Create a private 1v1" : "Create a private tournament", isPresented: $showCreate) {
-                TextField("Name", text: $newName)
-                if mode == .tournament {
-                    TextField("Creator code", text: $creatorCode)
-                }
-                Button("Cancel", role: .cancel) {}
-                Button(isCreating ? "Creating…" : "Create") {
-                    guard !isCreating else { return }
-                    isCreating = true
-                    let asDuel = mode == .duel
-                    Task {
-                        let id = asDuel
-                            ? await service.createPrivateDuel(named: newName)
-                            : await service.createPrivateTournament(named: newName, code: creatorCode)
-                        // The creator holds the first seat: straight into the waiting room.
-                        if let id { waitingRoomId = id }
-                        isCreating = false
-                    }
-                }
-            } message: {
-                Text(mode == .duel
-                     ? "You get a code to share with the person you want to play. The game starts when they join. Creating it is one transaction."
-                     : "You take the first seat and get a code to share. It starts when eight players have joined. Creating it is one transaction.")
-            }
-            .alert("Join with a code", isPresented: $showJoinPrivate) {
-                TextField("Code", text: $privateCode)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button("Cancel", role: .cancel) {}
-                Button(isJoining ? "Joining…" : "Join") {
-                    guard !isJoining else { return }
-                    isJoining = true
-                    Task {
-                        if await service.joinPrivate(code: privateCode) {
-                            waitingRoomId = privateCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                        }
-                        isJoining = false
-                    }
-                }
-            } message: {
-                Text("The eight-character code the creator shared. Joining is one transaction (fee: \(service.feeText(for: ChessTournamentCodec.join(id: "abcdefgh")) ?? "--")).")
-            }
-            .toast(message: service.lastError, style: .error)
-            .onAppear { service.acquire() }
-            .onDisappear { service.release() }
+            .listStyle(.insetGrouped)
+            .gesture(tabSwipe())
         }
+        .navigationTitle(mode.rawValue)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) { BalanceToolbarLabel() }
+        }
+        .navigationDestination(isPresented: Binding(
+            get: { openTournamentId != nil },
+            set: { if !$0 { openTournamentId = nil } }
+        )) {
+            if let id = openTournamentId {
+                ChessTournamentView(tournamentId: id)
+            }
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { waitingRoomId != nil },
+            set: { if !$0 { waitingRoomId = nil } }
+        )) {
+            if let id = waitingRoomId {
+                ChessWaitingRoomView(
+                    tournamentId: id,
+                    onStarted: { started in
+                        waitingRoomId = nil
+                        // The tournament screen opens the player's game the moment it exists.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openTournamentId = started }
+                    },
+                    onFinished: { expired in
+                        waitingRoomId = nil
+                        if expired { waitingNotice = "No one joined in time. You're out of the queue - join again whenever you like." }
+                    }
+                )
+                .environmentObject(walletManager)
+            }
+        }
+        .toast(message: waitingNotice, style: .error)
+        // Back on this screen with a live seat (a relaunch, a tap on a public room card):
+        // the waiting room is the only place to be.
+        .onChange(of: service.myActiveTournament?.id) { _ in showWaitingRoomIfSeated() }
+        .onAppear { showWaitingRoomIfSeated() }
+        .alert(mode == .duel ? "Create a private 1v1" : "Create a private tournament", isPresented: $showCreate) {
+            TextField("Name", text: $newName)
+            if mode == .tournament {
+                TextField("Creator code", text: $creatorCode)
+            }
+            Button("Cancel", role: .cancel) {}
+            Button(isCreating ? "Creating…" : "Create") {
+                guard !isCreating else { return }
+                isCreating = true
+                let asDuel = mode == .duel
+                Task {
+                    let id = asDuel
+                        ? await service.createPrivateDuel(named: newName)
+                        : await service.createPrivateTournament(named: newName, code: creatorCode)
+                    // The creator holds the first seat: straight into the waiting room.
+                    if let id { waitingRoomId = id }
+                    isCreating = false
+                }
+            }
+        } message: {
+            Text(mode == .duel
+                 ? "You get a code to share with the person you want to play. The game starts when they join. Creating it is one transaction."
+                 : "You take the first seat and get a code to share. It starts when eight players have joined. Creating it is one transaction.")
+        }
+        .alert("Join with a code", isPresented: $showJoinPrivate) {
+            TextField("Code", text: $privateCode)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Cancel", role: .cancel) {}
+            Button(isJoining ? "Joining…" : "Join") {
+                guard !isJoining else { return }
+                isJoining = true
+                Task {
+                    if await service.joinPrivate(code: privateCode) {
+                        waitingRoomId = privateCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    }
+                    isJoining = false
+                }
+            }
+        } message: {
+            Text("The eight-character code the creator shared. Joining is one transaction (fee: \(service.feeText(for: ChessTournamentCodec.join(id: "abcdefgh")) ?? "--")).")
+        }
+        .toast(message: service.lastError, style: .error)
+        .onAppear { service.acquire() }
+        .onDisappear { service.release() }
     }
 
-    private func tabButton(_ tab: Mode) -> some View {
-        let isSelected = mode == tab
+    private func tabTitle(_ tab: Tab) -> String {
+        tab == .play ? mode.rawValue : "Leaderboard"
+    }
+
+    private func tabButton(_ tab: Tab) -> some View {
+        let isSelected = self.tab == tab
         return Button {
-            withAnimation(.easeInOut(duration: 0.2)) { mode = tab }
+            withAnimation(.easeInOut(duration: 0.2)) { self.tab = tab }
         } label: {
             VStack(spacing: 8) {
-                Text(tab.rawValue)
+                Text(tabTitle(tab))
                     .font(.subheadline.weight(.bold))
                     .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
                     .frame(maxWidth: .infinity)
@@ -173,8 +172,8 @@ struct ChessTournamentsView: View {
                 let dx = value.translation.width, dy = value.translation.height
                 guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
                 withAnimation(.easeInOut(duration: 0.22)) {
-                    if dx < 0, mode == .duel { mode = .tournament }
-                    else if dx > 0, mode == .tournament { mode = .duel }
+                    if dx < 0, tab == .play { tab = .leaderboard }
+                    else if dx > 0, tab == .leaderboard { tab = .play }
                 }
             }
     }
@@ -382,15 +381,13 @@ struct ChessTournamentsView: View {
     }
 }
 
-/// Wins and losses for every address that has played here - 1v1s and tournaments alike,
-/// nothing from the 1:1 chat's casual games. The indexer's version (CHESS_TOURNAMENTS.md §6)
-/// will cover all history; this is what the phone has read.
-/// Two boards under the same underline tabs as the lobby: 1v1 (wins and losses in 1v1 games)
-/// and Tournaments (tournaments won, then the wins and losses inside them).
-struct ChessLeaderboardView: View {
+/// One kind's leaderboard, as rows inside the screen's list: 1v1 (wins and losses in 1v1
+/// games) or Tournaments (tournaments won, then the wins and losses inside them). What the
+/// phone has read; the indexer's version (CHESS_TOURNAMENTS.md §6) will cover all history.
+struct ChessLeaderboardRows: View {
+    let mode: ChessTournamentsView.Mode
     @ObservedObject private var service = ChessTournamentService.shared
     @EnvironmentObject private var walletManager: WalletManager
-    @State private var mode: ChessTournamentsView.Mode = .duel
 
     private var rows: [ChessLeaderboardRow] {
         mode == .duel
@@ -399,95 +396,51 @@ struct ChessLeaderboardView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    ForEach(ChessTournamentsView.Mode.allCases) { tabButton($0) }
-                }
-                Divider()
+        Section {
+            if rows.isEmpty {
+                Text(mode == .duel ? "No finished 1v1 games yet." : "No finished tournaments yet.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
-            .contentShape(Rectangle())
-            .gesture(tabSwipe())
-            List {
-                if rows.isEmpty {
-                    Text(mode == .duel ? "No finished 1v1 games yet." : "No finished tournaments yet.")
-                        .font(.subheadline)
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                HStack(spacing: 12) {
+                    Text("\(index + 1)")
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundColor(.secondary)
-                }
-                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                    HStack(spacing: 12) {
-                        Text("\(index + 1)")
-                            .font(.subheadline.monospacedDigit().weight(.semibold))
-                            .foregroundColor(.secondary)
-                            .frame(width: 28, alignment: .trailing)
-                        KNSAvatarView(
-                            avatarURLString: KNSService.shared.profileCache[row.address]?.avatarURL,
-                            fallbackText: ContactsManager.shared.displayName(for: row.address),
-                            size: 36,
-                            contactAddress: row.address
-                        )
-                        Text(ContactsManager.shared.displayName(for: row.address))
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        Spacer()
-                        if mode == .duel {
-                            HStack(spacing: 10) {
-                                Text("\(row.duelWins) W").foregroundColor(.green)
-                                Text("\(row.duelLosses) L").foregroundColor(.red)
+                        .frame(width: 28, alignment: .trailing)
+                    KNSAvatarView(
+                        avatarURLString: KNSService.shared.profileCache[row.address]?.avatarURL,
+                        fallbackText: ContactsManager.shared.displayName(for: row.address),
+                        size: 36,
+                        contactAddress: row.address
+                    )
+                    Text(ContactsManager.shared.displayName(for: row.address))
+                        .font(.subheadline.weight(row.address == walletManager.currentWallet?.publicAddress ? .bold : .semibold))
+                        .lineLimit(1)
+                    Spacer()
+                    if mode == .duel {
+                        HStack(spacing: 10) {
+                            Text("\(row.duelWins) W").foregroundColor(.green)
+                            Text("\(row.duelLosses) L").foregroundColor(.red)
+                        }
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                    } else {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Label("\(row.tournamentsWon)", systemImage: "trophy.fill")
+                                .font(.subheadline.monospacedDigit().weight(.semibold))
+                                .foregroundColor(.yellow)
+                            HStack(spacing: 8) {
+                                Text("\(row.tournamentGameWins) W").foregroundColor(.green)
+                                Text("\(row.tournamentGameLosses) L").foregroundColor(.red)
                             }
-                            .font(.subheadline.monospacedDigit().weight(.semibold))
-                        } else {
-                            VStack(alignment: .trailing, spacing: 2) {
-                                Label("\(row.tournamentsWon)", systemImage: "trophy.fill")
-                                    .font(.subheadline.monospacedDigit().weight(.semibold))
-                                    .foregroundColor(.yellow)
-                                HStack(spacing: 8) {
-                                    Text("\(row.tournamentGameWins) W").foregroundColor(.green)
-                                    Text("\(row.tournamentGameLosses) L").foregroundColor(.red)
-                                }
-                                .font(.caption.monospacedDigit().weight(.semibold))
-                            }
+                            .font(.caption.monospacedDigit().weight(.semibold))
                         }
                     }
                 }
+                .listRowBackground(row.address == walletManager.currentWallet?.publicAddress ? Color.accentColor.opacity(0.12) : nil)
             }
-            .listStyle(.insetGrouped)
-            .gesture(tabSwipe())
+        } header: {
+            Text(mode == .duel ? "1v1 leaderboard · most wins, fewest losses" : "Tournament leaderboard · most tournaments won")
         }
-        .navigationTitle("Leaderboard")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear { service.acquire() }
-        .onDisappear { service.release() }
-    }
-
-    private func tabButton(_ tab: ChessTournamentsView.Mode) -> some View {
-        let isSelected = mode == tab
-        return Button {
-            withAnimation(.easeInOut(duration: 0.2)) { mode = tab }
-        } label: {
-            VStack(spacing: 8) {
-                Text(tab.rawValue)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 12)
-                Rectangle()
-                    .fill(isSelected ? Color.accentColor : Color.clear)
-                    .frame(height: 2.5)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func tabSwipe() -> some Gesture {
-        DragGesture(minimumDistance: 25, coordinateSpace: .global)
-            .onEnded { value in
-                let dx = value.translation.width, dy = value.translation.height
-                guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    if dx < 0, mode == .duel { mode = .tournament }
-                    else if dx > 0, mode == .tournament { mode = .duel }
-                }
-            }
     }
 }

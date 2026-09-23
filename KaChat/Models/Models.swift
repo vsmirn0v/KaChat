@@ -1672,7 +1672,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case kaposts
     case broadcasts
     case apps
-    /// Chess tournaments (5.1) - Kaspa Hub > Chess. See CHESS_TOURNAMENTS.md.
+    /// Chess tournaments (5.1) - Kaspa Hub > Chess Online. See CHESS_TOURNAMENTS.md.
     case chess
     /// The container the other feature tabs live in when they are not in the dock themselves -
     /// see `ecosystemSections(from:)`. Displayed as "Kaspa Hub"; the case name and its raw
@@ -1733,7 +1733,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     var ecosystemTitle: String {
         switch self {
         case .apps: return "Kaspa Websites"
-        case .chess: return "Chess Tournaments"
+        case .chess: return "Chess Online"
         // ChangeNOW's own capitalization, matching how the app already names it everywhere else
         // (swap transaction rows, the settings section).
         case .swap: return "ChangeNOW Swap"

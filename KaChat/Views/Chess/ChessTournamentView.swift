@@ -145,7 +145,7 @@ struct ChessTournamentView: View {
                         } label: {
                             Label("Copy", systemImage: "doc.on.doc").font(.caption.weight(.semibold))
                         }
-                        ShareLink(item: "Join my KaChat chess tournament: open Kaspa Hub > Chess > Join with a code, and enter \(tournament.id)") {
+                        ShareLink(item: "Join my KaChat chess tournament: open Kaspa Hub > Chess Online > \(tournament.isDuel ? "1v1" : "Tournaments") > Join with a code, and enter \(tournament.id)") {
                             Image(systemName: "square.and.arrow.up")
                         }
                     }
