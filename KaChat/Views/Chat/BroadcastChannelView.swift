@@ -69,6 +69,8 @@ struct BroadcastChannelView: View {
     @State private var pendingJumpToStart = false
     @State private var showRoomInfo = false
     @State private var showOwnRoomExplainer = false
+    /// The bell in the top-right corner: the room's notifications, in a half sheet.
+    @State private var showNotifySheet = false
     @State private var highlightedMessageID: String?
     /// Which message (if any) currently has its double-tap quick-reaction bar open - mirrors
     /// group chat's identical `GroupChatDetailView.activeQuickReactionMessageId`, except broadcast
@@ -210,6 +212,44 @@ struct BroadcastChannelView: View {
         }
     }
 
+    private var roomNotifyEnabled: Bool {
+        let normalized = BroadcastChannelName.normalize(channelName)
+        return broadcastService.channels.first { $0.channelName == normalized }?.notifyEnabled ?? false
+    }
+
+    /// The half sheet behind the bell: what notifications do in this room, and the switch.
+    private var notifySheet: some View {
+        let isCurated = BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName))
+        let on = roomNotifyEnabled
+        return VStack(spacing: 14) {
+            Text("#\(BroadcastChannelName.normalize(channelName))")
+                .font(.headline)
+                .padding(.top, 24)
+            Text(on
+                 ? (isCurated ? "You're notified of new messages here, even when the app is closed."
+                              : "You're notified of new messages here while the app is open.")
+                 : "New messages here don't notify you. The room still updates when you open it.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            ActionSheetRow(
+                title: on ? "Turn Off Notifications" : "Turn On Notifications",
+                subtitle: on
+                    ? "No notification for new messages in this room."
+                    : (isCurated ? "Notifies you of new messages, even when the app is closed."
+                                 : "Notifies you of new messages while the app is open."),
+                systemImage: on ? "bell.slash" : "bell"
+            ) {
+                broadcastService.setNotifyEnabled(!on, forChannel: channelName)
+                Haptics.selection()
+                showNotifySheet = false
+            }
+            .padding(.horizontal, 16)
+            Spacer(minLength: 0)
+        }
+    }
+
     /// Title, toolbar and everything this room can push or present onto.
     private var navigation: some View {
         conversation
@@ -218,10 +258,10 @@ struct BroadcastChannelView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
             }
-            // A room you made yourself: what "public" does and does not mean here. The curated
-            // rooms are indexed, so they need no such warning.
-            if !BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName)) {
-                ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                // A room you made yourself: what "public" does and does not mean here. The
+                // curated rooms are indexed, so they need no such warning.
+                if !BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName)) {
                     Button {
                         showOwnRoomExplainer = true
                     } label: {
@@ -229,7 +269,20 @@ struct BroadcastChannelView: View {
                     }
                     .accessibilityLabel("About this room")
                 }
+                // This room's notifications, one tap away - the same switch the Public Chats
+                // list offers in its room menu.
+                Button {
+                    showNotifySheet = true
+                } label: {
+                    Image(systemName: roomNotifyEnabled ? "bell.fill" : "bell.slash")
+                }
+                .accessibilityLabel(roomNotifyEnabled ? "Notifications on" : "Notifications off")
             }
+        }
+        .sheet(isPresented: $showNotifySheet) {
+            notifySheet
+                .presentationDetents([.height(260)])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showOwnRoomExplainer) {
             VStack(alignment: .leading, spacing: 14) {

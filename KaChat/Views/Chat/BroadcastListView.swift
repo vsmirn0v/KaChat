@@ -139,22 +139,37 @@ struct BroadcastListView: View {
         } message: {
             Text(joinError ?? "")
         }
-        .alert(
-            channelToLeave.map { "Leave #\($0)" } ?? "Leave Channel",
-            isPresented: Binding(
-                get: { channelToLeave != nil },
-                set: { if !$0 { channelToLeave = nil } }
-            )
-        ) {
-            Button("Leave & Delete", role: .destructive) {
-                if let channelToLeave {
-                    broadcastService.leaveChannel(channelToLeave)
+        // Deleting a room asks on a half sheet, like every other menu here.
+        .sheet(isPresented: Binding(
+            get: { channelToLeave != nil },
+            set: { if !$0 { channelToLeave = nil } }
+        )) {
+            if let name = channelToLeave {
+                VStack(spacing: 14) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 30))
+                        .foregroundColor(.red)
+                        .padding(.top, 26)
+                    Text("Delete #\(name)?")
+                        .font(.title3.weight(.bold))
+                    Text("Every message cached for this room on this device is deleted. This cannot be undone - rejoining later starts with no history.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                    ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
+                        broadcastService.leaveChannel(name)
+                        channelToLeave = nil
+                    }
+                    ActionSheetRow(title: "Keep", subtitle: "Leave the room as it is.", systemImage: "xmark") {
+                        channelToLeave = nil
+                    }
+                    Spacer(minLength: 0)
                 }
-                channelToLeave = nil
+                .padding(.horizontal, 16)
+                .presentationDetents([.height(360)])
+                .presentationDragIndicator(.visible)
             }
-            Button("Cancel", role: .cancel) { channelToLeave = nil }
-        } message: {
-            Text("Leaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone - rejoining later starts with no history.")
         }
     }
 
@@ -357,7 +372,9 @@ struct BroadcastListView: View {
             if channel != nil, !isCurated {
                 ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
                     roomActionTarget = nil
-                    DispatchQueue.main.async { channelToLeave = name }
+                    // One sheet closing, another opening: give the first its dismissal, or
+                    // the second is silently dropped.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { channelToLeave = name }
                 }
             }
 
