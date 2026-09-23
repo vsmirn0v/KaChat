@@ -90,27 +90,24 @@ struct ChessTournamentGameView: View {
 
     @ViewBuilder
     private func content(_ tournament: ChessTournament, _ game: ChessTournamentGame) -> some View {
-        // The board and clocks stay put; the chat below is its own scrolling area, like the
-        // message list of a 1:1 chat, with the composer pinned under it.
-        VStack(spacing: 0) {
-            VStack(spacing: 10) {
-                clockRow(game, color: flipped ? .white : .black)
-                board(game)
-                    .padding(.horizontal, 12)
-                clockRow(game, color: flipped ? .black : .white)
-                HStack(spacing: 16) {
-                    statusLine(game)
-                    if myColor != nil, !game.isOver {
-                        Button(role: .destructive) { showResignConfirm = true } label: {
-                            Label("Resign", systemImage: "flag.fill").font(.subheadline.weight(.semibold))
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 10)
+        // The same arrangement as the 1:1 chat's board (ChessGameView): header, the other
+        // side's clock chip, the board as large as the screen allows (it wins the fight for
+        // height), our clock chip, then the chat taking what is left, the composer a bottom
+        // safe-area inset so it sits flush above the keyboard.
+        VStack(spacing: 10) {
+            header(game)
+            clockChip(game, color: flipped ? .white : .black)
+                .padding(.horizontal)
+            board(game)
+                .padding(.horizontal)
+                .layoutPriority(1)
+            clockChip(game, color: flipped ? .black : .white)
+                .padding(.horizontal)
             Divider()
             chatSection(tournament, game)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(.top, 8)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             composer(tournament, game)
         }
         .sheet(isPresented: $showResignConfirm) {
@@ -175,32 +172,76 @@ struct ChessTournamentGameView: View {
         }
     }
 
-    // MARK: - Clocks and status
+    // MARK: - Header, clocks and status
 
-    private func clockRow(_ game: ChessTournamentGame, color: ChessColor) -> some View {
+    /// Who is playing and where the game stands - the 1:1 board's header. A player sees the
+    /// opponent's name (their own is on their clock chip); a spectator sees both.
+    private func header(_ game: ChessTournamentGame) -> some View {
+        VStack(spacing: 4) {
+            if let myColor {
+                Text(name(for: game.address(of: myColor.opposite)))
+                    .font(.headline)
+                    .lineLimit(1)
+            } else {
+                Text("\(name(for: game.white)) vs \(name(for: game.black))")
+                    .font(.headline)
+                    .lineLimit(1)
+            }
+            HStack(spacing: 12) {
+                statusLine(game)
+                if myColor != nil, !game.isOver {
+                    Button(role: .destructive) { showResignConfirm = true } label: {
+                        Label("Resign", systemImage: "flag.fill").font(.caption.weight(.semibold))
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    /// The 1:1 board's clock chip - label, timer, time - lit while that side is to move, red
+    /// under twenty seconds; the side's avatar and name sit at the leading edge.
+    private func clockChip(_ game: ChessTournamentGame, color: ChessColor) -> some View {
         let address = game.address(of: color)
         let remaining = game.remainingMs(color, at: service.now)
-        let running = !game.isOver && game.sideToMove == color
-        return HStack(spacing: 12) {
+        let isActive = !game.isOver && game.sideToMove == color
+        let isLow = remaining < 20_000
+        let label: String = myColor == nil ? (color == .white ? "White" : "Black") : (color == myColor ? "You" : "Them")
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let tint: Color = isLow ? Color.red.opacity(0.14) : (isActive ? Color.accentColor.opacity(0.12) : Color.clear)
+        let stroke: Color = isLow ? Color.red.opacity(0.55) : (isActive ? Color.accentColor.opacity(0.6) : Color.white.opacity(0.18))
+        return HStack(spacing: 8) {
             KNSAvatarView(
                 avatarURLString: KNSService.shared.profileCache[address]?.avatarURL,
                 fallbackText: ContactsManager.shared.displayName(for: address),
-                size: 36,
+                size: 26,
                 contactAddress: address
             )
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name(for: address)).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text(color == .white ? "White" : "Black").font(.caption).foregroundColor(.secondary)
-            }
+            Text(name(for: address))
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
             Spacer()
-            Text(clockText(remaining))
-                .font(.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundColor(remaining < 20_000 && running ? .red : .primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 10).fill(running ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.12)))
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(.secondary)
+                Image(systemName: "timer")
+                    .font(.caption)
+                Text(clockText(remaining))
+                    .font(.system(.callout, design: .monospaced).weight(isActive ? .bold : .semibold))
+                    .monospacedDigit()
+            }
+            .foregroundColor(isLow ? .red : (isActive ? .primary : .secondary))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                shape.fill(.regularMaterial)
+                    .overlay(shape.fill(tint))
+                    .overlay(shape.stroke(stroke, lineWidth: isActive ? 1.2 : 0.8))
+                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+            )
         }
-        .padding(.horizontal, 16)
     }
 
     private func clockText(_ ms: Int64) -> String {
@@ -363,8 +404,10 @@ struct ChessTournamentGameView: View {
                             .id(item.0.id)
                     }
                 }
-                .padding(.vertical, 10)
+                .padding(.vertical, 6)
             }
+            .scrollDismissesKeyboard(.immediately)
+            .frame(minHeight: 96)
             .onAppear { if let last = lines.last { proxy.scrollTo(last.0.id, anchor: .bottom) } }
             .onChange(of: lines.map(\.0.id)) { ids in
                 if let last = ids.last { withAnimation { proxy.scrollTo(last, anchor: .bottom) } }
