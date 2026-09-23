@@ -579,7 +579,12 @@ final class BroadcastStore {
                 // Indexer-tracked channels keep the indexer's FULL 30-day window (the gear is
                 // hidden for them in the UI; the indexer serves 30 days and the room should
                 // always show all of it). Other channels keep the user setting, 3-day cap.
+                // The chess arena too: every phone must hold the same rooms, and the rooms are
+                // whatever the indexer's 30-day window holds. With the short default here, a
+                // phone forgot yesterday's rooms overnight and offered a room number the
+                // others had moved past.
                 let retention = BroadcastService.indexedChannels.contains(channel.channelName)
+                        || BroadcastService.serviceChannels.contains(channel.channelName)
                     ? Self.indexerRetentionMillis
                     : min(channel.retentionMillis, Self.maxRetentionMillis)
                 let cutoff = nowMillis - retention

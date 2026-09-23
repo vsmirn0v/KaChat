@@ -242,15 +242,22 @@ final class ChessTournamentService: ObservableObject {
     /// Joins the public room taking players now. If that room fills before this join lands
     /// (someone else got the last seat), `reduce` notices and joins the next room.
     func joinPublicQueue() async {
-        await joinPublicRoom(id: currentPublicRoomId)
+        await joinPublicRoom(duel: false)
     }
 
     /// The seat that ran out is still in `players` until the next join drops it (the engine
     /// judges that at the join's block time) - so "already in" means seated NOW, never the
     /// stale list, or a returning player's tap would do nothing at all.
-    private func joinPublicRoom(id: String) async {
+    private func joinPublicRoom(duel: Bool) async {
         guard let me = myAddress else { return }
         guard historyReady else { lastError = "Still loading the rooms - try again in a moment."; return }
+        // The freshest shared view first: whatever the indexer holds this second is what every
+        // other phone is choosing from. Only then pick the room. The subscription delivers the
+        // merge on the next run-loop turn, so reduce the rows here and now instead of reading
+        // a room number off the old state.
+        await BroadcastService.shared.refreshFromIndexerNow(channel: ChessTournamentCodec.arenaChannel)
+        reduce(BroadcastService.shared.messages(forChannel: ChessTournamentCodec.arenaChannel))
+        let id = duel ? currentDuelRoomId : currentPublicRoomId
         if let busy = myActiveTournament {
             lastError = busy.status == .open ? "You're already waiting in \(busy.name)." : "You're still playing in \(busy.name)."
             return
@@ -268,7 +275,7 @@ final class ChessTournamentService: ObservableObject {
 
     /// Joins the public 1v1 room taking players now; same race handling as the tournaments.
     func joinPublicDuelQueue() async {
-        await joinPublicRoom(id: currentDuelRoomId)
+        await joinPublicRoom(duel: true)
     }
 
     /// A private 1v1 for a friend: no creator code, an eight-character code to share.

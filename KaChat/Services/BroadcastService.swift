@@ -196,7 +196,19 @@ final class BroadcastService: ObservableObject {
 
     /// One small newest-page fetch for a closed room, merged like any other indexer page;
     /// rows that are new to the store and recent get the same in-app banner the scan gives.
-    private func fetchNewestAndMerge(channel: String) async {
+    /// Asks the indexer for a room's newest rows right now and merges them - what the chess
+    /// arena does just before a player picks a room, so the choice is made on the freshest
+    /// shared view rather than whatever this phone happened to hold. Returns false when there
+    /// is no indexer for the room or the request failed.
+    @discardableResult
+    func refreshFromIndexerNow(channel rawChannel: String) async -> Bool {
+        let channel = BroadcastChannelName.normalize(rawChannel)
+        guard !Self.indexerBaseURL(forChannel: channel).isEmpty else { return false }
+        return await fetchNewestAndMerge(channel: channel)
+    }
+
+    @discardableResult
+    private func fetchNewestAndMerge(channel: String) async -> Bool {
         let base = Self.indexerBaseURL(forChannel: channel)
         guard !base.isEmpty else { return }
         do {
@@ -210,19 +222,27 @@ final class BroadcastService: ObservableObject {
             let fresh = rows.filter { !known.contains($0.id) }
             let firstPass = !sweptChannels.contains(channel)
             sweptChannels.insert(channel)
-            guard !fresh.isEmpty else { return }
+            if Self.serviceChannels.contains(channel) {
+                // Our own arena rows take the chain's block time - see processBroadcastHits.
+                var changed = false
+                for row in rows where store.updateBlockTime(id: row.id, blockTime: row.blockTime) { changed = true }
+                if changed { loadMessages(for: channel) }
+            }
+            guard !fresh.isEmpty else { return true }
             let inserted = await store.insertMessages(fresh)
-            guard inserted > 0 else { return }
+            guard inserted > 0 else { return true }
             store.pruneExpiredMessages()
             loadMessages(for: channel)
-            guard !firstPass else { return }
+            guard !firstPass else { return true }
             let cutoff = Int64(Date().timeIntervalSince1970 * 1000) - Self.sweepBannerWindowMs
             for row in fresh where row.blockTime > cutoff {
                 notifyIfEnabled(channel: channel, senderAddress: row.senderAddress, content: row.content, txId: row.id)
             }
+            return true
         } catch {
             // Best-effort; the next sweep tries again.
             AppLog.log("%@", "[Broadcast] Sweep fetch failed for #\(channel): \(error.localizedDescription)")
+            return false
         }
     }
 

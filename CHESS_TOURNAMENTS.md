@@ -46,8 +46,13 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
   `join` to a room opens it, whichever number it names, and the app shows "Public tournament #N"
   with its seats at all times. Which room is taking players is the client's choice, the same
   rule on every platform: **the lowest-numbered room still open (not full); when none is, one
-  past the highest room the phone knows**. Before joining, a phone waits for the arena's
-  history to come back from the indexer, so it never picks room 1 from an empty view. (There
+  past the highest room the phone knows**. Two things keep every phone's view the same: the
+  arena keeps the indexer's full 30-day window locally (never the short default retention -
+  a phone that forgot yesterday's rooms overnight offered a room number the others had moved
+  past), and a phone pulls the arena's newest rows from the indexer right before it picks a
+  room, after waiting for the initial history on open. The leaderboard is computed from the
+  same rows, so phones with the same window agree; beyond the window the indexer's
+  `/chess/leaderboard` (§6) is the answer. (There
   used to be a rule that a join to room N counts only once room N-1 is full; it made every
   phone depend on the complete history back to room 1, and a phone missing the early rooms
   rejected every later one and queued alone. Dropped.) A `join` that arrives after the last
