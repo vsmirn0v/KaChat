@@ -5243,14 +5243,6 @@ private struct KaPostCellView: View {
                     Text(displayName)
                         .font(.subheadline.weight(.bold))
                         .lineLimit(1)
-                    Text(relativeTime(post.timestamp))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    if post.editedAt != nil {
-                        Text("· edited")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
                     // Inline follow toggle: Follow -> Following -> Follow. Hidden on your own
                     // posts - you can't follow yourself.
                     if !isOwnPost {
@@ -5465,14 +5457,7 @@ private struct KaPostCellView: View {
                         .layoutPriority(1)
                     }
                     Spacer()
-                    // Bottom-right: when the post was made - the clock time today, the date
-                    // beyond that (the header keeps its "13h ago").
-                    Text(Self.postTimestamp(post.timestamp))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    // Then the on-chain delivery state, mirroring chat bubbles - green check
+                    // Bottom-right: on-chain delivery state, mirroring chat bubbles - green check
                     // once the K transaction is on the network, spinner while submitting, red
                     // Retry when it didn't go through.
                     switch post.deliveryStatus {
@@ -5513,6 +5498,18 @@ private struct KaPostCellView: View {
                     }
                 }
                 .padding(.top, 2)
+
+                // When the post was made - the full date and time, in its own row under the
+                // actions (the name line carries only Follow / Following now).
+                HStack(spacing: 4) {
+                    Text(Self.fullTimestamp(post.timestamp))
+                    if post.editedAt != nil {
+                        Text("· edited")
+                    }
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.top, 6)
             }
         }
         .padding(.horizontal, 16)
@@ -5805,11 +5802,6 @@ private struct KaPostCellView: View {
                 Text(resolvedQuotedName(quoted.posterAddress))
                     .font(.caption.weight(.bold))
                     .lineLimit(1)
-                if let timestamp = quoted.timestamp {
-                    Text(relativeTime(timestamp))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
                 Spacer(minLength: 0)
             }
             Text(KaPostCellView.markdownPreview(quoted.text))
@@ -5989,32 +5981,18 @@ private struct KaPostCellView: View {
         Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
-    private static let timeOnlyFormatter: DateFormatter = {
+    private static let fullTimestampFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = .autoupdatingCurrent
-        f.setLocalizedDateFormatFromTemplate("jmm")
-        return f
-    }()
-    private static let dateTimeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .autoupdatingCurrent
-        f.setLocalizedDateFormatFromTemplate("MMMd jmm")
-        return f
-    }()
-    private static let dateYearFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .autoupdatingCurrent
-        f.setLocalizedDateFormatFromTemplate("MMMdyyyy jmm")
+        f.dateStyle = .medium
+        f.timeStyle = .short
         return f
     }()
 
-    /// The clock time for a post from today, month + day + time for this year, the year too
-    /// beyond that - in the user's own locale and 12/24-hour setting.
-    static func postTimestamp(_ date: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return timeOnlyFormatter.string(from: date) }
-        if calendar.isDate(date, equalTo: Date(), toGranularity: .year) { return dateTimeFormatter.string(from: date) }
-        return dateYearFormatter.string(from: date)
+    /// The full date and time a post was made, e.g. "Sep 24, 2026 at 9:27 AM" - in the user's
+    /// own locale and 12/24-hour setting.
+    static func fullTimestamp(_ date: Date) -> String {
+        fullTimestampFormatter.string(from: date)
     }
 }
 
