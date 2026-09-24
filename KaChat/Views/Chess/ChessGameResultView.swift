@@ -79,6 +79,8 @@ struct ChessGameResultView: View {
     @ObservedObject private var service = ChessTournamentService.shared
     @EnvironmentObject private var walletManager: WalletManager
     @State private var revealed = false
+    /// A tapped leaderboard row: the same User Info sheet as everywhere else.
+    @State private var profileContact: Contact?
 
     private var tournament: ChessTournament? { service.tournaments[tournamentId] }
     private var game: ChessTournamentGame? { tournament?.games[gameId] }
@@ -198,6 +200,10 @@ struct ChessGameResultView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
             ForEach(Array(top.enumerated()), id: \.element.id) { index, row in
+                Button {
+                    let contacts = ContactsManager.shared
+                    profileContact = contacts.getContact(byAddress: row.address) ?? contacts.getOrCreateContact(address: row.address)
+                } label: {
                 HStack(spacing: 12) {
                     Text("\(index + 1)")
                         .font(.subheadline.monospacedDigit().weight(.semibold))
@@ -227,6 +233,26 @@ struct ChessGameResultView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(row.address == me ? Color.accentColor.opacity(0.12) : Color.clear)
+                .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { profileContact != nil },
+            set: { if !$0 { profileContact = nil } }
+        )) {
+            if let contact = profileContact {
+                NavigationStack {
+                    ChatInfoView(
+                        contact: Binding(
+                            get: { profileContact ?? contact },
+                            set: { profileContact = $0 }
+                        ),
+                        title: "User Info",
+                        showsNotificationSettings: false
+                    )
+                }
             }
         }
     }

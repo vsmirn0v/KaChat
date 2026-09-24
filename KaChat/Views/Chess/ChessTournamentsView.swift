@@ -590,6 +590,9 @@ struct ChessLeaderboardRows: View {
     let mode: ChessTournamentsView.Mode
     @ObservedObject private var service = ChessTournamentService.shared
     @EnvironmentObject private var walletManager: WalletManager
+    /// The player whose row was tapped: the same User Info sheet a public chat opens from an
+    /// avatar's View Profile.
+    @State private var profileContact: Contact?
 
     private var rows: [ChessLeaderboardRow] {
         mode == .duel
@@ -605,6 +608,10 @@ struct ChessLeaderboardRows: View {
                     .foregroundColor(.secondary)
             }
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                Button {
+                    let contacts = ContactsManager.shared
+                    profileContact = contacts.getContact(byAddress: row.address) ?? contacts.getOrCreateContact(address: row.address)
+                } label: {
                 HStack(spacing: 12) {
                     Text("\(index + 1)")
                         .font(.subheadline.monospacedDigit().weight(.semibold))
@@ -639,10 +646,30 @@ struct ChessLeaderboardRows: View {
                         }
                     }
                 }
+                .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
                 .listRowBackground(row.address == walletManager.currentWallet?.publicAddress ? Color.accentColor.opacity(0.12) : nil)
             }
         } header: {
             Text(mode == .duel ? "1v1 leaderboard · most wins, fewest losses" : "Tournament leaderboard · most tournaments won")
+        }
+        .sheet(isPresented: Binding(
+            get: { profileContact != nil },
+            set: { if !$0 { profileContact = nil } }
+        )) {
+            if let contact = profileContact {
+                NavigationStack {
+                    ChatInfoView(
+                        contact: Binding(
+                            get: { profileContact ?? contact },
+                            set: { profileContact = $0 }
+                        ),
+                        title: "User Info",
+                        showsNotificationSettings: false
+                    )
+                }
+            }
         }
     }
 }
