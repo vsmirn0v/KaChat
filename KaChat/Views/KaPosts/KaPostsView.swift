@@ -3660,9 +3660,9 @@ struct KaPostsView: View {
             // profile does it (the top-level $detailTarget cannot present from inside a sheet).
             .fullScreenCover(item: $profileDetailTarget) { target in
                 // The TOP of this surface's stack, not the item that presented it - pushing a
-                    .kaPostsSlideCover { popThread() }
                 // comment or jumping to an ancestor swaps what is drawn without re-presenting.
                 postDetailSheet(postId: profileThreadStack.last ?? target.id)
+                    .kaPostsSlideCover { popThread() }
             }
             .fullScreenCover(item: $profileQuoteComposerTarget) { target in
                 quoteComposerSheet(for: target)
@@ -3877,8 +3877,8 @@ struct KaPostsView: View {
             // NavigationStack so it stacks above the profile sheet (top-level $detailTarget can't).
             .fullScreenCover(item: $profileDetailTarget) { target in
                 // The TOP of this surface's stack - see the matching note on the own-profile sheet.
-                    .kaPostsSlideCover { popThread() }
                 postDetailSheet(postId: profileThreadStack.last ?? target.id)
+                    .kaPostsSlideCover { popThread() }
             }
             // Quote tapped on a post in this profile - presented from the profile's OWN
             // NavigationStack for the same reason as the thread sheet above it.
