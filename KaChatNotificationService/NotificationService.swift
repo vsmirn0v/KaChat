@@ -1121,8 +1121,11 @@ class NotificationService: UNNotificationServiceExtension {
         // re-serialized with spaces), so it no longer parses. Pull the reply's own text out of
         // what is there.
         let compact = trimmed.replacingOccurrences(of: " ", with: "")
-        if compact.contains("\"type\":\"reply\""), let text = Self.looseJSONString(named: "text", in: trimmed) {
-            return text
+        if compact.contains("\"type\":\"reply\"") {
+            if let text = Self.looseJSONString(named: "text", in: trimmed) { return text }
+            // The server cut the envelope before its `text` (the txid and sender alone fill
+            // most of a 150-char preview): the reply's words are not in this push at all.
+            return "Replied to a message"
         }
         // Any other envelope that reached here: never the raw JSON on a lock screen.
         if compact.contains("\"mimeType\":\"audio") { return "Voice message" }
