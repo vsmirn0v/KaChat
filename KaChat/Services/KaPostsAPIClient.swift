@@ -855,14 +855,27 @@ extension KaPostsAPIClient {
             try await NodePoolService.shared.getUtxosByAddresses([wallet.publicAddress])
         )
         // Confirmed coins only: a transaction that will sit for hours must not chain on an
-        // unconfirmed change output.
-        let confirmed = utxos.filter { $0.blockDaaScore > 0 }
-        let signedTx = try KasiaTransactionBuilder.buildPayloadSelfSendTx(
-            from: wallet.publicAddress,
-            senderPrivateKey: privateKey,
-            utxos: confirmed,
-            payload: Data(payload.utf8)
-        )
+        // unconfirmed change output. And the SMALLEST single coin that can carry it: the
+        // coins it spends stay reserved until it goes out, so it must not tie up the wallet's
+        // biggest one (the builder's own choice is largest-first).
+        let confirmed = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }.sorted { $0.amount < $1.amount }
+        var single: KaspaRpcTransaction?
+        for candidate in confirmed {
+            if let tx = try? KasiaTransactionBuilder.buildPayloadSelfSendTx(
+                from: wallet.publicAddress, senderPrivateKey: privateKey, utxos: [candidate], payload: Data(payload.utf8)
+            ) {
+                single = tx
+                break
+            }
+        }
+        let signedTx: KaspaRpcTransaction
+        if let single {
+            signedTx = single
+        } else {
+            signedTx = try KasiaTransactionBuilder.buildPayloadSelfSendTx(
+                from: wallet.publicAddress, senderPrivateKey: privateKey, utxos: confirmed, payload: Data(payload.utf8)
+            )
+        }
         let txId = KasiaTransactionBuilder.computeTransactionId(signedTx)
         let spent = signedTx.inputs.map { "\($0.previousOutpoint.transactionId):\($0.previousOutpoint.index)" }
         return ScheduledTransaction(txId: txId, payload: payload, spentOutpoints: spent, restJSON: Self.restJSON(for: signedTx), transaction: signedTx)

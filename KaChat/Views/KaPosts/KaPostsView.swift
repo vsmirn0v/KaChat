@@ -220,6 +220,9 @@ struct KaPostsView: View {
         var quoted: QuotedRef? = nil
         /// Set for replies fetched from the indexer - splits profile feeds into Posts/Replies.
         var parentRemoteId: String? = nil
+        /// Set when this post is a poll: its options, the current counts, our vote, and when
+        /// voting closes (KAPOSTS_INDEXER.md §5.9).
+        var poll: KaPostPoll? = nil
     }
 
     @State private var selectedFeed: FeedTab = .feed
@@ -416,6 +419,7 @@ struct KaPostsView: View {
         case bookmarks = "Bookmarks"
         case muted = "Muted"
         case blocked = "Blocked"
+        case scheduled = "Scheduled"
         case settings = "Settings"
 
         var id: String { rawValue }
@@ -428,6 +432,7 @@ struct KaPostsView: View {
             case .bookmarks: return "bookmark"
             case .muted: return "speaker.slash"
             case .blocked: return "hand.raised"
+            case .scheduled: return "clock"
             case .settings: return "gearshape"
             }
         }
@@ -439,6 +444,7 @@ struct KaPostsView: View {
     /// The post a reopened draft was replying to or quoting, once resolved from its stored id.
     @State private var draftSourcePost: DraftPost?
     @ObservedObject private var draftStore = KaPostsDraftStore.shared
+    @ObservedObject private var scheduledStore = KaPostsScheduledStore.shared
     @ObservedObject private var knsService = KNSService.shared
     @ObservedObject private var followStore = KaPostsFollowStore.shared
     @ObservedObject private var moderationStore = KaPostsModerationStore.shared
@@ -527,6 +533,8 @@ struct KaPostsView: View {
                         // Opening the list IS seeing them - clearing on appear rather than on
                         // dismiss so the badge does not sit there while you read.
                         .onAppear { KaPostsNotificationCenter.shared.markAllSeen() }
+                case .scheduled:
+                    scheduledSheet
                 case .settings:
                     KaPostsSettingsView(onClose: { menuSheet = nil })
                 }
@@ -569,6 +577,12 @@ struct KaPostsView: View {
                 },
                 onPostThread: { segments in
                     scheduleThread(segments)
+                },
+                onPostPoll: { question, options, closesAt in
+                    schedulePoll(question: question, options: options, closesAt: closesAt)
+                },
+                onSchedulePost: { text, date in
+                    scheduleDelayedPost(text: text, at: date)
                 },
                 initialText: restoredComposerText ?? "",
                 initialThreadSegments: restoredComposerSegments
@@ -649,6 +663,9 @@ struct KaPostsView: View {
             // Restore the local follow set from the on-chain graph (survives reinstalls).
             followStore.syncFromChain()
             await loadFeed()
+            scheduledStore.reloadForCurrentWallet()
+            await scheduledStore.sendDueLocally()
+            await scheduledStore.refreshFromServer()
             // Cold-start shared-post link: consume whatever arrived before this view existed.
             if let pending = KaPostsDeepLink.pendingPostTxId {
                 KaPostsDeepLink.pendingPostTxId = nil
@@ -657,6 +674,10 @@ struct KaPostsView: View {
             if KaPostsDeepLink.pendingOpenNotifications {
                 KaPostsDeepLink.pendingOpenNotifications = false
                 kaPostsPresent { menuSheet = .notifications }
+            }
+            if KaPostsDeepLink.pendingOpenScheduled {
+                KaPostsDeepLink.pendingOpenScheduled = false
+                kaPostsPresent { menuSheet = .scheduled }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openKaPost)) { notification in
@@ -672,6 +693,9 @@ struct KaPostsView: View {
             } else if KaPostsDeepLink.pendingOpenNotifications {
                 KaPostsDeepLink.pendingOpenNotifications = false
                 kaPostsPresent { menuSheet = .notifications }
+            } else if KaPostsDeepLink.pendingOpenScheduled {
+                KaPostsDeepLink.pendingOpenScheduled = false
+                kaPostsPresent { menuSheet = .scheduled }
             }
         }
         .onChange(of: selectedFeed) { tab in
@@ -876,7 +900,8 @@ struct KaPostsView: View {
                             onRepostAction: { handleRepostAction(post, $0) },
                             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
                             onEdit: { editPost(post, newText: $0) },
-                            onDelete: { deletePost(post) }
+                            onDelete: { deletePost(post) },
+                            onPollVote: { votePoll(post, option: $0) }
                         )
                         .equatable()
                         .task(id: post.posterAddress) {
@@ -1182,7 +1207,16 @@ struct KaPostsView: View {
         // Session posts first (newest local compose on top), then remote feed - deduped by
         // remote id once Phase B starts round-tripping our own posts.
         let localRemoteIds = Set(posts.compactMap(\.remoteId))
-        let combined = posts + remotePosts.filter { remote in
+        // A poll we posted this session keeps its local card, but takes the indexer's counts
+        // (and our recorded vote) once the feed carries them.
+        let remoteById = Dictionary(remotePosts.compactMap { post in post.remoteId.map { ($0, post) } }, uniquingKeysWith: { a, _ in a })
+        let local = posts.map { post -> DraftPost in
+            guard post.poll != nil, let remoteId = post.remoteId, let remote = remoteById[remoteId], let remotePoll = remote.poll else { return post }
+            var merged = post
+            merged.poll = remotePoll
+            return merged
+        }
+        let combined = local + remotePosts.filter { remote in
             guard let remoteId = remote.remoteId else { return true }
             return !localRemoteIds.contains(remoteId)
         }
@@ -1431,6 +1465,16 @@ struct KaPostsView: View {
         mapped.likedByMe = post.isUpvoted ?? false
         mapped.dislikedByMe = post.isDownvoted ?? false
         mapped.editedAt = post.editedAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+        if let poll = post.poll {
+            let options = poll.decodedOptions
+            var counts = poll.counts ?? Array(repeating: 0, count: options.count)
+            if counts.count < options.count { counts += Array(repeating: 0, count: options.count - counts.count) }
+            mapped.poll = KaPostPoll(
+                options: options, counts: Array(counts.prefix(options.count)),
+                closesAt: Date(timeIntervalSince1970: TimeInterval(poll.closesAt) / 1000),
+                myVote: poll.myVote
+            )
+        }
         if let quote = post.quote,
            let quotedText = quote.decodedMessage,
            let quotedPubkey = quote.referencedSenderPubkey,
@@ -3170,7 +3214,8 @@ struct KaPostsView: View {
             onRepostAction: { handleRepostAction(item, $0, level: .thread) },
             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
             onEdit: { editPost(item, newText: $0) },
-            onDelete: { deletePost(item) }
+            onDelete: { deletePost(item) },
+            onPollVote: { votePoll(item, option: $0) }
         )
         .equatable()
     }
@@ -4116,7 +4161,8 @@ struct KaPostsView: View {
             onRepostAction: { handleRepostAction(post, $0, level: .menu) },
             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
             onEdit: { editPost(post, newText: $0) },
-                            onDelete: { deletePost(post) }
+                            onDelete: { deletePost(post) },
+                            onPollVote: { votePoll(post, option: $0) }
         )
         .equatable()
     }
@@ -4233,6 +4279,188 @@ struct KaPostsView: View {
     // MARK: - Bookmarks (side menu)
 
     /// Saved drafts, newest first. Tapping one reopens it in the composer; swiping deletes it.
+    // MARK: - Polls
+
+    /// Votes in a poll behind the same 5s undo as every other action; the vote is one
+    /// transaction (KAPOSTS_INDEXER.md §5.9), and the card takes the new numbers at once.
+    private func votePoll(_ post: DraftPost, option: Int) {
+        guard let poll = post.poll, !poll.isClosed, let remoteId = post.remoteId,
+              option < poll.options.count else { return }
+        let key = "pollvote:\(post.id)"
+        showUndoToast(key: key, postId: post.id, label: "Voting")
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            Task {
+                do {
+                    let txId = try await KaPostsAPIClient.shared.submitPollVote(pollId: remoteId, optionIndex: option)
+                    mutatePost(id: post.id) { target in
+                        guard var current = target.poll else { return }
+                        if let previous = current.myVote, previous < current.counts.count {
+                            current.counts[previous] = max(0, current.counts[previous] - 1)
+                        }
+                        if option < current.counts.count { current.counts[option] += 1 }
+                        current.myVote = option
+                        target.poll = current
+                    }
+                    showActionToast("Vote posted to the network", txId: txId)
+                } catch {
+                    AppLog.log("[KaPosts] Poll vote failed: %@", error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Posts a poll: the question is the post, the options and closing time ride with it.
+    /// Same optimistic card and 5s undo as a plain post.
+    private func schedulePoll(question: String, options: [String], closesAt: Date) {
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+        var newPost = DraftPost(text: question, timestamp: Date(), posterAddress: myAddress)
+        newPost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+        newPost.deliveryStatus = .pending
+        newPost.poll = KaPostPoll(options: options, counts: Array(repeating: 0, count: options.count), closesAt: closesAt, myVote: nil)
+        let localId = newPost.id
+        posts.insert(newPost, at: 0)
+        let key = "poll:\(localId)"
+        showUndoToast(key: key, postId: localId, label: "Posting poll", draftText: question)
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            Task {
+                do {
+                    let txId = try await KaPostsAPIClient.shared.submitPoll(
+                        question: question, options: options, closesAt: closesAt,
+                        mentionedPubkeys: await mentionedPubkeys(in: question)
+                    )
+                    mutatePost(id: localId) {
+                        $0.remoteId = txId
+                        $0.deliveryStatus = .sent
+                    }
+                } catch {
+                    mutatePost(id: localId) { $0.deliveryStatus = .failed }
+                    AppLog.log("[KaPosts] Poll submit failed: %@", error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    // MARK: - Scheduled posts
+
+    /// Signs the post now and hands it to the indexer for `date` (§5.10); if the indexer
+    /// cannot be reached the phone keeps it and sends it itself once the time has passed.
+    private func scheduleDelayedPost(text: String, at date: Date) {
+        Task {
+            do {
+                let built = try await KaPostsAPIClient.shared.buildScheduledPost(text: text, mentionedPubkeys: await mentionedPubkeys(in: text))
+                let entry = await scheduledStore.add(built, text: text, notBefore: date)
+                let when = DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)
+                // No explorer link: the transaction is not on chain until its time comes.
+                showActionToast(entry.onServer ? "Scheduled for \(when)" : "Scheduled for \(when) - sends from this phone", txId: "")
+            } catch {
+                AppLog.log("[KaPosts] Scheduling failed: %@", error.localizedDescription)
+                showActionToast("Couldn't schedule: \(error.localizedDescription)", txId: "")
+            }
+        }
+    }
+
+    private var scheduledSheet: some View {
+        NavigationStack {
+            Group {
+                if scheduledStore.entries.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+                        Text("No scheduled posts")
+                            .font(.headline)
+                        Text("Write a post, tap Schedule in the composer and pick a time. It is signed now and goes out then.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(scheduledStore.entries) { entry in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(entry.text)
+                                    .font(.subheadline)
+                                    .lineLimit(3)
+                                HStack(spacing: 6) {
+                                    Image(systemName: scheduledIcon(entry))
+                                        .font(.caption)
+                                    Text(scheduledLine(entry))
+                                        .font(.caption)
+                                }
+                                .foregroundColor(scheduledTint(entry))
+                                if let error = entry.error, entry.status == .failed {
+                                    Text(error)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if entry.status == .scheduled {
+                                    Button(role: .destructive) {
+                                        Task { await scheduledStore.cancel(entry) }
+                                    } label: {
+                                        Label("Cancel", systemImage: "xmark")
+                                    }
+                                } else {
+                                    Button(role: .destructive) {
+                                        scheduledStore.remove(entry)
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                    .refreshable {
+                        await scheduledStore.sendDueLocally()
+                        await scheduledStore.refreshFromServer()
+                    }
+                }
+            }
+            .navigationTitle("Scheduled")
+            .navigationBarTitleDisplayMode(.inline)
+            .kaPostsStatusChrome()
+            .task {
+                await scheduledStore.sendDueLocally()
+                await scheduledStore.refreshFromServer()
+            }
+        }
+    }
+
+    private func scheduledIcon(_ entry: KaPostScheduledEntry) -> String {
+        switch entry.status {
+        case .scheduled: return entry.onServer ? "clock" : "iphone"
+        case .submitted: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.circle.fill"
+        case .cancelled: return "xmark.circle"
+        }
+    }
+
+    private func scheduledTint(_ entry: KaPostScheduledEntry) -> Color {
+        switch entry.status {
+        case .scheduled: return .accentColor
+        case .submitted: return .green
+        case .failed: return .red
+        case .cancelled: return .secondary
+        }
+    }
+
+    private func scheduledLine(_ entry: KaPostScheduledEntry) -> String {
+        let when = DateFormatter.localizedString(from: entry.notBefore, dateStyle: .medium, timeStyle: .short)
+        switch entry.status {
+        case .scheduled: return entry.onServer ? "Goes out \(when)" : "Goes out \(when) - from this phone, so open KaChat around then"
+        case .submitted: return "Posted \(entry.submittedAt.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? when)"
+        case .failed: return "Failed to post at \(when)"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
     private var draftsSheet: some View {
         NavigationStack {
             Group {
@@ -4340,7 +4568,8 @@ struct KaPostsView: View {
                                     onRepostAction: { handleRepostAction(post, $0, level: .menu) },
                                     onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } },
                                     onEdit: { editPost(post, newText: $0) },
-                            onDelete: { deletePost(post) }
+                            onDelete: { deletePost(post) },
+                            onPollVote: { votePoll(post, option: $0) }
                                 )
                                 .equatable()
                                 Divider()
@@ -4622,6 +4851,108 @@ struct KaPostsView: View {
     }
 }
 
+// MARK: - Polls
+
+/// A poll as a post carries it: options, current counts, our vote, closing time.
+struct KaPostPoll: Equatable {
+    var options: [String]
+    var counts: [Int]
+    var closesAt: Date
+    var myVote: Int?
+
+    var total: Int { counts.reduce(0, +) }
+    var isClosed: Bool { closesAt <= Date() }
+}
+
+/// The poll under a post's text. Before voting (and while it is open) the options are
+/// buttons; after voting, or once closed, they are bars with percentages. Voting goes through
+/// the same 5s undo as every other action, so the card shows the countdown on the chosen row.
+private struct KaPostPollCard: View {
+    let poll: KaPostPoll
+    let pendingVoteKey: UUID
+    let onVote: ((Int) -> Void)?
+    @ObservedObject private var scheduler = KaPostsActionScheduler.shared
+
+    private var pendingDeadline: Date? { scheduler.deadlines["pollvote:\(pendingVoteKey)"] }
+    private var showsResults: Bool { poll.myVote != nil || poll.isClosed || onVote == nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(poll.options.enumerated()), id: \.offset) { index, option in
+                if showsResults {
+                    resultRow(index: index, option: option)
+                } else {
+                    Button {
+                        Haptics.impact(.light)
+                        onVote?(index)
+                    } label: {
+                        HStack {
+                            Text(option)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(.accentColor)
+                            Spacer()
+                            if pendingDeadline != nil {
+                                Image(systemName: "clock")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor.opacity(0.7), lineWidth: 1.2))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(pendingDeadline != nil)
+                }
+            }
+            Text(footer)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.05)))
+    }
+
+    private func resultRow(index: Int, option: String) -> some View {
+        let count = index < poll.counts.count ? poll.counts[index] : 0
+        let share = poll.total > 0 ? Double(count) / Double(poll.total) : 0
+        let mine = poll.myVote == index
+        return ZStack(alignment: .leading) {
+            GeometryReader { proxy in
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(mine ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.1))
+                    .frame(width: max(8, proxy.size.width * share))
+            }
+            HStack(spacing: 6) {
+                Text(option)
+                    .font(.subheadline.weight(mine ? .bold : .regular))
+                if mine {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                }
+                Spacer()
+                Text("\(Int((share * 100).rounded()))%")
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+            }
+            .padding(.horizontal, 12)
+        }
+        .frame(height: 38)
+    }
+
+    private var footer: String {
+        let votes = poll.total == 1 ? "1 vote" : "\(poll.total) votes"
+        if poll.isClosed { return "\(votes) · Final results" }
+        let left = poll.closesAt.timeIntervalSinceNow
+        let remaining: String
+        if left >= 86_400 { remaining = "\(Int(left / 86_400))d left" }
+        else if left >= 3600 { remaining = "\(Int(left / 3600))h left" }
+        else { remaining = "\(max(1, Int(left / 60)))m left" }
+        return "\(votes) · \(remaining)"
+    }
+}
+
 // MARK: - Post cell
 
 private struct KaPostCellView: View {
@@ -4672,6 +5003,8 @@ private struct KaPostCellView: View {
     var onEdit: ((String) -> Void)? = nil
     /// Deletes this post. Offered in the three-dots sheet on your own on-chain posts, any time.
     var onDelete: (() -> Void)? = nil
+    /// Votes in this post's poll (option index) - nil when the viewer cannot vote from here.
+    var onPollVote: ((Int) -> Void)? = nil
 
     private var showsDeleteRow: Bool {
         onDelete != nil && isOwnPost && post.remoteId != nil && post.deliveryStatus == .sent && !post.pendingDeletion
@@ -5018,6 +5351,11 @@ private struct KaPostCellView: View {
                     .buttonStyle(.plain)
                 }
                 translateAffordance
+
+                if let poll = post.poll {
+                    KaPostPollCard(poll: poll, pendingVoteKey: post.id, onVote: onPollVote)
+                        .padding(.top, 6)
+                }
 
                 // X-style quote embed: the quoted post in a bordered mini card under the
                 // text - tappable through to the quoted post's own thread.
@@ -5667,7 +6005,8 @@ extension KaPostCellView: Equatable {
         (lhs.onRepostAction == nil) == (rhs.onRepostAction == nil) &&
         (lhs.onOpenQuoted == nil) == (rhs.onOpenQuoted == nil) &&
         (lhs.onEdit == nil) == (rhs.onEdit == nil) &&
-        (lhs.onDelete == nil) == (rhs.onDelete == nil)
+        (lhs.onDelete == nil) == (rhs.onDelete == nil) &&
+        (lhs.onPollVote == nil) == (rhs.onPollVote == nil)
     }
 }
 
@@ -6187,6 +6526,10 @@ private struct KaPostComposerView: View {
     /// typing - each tap stacks the current text as a thread segment. "Post All" hands every
     /// segment here; single posts still go through `onPost`.
     var onPostThread: (([String]) -> Void)? = nil
+    /// Posting a poll (question, options, closing time) - set on the new-post composer only.
+    var onPostPoll: ((String, [String], Date) -> Void)? = nil
+    /// Scheduling the post for later - set on the new-post composer only.
+    var onSchedulePost: ((String, Date) -> Void)? = nil
 
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
@@ -6218,6 +6561,26 @@ private struct KaPostComposerView: View {
     var initialThreadSegments: [String] = []
     @State private var showCloseOptions = false
     @ObservedObject private var draftStore = KaPostsDraftStore.shared
+    // Poll: two to four options and how long voting stays open.
+    @State private var pollEnabled = false
+    @State private var pollOptions: [String] = ["", ""]
+    @State private var pollDurationHours = 24
+    // Scheduling: when this post goes out instead of now.
+    @State private var scheduledAt: Date? = nil
+    @State private var showSchedulePicker = false
+    @State private var pickerDate = Date().addingTimeInterval(3600)
+
+    /// Polls and scheduling are for a fresh post - not a reply, a quote, an edit or a thread.
+    private var extrasAvailable: Bool {
+        onPostPoll != nil && onSchedulePost != nil && sourcePost == nil && !editingPost && threadSegments.isEmpty
+    }
+    private var validPollOptions: [String] {
+        pollOptions.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+    private var pollIsValid: Bool {
+        let options = validPollOptions
+        return options.count >= 2 && options.count <= 4 && Set(options).count == options.count && options.allSatisfy { $0.count <= 40 }
+    }
 
     private var trimmed: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6241,7 +6604,7 @@ private struct KaPostComposerView: View {
     private var threadingEnabled: Bool {
         // A reply is one post to one parent, and a quote is one post about one source: neither
         // stacks into a thread. Nor does an edit.
-        onPostThread != nil && quotedPost == nil && replyTarget == nil && !editingPost
+        onPostThread != nil && quotedPost == nil && replyTarget == nil && !editingPost && !pollEnabled && scheduledAt == nil
     }
 
     /// Everything that would be posted right now: stacked segments plus the in-progress text.
@@ -6250,7 +6613,8 @@ private struct KaPostComposerView: View {
     }
 
     private var canPost: Bool {
-        !allSegments.isEmpty
+        if pollEnabled { return !trimmed.isEmpty && pollIsValid }
+        return !allSegments.isEmpty
     }
 
     var body: some View {
@@ -6304,7 +6668,9 @@ private struct KaPostComposerView: View {
                          ? "Save"
                          : (replyTarget != nil
                             ? "Reply"
-                            : (allSegments.count > 1 ? "Post All (\(allSegments.count))" : "Post")))
+                            : (pollEnabled ? "Post Poll"
+                               : (scheduledAt != nil ? "Schedule"
+                                  : (allSegments.count > 1 ? "Post All (\(allSegments.count))" : "Post")))))
                         .font(.subheadline.weight(.bold))
                         .foregroundColor(canPost ? Color.black : Color.secondary)
                         .padding(.horizontal, 16)
@@ -6351,6 +6717,8 @@ private struct KaPostComposerView: View {
                         composerEditor
                             .id(Self.composerEditorAnchor)
                         threadAppendButton
+                        extrasRow
+                        pollEditor
                         // The post this composer is ABOUT - quoted or replied to. Both render the
                         // same card in the same place: you write above it and can see what you
                         // are answering.
@@ -6359,6 +6727,7 @@ private struct KaPostComposerView: View {
                                 .padding(.horizontal, 16)
                                 .padding(.top, 10)
                         }
+                        scheduleRow
                         feeEstimateRow
                     }
                 }
@@ -6573,6 +6942,18 @@ private struct KaPostComposerView: View {
     }
 
     private func postAll() {
+        if pollEnabled, let onPostPoll {
+            guard !trimmed.isEmpty, pollIsValid else { return }
+            onPostPoll(trimmed, validPollOptions, Date().addingTimeInterval(TimeInterval(pollDurationHours) * 3600))
+            dismiss()
+            return
+        }
+        if let scheduledAt, let onSchedulePost {
+            guard !trimmed.isEmpty else { return }
+            onSchedulePost(trimmed, scheduledAt)
+            dismiss()
+            return
+        }
         let segments = allSegments
         guard !segments.isEmpty else { return }
         if segments.count > 1, let onPostThread {
@@ -6585,6 +6966,168 @@ private struct KaPostComposerView: View {
 
     private var characterMeter: some View {
         KaPostCharacterMeter(count: text.count)
+    }
+
+    /// Poll and Schedule, as chips under the editor - only on a fresh post.
+    @ViewBuilder
+    private var extrasRow: some View {
+        if extrasAvailable {
+            HStack(spacing: 10) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        pollEnabled.toggle()
+                        if pollEnabled { scheduledAt = nil }
+                    }
+                } label: {
+                    Label(pollEnabled ? "Remove poll" : "Poll", systemImage: "chart.bar")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(pollEnabled ? .white : .accentColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(pollEnabled ? Color.accentColor : Color.accentColor.opacity(0.15)))
+                }
+                .buttonStyle(.plain)
+                Button {
+                    pickerDate = scheduledAt ?? Date().addingTimeInterval(3600)
+                    showSchedulePicker = true
+                } label: {
+                    Label(scheduledAt == nil ? "Schedule" : "Reschedule", systemImage: "clock")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(scheduledAt == nil ? .accentColor : .white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(scheduledAt == nil ? Color.accentColor.opacity(0.15) : Color.accentColor))
+                }
+                .buttonStyle(.plain)
+                .disabled(pollEnabled)
+                .opacity(pollEnabled ? 0.4 : 1)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .sheet(isPresented: $showSchedulePicker) {
+                VStack(spacing: 16) {
+                    Text("Schedule post")
+                        .font(.headline)
+                        .padding(.top, 20)
+                    Text("Signed now, posted then - by the indexer, or by this phone if the indexer can't be reached.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                    DatePicker(
+                        "When",
+                        selection: $pickerDate,
+                        in: Date().addingTimeInterval(300)...Date().addingTimeInterval(30 * 86_400),
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                    .datePickerStyle(.graphical)
+                    .padding(.horizontal, 16)
+                    Button {
+                        scheduledAt = pickerDate
+                        showSchedulePicker = false
+                    } label: {
+                        Text("Schedule for \(DateFormatter.localizedString(from: pickerDate, dateStyle: .medium, timeStyle: .short))")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.accentColor)
+                            .foregroundColor(.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 24)
+                    Spacer(minLength: 0)
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
+        }
+    }
+
+    /// The poll's options and duration, under the question.
+    @ViewBuilder
+    private var pollEditor: some View {
+        if pollEnabled {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(pollOptions.indices, id: \.self) { index in
+                    HStack(spacing: 8) {
+                        TextField("Option \(index + 1)", text: Binding(
+                            get: { index < pollOptions.count ? pollOptions[index] : "" },
+                            set: { newValue in
+                                guard index < pollOptions.count else { return }
+                                pollOptions[index] = String(newValue.prefix(40))
+                            }
+                        ))
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.3), lineWidth: 1))
+                        if pollOptions.count > 2 {
+                            Button {
+                                pollOptions.remove(at: index)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                if pollOptions.count < 4 {
+                    Button {
+                        pollOptions.append("")
+                    } label: {
+                        Label("Add option", systemImage: "plus.circle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                }
+                HStack {
+                    Text("Poll length")
+                        .font(.subheadline)
+                    Spacer()
+                    Picker("Poll length", selection: $pollDurationHours) {
+                        Text("1 hour").tag(1)
+                        Text("6 hours").tag(6)
+                        Text("12 hours").tag(12)
+                        Text("1 day").tag(24)
+                        Text("3 days").tag(72)
+                        Text("7 days").tag(168)
+                    }
+                    .pickerStyle(.menu)
+                }
+                Text("Voting is one transaction per vote. The question is the post; the options go out with it. Two to four options, 40 characters each.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+        }
+    }
+
+    /// "Scheduled for ..." with a way to clear it.
+    @ViewBuilder
+    private var scheduleRow: some View {
+        if let scheduledAt {
+            HStack(spacing: 8) {
+                Image(systemName: "clock")
+                    .foregroundColor(.accentColor)
+                Text("Scheduled for \(DateFormatter.localizedString(from: scheduledAt, dateStyle: .medium, timeStyle: .short))")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { self.scheduledAt = nil }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+        }
     }
 
     /// The @token currently being typed at the END of the text ("" right after "@"), or nil.
