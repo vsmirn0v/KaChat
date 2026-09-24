@@ -14,8 +14,9 @@ app expects is defined there.
 
 KaPosts is a Twitter/X-style social feed inside KaChat. **Everything is on-chain**: each
 action (post, reply, vote, follow, quote/repost) is a Kaspa **self-send transaction**
-(outputs pay back to the author's own address) whose `payload` field carries a `k:1:...`
-protocol string. The indexer's job is to scan the DAG for these payloads, verify signatures,
+(outputs pay back to the author's own address) whose `payload` field carries a `kchat:1:...`
+protocol string (the legacy `k:1:` root exists on chain from before the migration - read it,
+never write it; see §2). The indexer's job is to scan the DAG for these payloads, verify signatures,
 and serve a REST read API. **The transaction id IS the content id.**
 
 Today the app runs against the public K social indexer (`https://mainnet.kaspatalk.net`,
@@ -25,18 +26,24 @@ that URL — that is the compatibility bar. Extensions below are additive.
 
 ## 2. Protocol the app writes (must parse verbatim)
 
-Payload strings (all fields `:`-joined, prefix `k:1:`):
+Payload strings (all fields `:`-joined, prefix **`kchat:1:`** - `KaPostsProtocol.prefix`):
 
 ```
-k:1:post:<pubkey>:<signature>:<b64_message>:<mentions_json>
-k:1:reply:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>
-k:1:vote:<pubkey>:<signature>:<post_id>:<upvote|downvote|unvote>:<author_pubkey>
-k:1:follow:<pubkey>:<signature>:<follow|unfollow>:<followed_pubkey>
-k:1:quote:<pubkey>:<signature>:<content_id>:<b64_message>:<quoted_author_pubkey>
-k:1:unquote:<pubkey>:<signature>:<content_id>
-k:1:edit:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>
-k:1:delete:<pubkey>:<signature>:<post_id>
+kchat:1:post:<pubkey>:<signature>:<b64_message>:<mentions_json>
+kchat:1:reply:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>
+kchat:1:vote:<pubkey>:<signature>:<post_id>:<upvote|downvote|unvote>:<author_pubkey>
+kchat:1:follow:<pubkey>:<signature>:<follow|unfollow>:<followed_pubkey>
+kchat:1:quote:<pubkey>:<signature>:<content_id>:<b64_message>:<quoted_author_pubkey>
+kchat:1:unquote:<pubkey>:<signature>:<content_id>
+kchat:1:edit:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>
+kchat:1:delete:<pubkey>:<signature>:<post_id>
 ```
+
+**Root migration.** The app used to write the K indexer's `k:1:` root; it now writes
+`kchat:1:` for every action, and reads both (`KaPostsProtocol.parseChainPayload`). The
+indexer must do the same: **scan and verify both roots** (posts from before the migration
+are still posts), and treat everything after the root identically. Nothing new is ever
+written under `k:1:`. Any new action (polls, scheduling, ...) is defined under `kchat:1:` only.
 
 `unvote` and `unquote` are the removal counter-actions (§5.1); they are implemented in the
 KaChat indexer fork. The app does not write them yet — it will once the like/repost toggles
@@ -252,7 +259,7 @@ is natural.
   tx `f28587d7ac7ba1f8545e3b4f18dfc24f03160fa596feccbfb3da964272ca054b` quoting
   `cb60eea63d13ac668704670a0e843b0733be2a2123f4b2a864cc8605fe7ebdb9`) to validate a
   from-genesis backfill against.
-- **Order of work:** (1) scan+verify+store `k:1:` payloads with marker filtering, (2) serve
+- **Order of work:** (1) scan+verify+store `kchat:1:` (and legacy `k:1:`) payloads with marker filtering, (2) serve
   the §4 compatibility endpoints, (3) add removals + actor lists (§5.1–§5.4), (4) add
   `get-post` (§5.5) — smallest change, biggest client win, (5) add `search` (§5.6), (6) flip
   the app to the new URL as default.
