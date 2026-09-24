@@ -129,8 +129,8 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
   full") with a countdown and opens the board at `startedAt + 10 000 ms` of chain time
   (`ChessTournamentCodec.matchFoundDelayMs`) - the same instant everywhere, so the players
   arrive together; a phone that learns of the start later than that opens the board at once.
-  It is display only (nothing on chain), and it sits inside the first-move grace (§4), so it
-  costs nobody clock. Leaving is off once the room has filled.
+  It is display only (nothing on chain), and it is exactly the first move's 10 s allowance
+  (§4), so it costs nobody clock. Leaving is off once the room has filled.
 
 - The lobby shows the public room taking players, the player's own private tournaments,
   public tournaments in play and recently finished. Anyone can open a public tournament and
