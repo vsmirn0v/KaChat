@@ -2271,13 +2271,47 @@ struct KasiaTransactionBuilder {
             + 8 + UInt64(payload.count)
     }
 
-    /// Compute transaction id (Blake2b-256 of encoded transaction, little-endian display)
+    /// The transaction's id as the chain computes it (rusty-kaspa `consensus/core/src/hashing/tx.rs`,
+    /// `id_v0`): blake2b-256 keyed with `"TransactionID"` over the consensus encoding with the
+    /// signature scripts excluded (an empty var-bytes in each one's place, no sig-op byte) and
+    /// no mass commitment, payload included; all integers little-endian, `var_bytes` = u64
+    /// length + bytes. The id is the digest's bytes in order - not reversed. Verified against
+    /// a real KaChat self-send on chain (`f28587d7…`) and checked on every submit (see
+    /// `KaPostsAPIClient.submitPayloadTx`). Every transaction the app builds is version 0.
     static func computeTransactionId(_ tx: KaspaRpcTransaction) -> String {
-        var data = Data()
-        tx.encodeTo(&data)
-        let hash = Blake2b.hash(data, digestLength: 32)
-        // Kaspa displays tx ids reversed (little-endian)
-        return hash.reversed().map { String(format: "%02x", $0) }.joined()
+        var hasher = Blake2b(digestLength: 32, key: "TransactionID".data(using: .utf8))
+        func le<T: FixedWidthInteger>(_ value: T) -> Data {
+            var v = value.littleEndian
+            return Data(bytes: &v, count: MemoryLayout<T>.size)
+        }
+        func varBytes(_ bytes: Data) -> Data { le(UInt64(bytes.count)) + bytes }
+
+        hasher.update(le(tx.version))
+        hasher.update(le(UInt64(tx.inputs.count)))
+        for input in tx.inputs {
+            var txIdBytes = Data(hexString: input.previousOutpoint.transactionId) ?? Data(repeating: 0, count: 32)
+            if txIdBytes.count < 32 { txIdBytes = Data(repeating: 0, count: 32 - txIdBytes.count) + txIdBytes }
+            hasher.update(Data(txIdBytes.prefix(32)))
+            hasher.update(le(input.previousOutpoint.index))
+            hasher.update(varBytes(Data()))       // signature script excluded from the id
+            hasher.update(le(input.sequence))
+        }
+        hasher.update(le(UInt64(tx.outputs.count)))
+        for output in tx.outputs {
+            hasher.update(le(output.value))
+            hasher.update(le(output.scriptPublicKey.version))
+            hasher.update(varBytes(output.scriptPublicKey.script))
+            if tx.version >= 1 {
+                hasher.update(Data([0]))          // no covenant
+            }
+        }
+        hasher.update(le(tx.lockTime))
+        var subnetwork = tx.subnetworkId
+        if subnetwork.count < 20 { subnetwork.append(Data(repeating: 0, count: 20 - subnetwork.count)) }
+        hasher.update(Data(subnetwork.prefix(20)))
+        hasher.update(le(tx.gas))
+        hasher.update(varBytes(tx.payload))
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private static func hexString(from string: String) -> String {

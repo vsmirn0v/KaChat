@@ -1134,6 +1134,12 @@ extension KaPostsAPIClient {
         )
         let (txId, _) = try await NodePoolService.shared.submitTransaction(signedTx, allowOrphan: false)
         AppLog.log("[KaPosts] Submitted %@ action tx %@", String(payload.prefix(12)), String(txId.prefix(12)))
+        // The id a scheduled post is keyed on (§5.10) is computed before submission; every real
+        // submit is a free check that the computation still agrees with the node.
+        let computed = KasiaTransactionBuilder.computeTransactionId(signedTx)
+        if computed != txId {
+            AppLog.log("[KaPosts] computeTransactionId MISMATCH: computed %@, node %@", computed, txId)
+        }
         // Refresh the wallet balance so the header updates live with the fee just spent - once
         // immediately, once after the UTXO change settles (Kaspa blocks are ~1s, so the second
         // pass reliably catches it).
