@@ -13,6 +13,10 @@ struct ChessTournamentGameView: View {
     @State private var showResignConfirm = false
     /// The back button while a player's game is on: leaving means resigning, and it asks.
     @State private var showLeaveWarning = false
+    /// Bumped when the result screen's Done wants the stack popped to the 1v1 / Tournaments
+    /// screen - done through the navigation controller (see ChessNavigationPopper), which
+    /// pops every level at once where SwiftUI's nested isPresented bindings would pop one.
+    @State private var popRequest = 0
     @Environment(\.dismiss) private var dismiss
     @State private var chatText = ""
     /// End-of-game flow: the overlay over the board, then the result screen (players only).
@@ -78,6 +82,7 @@ struct ChessTournamentGameView: View {
                     .presentationDragIndicator(.visible)
             }
         }
+        .background(ChessNavigationPopper(request: popRequest))
         .onAppear { service.acquire(); rememberRecord() }
         .onDisappear { service.release() }
         .onChange(of: game?.isOver) { _ in gameEndedIfNeeded() }
@@ -90,7 +95,10 @@ struct ChessTournamentGameView: View {
                 // Done: not back to the board - back to the 1v1 / Tournaments screen. The cover
                 // goes first; popping the stack underneath a presented cover misbehaves.
                 showResult = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { service.requestPopToLobby() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    popRequest += 1
+                    service.requestPopToLobby()
+                }
             }
             .environmentObject(walletManager)
         }
@@ -532,5 +540,51 @@ struct ChessTournamentGameView: View {
         let text = chatText
         chatText = ""
         Task { await service.sendChat(text, tournament: tournament, game: game) }
+    }
+}
+
+
+/// Pops the navigation stack straight to the 1v1 / Tournaments screen (the second controller
+/// on the stack: Chess Online home, then the kind's screen) when `request` changes. The
+/// SwiftUI route - clearing the parent's `isPresented` binding - popped one level when a
+/// grandchild was pushed, leaving the player on the bracket or the board; the navigation
+/// controller pops the whole way in one animation.
+private struct ChessNavigationPopper: UIViewRepresentable {
+    let request: Int
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard request != context.coordinator.handled else { return }
+        context.coordinator.handled = request
+        DispatchQueue.main.async {
+            var responder: UIResponder? = uiView
+            while let current = responder {
+                if let navigation = current as? UINavigationController {
+                    let stack = navigation.viewControllers
+                    guard stack.count > 2 else { navigation.popToRootViewController(animated: true); return }
+                    navigation.popToViewController(stack[1], animated: true)
+                    return
+                }
+                if let controller = current as? UIViewController, let navigation = controller.navigationController {
+                    let stack = navigation.viewControllers
+                    guard stack.count > 2 else { navigation.popToRootViewController(animated: true); return }
+                    navigation.popToViewController(stack[1], animated: true)
+                    return
+                }
+                responder = current.next
+            }
+        }
+    }
+
+    final class Coordinator {
+        var handled = 0
     }
 }
