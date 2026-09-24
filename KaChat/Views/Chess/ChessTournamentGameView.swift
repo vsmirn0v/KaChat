@@ -144,12 +144,28 @@ struct ChessTournamentGameView: View {
             clockChip(game, color: flipped ? .black : .white)
                 .padding(.horizontal)
             Divider()
-            chatSection(tournament, game)
+            if game.isOver {
+                // The chat was live only - the players and whoever watched saw it as it
+                // happened; a finished board is just the board.
+                VStack(spacing: 6) {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                    Text("Chat was live only.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 20)
+            } else {
+                chatSection(tournament, game)
+            }
         }
         .padding(.top, 8)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            // Watching is watching: only the two players get the composer.
-            if myColor != nil {
+            // Watching is watching: only the two players get the composer - and only while
+            // the game is on.
+            if myColor != nil, !game.isOver {
                 composer(tournament, game)
             }
         }

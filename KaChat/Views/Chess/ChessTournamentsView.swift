@@ -256,15 +256,81 @@ struct ChessTournamentsView: View {
     @ViewBuilder
     private var finishedSection: some View {
         let done = Array(service.finishedTournaments.filter { $0.isDuel == (mode == .duel) && $0.isPublic }.prefix(100))
-        Section {
-            if done.isEmpty {
+        if done.isEmpty {
+            Section {
                 Text(mode == .duel ? "No finished 1v1 games yet." : "No finished tournaments yet.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+            } header: {
+                Text(mode == .duel ? "Finished 1v1 games" : "Finished tournaments")
             }
-            ForEach(done) { tournamentRow($0, action: $0.champion.map { "Won by \(name(for: $0))" } ?? "Finished") }
-        } header: {
-            Text(mode == .duel ? "Finished 1v1 games" : "Finished tournaments")
+        } else if mode == .duel {
+            // A finished 1v1 is one game: tap it and the board is there as it ended.
+            Section {
+                ForEach(done) { duel in
+                    if let game = duel.games.values.first {
+                        finishedGameRow(game, in: duel)
+                    }
+                }
+            } header: {
+                Text("Finished 1v1 games")
+            }
+        } else {
+            // A finished tournament: its games, final first, each straight to its board.
+            ForEach(done) { tournament in
+                Section {
+                    let games = tournament.games.values.sorted { ($0.round, $0.id) > ($1.round, $1.id) }
+                    ForEach(games) { game in
+                        finishedGameRow(game, in: tournament)
+                    }
+                } header: {
+                    Text(tournament.name + (tournament.champion.map { " · won by \(name(for: $0))" } ?? ""))
+                }
+            }
+        }
+    }
+
+    private func finishedGameRow(_ game: ChessTournamentGame, in tournament: ChessTournament) -> some View {
+        Button {
+            watchGame = (tournament.id, game.id)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "trophy.fill")
+                    .font(.title3)
+                    .foregroundColor(.yellow)
+                    .frame(width: 32)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(name(for: game.white)).fontWeight(game.winner == game.white ? .bold : .regular)
+                        Text("vs").foregroundColor(.secondary)
+                        Text(name(for: game.black)).fontWeight(game.winner == game.black ? .bold : .regular)
+                    }
+                    .font(.subheadline)
+                    .lineLimit(1)
+                    Text((tournament.isDuel ? tournament.name : (game.round == 3 ? "Final" : (game.round == 2 ? "Semifinal" : "Round 1")))
+                         + " · " + finishedText(game))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func finishedText(_ game: ChessTournamentGame) -> String {
+        guard let winner = game.winner, let outcome = game.outcome else { return "finished" }
+        let who = name(for: winner)
+        switch outcome {
+        case .checkmate: return "\(who) won by checkmate"
+        case .resignation: return "\(who) won by resignation"
+        case .timeout: return "\(who) won on time"
+        case .drawTiebreak(let reason): return "\(who) won on clock after a draw (\(reason))"
         }
     }
 
