@@ -82,16 +82,21 @@ struct ChessTournamentView: View {
                         }
                     }
                 }
-            } else {
-                ForEach(Array(1...tournament.rounds), id: \.self) { round in
-                    let games = tournament.games(inRound: round)
-                    if !games.isEmpty {
-                        Section(tournament.isDuel ? "Game" : (round == 3 ? "Final" : (round == 2 ? "Semifinals" : "Round 1"))) {
-                            ForEach(games) { game in
-                                gameRow(game, tournament: tournament)
-                            }
-                        }
+            } else if tournament.isDuel {
+                Section("Game") {
+                    ForEach(tournament.games(inRound: 1)) { game in
+                        gameRow(game, tournament: tournament)
                     }
+                }
+            } else {
+                Section {
+                    ChessBracketView(tournament: tournament, me: me, now: service.now) { gameId in
+                        openGameId = gameId
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                } header: {
+                    Text("Bracket · tap a game to watch")
                 }
             }
         }

@@ -122,6 +122,12 @@ struct ChessTournamentsView: View {
             openTournamentId = nil
             watchGame = nil
         }
+        // Advanced in a tournament: the board pops to this screen, then the bracket opens.
+        .onChange(of: service.openBracketRequest?.serial) { _ in
+            guard let request = service.openBracketRequest else { return }
+            watchGame = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openTournamentId = request.id }
+        }
         .alert(mode == .duel ? "Create a private 1v1" : "Create a private tournament", isPresented: $showCreate) {
             TextField("Name", text: $newName)
             if mode == .tournament {
@@ -634,16 +640,11 @@ struct ChessLeaderboardRows: View {
                         }
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                     } else {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Label("\(row.tournamentsWon)", systemImage: "trophy.fill")
-                                .font(.subheadline.monospacedDigit().weight(.semibold))
-                                .foregroundColor(.yellow)
-                            HStack(spacing: 8) {
-                                Text("\(row.tournamentGameWins) W").foregroundColor(.green)
-                                Text("\(row.tournamentGameLosses) L").foregroundColor(.red)
-                            }
-                            .font(.caption.monospacedDigit().weight(.semibold))
+                        HStack(spacing: 10) {
+                            Label("\(row.tournamentsWon)", systemImage: "trophy.fill").foregroundColor(.yellow)
+                            Text("\(row.tournamentsLost) L").foregroundColor(.red)
                         }
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
                     }
                 }
                 .contentShape(Rectangle())
@@ -652,7 +653,7 @@ struct ChessLeaderboardRows: View {
                 .listRowBackground(row.address == walletManager.currentWallet?.publicAddress ? Color.accentColor.opacity(0.12) : nil)
             }
         } header: {
-            Text(mode == .duel ? "1v1 leaderboard · most wins, fewest losses" : "Tournament leaderboard · most tournaments won")
+            Text(mode == .duel ? "1v1 leaderboard · most wins, fewest losses" : "Tournament leaderboard · tournaments won, tournaments lost")
         }
         .sheet(isPresented: Binding(
             get: { profileContact != nil },

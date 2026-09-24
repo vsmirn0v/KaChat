@@ -288,7 +288,7 @@ enum ChessTournamentEngine {
                 rows[winner] = w
                 var l = row(loser)
                 l.losses += 1
-                if tournament.isDuel { l.duelLosses += 1 } else { l.tournamentGameLosses += 1 }
+                if tournament.isDuel { l.duelLosses += 1 } else { l.tournamentGameLosses += 1; l.tournamentsLost += 1 }
                 l.lastPlayedAt = max(l.lastPlayedAt, game.endedAt ?? 0)
                 rows[loser] = l
             }
@@ -315,11 +315,12 @@ enum ChessTournamentEngine {
     }
 
     /// The tournament board: tournaments won first, then the record inside them.
+    /// The tournament board: whole tournaments only - won (champion) and lost (knocked out).
+    /// Most won first, fewest lost breaking ties. Games inside a tournament are not a score.
     static func tournamentLeaderboard(_ rows: [ChessLeaderboardRow]) -> [ChessLeaderboardRow] {
-        rows.filter { $0.tournamentsPlayed > 0 }.sorted {
+        rows.filter { $0.tournamentsWon + $0.tournamentsLost > 0 }.sorted {
             if $0.tournamentsWon != $1.tournamentsWon { return $0.tournamentsWon > $1.tournamentsWon }
-            if $0.tournamentGameWins != $1.tournamentGameWins { return $0.tournamentGameWins > $1.tournamentGameWins }
-            if $0.tournamentGameLosses != $1.tournamentGameLosses { return $0.tournamentGameLosses < $1.tournamentGameLosses }
+            if $0.tournamentsLost != $1.tournamentsLost { return $0.tournamentsLost < $1.tournamentsLost }
             return $0.lastPlayedAt > $1.lastPlayedAt
         }
     }

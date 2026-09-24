@@ -93,8 +93,11 @@ struct ChessGameResultView: View {
     private var rank: Int? { board.firstIndex { $0.address == me }.map { $0 + 1 } }
     private var iWon: Bool { game?.winner == me }
 
-    private func wins(_ row: ChessLeaderboardRow?) -> Int { isDuel ? (row?.duelWins ?? 0) : (row?.tournamentGameWins ?? 0) }
-    private func losses(_ row: ChessLeaderboardRow?) -> Int { isDuel ? (row?.duelLosses ?? 0) : (row?.tournamentGameLosses ?? 0) }
+    /// 1v1: games won and lost. Tournaments: whole tournaments won (champion) and lost
+    /// (knocked out) - a game won inside a tournament is not a score, and this screen is
+    /// never shown for one (the player goes to the bracket instead).
+    private func wins(_ row: ChessLeaderboardRow?) -> Int { isDuel ? (row?.duelWins ?? 0) : (row?.tournamentsWon ?? 0) }
+    private func losses(_ row: ChessLeaderboardRow?) -> Int { isDuel ? (row?.duelLosses ?? 0) : (row?.tournamentsLost ?? 0) }
 
     var body: some View {
         NavigationStack {
@@ -226,7 +229,7 @@ struct ChessGameResultView: View {
                         Label("\(row.tournamentsWon)", systemImage: "trophy.fill")
                             .font(.subheadline.monospacedDigit().weight(.semibold))
                             .foregroundColor(.yellow)
-                        Text("\(row.tournamentGameWins) W  \(row.tournamentGameLosses) L")
+                        Text("\(row.tournamentsLost) L")
                             .font(.caption.monospacedDigit().weight(.semibold))
                     }
                 }

@@ -183,6 +183,15 @@ final class ChessTournamentService: ObservableObject {
     @Published private(set) var popToLobbyRequest = 0
     func requestPopToLobby() { popToLobbyRequest += 1 }
 
+    /// A player who advanced (or is watching while waiting) wants the bracket screen of this
+    /// tournament: the kind's screen pops to itself and pushes the bracket, which opens the
+    /// player's next game the moment it exists.
+    struct BracketRequest: Equatable { let id: String; let serial: Int }
+    @Published private(set) var openBracketRequest: BracketRequest?
+    func requestOpenBracket(_ id: String) {
+        openBracketRequest = BracketRequest(id: id, serial: (openBracketRequest?.serial ?? 0) + 1)
+    }
+
     /// Private 1v1s this player is in, still open or in play.
     var myPrivateDuels: [ChessTournament] {
         guard let me = myAddress else { return [] }

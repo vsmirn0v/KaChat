@@ -341,6 +341,10 @@ struct ChessLeaderboardRow: Identifiable, Equatable {
     var tournamentGameWins = 0
     var tournamentGameLosses = 0
     var tournamentsPlayed = 0
+    /// Won the whole bracket. The only way a tournament counts as a win.
     var tournamentsWon = 0
+    /// Knocked out - a lost game inside a tournament is one tournament loss, counted the
+    /// moment it happens.
+    var tournamentsLost = 0
     var lastPlayedAt: Int64 = 0
 }

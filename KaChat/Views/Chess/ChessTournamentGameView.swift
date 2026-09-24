@@ -86,6 +86,7 @@ struct ChessTournamentGameView: View {
         .onAppear { service.acquire(); rememberRecord() }
         .onDisappear { service.release() }
         .onChange(of: game?.isOver) { _ in gameEndedIfNeeded() }
+        .onChange(of: tournament?.games.count) { _ in switchToMyGameIfNeeded() }
         // Keep the "before" record fresh while the game is on (the arena may still be loading
         // when the screen opens); once the game is over it is left alone.
         .onChange(of: service.leaderboard) { _ in rememberRecord() }
@@ -121,8 +122,26 @@ struct ChessTournamentGameView: View {
         withAnimation(.easeOut(duration: 0.25)) { showEndOverlay = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
             withAnimation { showEndOverlay = false }
-            if myColor != nil { showResult = true }
+            guard myColor != nil, let tournament, let game else { return }
+            if !tournament.isDuel, game.winner == me, tournament.status != .finished {
+                // Advanced: nothing to score yet (only the whole tournament counts) - to the
+                // bracket, where the other games can be watched and the next one opens by
+                // itself when the opponent is decided.
+                popRequest += 1
+                service.requestOpenBracket(tournament.id)
+            } else {
+                showResult = true
+            }
         }
+    }
+
+    /// Watching another game while waiting for the next round: the moment the player's own
+    /// next game exists, the bracket takes over and opens it.
+    private func switchToMyGameIfNeeded() {
+        guard let tournament, !tournament.isDuel, let me, myColor == nil,
+              let mine = tournament.currentGame(for: me), !mine.isOver, mine.id != gameId else { return }
+        popRequest += 1
+        service.requestOpenBracket(tournament.id)
     }
 
     private func roundLabel(_ game: ChessTournamentGame) -> String {

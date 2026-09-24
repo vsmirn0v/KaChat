@@ -135,8 +135,12 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
 - The lobby shows the public room taking players, the player's own private tournaments,
   public tournaments in play and recently finished. Anyone can open a public tournament and
   watch any game live, since all games are the same public stream.
-- A winner waiting for the next round can watch the other game of their pair; the moment it
-  ends their game exists (§3) and their screen switches to it.
+- A winner is taken to the **bracket** (quarterfinals → semifinals → final → champion, the
+  pairs joined by lines; live games carry a LIVE pill and the running clock, finished ones
+  mark the winner, undecided ones say who they wait on). Every game there is a tap away to
+  watch. The moment the winner's next game exists (§3) - even while they are watching
+  another game - it opens by itself. No result screen for a game won inside a tournament;
+  the result screen comes with a loss (knocked out) or with the final.
 
 ## 6. Leaderboard (indexer handoff)
 
@@ -145,9 +149,10 @@ games inside 1:1 chats:
 
 - **1v1**: wins and losses in 1v1 games (`duel-N` rooms and private 1v1s). Most wins first,
   fewest losses breaking ties.
-- **Tournaments**: tournaments won (champion of an eight-player bracket), then wins and losses
-  in the games inside tournaments. Most tournaments won first, then most game wins, then
-  fewest game losses. A 1v1 never counts here.
+- **Tournaments**: whole tournaments only - **won** (champion of the eight-player bracket)
+  and **lost** (knocked out: a lost game inside a tournament is one tournament loss, counted
+  the moment it happens; winning a game inside one scores nothing until the final is won).
+  Most won first, fewest lost breaking ties. A 1v1 never counts here.
 
 `wins`/`losses` in the row below are the totals over both. For the full history the KaChat
 broadcast indexer must:
@@ -162,7 +167,7 @@ broadcast indexer must:
    happened to scan live from a block, so the other player's join is missed whenever the
    phone was locked, reconnecting, or not yet on the Chess screen when it landed.
 2. **Serve `GET /chess/leaderboard?limit=100`** →
-   `{"players":[{"address":"kaspa:…","wins":12,"losses":4,"duelWins":9,"duelLosses":3,"tournamentGameWins":3,"tournamentGameLosses":1,"tournamentsPlayed":5,"tournamentsWon":2,"lastPlayedAt":<ms>}], "generatedAt":<ms>}`,
+   `{"players":[{"address":"kaspa:…","wins":12,"losses":4,"duelWins":9,"duelLosses":3,"tournamentGameWins":3,"tournamentGameLosses":1,"tournamentsPlayed":5,"tournamentsWon":2,"tournamentsLost":3,"lastPlayedAt":<ms>}], "generatedAt":<ms>}`,
    sorted by `wins` desc, then `losses` asc (the phone sorts each board itself, see
    `ChessTournamentEngine.duelLeaderboard` / `tournamentLeaderboard`). Computed by replaying the arena with the
    rules above (the reference reducer is `ChessTournamentEngine.swift` in this repo; port it,
