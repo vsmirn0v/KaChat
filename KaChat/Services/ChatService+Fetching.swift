@@ -2825,6 +2825,17 @@ extension ChatService {
         // our own outgoing reaction messages if they're ever independently re-fetched -
         // `sendReaction` already applies the optimistic local update at send time, so this is a
         // safety net for that direction, not its primary path.
+        // An edit is never a bubble either: it changes the message it names (if the editor
+        // sent that message) and is otherwise dropped - see `applyIncomingEdit`.
+        if let edit = MessageEditCodec.parse(message.content) {
+            let editorAddress = message.isOutgoing
+                ? (WalletManager.shared.currentWallet?.publicAddress ?? message.senderAddress)
+                : message.senderAddress
+            applyIncomingEdit(edit, editorAddress: editorAddress, contactAddress: contactAddress, editTxId: message.txId, blockTime: Int64(message.blockTime))
+            recordLocalSave()
+            return
+        }
+
         if let reaction = MessageReactionCodec.parse(message.content) {
             let reactorAddress = message.isOutgoing
                 ? (WalletManager.shared.currentWallet?.publicAddress ?? message.senderAddress)
@@ -3293,6 +3304,9 @@ extension ChatService {
         // Same guard for reaction envelopes, mirroring the NSE's reactionPreviewText.
         if let reaction = MessageReactionCodec.parse(unwrapped) {
             return "Reacted \(reaction.emoji)"
+        }
+        if MessageEditCodec.parse(unwrapped) != nil {
+            return "Edited a message"
         }
         // Call envelopes, matching the NSE's callPreviewText.
         if let callEnvelope = CallCodec.parseAny(unwrapped) {

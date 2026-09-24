@@ -15,7 +15,102 @@ extension ChatService {
             for (targetTxId, snapshots) in loaded {
                 reactionsByTxId[targetTxId] = snapshots
             }
+            // Edits ride the same open: one fetch per conversation, then the live index.
+            let edits = await messageStore.fetchEdits(contactAddress: contactAddress, decryptionKey: key)
+            for (targetTxId, edit) in edits {
+                editsByTxId[targetTxId] = edit
+            }
         }
+    }
+
+    // MARK: - Message edits (1:1) - see MessageEditContent/MessageEditCodec
+
+    /// Puts an edit into the live index - newest by block time wins, except that the local
+    /// user's own in-flight edit is replaced by its own outcome.
+    func applyLocalEdit(_ edit: MessageEditSnapshot) {
+        if let current = editsByTxId[edit.targetTxId], current.deliveryStatus == .sent,
+           current.blockTime > edit.blockTime, current.editTxId != edit.editTxId {
+            return
+        }
+        editsByTxId[edit.targetTxId] = edit
+    }
+
+    /// An edit envelope that arrived as a message (the contact's, or our own echoed back). It
+    /// counts only if the editor sent the message it names: the contact may edit the contact's
+    /// messages, this wallet its own - never the other way round.
+    func applyIncomingEdit(_ edit: MessageEditContent, editorAddress: String, contactAddress: String, editTxId: String, blockTime: Int64) {
+        guard let key = messageEncryptionKey() else { return }
+        let editorIsMe = editorAddress == WalletManager.shared.currentWallet?.publicAddress
+        Task { @MainActor in
+            guard let target = await messageStore.fetchMessage(txId: edit.targetTxId, decryptionKey: key),
+                  target.isOutgoing == editorIsMe,
+                  MessageEditCodec.isEditable(target.content) else { return }
+            let snapshot = MessageEditSnapshot(targetTxId: edit.targetTxId, text: edit.text, editTxId: editTxId, blockTime: blockTime, deliveryStatus: .sent)
+            applyLocalEdit(snapshot)
+            messageStore.upsertEdit(targetTxId: edit.targetTxId, contactAddress: contactAddress, text: edit.text, editTxId: editTxId, blockTime: blockTime, encryptionKey: key, deliveryStatus: nil)
+        }
+    }
+
+    /// Edits one of this wallet's own text messages: applied locally at once (pending), then
+    /// sent as an edit envelope through the same contextual-message pipeline as a reaction -
+    /// never a visible bubble of its own. Sent (green check) or failed (red) follow.
+    func sendEdit(to contact: Contact, target: ChatMessage, text: String) async throws {
+        guard let key = messageEncryptionKey() else { return }
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, target.isOutgoing, MessageEditCodec.isEditable(target.content) else { return }
+        editingMessage = nil
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        applyLocalEdit(MessageEditSnapshot(targetTxId: target.txId, text: clean, editTxId: nil, blockTime: now, deliveryStatus: .pending))
+        messageStore.upsertEdit(targetTxId: target.txId, contactAddress: contact.address, text: clean, editTxId: nil, blockTime: now, encryptionKey: key, deliveryStatus: "pending")
+        recordLocalSave()
+
+        let payload = MessageEditCodec.encode(targetTxId: target.txId, text: clean)
+        guard !payload.isEmpty else { return }
+        do {
+            let txId = try await enqueueOutgoingTxOperation {
+                try await self.sendEnvelopeInternal(to: contact, payload: payload)
+            }
+            applyLocalEdit(MessageEditSnapshot(targetTxId: target.txId, text: clean, editTxId: txId, blockTime: now, deliveryStatus: .sent))
+            messageStore.upsertEdit(targetTxId: target.txId, contactAddress: contact.address, text: clean, editTxId: txId, blockTime: now, encryptionKey: key, deliveryStatus: nil)
+            recordLocalSave()
+        } catch {
+            AppLog.log("[ChatService] Edit of %@ failed: %@", String(target.txId.prefix(12)), error.localizedDescription)
+            applyLocalEdit(MessageEditSnapshot(targetTxId: target.txId, text: clean, editTxId: nil, blockTime: now, deliveryStatus: .failed))
+            messageStore.upsertEdit(targetTxId: target.txId, contactAddress: contact.address, text: clean, editTxId: nil, blockTime: now, encryptionKey: key, deliveryStatus: "failed")
+            recordLocalSave()
+            throw error
+        }
+    }
+
+    /// One encrypted contextual message carrying an envelope (an edit today), with no message
+    /// row of its own - the same build/submit sequence as `sendReactionInternal`. Returns the txId.
+    private func sendEnvelopeInternal(to contact: Contact, payload: String) async throws -> String {
+        guard let wallet = WalletManager.shared.currentWallet else { throw KasiaError.walletNotFound }
+        guard let privateKey = WalletManager.shared.getPrivateKey() else { throw KasiaError.keychainError("Could not get private key") }
+        guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else { throw KasiaError.invalidAddress }
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else { throw KasiaError.invalidAddress }
+
+        ensureRoutingState(for: contact.address, privateKey: privateKey)
+        let alias = outgoingAlias(for: contact.address)
+        let rpcManager = NodePoolService.shared
+        if !rpcManager.isConnected {
+            try await rpcManager.connect(network: currentSettings.networkType)
+        }
+        let utxos = try await rpcManager.getUtxosByAddresses([wallet.publicAddress])
+        let candidateUtxos = prepareMessageUtxos(confirmed: utxos)
+        guard !candidateUtxos.isEmpty else { throw KasiaError.networkError(noSpendableFundsYetMessage()) }
+
+        let transaction = try KasiaTransactionBuilder.buildContextualMessageTx(
+            from: wallet.publicAddress, to: contact.address, alias: alias, message: payload,
+            senderPrivateKey: privateKey, recipientPublicKey: recipientPublicKey, utxos: candidateUtxos, feeOverride: nil
+        )
+        let spentUtxos = spentMessageUtxos(from: transaction, candidates: candidateUtxos)
+        let usesUnconfirmedInputs = spentUtxos.contains { $0.blockDaaScore == 0 }
+        let submitted = try await rpcManager.submitTransaction(transaction, allowOrphan: usesUnconfirmedInputs)
+        reserveMessageOutpoints(spentUtxos)
+        consumePendingUtxos(spentUtxos)
+        addPendingOutputs(from: transaction, txId: submitted.txId, senderScriptPubKey: senderScriptPubKey)
+        return submitted.txId
     }
 
     /// Refreshes `latestReactionByContact` for the whole chat list - called from `ChatListView`

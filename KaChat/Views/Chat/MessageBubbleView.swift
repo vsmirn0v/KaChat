@@ -40,6 +40,11 @@ struct MessageBubbleView: View {
     /// Asks the SCREEN to open the full emoji picker for this message - see
     /// `QuickReactionBarView.onMore` for why the bar cannot present it itself.
     var onMoreReactions: (() -> Void)? = nil
+    /// The text shown is an edit of what was sent (the parent already swapped `content`); a
+    /// small "edited" sits under the bubble. `onEdit` opens the composer on this message's
+    /// text - offered on the local user's own text bubbles only (nil elsewhere).
+    var isEdited: Bool = false
+    var onEdit: (() -> Void)? = nil
     /// Shared across every bubble in the conversation (not per-bubble `@State`) so the list's own
     /// tap-anywhere-to-dismiss gesture can close whichever bubble's bar is open from outside this
     /// view entirely - see `ChatDetailView`'s `activeQuickReactionMessageId`.
@@ -369,6 +374,12 @@ struct MessageBubbleView: View {
                     }
                 }
 
+                if isEdited {
+                    Text("edited")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
                 // A reaction (not the message) that failed to send: red "Retry" under the message,
                 // paired with the red error icon shown on the reaction pill itself.
                 if let localReaction, localReaction.deliveryStatus == .failed {
@@ -551,6 +562,14 @@ struct MessageBubbleView: View {
                         onShowReactions()
                     } label: {
                         Label("Reactions (\(reactions.count))", systemImage: "heart")
+                    }
+                }
+
+                if let onEdit {
+                    Button {
+                        onEdit()
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
                     }
                 }
 

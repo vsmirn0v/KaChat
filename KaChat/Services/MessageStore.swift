@@ -1756,6 +1756,7 @@ final class MessageStore {
         .init(entityName: CDReadMarker.entityName, attributes: ["walletAddress", "conversationId"]),
         .init(entityName: CDReaction.entityName, attributes: ["walletAddress", "targetTxId"]),
         .init(entityName: CDReaction.entityName, attributes: ["walletAddress", "contactAddress"]),
+        .init(entityName: CDMessageEdit.entityName, attributes: ["walletAddress", "contactAddress"]),
     ]
 
     private func loadPersistentStores(primaryDescription: NSPersistentStoreDescription, completion: (() -> Void)? = nil) {
@@ -2000,6 +2001,82 @@ final class MessageStore {
                 try context.save()
             } catch {
                 self.logInfo("[MessageStore] Failed to upsert reaction: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Edits (CDMessageEdit)
+
+    /// Records the newest edit of `targetTxId`. Newest by block time wins - an older edit
+    /// replayed from history never overwrites a newer one - except that the local user's own
+    /// in-flight edit (pending/failed) is always replaced by its own outcome.
+    func upsertEdit(targetTxId: String, contactAddress: String, text: String, editTxId: String?, blockTime: Int64, encryptionKey: SymmetricKey, deliveryStatus: String? = nil) {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        context.perform {
+            let request = NSFetchRequest<CDMessageEdit>(entityName: CDMessageEdit.entityName)
+            if let walletAddr {
+                request.predicate = NSPredicate(format: "targetTxId == %@ AND (walletAddress == %@ OR walletAddress == nil)", targetTxId, walletAddr)
+            } else {
+                request.predicate = NSPredicate(format: "targetTxId == %@", targetTxId)
+            }
+            let existing = (try? context.fetch(request)) ?? []
+            if let current = existing.first, current.deliveryStatus == nil || current.deliveryStatus == "sent",
+               current.blockTime > blockTime, current.editTxId != editTxId {
+                return
+            }
+            let edit = existing.first ?? CDMessageEdit(context: context)
+            for duplicate in existing.dropFirst() {
+                context.delete(duplicate)
+            }
+            edit.targetTxId = targetTxId
+            edit.contactAddress = contactAddress
+            edit.editTxId = editTxId
+            edit.blockTime = blockTime
+            edit.deliveryStatus = deliveryStatus
+            edit.updatedAt = Date()
+            if let walletAddr {
+                edit.walletAddress = walletAddr
+            }
+            if let encrypted = self.encryptContent(text, key: encryptionKey) {
+                edit.textEncrypted = encrypted
+            }
+            do {
+                try context.save()
+            } catch {
+                self.logInfo("[MessageStore] Failed to upsert edit: \(error)")
+            }
+        }
+    }
+
+    /// One conversation's edits, keyed by the message they change.
+    func fetchEdits(contactAddress: String, decryptionKey: SymmetricKey) async -> [String: MessageEditSnapshot] {
+        guard ensureStoreLoaded() else { return [:] }
+        let walletAddress = currentWalletAddress
+        return await withCheckedContinuation { (continuation: CheckedContinuation<[String: MessageEditSnapshot], Never>) in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<CDMessageEdit>(entityName: CDMessageEdit.entityName)
+                if let walletAddress {
+                    request.predicate = NSPredicate(format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)", contactAddress, walletAddress)
+                } else {
+                    request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+                }
+                var edits: [String: MessageEditSnapshot] = [:]
+                if let results = try? context.fetch(request) {
+                    for record in results {
+                        guard let data = record.textEncrypted, let text = self.decryptContent(data, key: decryptionKey) else { continue }
+                        let status: ChatMessage.DeliveryStatus
+                        switch record.deliveryStatus {
+                        case "failed": status = .failed
+                        case "pending": status = .pending
+                        default: status = .sent
+                        }
+                        edits[record.targetTxId] = MessageEditSnapshot(targetTxId: record.targetTxId, text: text, editTxId: record.editTxId, blockTime: record.blockTime, deliveryStatus: status)
+                    }
+                }
+                continuation.resume(returning: edits)
             }
         }
     }
@@ -2251,7 +2328,26 @@ final class MessageStore {
             makeIndex(name: "byWalletContact", on: reactionEntity, attributes: ["walletAddress", "contactAddress"])
         ]
 
-        model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity, reactionEntity]
+        // CDMessageEdit: the newest edit per (targetTxId, walletAddress) - a later edit replaces
+        // the row's text. New entity → lightweight migration, like CDReaction before it.
+        let editEntity = NSEntityDescription()
+        editEntity.name = CDMessageEdit.entityName
+        editEntity.managedObjectClassName = NSStringFromClass(CDMessageEdit.self)
+        editEntity.properties = [
+            makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "contactAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "textEncrypted", type: .binaryDataAttributeType, optional: true),
+            makeAttribute(name: "editTxId", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true),
+            makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true)
+        ]
+        editEntity.indexes = [
+            makeIndex(name: "byWalletContact", on: editEntity, attributes: ["walletAddress", "contactAddress"])
+        ]
+
+        model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity, reactionEntity, editEntity]
         return model
     }
 
@@ -2633,6 +2729,20 @@ final class CDReaction: NSManagedObject {
     @NSManaged var walletAddress: String?
     @NSManaged var deliveryStatus: String?
     @NSManaged var failedAction: String?
+}
+
+@objc(CDMessageEdit)
+final class CDMessageEdit: NSManagedObject {
+    static let entityName = "CDMessageEdit"
+
+    @NSManaged var targetTxId: String
+    @NSManaged var contactAddress: String
+    @NSManaged var textEncrypted: Data?
+    @NSManaged var editTxId: String?
+    @NSManaged var blockTime: Int64
+    @NSManaged var updatedAt: Date?
+    @NSManaged var walletAddress: String?
+    @NSManaged var deliveryStatus: String?
 }
 
 @objc(CDSyncMarker)

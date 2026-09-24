@@ -710,10 +710,10 @@ struct ChatDetailView: View {
                             // reply banner sits above the composer too, so its live-measured
                             // height (+ the input bar's own 8pt VStack spacing) is added on top -
                             // otherwise this button sits directly on the reply banner's Cancel (X).
-                            .padding(.bottom, 76 + (chatService.replyingTo != nil ? replyBannerHeight + 8 : 0))
+                            .padding(.bottom, 76 + (chatService.replyingTo != nil || chatService.editingMessage != nil ? replyBannerHeight + 8 : 0))
                             .transition(.opacity.combined(with: .scale(scale: 0.8)))
                             .animation(.easeInOut(duration: 0.2), value: isBottomAnchorVisible)
-                            .animation(.easeInOut(duration: 0.2), value: chatService.replyingTo != nil)
+                            .animation(.easeInOut(duration: 0.2), value: chatService.replyingTo != nil || chatService.editingMessage != nil)
                         }
                     }
                     // `.immediately` rather than `.interactively`. An interactive dismissal drives the
@@ -1734,7 +1734,9 @@ struct ChatDetailView: View {
 
     private var inputBar: some View {
         VStack(spacing: 8) {
-            if let reply = chatService.replyingTo {
+            if let editing = chatService.editingMessage {
+                editBanner(for: editing)
+            } else if let reply = chatService.replyingTo {
                 replyBanner(for: reply)
             }
             ZStack(alignment: .topLeading) {
@@ -2430,6 +2432,25 @@ struct ChatDetailView: View {
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+
+        // Editing: the composer's text replaces the message being edited - one edit
+        // transaction, no new bubble.
+        if let editing = chatService.editingMessage {
+            messageText = ""
+            chatService.clearDraft(for: contact.address)
+            Task {
+                do {
+                    try await chatService.sendEdit(to: contact, target: editing, text: text)
+                } catch {
+                    let errorMsg = error.localizedDescription
+                    AppLog.log("[ChatDetailView] Edit failed: %@", errorMsg)
+                    await MainActor.run {
+                        self.error = displayErrorMessage(error)
+                    }
+                }
+            }
+            return
+        }
 
         if text == "!!HANDSHAKE!!" {
             messageText = ""
@@ -3267,6 +3288,9 @@ struct ChatDetailView: View {
             && !message.isOutgoing
             && !hasOutgoingHandshakeMessage
             && !isDeclined
+        // An edited message reads with its newest text; the row itself is untouched.
+        let edit = chatService.editsByTxId[message.txId]
+        let message = edit.map { message.replacingContent(MessageEditCodec.apply($0.text, to: message.content)) } ?? message
         let replyQuote = MessageReplyCodec.parse(message.content)
         let senderAddress = message.isOutgoing ? myAddress : contact.address
         let chessEnvelope = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content))
@@ -3309,6 +3333,10 @@ struct ChatDetailView: View {
                 }
             },
             onMoreReactions: { emojiPickerTarget = IdentifiedTxId(id: message.txId) },
+            isEdited: edit != nil,
+            onEdit: (message.isOutgoing && message.messageType == .contextual && message.deliveryStatus == .sent
+                     && MessageEditCodec.isEditable(message.content) && chessEnvelope == nil)
+                ? { beginEdit(message) } : nil,
             activeQuickReactionMessageId: $activeQuickReactionMessageId,
             onJumpToReply: replyQuote != nil ? { pendingJumpToTxId = replyQuote?.replyToId } : nil,
             avatarURLString: senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
@@ -3483,6 +3511,52 @@ struct ChatDetailView: View {
             return "You"
         }
         return contactsManager.displayName(for: address)
+    }
+
+    /// Long-press > Edit on one of the user's own text bubbles: the composer takes the message's
+    /// current text and the banner says what is being edited until Send or the X.
+    private func beginEdit(_ message: ChatMessage) {
+        chatService.startEditing(message)
+        messageText = MessageReplyCodec.unwrappedText(message.content)
+    }
+
+    private func editBanner(for editing: ChatMessage) -> some View {
+        // `editing` is the row as sent; what the user sees (and edits) is its newest text.
+        let current = chatService.editsByTxId[editing.txId].map { MessageEditCodec.apply($0.text, to: editing.content) } ?? editing.content
+        return HStack(spacing: 8) {
+            Image(systemName: "pencil")
+                .font(.caption)
+                .foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Editing message")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.accentColor)
+                Text(MessageReplyCodec.previewText(for: MessageReplyCodec.unwrappedText(current)))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                chatService.cancelEditing()
+                messageText = ""
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { replyBannerHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { replyBannerHeight = $0 }
+            }
+        )
     }
 
     private func replyBanner(for reply: ChatMessage) -> some View {

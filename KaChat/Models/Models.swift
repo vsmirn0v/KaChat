@@ -1032,6 +1032,87 @@ enum MessageReactionCodec {
     }
 }
 
+// MARK: - Message edits
+
+/// An edit to one of the sender's OWN earlier text messages. Nothing on chain changes: the
+/// edit is a new transaction that names the original by txId and carries the new text, and
+/// every client shows the newest edit's text in place of the original with an "edited" mark.
+/// Same envelope-in-content pattern as reactions - embedded in the normal encrypted contextual
+/// content (1:1), the group-encrypted message (groups), or the plaintext broadcast row (public
+/// chats) - and never rendered as a bubble of its own. Rules, the same on every platform:
+/// only the original sender's edits count; the newest by block time wins; text only (a
+/// payment, voice message, photo, chess move or call line is never editable). Wire format in
+/// MESSAGING.md ("Message Edits") - Android/desktop must match.
+struct MessageEditContent: Codable, Equatable {
+    var type: String = "edit"
+    let targetTxId: String
+    let text: String
+}
+
+enum MessageEditCodec {
+    static let maxLength = 4_000
+
+    static func encode(targetTxId: String, text: String) -> String {
+        let content = MessageEditContent(targetTxId: targetTxId, text: String(text.prefix(maxLength)))
+        guard let data = try? JSONEncoder().encode(content),
+              let json = String(data: data, encoding: .utf8) else { return "" }
+        return json
+    }
+
+    /// Same {-prefix + size guard as `MessageReplyCodec.parse`, for the same hot-path reason.
+    static func parse(_ text: String?) -> MessageEditContent? {
+        guard let text, text.utf8.count < 100_000 else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
+        guard let parsed = try? JSONDecoder().decode(MessageEditContent.self, from: data),
+              parsed.type == "edit", !parsed.targetTxId.isEmpty else { return nil }
+        return parsed
+    }
+
+    /// The message's content as it reads after the edit: a reply keeps its quote and gets the
+    /// new text; plain text is simply replaced.
+    static func apply(_ edit: String, to original: String) -> String {
+        if let quote = MessageReplyCodec.parse(original) {
+            return MessageReplyCodec.encode(replyToId: quote.replyToId, replyToSender: quote.replyToSender, replyToPreview: quote.replyToPreview, text: edit)
+        }
+        return edit
+    }
+
+    /// Whether an edit may be offered on `content`: plain text, or a reply with text - never an
+    /// envelope of any kind (payment notice, voice, photo, chess, call, reaction, pool...).
+    static func isEditable(_ content: String) -> Bool {
+        let unwrapped = MessageReplyCodec.unwrappedText(content).trimmingCharacters(in: .whitespacesAndNewlines)
+        return !unwrapped.isEmpty && unwrapped.first != "{"
+    }
+}
+
+/// The newest edit on one message, as the stores hand it to the views. `deliveryStatus` is
+/// the local user's own edit's send state (`.sent` for everyone else's / delivered).
+struct MessageEditSnapshot: Equatable {
+    let targetTxId: String
+    let text: String
+    var editTxId: String? = nil
+    let blockTime: Int64
+    var deliveryStatus: ChatMessage.DeliveryStatus = .sent
+}
+
+extension ChatMessage {
+    /// The same message with `content` replaced - how an edit is shown without touching the row.
+    func replacingContent(_ newContent: String) -> ChatMessage {
+        ChatMessage(id: id, txId: txId, senderAddress: senderAddress, receiverAddress: receiverAddress, content: newContent,
+                    timestamp: timestamp, blockTime: blockTime, acceptingBlock: acceptingBlock, isOutgoing: isOutgoing,
+                    messageType: messageType, deliveryStatus: deliveryStatus)
+    }
+}
+
+extension GroupMessage {
+    /// See `ChatMessage.replacingContent`.
+    func replacingContent(_ newContent: String) -> GroupMessage {
+        GroupMessage(id: id, groupId: groupId, txId: txId, senderAddress: senderAddress, senderIdHex: senderIdHex, content: newContent,
+                     timestamp: timestamp, blockTime: blockTime, isOutgoing: isOutgoing, deliveryStatus: deliveryStatus)
+    }
+}
+
 // MARK: - Fresh-address payment pools
 
 /// A batch of the SENDER's own fresh receive addresses, shared so the recipient can pay them

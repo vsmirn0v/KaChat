@@ -48,11 +48,15 @@ final class ChatService: ObservableObject {
     @Published var error: KasiaError?
     @Published var declinedContacts: Set<String> = []
     @Published var replyingTo: ChatMessage?
+    /// The message whose text the composer is editing (the user's own) - see `sendEdit`.
+    @Published var editingMessage: ChatMessage?
     /// This wallet's reactions, keyed by the txId of the message they target - loaded once per
     /// conversation (see `loadReactions(for:)`) and kept live afterward by `sendReaction`/the
     /// incoming-reaction interception in `addMessageToConversation` applying updates directly,
     /// rather than a Core Data change-notification round trip for every update.
     @Published var reactionsByTxId: [String: [MessageStore.ReactionSnapshot]] = [:]
+    /// The newest edit per message txId, for the open conversation - see `MessageEditCodec`.
+    @Published var editsByTxId: [String: MessageEditSnapshot] = [:]
     /// Newest reaction per contact, across every message in that conversation - not scoped to
     /// whichever single conversation is currently open (unlike `reactionsByTxId`), since the chat
     /// list needs this for every row at once. Refreshed by `refreshLatestReactionPreviews()`; see
@@ -555,6 +559,17 @@ final class ChatService: ObservableObject {
 
     func cancelReply() {
         replyingTo = nil
+    }
+
+    // MARK: - Edit
+
+    func startEditing(_ message: ChatMessage) {
+        replyingTo = nil
+        editingMessage = message
+    }
+
+    func cancelEditing() {
+        editingMessage = nil
     }
 
     /// Observe conversation count changes to trigger resubscription when new chats are added
