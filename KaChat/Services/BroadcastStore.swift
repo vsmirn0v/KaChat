@@ -460,7 +460,7 @@ final class BroadcastStore {
             request.predicate = NSPredicate(format: "id == %@", txId)
             request.fetchLimit = 1
             if let row = (try? context.fetch(request))?.first {
-                found = (row.senderAddress, row.content)
+                found = (row.senderAddress, row.content ?? "")
             }
         }
         return found
