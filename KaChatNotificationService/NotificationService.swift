@@ -212,6 +212,7 @@ class NotificationService: UNNotificationServiceExtension {
                 }
                 content.body = paymentNoticePreviewText(for: decrypted)
                     ?? reactionPreviewText(for: decrypted)
+                    ?? editPreviewText(for: decrypted)
                     ?? chessPreviewText(for: decrypted)
                     ?? callPreviewText(for: decrypted)
                     ?? unwrapReplyText(decrypted)
@@ -394,6 +395,7 @@ class NotificationService: UNNotificationServiceExtension {
             // "a message" fallback.
             let reactionTargetsMine = isReactionToMyMessage(match.plaintext)
             let displayBody = reactionPreviewText(for: match.plaintext, inGroup: !reactionTargetsMine)
+                ?? editPreviewText(for: match.plaintext)
                 ?? chessPreviewText(for: match.plaintext)
                 ?? callPreviewText(for: match.plaintext)
                 ?? unwrapReplyText(match.plaintext)
@@ -997,6 +999,18 @@ class NotificationService: UNNotificationServiceExtension {
         return parsed.action == "remove"
             ? "Removed their \(parsed.emoji) reaction"
             : (inGroup ? "Reacted \(parsed.emoji) to a message" : "Reacted \(parsed.emoji) to your message")
+    }
+
+    /// An edit envelope (`{"type":"edit","targetTxId":...,"text":...}`, see MESSAGING.md
+    /// "Message Edits") reads as "Edited a message" rather than its JSON - the main app's
+    /// `MessageEditCodec` counterpart here, like `reactionPreviewText` above.
+    private func editPreviewText(for content: String) -> String? {
+        struct PushEditEnvelope: Decodable { let type: String; let targetTxId: String }
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(PushEditEnvelope.self, from: data),
+              parsed.type == "edit", !parsed.targetTxId.isEmpty else { return nil }
+        return "Edited a message"
     }
 
     /// True when `content` is a reaction envelope targeting one of the wallet's OWN group
