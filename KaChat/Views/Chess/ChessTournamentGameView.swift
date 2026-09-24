@@ -332,18 +332,13 @@ struct ChessTournamentGameView: View {
                 }
             }
             if service.pendingMoveGames.contains("\(tournamentId)|\(gameId)") { return "Sending your move…" }
-            // A side's first move has 25 seconds before its clock runs (the gate on a
-            // simultaneous join - see ChessTournamentCodec.firstMoveGraceMs); say so.
-            var grace = ""
-            if game.moves.count < 2 {
-                let left = game.allowanceLeftMs(at: service.now)
-                if left > 0 { grace = " · clock starts in \(clockText(left))" }
-            }
+            // The clock runs from the moment the board opens (the match-found countdown covers
+            // the start - see ChessTournamentCodec.matchFoundDelayMs); nothing to count down here.
             if let myColor {
-                if ChessEngine.isKingInCheck(color: game.sideToMove, board: game.board), game.sideToMove == myColor { return "Check. Your move." + grace }
-                return (game.sideToMove == myColor ? "Your move" : "Their move") + grace
+                if ChessEngine.isKingInCheck(color: game.sideToMove, board: game.board), game.sideToMove == myColor { return "Check. Your move." }
+                return game.sideToMove == myColor ? "Your move" : "Their move"
             }
-            return (game.sideToMove == .white ? "White to move" : "Black to move") + grace
+            return game.sideToMove == .white ? "White to move" : "Black to move"
         }()
         Text(text)
             .font(.subheadline.weight(.semibold))

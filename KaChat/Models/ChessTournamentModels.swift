@@ -36,25 +36,30 @@ enum ChessTournamentCodec {
     /// Chain time is charged only past an allowance per move, so the seconds a move spends
     /// reaching the other phone (a block, the indexer's poll) are nobody's thinking time.
     static let moveDelayMs: Int64 = 10 * 1000
-    /// A side's FIRST move gets 25 seconds instead: the game starts at the second join's
-    /// block time, and a player must not lose clock before their phone has even shown the
-    /// board. This is the gate on a simultaneous join - the clock does not run for either
-    /// side until they have shown up with a move (or the 25 seconds are up).
+    /// Games from the first allowance window only (see `allowanceMs`): a side's first move
+    /// had 25 seconds before its clock ran - the gate on a simultaneous join before the
+    /// match-found countdown existed. Kept so those games are judged as they were played.
     static let firstMoveGraceMs: Int64 = 25 * 1000
     /// The room filled: both phones show "Match found" and open the board at the game's start
     /// block time plus this - the same instant on every phone, so the players arrive together.
-    /// Inside the first-move grace, so nobody loses clock to it.
+    /// Equal to `moveDelayMs`, so white's first move is charged from the moment the board
+    /// opens and not a second before: the clock runs the instant you are playing.
     static let matchFoundDelayMs: Int64 = 10 * 1000
-    /// The allowances apply to games that STARTED at or after this block time
-    /// (2026-09-24 00:00 UTC). A rule change must never reach back: the games before it
-    /// were decided under the rules of their day, and re-judging them re-opened games
-    /// that had ended (a claim valid at 5:00 became "early" under the minute's grace) and
-    /// let a player resign a finished game for a second loss. Every platform ships the
-    /// same instant.
+    /// Rule windows, by the game's start block time. A rule change must never reach back:
+    /// the games before it were decided under the rules of their day, and re-judging them
+    /// re-opened games that had ended and let a player resign a finished game for a second
+    /// loss. Every platform ships the same instants.
+    /// - before `allowanceFromMs` (2026-09-24 00:00 UTC): no allowances at all;
+    /// - from `allowanceFromMs` to `allowanceV2FromMs` (2026-09-24 20:00 UTC): 25 s on a
+    ///   side's first move, 10 s on every move after;
+    /// - from `allowanceV2FromMs`: 10 s on every move, the first included - the match-found
+    ///   countdown covers the start, so no separate grace holds the clock.
     static let allowanceFromMs: Int64 = 1_790_208_000_000
+    static let allowanceV2FromMs: Int64 = 1_790_280_000_000
     /// The allowance for the move at `ply` (1 = white's first, 2 = black's first) in a game
-    /// started at `startedAt`; zero for games from before `allowanceFromMs`.
+    /// started at `startedAt`.
     static func allowanceMs(ply: Int, startedAt: Int64) -> Int64 {
+        if startedAt >= allowanceV2FromMs { return moveDelayMs }
         guard startedAt >= allowanceFromMs else { return 0 }
         return ply <= 2 ? firstMoveGraceMs : moveDelayMs
     }
