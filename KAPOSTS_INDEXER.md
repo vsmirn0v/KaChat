@@ -299,8 +299,13 @@ These are confirmed product decisions; the iOS UI is already shaped for them.
       {"version","scriptPublicKey"}}],"lockTime","subnetworkId","payload"}}` with hex
       strings) - so the server submits it with that call, or via its own kaspad gRPC
       `SubmitTransaction`. Verify the signature for `pubkey`, that the transaction's payload
-      is a `kchat:1:` action signed by the same pubkey, and that `notBefore` is between now
-      and now + 30 days; store `{txId, pubkey, notBefore, transaction, status: "scheduled"}`.
+      is a `kchat:1:` action signed by the same pubkey, that `notBefore` is between now and
+      now + 30 days, and **that `txId` equals the id you compute from `transaction` yourself**
+      (Kaspa's id: blake2b-256 keyed `TransactionID` over the consensus encoding - signature
+      scripts replaced by empty var-bytes, no mass field, payload included, digest bytes in
+      order; rusty-kaspa `consensus/core/src/hashing/tx.rs::id_v0`) - reject on mismatch, or
+      the entry could never be matched to the post that appears on chain; store
+      `{txId, pubkey, notBefore, transaction, status: "scheduled"}`.
       Reply `{ "txId", "notBefore", "status": "scheduled" }`. Idempotent on `txId`.
     - At `notBefore` (a scheduler tick each minute is fine): submit the transaction. On
       success `status = "submitted"` with `submittedAt`; on a rejection (typically its inputs
