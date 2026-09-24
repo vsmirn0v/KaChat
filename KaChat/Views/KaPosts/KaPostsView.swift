@@ -8078,23 +8078,54 @@ extension View {
 }
 
 /// Presents or dismisses a KaPosts cover with the cover's own animation off - the push is
-/// drawn by `kaPostsSlideCover`.
+/// drawn by `kaPostsSlideCover`. Takes the picture of the screen the slide reveals first.
 func kaPostsPresent(_ body: () -> Void) {
+    KaPostsSlideSnapshot.capture()
     var transaction = Transaction()
     transaction.disablesAnimations = true
     withTransaction(transaction, body)
+}
+
+/// The screen beneath a sliding cover, as a picture. A cover with a clear background had the
+/// live feed composited under the moving screen on every frame of the drag - a second
+/// full-screen list to draw - which is what made the slide stutter. A snapshot of the window,
+/// taken the instant before the cover appears and shown dimmed behind the slide, is one static
+/// image instead; the cover itself stays opaque. Captured at 1x: it is only ever seen dimmed
+/// and moving.
+enum KaPostsSlideSnapshot {
+    static var image: UIImage?
+
+    static func capture() {
+        guard let window = UIApplication.shared.connectedScenes
+                .compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(bounds: window.bounds, format: format)
+        image = renderer.image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+        }
+    }
 }
 
 private struct KaPostsSlideCover: ViewModifier {
     let onBack: () -> Void
     @State private var offset: CGFloat = UIScreen.main.bounds.width
     @State private var dragging = false
+    @State private var beneath: UIImage? = KaPostsSlideSnapshot.image
 
     func body(content: Content) -> some View {
         let width = max(UIScreen.main.bounds.width, 1)
         let progress = Double(max(0, min(1, 1 - offset / width)))
         return ZStack {
-            // The screen beneath dims as this one covers it, like a navigation push.
+            // The screen this one slid over, dimming as it is covered - a still picture.
+            if let beneath {
+                Image(uiImage: beneath)
+                    .resizable()
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            } else {
+                Color(.systemBackground).ignoresSafeArea()
+            }
             Color.black.opacity(0.3 * progress)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
@@ -8102,7 +8133,7 @@ private struct KaPostsSlideCover: ViewModifier {
                 .background(Color(.systemBackground).ignoresSafeArea())
                 // The edge shadow is a 14pt gradient strip hung off the leading edge, not a
                 // `.shadow` on the whole screen: that one re-rasterized the entire list every
-                // frame of the drag and made it stutter.
+                // frame of the drag.
                 .overlay(alignment: .leading) {
                     LinearGradient(colors: [Color.black.opacity(0.22), Color.clear], startPoint: .trailing, endPoint: .leading)
                         .frame(width: 14)
@@ -8113,7 +8144,6 @@ private struct KaPostsSlideCover: ViewModifier {
                 }
                 .offset(x: offset)
         }
-        .modifier(ClearPresentationBackground())
         .simultaneousGesture(
             DragGesture(minimumDistance: 12, coordinateSpace: .global)
                 .onChanged { value in
@@ -8124,7 +8154,10 @@ private struct KaPostsSlideCover: ViewModifier {
                               abs(value.translation.width) > abs(value.translation.height) else { return }
                         dragging = true
                     }
-                    offset = max(0, value.translation.width)
+                    // Straight to the finger: no implicit animation smoothing the drag.
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) { offset = max(0, value.translation.width) }
                 }
                 .onEnded { value in
                     guard dragging else { return }
@@ -8144,17 +8177,11 @@ private struct KaPostsSlideCover: ViewModifier {
                 }
         )
         .onAppear {
-            withAnimation(.easeOut(duration: 0.28)) { offset = 0 }
-        }
-    }
-}
-
-private struct ClearPresentationBackground: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 16.4, *) {
-            content.presentationBackground(.clear)
-        } else {
-            content
+            // A frame later, so the slide does not share its first frames with the screen's
+            // own first layout.
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.26)) { offset = 0 }
+            }
         }
     }
 }
