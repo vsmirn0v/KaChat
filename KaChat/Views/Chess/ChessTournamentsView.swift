@@ -95,8 +95,14 @@ struct ChessTournamentsView: View {
                     tournamentId: id,
                     onStarted: { started in
                         waitingRoomId = nil
-                        // The tournament screen opens the player's game the moment it exists.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openTournamentId = started }
+                        // Straight onto the board (the bracket is a tap away from it).
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            if let me, let game = service.tournaments[started]?.currentGame(for: me), !game.isOver {
+                                watchGame = (started, game.id)
+                            } else {
+                                openTournamentId = started
+                            }
+                        }
                     },
                     onFinished: { expired in
                         waitingRoomId = nil
@@ -207,10 +213,27 @@ struct ChessTournamentsView: View {
             }
     }
 
+    /// Wherever the player's room stands, the screen that goes with it: waiting for players ->
+    /// the waiting room; just filled -> the waiting room's match-found countdown (a join that
+    /// filled the room lands here directly - the room is live before the screen ever sees it
+    /// open); in play -> the board.
     private func showWaitingRoomIfSeated() {
-        guard let mine = service.myActiveTournament, mine.status == .open, let me,
-              mine.isSeated(me, at: service.now) else { return }
-        if waitingRoomId != mine.id { waitingRoomId = mine.id }
+        guard let mine = service.myActiveTournament, let me else { return }
+        switch mine.status {
+        case .open:
+            guard mine.isSeated(me, at: service.now) else { return }
+            if waitingRoomId != mine.id { waitingRoomId = mine.id }
+        case .live:
+            let started = mine.startedAt ?? 0
+            if service.now < started + ChessTournamentCodec.matchFoundDelayMs {
+                if waitingRoomId != mine.id { waitingRoomId = mine.id }
+            } else if waitingRoomId == nil, openTournamentId == nil, watchGame == nil,
+                      let game = mine.currentGame(for: me), !game.isOver {
+                watchGame = (mine.id, game.id)
+            }
+        default:
+            break
+        }
     }
 
     // MARK: - 1v1

@@ -26,6 +26,22 @@ struct ChessWaitingRoomView: View {
             Color(.systemBackground).ignoresSafeArea()
             VStack(spacing: 28) {
                 Spacer()
+                if matchFound, let tournament {
+                    // The room filled. Everyone sees this for the same ten seconds of chain
+                    // time, then every phone opens the board together.
+                    Text(tournament.isDuel ? "Match found!" : "Tournament full!")
+                        .font(.title.weight(.heavy))
+                    seats
+                    VStack(spacing: 6) {
+                        Text("\(matchFoundSecondsLeft)")
+                            .font(.system(size: 56, weight: .bold, design: .rounded).monospacedDigit())
+                            .contentTransition(.numericText())
+                            .animation(.easeInOut(duration: 0.2), value: matchFoundSecondsLeft)
+                        Text(tournament.isDuel ? "Taking both of you to the board" : "Taking everyone to their boards")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
                 Text(tournament?.isDuel == true ? "Looking for an opponent" : "Waiting for players")
                     .font(.title2.weight(.bold))
                 seats
@@ -39,6 +55,7 @@ struct ChessWaitingRoomView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
+                }
                     .padding(.horizontal, 32)
                 Spacer()
                 Button(role: .destructive) {
@@ -55,6 +72,9 @@ struct ChessWaitingRoomView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
+                // No leaving once the room has filled - the game exists on chain.
+                .opacity(matchFound ? 0 : 1)
+                .disabled(matchFound)
             }
         }
         .interactiveDismissDisabled()
@@ -126,10 +146,26 @@ struct ChessWaitingRoomView: View {
     }
 
     /// Filled, or the seat ran out: hand the screen over. Runs on every tick.
+    /// The room has filled and the match-found countdown is still running.
+    private var matchFound: Bool {
+        guard let tournament, tournament.status == .live else { return false }
+        return service.now < (tournament.startedAt ?? 0) + ChessTournamentCodec.matchFoundDelayMs
+    }
+
+    private var matchFoundSecondsLeft: Int {
+        guard let tournament else { return 0 }
+        let left = (tournament.startedAt ?? 0) + ChessTournamentCodec.matchFoundDelayMs - service.now
+        return max(0, Int((left + 999) / 1000))
+    }
+
     private func check() {
         guard !handedOff, let tournament, let me else { return }
         if tournament.status == .live || tournament.status == .finished {
+            // Filled: hold for the match-found countdown (chain time, the same on every phone),
+            // then hand over to the board.
+            guard !matchFound else { return }
             handedOff = true
+            Haptics.success()
             onStarted(tournament.id)
         } else if tournament.status == .cancelled || !tournament.isSeated(me, at: service.now) {
             handedOff = true

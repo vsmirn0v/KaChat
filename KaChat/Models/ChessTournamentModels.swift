@@ -41,6 +41,10 @@ enum ChessTournamentCodec {
     /// board. This is the gate on a simultaneous join - the clock does not run for either
     /// side until they have shown up with a move (or the 25 seconds are up).
     static let firstMoveGraceMs: Int64 = 25 * 1000
+    /// The room filled: both phones show "Match found" and open the board at the game's start
+    /// block time plus this - the same instant on every phone, so the players arrive together.
+    /// Inside the first-move grace, so nobody loses clock to it.
+    static let matchFoundDelayMs: Int64 = 10 * 1000
     /// The allowances apply to games that STARTED at or after this block time
     /// (2026-09-24 00:00 UTC). A rule change must never reach back: the games before it
     /// were decided under the rules of their day, and re-judging them re-opened games
