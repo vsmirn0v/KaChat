@@ -305,7 +305,7 @@ struct ChessTournamentGameView: View {
                 }
             }
             if service.pendingMoveGames.contains("\(tournamentId)|\(gameId)") { return "Sending your move…" }
-            // A side's first move has a minute before its clock runs (the gate on a
+            // A side's first move has 25 seconds before its clock runs (the gate on a
             // simultaneous join - see ChessTournamentCodec.firstMoveGraceMs); say so.
             var grace = ""
             if game.moves.count < 2 {

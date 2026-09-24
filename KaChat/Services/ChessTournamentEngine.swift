@@ -96,7 +96,7 @@ enum ChessTournamentEngine {
                   let fromText = message.from, let toText = message.to,
                   let from = ChessSquare(algebraic: fromText), let to = ChessSquare(algebraic: toText) else { return }
             // A move after the mover's clock ran out is void: the opponent's claim decides.
-            // Charged past the move's allowance (a minute for a side's first move, ten seconds
+            // Charged past the move's allowance (25 s for a side's first move, ten seconds
             // after) - see ChessTournamentCodec.allowanceMs.
             let elapsed = game.chargedMs(elapsed: event.blockTime - game.lastEventAt)
             let remaining = ChessTournamentCodec.clockMs - game.usedMs(game.sideToMove)

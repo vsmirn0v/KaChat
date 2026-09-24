@@ -36,11 +36,11 @@ enum ChessTournamentCodec {
     /// Chain time is charged only past an allowance per move, so the seconds a move spends
     /// reaching the other phone (a block, the indexer's poll) are nobody's thinking time.
     static let moveDelayMs: Int64 = 10 * 1000
-    /// A side's FIRST move gets a minute instead: the game starts at the second join's block
-    /// time, and a player must not lose clock before their phone has even shown the board.
-    /// This is the gate on a simultaneous join - the clock does not run for either side
-    /// until they have shown up with a move (or the minute is up).
-    static let firstMoveGraceMs: Int64 = 60 * 1000
+    /// A side's FIRST move gets 25 seconds instead: the game starts at the second join's
+    /// block time, and a player must not lose clock before their phone has even shown the
+    /// board. This is the gate on a simultaneous join - the clock does not run for either
+    /// side until they have shown up with a move (or the 25 seconds are up).
+    static let firstMoveGraceMs: Int64 = 25 * 1000
     /// The allowances apply to games that STARTED at or after this block time
     /// (2026-09-24 00:00 UTC). A rule change must never reach back: the games before it
     /// were decided under the rules of their day, and re-judging them re-opened games
