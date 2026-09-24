@@ -5465,7 +5465,14 @@ private struct KaPostCellView: View {
                         .layoutPriority(1)
                     }
                     Spacer()
-                    // Bottom-right: on-chain delivery state, mirroring chat bubbles - green check
+                    // Bottom-right: when the post was made - the clock time today, the date
+                    // beyond that (the header keeps its "13h ago").
+                    Text(Self.postTimestamp(post.timestamp))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    // Then the on-chain delivery state, mirroring chat bubbles - green check
                     // once the K transaction is on the network, spinner while submitting, red
                     // Retry when it didn't go through.
                     switch post.deliveryStatus {
@@ -5980,6 +5987,34 @@ private struct KaPostCellView: View {
 
     private func relativeTime(_ date: Date) -> String {
         Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private static let timeOnlyFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.setLocalizedDateFormatFromTemplate("jmm")
+        return f
+    }()
+    private static let dateTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.setLocalizedDateFormatFromTemplate("MMMd jmm")
+        return f
+    }()
+    private static let dateYearFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.setLocalizedDateFormatFromTemplate("MMMdyyyy jmm")
+        return f
+    }()
+
+    /// The clock time for a post from today, month + day + time for this year, the year too
+    /// beyond that - in the user's own locale and 12/24-hour setting.
+    static func postTimestamp(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return timeOnlyFormatter.string(from: date) }
+        if calendar.isDate(date, equalTo: Date(), toGranularity: .year) { return dateTimeFormatter.string(from: date) }
+        return dateYearFormatter.string(from: date)
     }
 }
 
