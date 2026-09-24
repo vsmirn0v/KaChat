@@ -55,8 +55,8 @@ struct ChessWaitingRoomView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-                }
                     .padding(.horizontal, 32)
+                }
                 Spacer()
                 Button(role: .destructive) {
                     showLeaveWarning = true
