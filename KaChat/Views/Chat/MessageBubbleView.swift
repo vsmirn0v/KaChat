@@ -106,6 +106,8 @@ struct MessageBubbleView: View {
         onShowReactions: (() -> Void)? = nil,
         onReact: ((String) -> Void)? = nil,
         onMoreReactions: (() -> Void)? = nil,
+        isEdited: Bool = false,
+        onEdit: (() -> Void)? = nil,
         activeQuickReactionMessageId: Binding<UUID?> = .constant(nil),
         onJumpToReply: (() -> Void)? = nil,
         avatarURLString: String? = nil,
@@ -135,6 +137,8 @@ struct MessageBubbleView: View {
         self.onShowReactions = onShowReactions
         self.onReact = onReact
         self.onMoreReactions = onMoreReactions
+        self.isEdited = isEdited
+        self.onEdit = onEdit
         self._activeQuickReactionMessageId = activeQuickReactionMessageId
         self.onJumpToReply = onJumpToReply
         self.avatarURLString = avatarURLString
