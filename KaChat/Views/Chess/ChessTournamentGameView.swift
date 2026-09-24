@@ -122,7 +122,7 @@ struct ChessTournamentGameView: View {
         withAnimation(.easeOut(duration: 0.25)) { showEndOverlay = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
             withAnimation { showEndOverlay = false }
-            guard myColor != nil, let tournament, let game else { return }
+            guard myColor != nil, let tournament else { return }
             if !tournament.isDuel, game.winner == me, tournament.status != .finished {
                 // Advanced: nothing to score yet (only the whole tournament counts) - to the
                 // bracket, where the other games can be watched and the next one opens by
