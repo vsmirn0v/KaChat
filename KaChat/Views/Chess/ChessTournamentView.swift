@@ -47,13 +47,24 @@ struct ChessTournamentView: View {
         .onDisappear { service.release() }
         // The player's game came into being: open it (once per game).
         .onChange(of: tournament?.games.count) { _ in autoOpenMyGameIfNeeded() }
+        .onChange(of: service.now) { _ in autoOpenMyGameIfNeeded() }
         .onAppear { autoOpenMyGameIfNeeded() }
+    }
+
+    /// The player's next game, waiting on its cool-down: it opens at its start block time plus
+    /// `matchFoundDelayMs` - ten seconds on the bracket, the same instant for both players -
+    /// and immediately when a player arrives after that.
+    private var nextGameCountdownMs: Int64? {
+        guard let tournament, let me, let game = tournament.currentGame(for: me), !game.isOver else { return nil }
+        let left = game.startedAt + ChessTournamentCodec.matchFoundDelayMs - service.now
+        return left > 0 ? left : nil
     }
 
     private func autoOpenMyGameIfNeeded() {
         guard let tournament, let me, let game = tournament.currentGame(for: me), !game.isOver,
-              autoOpenedGameId != game.id else { return }
+              autoOpenedGameId != game.id, nextGameCountdownMs == nil else { return }
         autoOpenedGameId = game.id
+        Haptics.success()
         openGameId = game.id
     }
 
@@ -166,6 +177,23 @@ struct ChessTournamentView: View {
                     } else {
                         Text("You are out of this tournament. Watch the rest of the bracket.")
                             .font(.subheadline)
+                    }
+                } else if let left = nextGameCountdownMs {
+                    // Cool-down on the bracket before the next round: who it is, and when.
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Next: \(roundName(game.round)) vs \(name(for: game.address(of: game.color(of: me) == .white ? .black : .white)))")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Your game starts in")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Text("\(Int((left + 999) / 1000))")
+                            .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                            .foregroundColor(.accentColor)
+                            .contentTransition(.numericText())
+                            .animation(.easeInOut(duration: 0.2), value: Int((left + 999) / 1000))
                     }
                 } else {
                     Button {
