@@ -111,6 +111,11 @@ struct ChessTournamentsView: View {
         // the waiting room is the only place to be.
         .onChange(of: service.myActiveTournament?.id) { _ in showWaitingRoomIfSeated() }
         .onAppear { showWaitingRoomIfSeated() }
+        // The result screen's Done lands here, not on the board.
+        .onChange(of: service.popToLobbyRequest) { _ in
+            openTournamentId = nil
+            watchGame = nil
+        }
         .alert(mode == .duel ? "Create a private 1v1" : "Create a private tournament", isPresented: $showCreate) {
             TextField("Name", text: $newName)
             if mode == .tournament {

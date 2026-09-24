@@ -87,7 +87,10 @@ struct ChessTournamentGameView: View {
         .onAppear { gameEndedIfNeeded() }
         .fullScreenCover(isPresented: $showResult) {
             ChessGameResultView(tournamentId: tournamentId, gameId: gameId, before: recordBeforeEnd) {
+                // Done: not back to the board - back to the 1v1 / Tournaments screen. The cover
+                // goes first; popping the stack underneath a presented cover misbehaves.
                 showResult = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { service.requestPopToLobby() }
             }
             .environmentObject(walletManager)
         }

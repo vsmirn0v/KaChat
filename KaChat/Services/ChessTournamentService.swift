@@ -177,6 +177,12 @@ final class ChessTournamentService: ObservableObject {
     /// empty view - room 1 - which everyone else finished long ago.
     @Published private(set) var historyReady = false
 
+    /// Bumped when a screen deep in the flow (the result screen's Done) wants the whole
+    /// stack popped to the 1v1 / Tournaments screen; that screen watches it and clears its
+    /// navigation state.
+    @Published private(set) var popToLobbyRequest = 0
+    func requestPopToLobby() { popToLobbyRequest += 1 }
+
     /// Private 1v1s this player is in, still open or in play.
     var myPrivateDuels: [ChessTournament] {
         guard let me = myAddress else { return [] }
