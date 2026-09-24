@@ -331,7 +331,7 @@ is natural.
 
 - **Scanning:** you need every accepted transaction's payload. The kasia-indexer fork this
   project already runs (`external/kasia-indexer` is the reference codebase) solves the same
-  problem for `ciph_msg:` chat payloads — same DAG-scan skeleton, different payload prefix
+  problem for `kchat:1:comm:` chat payloads (legacy `ciph_msg:`) — same DAG-scan skeleton, different payload prefix
   and handlers. `external/rusty-kaspa` documents the node RPC.
 - **Verification:** reject any action whose schnorr signature doesn't verify against the
   embedded pubkey over the canonical signing string (§2). Also sanity-check that the tx was

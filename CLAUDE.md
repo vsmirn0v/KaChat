@@ -297,10 +297,10 @@ Implementation uses:
 | `PUSH_NOTIFICATIONS.md` | Push notification architecture and rollout notes |
 | `KAPOSTS_INDEXER.md` | Handoff/build guide for the KaChat-owned KaPosts indexer (protocol, API compatibility bar, required extensions) |
 | `KAPOSTS_REPLIES_FIX.md` | The short server ask: the two read endpoints that make reply threads complete (`get-post`, optionally `get-thread`). Hand this over on its own; `KAPOSTS_INDEXER.md` is the reference behind it |
-| `BROADCAST_INDEXER.md` | Handoff/build guide for the KaChat broadcast indexer (#kaspa / #kachat-bugs history, REST spec, Docker) |
+| `PUBLIC_CHATS_INDEXER.md` | Handoff/build guide for the KaChat Public Chats indexer (curated room history incl. `chess-arena`, REST spec, push, Docker; code/API keep their `broadcast` identifiers) |
 | `TRANSLATION_SERVICE.md` | Handoff/build guide for the KaChat post translation endpoint (server-side translation of KaPosts, cached by txid; replaced the on-device Apple Translation / ML Kit path) |
 | `PUSH_EXTENSIONS.md` | Server handoff: remote push for broadcasts + KaPosts (registration fields, APNs payload specs, routing contracts) |
-| `CHESS_TOURNAMENTS.md` | Chess tournaments (5.1): 8-player knockout in Kaspa Hub, every move a transaction in the `#chess-arena` room, no referee (deterministic rules in `ChessTournamentEngine`), 5-minute chain-time clocks; leaderboard handoff for the indexer |
+| `ONLINE_CHESS.md` | Online Chess (5.1): public 1v1 and 8-player knockout tournaments in Kaspa Hub > Chess Online, every move a transaction in the `chess-arena` room, no referee (deterministic rules in `ChessTournamentEngine`), chain-time clocks with allowances; leaderboard handoff for the indexer |
 | `KACHAT_APP_LINKS.md` | The kachat.app link site (`web_site/server/`): every shared link is `https://kachat.app/...` - Open Graph previews everywhere, Universal/App Links into the app, post-only page with download buttons without it |
 | `DETERMINISTIC_ALIASES.md` | Deterministic alias derivation (shipped protocol - see `Utilities/DeterministicAlias.swift`): algorithm, migration notes, legacy-alias compatibility |
 

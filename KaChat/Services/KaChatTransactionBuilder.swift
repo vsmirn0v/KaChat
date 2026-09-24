@@ -819,7 +819,7 @@ struct KasiaTransactionBuilder {
             recipientPublicKey: recipientPublicKey
         )
 
-        // Payload format: hex("ciph_msg:1:handshake:") + <encrypted_hex>
+        // Payload format: hex("kchat:1:handshake:") + <encrypted_hex> (legacy root ciph_msg:1: is read too)
         let prefixHex = hexString(from: "kchat:1:handshake:")
         let payloadHex = prefixHex + encryptedHandshake.toBytes().hexString
         let kasiaPayload = Data(hexString: payloadHex) ?? Data()
@@ -1251,7 +1251,7 @@ struct KasiaTransactionBuilder {
     ) -> Data {
         switch type {
         case .handshake:
-            // Handshake payload is binary: ciph_msg:1:handshake:<encrypted_bytes>
+            // Handshake payload is binary: kchat:1:handshake:<encrypted_bytes>
             var data = Data("kchat:1:handshake:".utf8)
             data.append(payload)
             return data

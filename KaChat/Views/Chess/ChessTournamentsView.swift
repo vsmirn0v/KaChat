@@ -562,7 +562,7 @@ struct ChessTournamentsView: View {
 
 /// One kind's leaderboard, as rows inside the screen's list: 1v1 (wins and losses in 1v1
 /// games) or Tournaments (tournaments won, then the wins and losses inside them). What the
-/// phone has read; the indexer's version (CHESS_TOURNAMENTS.md §6) will cover all history.
+/// phone has read; the indexer's version (ONLINE_CHESS.md §6) will cover all history.
 struct ChessLeaderboardRows: View {
     let mode: ChessTournamentsView.Mode
     @ObservedObject private var service = ChessTournamentService.shared

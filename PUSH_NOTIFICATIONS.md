@@ -637,8 +637,8 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private func tryDecrypt(payload: String, sharedSecret: Data) -> String? {
-        // Parse payload: ciph_msg:1:msg:<alias>|<encrypted>
-        guard payload.hasPrefix("ciph_msg:1:msg:"),
+        // Parse payload: kchat:1:comm:<alias>|<encrypted> (legacy root ciph_msg:1: is read too)
+        guard payload.hasPrefix("kchat:1:comm:") || payload.hasPrefix("ciph_msg:1:comm:"),
               let pipeIndex = payload.firstIndex(of: "|") else {
             return nil
         }

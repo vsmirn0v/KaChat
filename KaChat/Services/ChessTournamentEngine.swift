@@ -1,6 +1,6 @@
 import Foundation
 
-/// The rules of CHESS_TOURNAMENTS.md §3-4 as one pure function: the arena's tournament
+/// The rules of ONLINE_CHESS.md §3-4 as one pure function: the arena's tournament
 /// messages, in chain order, in; every tournament's bracket, boards, clocks and results out.
 /// Every phone runs this over the same rows and lands on the same state - there is no referee.
 /// The indexer's leaderboard is a port of this file, so keep it self-contained.

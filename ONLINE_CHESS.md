@@ -1,7 +1,7 @@
-# Chess (5.1): 1v1 and tournaments
+# Online Chess (5.1): 1v1 and tournaments
 
 Public 1v1 games and eight-player single-elimination tournaments where **every move is a Kaspa
-transaction**. Lives in Kaspa Hub > Chess, in two tabs: 1v1 and Tournaments. This document is the protocol (Android and desktop replicate it
+transaction**. Lives in Kaspa Hub > **Chess Online**: choose 1v1 or Tournaments, each with its own Active, Finished and Leaderboard tabs. This document is the protocol (Android and desktop replicate it
 byte for byte) and the indexer handoff for the leaderboard.
 
 ## 1. How it works

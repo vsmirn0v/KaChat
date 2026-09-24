@@ -1,15 +1,20 @@
-# KaChat Broadcast Indexer — Handoff & Build Guide
+# KaChat Public Chats Indexer — Handoff & Build Guide
+
+> Naming: the feature is **Public Chats** in the app. The code and the API keep their original
+> `broadcast` names for compatibility (`BroadcastService`, `/get-broadcasts`,
+> `watched_broadcast_channels`, `hidden_broadcast_senders`, thread-id `broadcast:<channel>`,
+> the on-chain `bcast` subtype) - those are identifiers, not the product name.
 
 **Audience:** the AI/engineer on the server box. This doc specifies a small, self-contained
-indexer that tracks KaChat **broadcast** messages for exactly two channels — `#kaspa` and
-`#kachat-bugs` — and serves their history over REST. The iOS app (branch `KaChat4.0i`) is
-already wired to consume it: Settings → Connection Settings → **Broadcast Indexer** takes the
+indexer that tracks KaChat **public chat** messages for the curated channels (originally two: — `#kaspa` and
+`#kachat-bugs`; the language rooms and `chess-arena` since) — and serves their history over REST. The iOS app (branch `KaChat4.0i`) is
+already wired to consume it: Settings → Connection Settings → **Public Chats Indexer** takes the
 base URL, and `BroadcastIndexerClient` in `KaChat/Services/BroadcastService.swift` defines the
 exact API contract (that client is the source of truth — build the server to satisfy it).
 
 ## 1. Why this exists
 
-Broadcasts are public, unencrypted, many-to-many channels riding on Kaspa transactions. Today
+Public chats are public, unencrypted, many-to-many channels riding on Kaspa transactions. Today
 the app only sees messages **while it is live-scanning new blocks** (channel screen open, or
 "always listen" enabled) — anything sent while the app was closed is gone forever for that
 user. This indexer watches the chain 24/7 for the two curated channels and lets every client
@@ -18,27 +23,29 @@ dedupes by txid, so the server only needs to be honest and reasonably complete, 
 
 ## 2. On-chain format (what to scan for)
 
-A broadcast is a Kaspa **self-send transaction** (outputs pay the sender's own address) whose
-`payload` is the UTF-8 string:
+A public chat message is a Kaspa **self-send transaction** (outputs pay the sender's own
+address) whose `payload` is the UTF-8 string:
 
 ```
-ciph_msg:1:bcast:<channel>:<content>
+kchat:1:bcast:<channel>:<content>
 ```
 
-- Fast pre-filter: payload (hex) starts with hex of `ciph_msg:1:bcast:`.
+- Fast pre-filter: payload (hex) starts with hex of `kchat:1:bcast:`. **Also index the legacy
+  root `ciph_msg:1:bcast:`** (rows written before the `kchat:` migration; the app reads both,
+  never writes the old one). Everything after the root is identical.
 - `<channel>`: everything up to the **first** colon after the prefix. Normalize before
   comparing: trim whitespace, lowercase. Valid names are ≤36 chars, no whitespace, no colons.
   **Index only** normalized `kaspa` and `kachat-bugs`; drop everything else.
 - `<content>`: the remainder — may itself contain colons; do NOT split it further. Plain text,
   except it may be a JSON envelope:
   - reply: `{"type":"reply","reference":{...},"content":"..."}` (app's `MessageReplyCodec`)
-  - audio: `{"type":"file","mimeType":"audio/webm",...}` (voice broadcasts)
+  - audio: `{"type":"file","mimeType":"audio/webm",...}` (voice messages)
   Store content **verbatim**; clients do all decoding/rendering.
 - **Sender address** = the address encoded by the **first output's** `scriptPublicKey`
   (self-send, so it's the author). hrp `kaspa` for mainnet.
 - **Message id** = the transaction id. **Timestamp** = the containing block's `blockTime`
   (milliseconds).
-- No signature scheme exists for broadcasts (unlike KaPosts' `k:1:` payloads) — the sender is
+- No signature scheme exists for public chats (unlike KaPosts' `kchat:1:` payloads) — the sender is
   authenticated by having signed the transaction itself. Nothing to verify beyond the tx
   being accepted.
 - Retention: **the product retention for these channels is 3 days** — clients display/prune at
@@ -82,7 +89,7 @@ ciph_msg:1:bcast:<channel>:<content>
 
 - **Skeleton:** fork/reuse the kasia-indexer codebase the project already runs (reference
   checkout under `external/kasia-indexer` in the app repo) — it already connects to a Kaspa
-  node, streams accepted transactions, and filters `ciph_msg:` payloads for chat; this indexer
+  node, streams accepted transactions, and filters `kchat:1:` (and legacy `ciph_msg:1:`) payloads for chat; this indexer
   is the same loop with the `bcast` subtype, a channel allowlist, and a much simpler store.
   Alternatively a from-scratch service (Rust + rusty-kaspa wRPC, or anything that can consume
   a kaspad's gRPC `notifyBlockAdded` / virtual chain stream) is fine — the protocol above is
@@ -124,14 +131,14 @@ volumes:
 ```
 
 Front it with the box's existing reverse proxy for TLS (the app requires https in practice).
-**Decided: it shares the KaPosts indexer's domain** - the app's Broadcast Indexer setting
+**Decided: it shares the KaPosts indexer's domain** - the app's Public Chats Indexer setting
 defaults to `https://kachat.duckdns.org`, so the reverse proxy there must route
 `/get-broadcasts` (and `/health` if implemented) to this service alongside the KaPosts
 endpoints. No new DNS needed.
 
-## 5. Remote push for broadcast rooms (REQUIRED for v1)
+## 5. Remote push for public chat rooms (REQUIRED for v1)
 
-The app expects closed-app notifications for these two channels, gated by each channel's
+The app expects closed-app notifications for the curated channels, gated by each channel's
 in-app bell toggle. The plumbing on the app side is DONE:
 
 - The push registration/update payloads sent to the push indexer (the kasia-indexer fork's
@@ -142,11 +149,11 @@ in-app bell toggle. The plumbing on the app side is DONE:
 - Registrations also carry `"hidden_broadcast_senders": {"kaspa": ["kaspa:qq…", …], …}` -
   per-room senders this device has hidden. Missing field = `{}`.
 - Server work: (1) push service stores `watched_broadcast_channels` AND
-  `hidden_broadcast_senders` per device; (2) when the broadcast indexer ingests a new message
+  `hidden_broadcast_senders` per device; (2) when the public chats indexer ingests a new message
   in a tracked channel, send an APNs alert to every device watching that channel - skipping
   the sender's own device (matched by registered primary/watched address) and any device that
   lists the sender under that channel in `hidden_broadcast_senders`.
-- APNs payload - broadcasts are public/unencrypted, so send a ready-made alert (no mutable
+- APNs payload - public chat messages are public/unencrypted, so send a ready-made alert (no mutable
   content / extension work needed):
 
 ```json

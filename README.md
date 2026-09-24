@@ -5,7 +5,7 @@
 KaChat is a native SwiftUI iOS app for encrypted peer-to-peer messaging and payments on the Kaspa blockchain.
 
 It combines:
-- End-to-end encrypted messaging (`ciph_msg:1:*` payloads on-chain)
+- End-to-end encrypted messaging (`kchat:1:*` payloads on-chain; the legacy `ciph_msg:1:*` root is still read)
 - Native KAS payments with optional encrypted memos
 - Voice message support (Opus)
 - KNS (Kaspa Name Service) domain resolution
@@ -275,7 +275,7 @@ Defaults are managed via `AppSettings`.
 - [POOLS_v2.md](POOLS_v2.md): node pool and failover architecture
 - [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md): push delivery design
 - [PUSH_EXTENSIONS.md](PUSH_EXTENSIONS.md): push server handoff for broadcasts and KaPosts
-- [BROADCAST_INDEXER.md](BROADCAST_INDEXER.md) and [KAPOSTS_INDEXER.md](KAPOSTS_INDEXER.md): indexer build guides
+- [PUBLIC_CHATS_INDEXER.md](PUBLIC_CHATS_INDEXER.md) and [KAPOSTS_INDEXER.md](KAPOSTS_INDEXER.md): indexer build guides
 - [KACHAT_APP_LINKS.md](KACHAT_APP_LINKS.md): the kachat.app link site (share previews, Universal/App Links, download page)
 
 </details>

@@ -1978,7 +1978,7 @@ struct ConnectionSettingsView: View {
                     httpsInlineError(for: broadcastIndexerURL)
                 }
             } header: {
-                Text("Broadcast Indexer")
+                Text("Public Chats Indexer")
             } footer: {
                 Text("KaChat broadcast history indexer for #kaspa and #kachat-bugs")
             }

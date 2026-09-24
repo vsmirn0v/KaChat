@@ -248,7 +248,7 @@ new message whose content is this envelope, naming the original by txId:
 
 It travels exactly like a reaction envelope - inside the normal encrypted contextual content
 for 1:1 chats, inside the group-encrypted message for groups, and as the plaintext row content
-for public broadcast rooms (`kchat:1:bcast:<channel>:{"type":"edit",...}`) - and is **never
+for public chat rooms (`kchat:1:bcast:<channel>:{"type":"edit",...}`) - and is **never
 rendered as a bubble**. Clients intercept it and show the newest edit's text in place of the
 original, with a small "edited" mark. Rules, identical on every platform:
 

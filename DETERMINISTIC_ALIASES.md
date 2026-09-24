@@ -170,7 +170,7 @@ Important:
 ### 4.4 Hybrid write policy (required for old-client compatibility)
 During compatibility phase, handshake/self-stash writes must remain old-client-safe:
 
-- Keep transport envelope as `ciph_msg:1:handshake:` / `ciph_msg:1:self_stash:`.
+- Transport envelopes are `kchat:1:handshake:` / `kchat:1:self_stash:` (the app writes the `kchat:` root everywhere now and reads the legacy `ciph_msg:1:*` root; this section predates that migration).
 - Keep handshake payload `version` within legacy-accepted range during hybrid (currently `1`).
 - For unknown/legacy peers, include compatibility alias fields in handshake payload:
   - `alias` must be the sender's actual outgoing alias for that peer.
@@ -277,7 +277,7 @@ Files:
 2. Incoming handshake decryption fallback (`String(decrypted.prefix(12))`) should be removed or limited to strict legacy format only.
 3. During hybrid phase, deterministic outgoing should not be forced for legacy-only peers until capability is detected, or messages may silently not reach old clients.
 4. Web's conversation manager currently enforces protocol version max `1`; sending handshake `version > 1` can fail on older web clients.
-5. Keep protocol envelope prefixes at `ciph_msg:1:*` during compatibility period; changing envelope version is a separate migration.
+5. Envelope prefixes are `kchat:1:*` (legacy `ciph_msg:1:*` read-only); changing the envelope version is a separate migration.
 6. If compatibility alias is emitted in handshake, it must match sender runtime routing choice for that peer (legacy outgoing alias in legacy mode, deterministic outgoing alias in deterministic mode).
 7. Older iOS chat filtering may skip messages for aliases not present in the contact's known alias set once that set exists; this makes pre-seeding deterministic alias knowledge a prerequisite before flipping outgoing mode.
 8. Alias-less self-stash writes are not backward-compatible with older iOS restore logic that expects at least contact + our alias; keep staged self-stash compatibility writes until cutoff.

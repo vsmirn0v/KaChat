@@ -42,7 +42,7 @@ Store all four per device token. Old app versions omit them — treat as empty/n
 None of these fields are covered by the auth preimage, so adding them cannot break older
 clients' signatures.
 
-## 2. Broadcast pushes (spec recap — details in BROADCAST_INDEXER.md §5)
+## 2. Broadcast pushes (spec recap — details in PUBLIC_CHATS_INDEXER.md §5)
 
 When the broadcast indexer ingests a new message in a tracked channel, APNs-alert every
 device watching that channel, skipping (a) the sender's own device(s) (match registered

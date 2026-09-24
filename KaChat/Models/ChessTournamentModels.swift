@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-// MARK: - Wire protocol (CHESS_TOURNAMENTS.md §2)
+// MARK: - Wire protocol (ONLINE_CHESS.md §2)
 
 /// One tournament message as it travels in the `#chess-arena` broadcast channel. Every field
 /// is optional on the wire except `type`/`v`/`t`/`a`; `decode` returns nil for anything that is
@@ -60,7 +60,7 @@ enum ChessTournamentCodec {
     static let nameMaxLength = 40
     static let chatMaxLength = 280
 
-    // MARK: Public rooms and private tournaments (CHESS_TOURNAMENTS.md §2.1)
+    // MARK: Public rooms and private tournaments (ONLINE_CHESS.md §2.1)
 
     /// Public rooms are numbered: `public-1`, `public-2`, ... One is open at a time; a join to
     /// room N is accepted only when room N-1 is full, so the queue never forks. Nobody creates
@@ -137,7 +137,7 @@ enum ChessTournamentCodec {
     }
 }
 
-// MARK: - Derived state (what every phone computes from the arena, CHESS_TOURNAMENTS.md §3-4)
+// MARK: - Derived state (what every phone computes from the arena, ONLINE_CHESS.md §3-4)
 
 /// The rules' input: one arena row, already known to be a tournament message.
 struct ChessArenaEvent: Equatable {

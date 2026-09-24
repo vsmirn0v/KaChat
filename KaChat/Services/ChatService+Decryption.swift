@@ -17,7 +17,7 @@ extension ChatService {
     /// Synchronous handshake decryption (runs on background thread)
     /// Handles two payload formats:
     /// - Indexer format: just the encrypted hex (no prefix)
-    /// - REST API format: full transaction payload hex = hex("ciph_msg:1:handshake:") + encrypted_hex
+    /// - REST API format: full transaction payload hex = hex("kchat:1:handshake:") + encrypted_hex (legacy ciph_msg:1: read too)
     nonisolated static func decryptHandshakePayloadSync(_ payload: String, privateKey: Data) -> DecryptedHandshake? {
         var encryptedHex = payload
 

@@ -1753,7 +1753,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case kaposts
     case broadcasts
     case apps
-    /// Chess tournaments (5.1) - Kaspa Hub > Chess Online. See CHESS_TOURNAMENTS.md.
+    /// Chess tournaments (5.1) - Kaspa Hub > Chess Online. See ONLINE_CHESS.md.
     case chess
     /// The container the other feature tabs live in when they are not in the dock themselves -
     /// see `ecosystemSections(from:)`. Displayed as "Kaspa Hub"; the case name and its raw

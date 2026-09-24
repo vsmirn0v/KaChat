@@ -47,7 +47,7 @@ final class BroadcastService: ObservableObject {
     nonisolated static let indexedChannels = featuredChannels + languageChannels
 
     /// Rooms the app uses as machinery, never shown as chats: the chess arena
-    /// (CHESS_TOURNAMENTS.md). Hidden from Public Chats, no unread, no banners.
+    /// (ONLINE_CHESS.md). Hidden from Public Chats, no unread, no banners.
     nonisolated static let serviceChannels: Set<String> = [ChessTournamentCodec.arenaChannel]
 
     /// Native-language label for a curated language room, e.g. "kaspa-espanol" -> "Español".
@@ -1546,7 +1546,7 @@ final class BroadcastService: ObservableObject {
 
 // MARK: - Broadcast indexer client
 
-/// Minimal read client for the KaChat-owned broadcast indexer (see BROADCAST_INDEXER.md - the
+/// Minimal read client for the KaChat-owned broadcast indexer (see PUBLIC_CHATS_INDEXER.md - the
 /// server tracks #kaspa and #kachat-bugs history so clients aren't limited to what they catch
 /// live). The API contract this client expects is the source of truth for the server build.
 enum BroadcastIndexerClient {

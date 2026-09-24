@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import UIKit
 
-/// Chess tournaments (CHESS_TOURNAMENTS.md): the `#chess-arena` room read through
+/// Chess tournaments (ONLINE_CHESS.md): the `#chess-arena` room read through
 /// `BroadcastService`, reduced by `ChessTournamentEngine` into the bracket every phone agrees
 /// on, and the actions a player can take - each one a broadcast transaction.
 @MainActor
