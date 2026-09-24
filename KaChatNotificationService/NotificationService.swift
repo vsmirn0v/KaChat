@@ -103,7 +103,13 @@ class NotificationService: UNNotificationServiceExtension {
         guard let txId = userInfo["tx_id"] as? String,
               let senderAddress = userInfo["sender"] as? String,
               let messageType = userInfo["type"] as? String else {
-            // Not a KaChat message, pass through
+            // Not a 1:1/group push. A broadcast push whose thread-id is not the
+            // `broadcast:<channel>` the spec asks for lands here, and its body is still the raw
+            // on-chain content - a reply/voice/photo envelope shows as JSON (or base64) on the
+            // lock screen. Tidy any body that looks like one, whatever the thread-id says.
+            if Self.looksLikeEnvelope(content.body) {
+                content.body = broadcastPreviewText(for: content.body)
+            }
             contentHandler(content)
             return
         }
@@ -1073,8 +1079,25 @@ class NotificationService: UNNotificationServiceExtension {
     /// broadcast - the overwhelming majority - completely untouched.
     /// `inGroup: true` for the reaction wording: a public room's reaction almost never targets
     /// the reader's own message, and this target has no store to check against.
+    /// Whether a push body is (probably) raw on-chain content rather than a plain preview: a
+    /// JSON envelope, the full `kchat:1:bcast:` payload, or one unbroken base64 run.
+    private static func looksLikeEnvelope(_ body: String) -> Bool {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("kchat:1:bcast:") || trimmed.hasPrefix("ciph_msg:1:bcast:") { return true }
+        return trimmed.count >= 16
+            && trimmed.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "+/=-_".contains($0)) }
+            && !trimmed.contains(" ")
+    }
+
     private func broadcastPreviewText(for body: String) -> String {
         var trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The whole on-chain payload, prefix and channel included: keep the content after them.
+        for prefix in ["kchat:1:bcast:", "ciph_msg:1:bcast:"] where trimmed.hasPrefix(prefix) {
+            let rest = trimmed.dropFirst(prefix.count)
+            if let colon = rest.firstIndex(of: ":") {
+                trimmed = String(rest[rest.index(after: colon)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
         // A body that is one unbroken base64 run is the message sent on undecoded (seen for
         // replies): decode it when that yields readable text, and carry on with the result.
         if trimmed.first != "{", trimmed.count >= 16,
@@ -1094,18 +1117,27 @@ class NotificationService: UNNotificationServiceExtension {
         }
         let unwrapped = unwrapReplyText(trimmed)
         if unwrapped != trimmed { return unwrapped }
-        // Still JSON: most likely a reply envelope the server cut off at its preview length, so
-        // it no longer parses. Pull the reply's own text out of what is there.
-        if trimmed.contains("\"type\":\"reply\""), let text = Self.looseJSONString(named: "text", in: trimmed) {
+        // Still JSON: most likely a reply envelope the server cut off at its preview length (or
+        // re-serialized with spaces), so it no longer parses. Pull the reply's own text out of
+        // what is there.
+        let compact = trimmed.replacingOccurrences(of: " ", with: "")
+        if compact.contains("\"type\":\"reply\""), let text = Self.looseJSONString(named: "text", in: trimmed) {
             return text
         }
-        return trimmed
+        // Any other envelope that reached here: never the raw JSON on a lock screen.
+        if compact.contains("\"mimeType\":\"audio") { return "Voice message" }
+        if compact.contains("\"mimeType\":\"image") { return "Photo" }
+        if compact.contains("\"mimeType\":\"video") { return "Video" }
+        if compact.contains("\"type\":\"edit\"") { return "Edited a message" }
+        if let text = Self.looseJSONString(named: "text", in: trimmed) { return text }
+        return "New message"
     }
 
     /// The value of a string field in JSON that may be truncated: everything after `"name":"`
     /// up to the closing quote, or to the end when the cut came first. Common escapes undone.
     private static func looseJSONString(named name: String, in json: String) -> String? {
-        guard let start = json.range(of: "\"\(name)\":\"") else { return nil }
+        // `"text":"` with or without whitespace around the colon.
+        guard let start = json.range(of: "\"\(name)\"\\s*:\\s*\"", options: .regularExpression) else { return nil }
         var out = ""
         var escaped = false
         for character in json[start.upperBound...] {
