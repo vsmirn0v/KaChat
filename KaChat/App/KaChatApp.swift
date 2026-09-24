@@ -888,6 +888,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             return
         }
 
+        // The scheduled-post reminder (local fallback): into KaPosts, which sends what is due
+        // and shows the Scheduled screen.
+        if threadIdentifier == "kaposts-scheduled" {
+            KaPostsDeepLink.pendingOpenScheduled = true
+            NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: [:])
+            completionHandler()
+            return
+        }
+
         // KaPosts push (server thread-id "kaposts"): straight to the post's thread when the
         // payload names one, else into KaPosts with the Notifications screen opened.
         if threadIdentifier == "kaposts" {
@@ -1021,6 +1030,8 @@ enum KaPostsDeepLink {
     static var pendingPostTxId: String?
     /// KaPosts push tapped without a specific post - open the Notifications screen on mount.
     static var pendingOpenNotifications = false
+    /// The scheduled-post reminder tapped - open the Scheduled screen on mount.
+    static var pendingOpenScheduled = false
 }
 
 /// Cold-start handoff for a notification tap whose whole destination IS a dock tab (wallet

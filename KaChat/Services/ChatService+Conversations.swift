@@ -1993,7 +1993,7 @@ extension ChatService {
 
         var merged: [UTXO] = []
         var seenOutpoints = Set<String>()
-        for utxo in pendingSpendable + confirmedSpendable {
+        for utxo in KaPostsScheduledStore.filterReserved(pendingSpendable + confirmedSpendable) {
             let key = outpointKey(utxo.outpoint)
             guard reservedMessageOutpoints[key] == nil else { continue }
             guard seenOutpoints.insert(key).inserted else { continue }

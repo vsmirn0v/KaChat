@@ -1352,7 +1352,8 @@ struct KasiaTransactionBuilder {
         senderScriptPubKey: Data,
         feeOverride: UInt64? = nil
     ) throws -> ContextualSelection {
-        let spendable = utxos.filter { !$0.isCoinbase }
+        // A coin a scheduled post is waiting to spend is not available (KaPostsScheduledStore).
+        let spendable = KaPostsScheduledStore.filterReserved(utxos).filter { !$0.isCoinbase }
         let pending = spendable
             .filter { $0.blockDaaScore == 0 }
             .sorted { $0.amount > $1.amount }
@@ -1431,6 +1432,7 @@ struct KasiaTransactionBuilder {
         extraFeeSompi: UInt64 = 0,
         virtualDaaScore: UInt64? = nil
     ) throws -> PaymentSelection {
+        let utxos = KaPostsScheduledStore.filterReserved(utxos)
         // Sort largest first to reduce input count (lower mass). Immature coinbase is excluded up
         // front (mature coinbase is kept only when a virtual DAA score is supplied).
         let sorted = spendableForBuild(utxos, virtualDaaScore: virtualDaaScore).sorted { $0.amount > $1.amount }
@@ -1500,6 +1502,7 @@ struct KasiaTransactionBuilder {
         extraFeeSompi: UInt64 = 0,
         virtualDaaScore: UInt64? = nil
     ) throws -> PaymentSelection {
+        let utxos = KaPostsScheduledStore.filterReserved(utxos)
         let usable = spendableForBuild(utxos, virtualDaaScore: virtualDaaScore)
         guard !usable.isEmpty else {
             throw KasiaError.networkError("Insufficient funds for payment")
@@ -1549,6 +1552,7 @@ struct KasiaTransactionBuilder {
         minOutputAmount: UInt64,
         maxInputs: Int
     ) throws -> MessageCompactionSelection {
+        let utxos = KaPostsScheduledStore.filterReserved(utxos)
         let boundedMaxInputs = max(2, maxInputs)
         let spendable = utxos.filter { !$0.isCoinbase }
         let confirmed = spendable
@@ -1635,6 +1639,7 @@ struct KasiaTransactionBuilder {
 
     /// Select UTXOs to cover required amount
     private static func selectUtxos(_ utxos: [UTXO], requiredAmount: UInt64) throws -> ([UTXO], UInt64) {
+        let utxos = KaPostsScheduledStore.filterReserved(utxos)
         // Use ALL available UTXOs (match external Kasia app's behavior)
         // External app uses each UTXO as a separate input
         var selected: [UTXO] = []

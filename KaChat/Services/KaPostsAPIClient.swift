@@ -96,6 +96,9 @@ final class KaPostsAPIClient: ObservableObject {
         /// Set by the KaChat indexer when the content shown is an accepted edit (ms). The
         /// `postContent` is then the edited text; `timestamp` stays the original's.
         let editedAt: Int64?
+        /// Present when this post is a poll (KAPOSTS_INDEXER.md §5.9): options, current counts,
+        /// the requester's vote, and when voting closes.
+        let poll: KPoll?
 
         /// Base64 -> plain text (K encodes all content fields).
         var decodedContent: String? {
@@ -103,6 +106,39 @@ final class KaPostsAPIClient: ObservableObject {
                   let text = String(data: data, encoding: .utf8) else { return nil }
             return text
         }
+    }
+
+    /// The indexer's poll object (§5.9). `options` are base64, like every content field.
+    struct KPoll: Decodable {
+        let options: [String]
+        let counts: [Int]?
+        let total: Int?
+        let closesAt: Int64
+        let myVote: Int?
+
+        var decodedOptions: [String] {
+            options.map { Data(base64Encoded: $0).flatMap { String(data: $0, encoding: .utf8) } ?? "" }
+        }
+    }
+
+    /// `GET /get-poll` - the poll object plus the post id.
+    struct KPollResponse: Decodable {
+        let id: String?
+        let options: [String]
+        let counts: [Int]?
+        let total: Int?
+        let closesAt: Int64
+        let myVote: Int?
+    }
+
+    /// One row of `GET /scheduled-posts` (§5.10).
+    struct KScheduledPost: Decodable {
+        let txId: String
+        let notBefore: Int64
+        let status: String
+        let submittedAt: Int64?
+        let error: String?
+        let postContent: String?
     }
 
     struct KPagination: Decodable {
@@ -534,6 +570,29 @@ enum KaPostsProtocol {
     static func deleteSigningString(postId: String) -> String {
         "delete:\(postId)"
     }
+    /// Polls (KAPOSTS_INDEXER.md §5.9): the question is the post's message, the options ride as
+    /// base64 joined by commas, and the closing time is unix ms.
+    static func pollSigningString(b64Question: String, optionsCSV: String, closesAtMs: Int64, mentionsJSON: String) -> String {
+        "poll:\(b64Question):\(optionsCSV):\(closesAtMs):\(mentionsJSON)"
+    }
+    static func pollVoteSigningString(pollId: String, optionIndex: Int) -> String {
+        "pollvote:\(pollId):\(optionIndex)"
+    }
+    /// Scheduled posts (§5.10): what the phone signs to hand a signed transaction to the
+    /// indexer for later submission, and to take it back.
+    static func scheduleSigningString(txId: String, notBeforeMs: Int64) -> String {
+        "schedule:\(txId):\(notBeforeMs)"
+    }
+    static func cancelScheduleSigningString(txId: String) -> String {
+        "cancel-schedule:\(txId)"
+    }
+    /// The options field: each option base64 (no `,` or `:` in the alphabet), comma-joined.
+    static func pollOptionsCSV(_ options: [String]) -> String {
+        options.map { b64($0) }.joined(separator: ",")
+    }
+    static func pollOptions(fromCSV csv: String) -> [String] {
+        csv.split(separator: ",").map { Data(base64Encoded: String($0)).flatMap { String(data: $0, encoding: .utf8) } ?? "" }
+    }
 
     /// The on-chain record behind one post id, read straight off the transaction payload.
     ///
@@ -572,7 +631,7 @@ enum KaPostsProtocol {
         // quote: <pubkey>:<signature>:<contentId>:<b64message>:<quotedAuthorPubkey>
         let messageIndex: Int
         switch action {
-        case "post": messageIndex = 3
+        case "post", "poll": messageIndex = 3
         case "reply", "quote": messageIndex = 4
         default: return nil
         }
@@ -587,7 +646,7 @@ enum KaPostsProtocol {
             authorPubkey: pubkey,
             message: text,
             // Field 2 for both shapes that have one; a plain post references nothing.
-            referencedId: action == "post" ? nil : (fields[3].isEmpty ? nil : fields[3])
+            referencedId: action == "post" || action == "poll" ? nil : (fields[3].isEmpty ? nil : fields[3])
         )
     }
 
@@ -618,6 +677,12 @@ enum KaPostsProtocol {
     /// Removes `postId` (a post, reply or quote by the same pubkey) from every feed - any time.
     static func deletePayload(pubkey: String, signature: String, postId: String) -> String {
         "\(prefix)delete:\(pubkey):\(signature):\(postId)"
+    }
+    static func pollPayload(pubkey: String, signature: String, b64Question: String, optionsCSV: String, closesAtMs: Int64, mentionsJSON: String) -> String {
+        "\(prefix)poll:\(pubkey):\(signature):\(b64Question):\(optionsCSV):\(closesAtMs):\(mentionsJSON)"
+    }
+    static func pollVotePayload(pubkey: String, signature: String, pollId: String, optionIndex: Int) -> String {
+        "\(prefix)pollvote:\(pubkey):\(signature):\(pollId):\(optionIndex)"
     }
 }
 
@@ -712,6 +777,177 @@ extension KaPostsAPIClient {
         return try await submitPayloadTx(
             KaPostsProtocol.postPayload(pubkey: pubkey, signature: signature, b64Message: b64, mentionsJSON: mentions)
         )
+    }
+
+    /// Publishes a poll: the question is the post text (marker inside, like any post), the
+    /// options and closing time ride in the payload (KAPOSTS_INDEXER.md §5.9).
+    func submitPoll(question: String, options: [String], closesAt: Date, mentionedPubkeys: [String] = []) async throws -> String {
+        let b64 = KaPostsProtocol.b64(Self.kaChatMarker + question)
+        let csv = KaPostsProtocol.pollOptionsCSV(options)
+        let closesAtMs = Int64(closesAt.timeIntervalSince1970 * 1000)
+        let pubkey = try requesterPubkey()
+        let mentions = Self.mentionsJSON(mentionedPubkeys, me: pubkey)
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.pollSigningString(b64Question: b64, optionsCSV: csv, closesAtMs: closesAtMs, mentionsJSON: mentions),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.pollPayload(pubkey: pubkey, signature: signature, b64Question: b64, optionsCSV: csv, closesAtMs: closesAtMs, mentionsJSON: mentions)
+        )
+    }
+
+    /// Votes in a poll - one vote per pubkey, the latest counts (§5.9).
+    func submitPollVote(pollId: String, optionIndex: Int) async throws -> String {
+        let pubkey = try requesterPubkey()
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.pollVoteSigningString(pollId: pollId, optionIndex: optionIndex),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.pollVotePayload(pubkey: pubkey, signature: signature, pollId: pollId, optionIndex: optionIndex)
+        )
+    }
+
+    /// One poll's current numbers, for a refresh without reloading the feed.
+    func fetchPoll(postId: String) async throws -> KPollResponse {
+        var query = ["postId": postId]
+        if let me = try? requesterPubkey() { query["requesterPubkey"] = me }
+        return try await get("get-poll", query: query)
+    }
+
+    /// The mentions array a post/poll signs: deduped, valid shapes only, never self.
+    static func mentionsJSON(_ mentionedPubkeys: [String], me: String) -> String {
+        let mine = me.lowercased()
+        let clean = Array(Set(mentionedPubkeys
+            .map { $0.lowercased() }
+            .filter { $0.range(of: "^0[23][0-9a-f]{64}$", options: .regularExpression) != nil && $0 != mine }))
+        return "[" + clean.map { "\"\($0)\"" }.joined(separator: ",") + "]"
+    }
+
+    // MARK: - Scheduled posts (§5.10)
+
+    /// A post transaction built and signed NOW for submission later: the id it will have, the
+    /// coins it spends (kept reserved until then), and the REST-shaped JSON the indexer submits.
+    struct ScheduledTransaction {
+        let txId: String
+        let payload: String
+        let spentOutpoints: [String]
+        let restJSON: [String: Any]
+        let transaction: KaspaRpcTransaction
+    }
+
+    /// Builds and signs the post transaction for `text` without submitting it.
+    func buildScheduledPost(text: String, mentionedPubkeys: [String] = []) async throws -> ScheduledTransaction {
+        let marked = Self.kaChatMarker + text
+        let b64 = KaPostsProtocol.b64(marked)
+        let pubkey = try requesterPubkey()
+        let mentions = Self.mentionsJSON(mentionedPubkeys, me: pubkey)
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.postSigningString(b64Message: b64, mentionsJSON: mentions),
+            mode: .kaspaPersonalMessage
+        )
+        let payload = KaPostsProtocol.postPayload(pubkey: pubkey, signature: signature, b64Message: b64, mentionsJSON: mentions)
+        guard let wallet = WalletManager.shared.currentWallet,
+              let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KaPostsAPIError.missingWallet
+        }
+        let utxos = KaPostsScheduledStore.shared.excludingReserved(
+            try await NodePoolService.shared.getUtxosByAddresses([wallet.publicAddress])
+        )
+        // Confirmed coins only: a transaction that will sit for hours must not chain on an
+        // unconfirmed change output.
+        let confirmed = utxos.filter { $0.blockDaaScore > 0 }
+        let signedTx = try KasiaTransactionBuilder.buildPayloadSelfSendTx(
+            from: wallet.publicAddress,
+            senderPrivateKey: privateKey,
+            utxos: confirmed,
+            payload: Data(payload.utf8)
+        )
+        let txId = KasiaTransactionBuilder.computeTransactionId(signedTx)
+        let spent = signedTx.inputs.map { "\($0.previousOutpoint.transactionId):\($0.previousOutpoint.index)" }
+        return ScheduledTransaction(txId: txId, payload: payload, spentOutpoints: spent, restJSON: Self.restJSON(for: signedTx), transaction: signedTx)
+    }
+
+    /// The Kaspa REST `POST /transactions` body for a signed transaction - what the indexer
+    /// submits on the phone's behalf (§5.10).
+    static func restJSON(for tx: KaspaRpcTransaction) -> [String: Any] {
+        [
+            "transaction": [
+                "version": Int(tx.version),
+                "inputs": tx.inputs.map { input in
+                    [
+                        "previousOutpoint": ["transactionId": input.previousOutpoint.transactionId, "index": Int(input.previousOutpoint.index)],
+                        "signatureScript": input.signatureScript.hexString,
+                        "sequence": Int(input.sequence),
+                        "sigOpCount": Int(input.sigOpCount)
+                    ] as [String: Any]
+                },
+                "outputs": tx.outputs.map { output in
+                    [
+                        "amount": Int(output.value),
+                        "scriptPublicKey": ["version": Int(output.scriptPublicKey.version), "scriptPublicKey": output.scriptPublicKey.script.hexString]
+                    ] as [String: Any]
+                },
+                "lockTime": Int(tx.lockTime),
+                "subnetworkId": tx.subnetworkId.hexString,
+                "payload": tx.payload.hexString
+            ] as [String: Any]
+        ]
+    }
+
+    /// Hands a signed post to the indexer for submission at `notBefore`.
+    func scheduleOnServer(_ scheduled: ScheduledTransaction, notBefore: Date) async throws {
+        let pubkey = try requesterPubkey()
+        let notBeforeMs = Int64(notBefore.timeIntervalSince1970 * 1000)
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.scheduleSigningString(txId: scheduled.txId, notBeforeMs: notBeforeMs),
+            mode: .kaspaPersonalMessage
+        )
+        let body: [String: Any] = [
+            "pubkey": pubkey, "txId": scheduled.txId, "notBefore": notBeforeMs,
+            "signature": signature, "transaction": scheduled.restJSON
+        ]
+        _ = try await postJSON("schedule-post", body: body)
+    }
+
+    func cancelScheduledOnServer(txId: String) async throws {
+        let pubkey = try requesterPubkey()
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.cancelScheduleSigningString(txId: txId),
+            mode: .kaspaPersonalMessage
+        )
+        _ = try await postJSON("cancel-scheduled-post", body: ["pubkey": pubkey, "txId": txId, "signature": signature])
+    }
+
+    func fetchScheduledPosts() async throws -> [KScheduledPost] {
+        struct Page: Decodable { let posts: [KScheduledPost] }
+        let pubkey = try requesterPubkey()
+        let page: Page = try await get("scheduled-posts", query: ["pubkey": pubkey])
+        return page.posts
+    }
+
+    /// Submits a previously built transaction from the phone itself - the fallback when the
+    /// indexer could not be reached to schedule it, run once its time has come.
+    func submitScheduledLocally(_ transaction: KaspaRpcTransaction) async throws -> String {
+        let (txId, _) = try await NodePoolService.shared.submitTransaction(transaction, allowOrphan: false)
+        return txId
+    }
+
+    private func postJSON(_ path: String, body: [String: Any]) async throws -> Data {
+        var request = URLRequest(url: try baseURL().appendingPathComponent(path))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw KaPostsAPIError.badResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            if let body = try? JSONDecoder().decode(APIErrorBody.self, from: data) {
+                throw KaPostsAPIError.api(code: body.code, message: body.error)
+            }
+            throw KaPostsAPIError.badResponse
+        }
+        return data
     }
 
     /// The compressed KaPost pubkey (even-Y convention) for a Kaspa address, or nil. The whole
@@ -873,7 +1109,10 @@ extension KaPostsAPIClient {
               let privateKey = WalletManager.shared.getPrivateKey() else {
             throw KaPostsAPIError.missingWallet
         }
-        let utxos = try await NodePoolService.shared.getUtxosByAddresses([wallet.publicAddress])
+        // Coins a scheduled post is waiting to spend are not available (§5.10).
+        let utxos = KaPostsScheduledStore.shared.excludingReserved(
+            try await NodePoolService.shared.getUtxosByAddresses([wallet.publicAddress])
+        )
         let signedTx = try KasiaTransactionBuilder.buildPayloadSelfSendTx(
             from: wallet.publicAddress,
             senderPrivateKey: privateKey,

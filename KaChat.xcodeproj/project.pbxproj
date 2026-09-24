@@ -109,6 +109,7 @@
 		E810003B2D4C00010000001F /* KaChatCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810003A2D4C00010000001E /* KaChatCipher.swift */; };
 		E8100A912D4C00010000001C /* CoreDataIndexBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8100A902D4C00010000001C /* CoreDataIndexBuilder.swift */; };
 		E8100B912D4C00010000001C /* KaPostsDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8100B902D4C00010000001C /* KaPostsDraftStore.swift */; };
+		KPS0001B000000000000001 /* KaPostsScheduledStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = KPS0001A000000000000001 /* KaPostsScheduledStore.swift */; };
 		E810FA122D4C00010000000B /* PassphraseOptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810FA112D4C00010000000B /* PassphraseOptionView.swift */; };
 		E810FB122D4C00010000000B /* SeedPhraseKeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810FB112D4C00010000000B /* SeedPhraseKeyboardView.swift */; };
 		E83000012D4C000200000006 /* OpusBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = E83000032D4C000200000008 /* OpusBridge.m */; };
@@ -367,6 +368,7 @@
 		E810003A2D4C00010000001E /* KaChatCipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatCipher.swift; sourceTree = "<group>"; };
 		E8100A902D4C00010000001C /* CoreDataIndexBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreDataIndexBuilder.swift; sourceTree = "<group>"; };
 		E8100B902D4C00010000001C /* KaPostsDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsDraftStore.swift; sourceTree = "<group>"; };
+		KPS0001A000000000000001 /* KaPostsScheduledStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsScheduledStore.swift; sourceTree = "<group>"; };
 		E810FA112D4C00010000000B /* PassphraseOptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassphraseOptionView.swift; sourceTree = "<group>"; };
 		E810FB112D4C00010000000B /* SeedPhraseKeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedPhraseKeyboardView.swift; sourceTree = "<group>"; };
 		E83000022D4C000200000007 /* OpusBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpusBridge.h; sourceTree = "<group>"; };
@@ -696,6 +698,7 @@
 				E81000382D4C00010000001D /* BIP39.swift */,
 				6A61ACF41FEA483D9EF0924F /* KNSService.swift */,
 				E8100B902D4C00010000001C /* KaPostsDraftStore.swift */,
+				KPS0001A000000000000001 /* KaPostsScheduledStore.swift */,
 				B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */,
 				C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */,
 				FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */,
@@ -1399,6 +1402,7 @@
 				KFAS00010001000000000002 /* KaspaFiatAmountState.swift in Sources */,
 				19319293ACD84C2AB108D745 /* KNSService.swift in Sources */,
 				E8100B912D4C00010000001C /* KaPostsDraftStore.swift in Sources */,
+				KPS0001B000000000000001 /* KaPostsScheduledStore.swift in Sources */,
 				A4E71D3C82F5406B9C1E5D73 /* KaspaNetworkStatsService.swift in Sources */,
 				B7A11C0E4D3F48A2915E7C21 /* PostTranslationService.swift in Sources */,
 				E83000012D4C000200000006 /* OpusBridge.m in Sources */,

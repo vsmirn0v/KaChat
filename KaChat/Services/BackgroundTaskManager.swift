@@ -60,6 +60,10 @@ final class BackgroundTaskManager {
             task.setTaskCompleted(success: false)
         }
 
+        // A scheduled post only this phone holds goes out here if its time has come, whatever
+        // the fetch setting says - it is the author's own post, not a fetch.
+        await KaPostsScheduledStore.shared.sendDueLocally()
+
         // Check if background fetch is enabled in settings
         guard ChatService.shared.settingsViewModel?.settings.backgroundFetchEnabled == true else {
             AppLog.log("%@", "[BackgroundTaskManager] Background fetch disabled, skipping fetch")

@@ -37,6 +37,8 @@ kchat:1:quote:<pubkey>:<signature>:<content_id>:<b64_message>:<quoted_author_pub
 kchat:1:unquote:<pubkey>:<signature>:<content_id>
 kchat:1:edit:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>
 kchat:1:delete:<pubkey>:<signature>:<post_id>
+kchat:1:poll:<pubkey>:<signature>:<b64_question>:<options_b64_csv>:<closes_at_ms>:<mentions_json>
+kchat:1:pollvote:<pubkey>:<signature>:<poll_id>:<option_index>
 ```
 
 **Root migration.** The app used to write the K indexer's `k:1:` root; it now writes
@@ -63,6 +65,8 @@ are re-enabled.
     inside the signed string (a reply signs the same three fields; without it a reply to your
     own post could be replayed as an edit of it). See §5.7.
   - delete: `"delete:<post_id>"` — same idea (an unquote signs a bare content id). See §5.8.
+  - poll: `"poll:<b64_question>:<options_b64_csv>:<closes_at_ms>:<mentions_json>"` — see §5.9.
+  - pollvote: `"pollvote:<poll_id>:<option_index>"` — see §5.9.
 - `<b64_message>`: base64 of the UTF-8 message text.
 - `<mentions_json>`: JSON array of mentioned pubkeys; the app currently always sends `[]`.
 - A **plain repost** is a quote whose message is empty-after-marker (see §3) — the K
@@ -237,6 +241,86 @@ These are confirmed product decisions; the iOS UI is already shaped for them.
 
    The chain keeps the bytes, so a client's chain reader may still find the original by txid;
    that is expected and no different from any other removal counter-action.
+
+9. **Polls — the `poll` and `pollvote` actions (NEW, outstanding; 5.1).** A poll is a post
+   whose message is the question and which carries two to four options and a closing time;
+   a vote is a separate action naming the poll and an option.
+
+   Payloads (§2):
+   - `kchat:1:poll:<pubkey>:<signature>:<b64_question>:<options_b64_csv>:<closes_at_ms>:<mentions_json>`
+     - `<b64_question>`: base64 of the marker-prefixed question, exactly like a post's message
+       (the question IS the post text - an older client that knows no polls shows it as a
+       plain post);
+     - `<options_b64_csv>`: the options, each base64 of its UTF-8 text, joined with `,`
+       (base64 has no `,` or `:`, so the payload still splits cleanly). 2–4 options, each
+       1–40 characters decoded, no two identical;
+     - `<closes_at_ms>`: unix ms when voting closes. Accept only if it is > the poll
+       transaction's chain time and ≤ chain time + 7 days;
+     - signature over `"poll:<b64_question>:<options_b64_csv>:<closes_at_ms>:<mentions_json>"`.
+   - `kchat:1:pollvote:<pubkey>:<signature>:<poll_id>:<option_index>`, signature over
+     `"pollvote:<poll_id>:<option_index>"`. `<option_index>` is 0-based.
+
+   Accept a vote only when `<poll_id>` is an indexed poll, the index is in range, the
+   signature verifies, and the vote's chain time is < `closes_at_ms`; otherwise ignore.
+   **One vote per pubkey**: a later vote (by chain time) by the same pubkey replaces the
+   earlier one. The author may vote in their own poll. `delete` on a poll removes it and its
+   votes like any post; `edit` is NOT accepted on a poll (the options are what people voted
+   on).
+
+   Interpretation, in every read endpoint that returns a `KPost`: a poll is a post with
+   `contentType = "poll"` and a new object
+   ```json
+   "poll": { "options": ["<b64>", "<b64>"], "counts": [12, 7], "total": 19,
+             "closesAt": 1790300000000, "myVote": 1 }
+   ```
+   `counts[i]` = number of pubkeys whose current vote is option `i`; `total` = their sum;
+   `myVote` = the requester's option index or `null` (requester = the `requesterPubkey`
+   query the feeds already carry; `null` when absent). Also serve
+   `GET /get-poll?postId=&requesterPubkey=` → the same `poll` object plus `"id"`, so a
+   client can refresh one poll's numbers without reloading the feed. Votes do not count as
+   replies or votes on the post; they produce no notification. A poll appears in feeds
+   exactly where a post with the same timestamp would.
+
+10. **Scheduled posts — server-submitted transactions (NEW, outstanding; 5.1).** A post
+    scheduled for later is built and **signed on the phone now**, and handed to the indexer,
+    which submits it to the network at the chosen time. The phone cannot be counted on to be
+    awake at that minute; the server can. The server never signs anything - it only forwards
+    bytes it was given.
+
+    - `POST /schedule-post` (JSON body):
+      ```json
+      { "pubkey": "<66-hex>", "txId": "<the signed tx's id>", "notBefore": 1790300000000,
+        "signature": "<128-hex over \"schedule:<txId>:<notBefore>\">",
+        "transaction": { ...the signed transaction, kaspa REST /transactions shape... } }
+      ```
+      `transaction` is the exact JSON the Kaspa REST API's `POST /transactions` accepts
+      (`{"transaction":{"version","inputs":[{"previousOutpoint":{"transactionId","index"},
+      "signatureScript","sequence","sigOpCount"}],"outputs":[{"amount","scriptPublicKey":
+      {"version","scriptPublicKey"}}],"lockTime","subnetworkId","payload"}}` with hex
+      strings) - so the server submits it with that call, or via its own kaspad gRPC
+      `SubmitTransaction`. Verify the signature for `pubkey`, that the transaction's payload
+      is a `kchat:1:` action signed by the same pubkey, and that `notBefore` is between now
+      and now + 30 days; store `{txId, pubkey, notBefore, transaction, status: "scheduled"}`.
+      Reply `{ "txId", "notBefore", "status": "scheduled" }`. Idempotent on `txId`.
+    - At `notBefore` (a scheduler tick each minute is fine): submit the transaction. On
+      success `status = "submitted"` with `submittedAt`; on a rejection (typically its inputs
+      were spent meanwhile) `status = "failed"` with `error`, and retry nothing - the phone
+      shows the failure and the author reposts by hand.
+    - `GET /scheduled-posts?pubkey=` → `{ "posts": [{ "txId", "notBefore", "status",
+      "submittedAt", "error", "postContent" }] }` - `postContent` is the decoded payload's
+      base64 message so the list can show a preview. Only the owner's; `requesterPubkey`
+      style auth is not needed since the list carries nothing secret, but do not serve the
+      `transaction` bytes back.
+    - `POST /cancel-scheduled-post` `{ "pubkey", "txId", "signature": "<over
+      \"cancel-schedule:<txId>\">" }` → drops a still-`scheduled` entry (`status =
+      "cancelled"`); a submitted one cannot be cancelled (it is on chain).
+    - Once submitted, the post indexes like any other `kchat:1:` action - nothing marks it as
+      having been scheduled.
+
+    Client side: the phone keeps the coins the transaction spends reserved until it is
+    submitted (`KaPostsScheduledStore`), lists its scheduled posts from `/scheduled-posts`,
+    and, if the server is unreachable when the time comes, falls back to submitting the
+    transaction itself the next time the app runs.
 
 Nice-to-haves once the core is up: richer notifications (mentions, replies to replies), and
 a push hook — the app already runs a forked kasia-indexer with a `PushNotificationActor` for
