@@ -8100,8 +8100,18 @@ private struct KaPostsSlideCover: ViewModifier {
                 .allowsHitTesting(false)
             content
                 .background(Color(.systemBackground).ignoresSafeArea())
+                // The edge shadow is a 14pt gradient strip hung off the leading edge, not a
+                // `.shadow` on the whole screen: that one re-rasterized the entire list every
+                // frame of the drag and made it stutter.
+                .overlay(alignment: .leading) {
+                    LinearGradient(colors: [Color.black.opacity(0.22), Color.clear], startPoint: .trailing, endPoint: .leading)
+                        .frame(width: 14)
+                        .offset(x: -14)
+                        .opacity(offset > 0 ? 1 : 0)
+                        .allowsHitTesting(false)
+                        .ignoresSafeArea()
+                }
                 .offset(x: offset)
-                .shadow(color: Color.black.opacity(offset > 0 ? 0.28 : 0), radius: 16, x: -6, y: 0)
         }
         .modifier(ClearPresentationBackground())
         .simultaneousGesture(
