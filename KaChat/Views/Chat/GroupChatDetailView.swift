@@ -829,6 +829,44 @@ struct GroupChatDetailView: View {
 
     // MARK: - Compose bar
 
+    /// Long-press > Edit on one of the user's own text bubbles: the composer takes the message's
+    /// current text (mentions shown as names, as when typing) under an "Editing message" banner.
+    private func beginEdit(_ message: GroupMessage) {
+        groupChatService.startEditing(message)
+        draft = GroupMentionCodec.decodeForDisplay(MessageReplyCodec.unwrappedText(message.content), members: group.members, resolveDisplayName: displayName(for:))
+    }
+
+    private func editBanner(for editing: GroupMessage) -> some View {
+        let current = groupChatService.editsByGroupId[group.id]?[editing.txId].map { MessageEditCodec.apply($0.text, to: editing.content) } ?? editing.content
+        return HStack(spacing: 8) {
+            Image(systemName: "pencil")
+                .font(.caption)
+                .foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Editing message")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.accentColor)
+                Text(GroupMentionCodec.decodeForDisplay(MessageReplyCodec.previewText(for: MessageReplyCodec.unwrappedText(current)), members: group.members, resolveDisplayName: displayName(for:)))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                groupChatService.cancelEditing()
+                draft = ""
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     private func replyBanner(for reply: GroupMessage) -> some View {
         let replyQuote = MessageReplyCodec.parse(reply.content)
         let previewText = replyQuote?.text ?? reply.content
@@ -872,7 +910,11 @@ struct GroupChatDetailView: View {
                     .foregroundColor(.red)
                     .padding(.horizontal)
             }
-            if let reply = groupChatService.replyingTo {
+            if let editing = groupChatService.editingMessage {
+                editBanner(for: editing)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            } else if let reply = groupChatService.replyingTo {
                 replyBanner(for: reply)
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
@@ -1596,6 +1638,20 @@ struct GroupChatDetailView: View {
         guard !text.isEmpty else { return }
         draft = ""
         errorMessage = nil
+        // Editing: the composer's text replaces the message being edited - one edit
+        // transaction, no new bubble.
+        if let editing = groupChatService.editingMessage {
+            feeOverrideSompi = nil
+            feeEstimateSompi = nil
+            Task {
+                do {
+                    try await groupChatService.sendGroupEdit(targetTxId: editing.txId, groupId: group.id, text: text)
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            return
+        }
         let feeOverride = feeOverrideSompi
         feeOverrideSompi = nil
         feeEstimateSompi = nil
@@ -2126,6 +2182,10 @@ struct GroupChatDetailView: View {
     /// 1:1 chat's identical `messageRow`/`selectionOverlay` split in `ChatDetailView.swift`, which
     /// fixed the same "unable to type-check in reasonable time" once the overlay was added there.
     private func groupMessageRow(_ message: GroupMessage) -> some View {
+        // An edited message reads with its newest text; the row itself is untouched.
+        let edit = groupChatService.editsByGroupId[group.id]?[message.txId]
+        let message = edit.map { message.replacingContent(MessageEditCodec.apply($0.text, to: message.content)) } ?? message
+        let canEdit = message.isOutgoing && message.deliveryStatus == .sent && MessageEditCodec.isEditable(message.content)
         let bubble = GroupMessageBubbleRow(
             message: message,
             group: group,
@@ -2163,7 +2223,9 @@ struct GroupChatDetailView: View {
             activeQuickReactionMessageId: $activeQuickReactionMessageId,
             onJumpToReply: { pendingJumpToTxId = $0 },
             revealOffset: revealOffset,
-            maxRevealOffset: maxRevealOffset
+            maxRevealOffset: maxRevealOffset,
+            isEdited: edit != nil,
+            onEdit: canEdit ? { beginEdit(message) } : nil
         )
         .allowsHitTesting(!isSelectingMessages)
         .padding(.leading, isSelectingMessages ? 28 : 0)
@@ -2294,6 +2356,10 @@ private struct GroupMessageBubbleRow: View {
     /// gesture (see `GroupChatDetailView`'s drag gesture) - 0 at rest, negative while revealed.
     var revealOffset: CGFloat = 0
     var maxRevealOffset: CGFloat = 64
+    /// The text shown is an edit of what was sent (the parent swapped `content`); a small
+    /// "edited" sits under the bubble. `onEdit` is offered on the user's own text bubbles only.
+    var isEdited: Bool = false
+    var onEdit: (() -> Void)? = nil
 
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var groupChatService: GroupChatService
@@ -2586,6 +2652,13 @@ private struct GroupMessageBubbleRow: View {
                             } label: {
                                 Label("Reply", systemImage: "arrowshape.turn.up.left")
                             }
+                            if let onEdit {
+                                Button {
+                                    onEdit()
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                            }
                             Button {
                                 onCopy(displayContent, .success)
                                 UIPasteboard.general.string = displayContent
@@ -2668,6 +2741,12 @@ private struct GroupMessageBubbleRow: View {
                     } else {
                         statusIcon
                     }
+                }
+
+                if isEdited {
+                    Text("edited")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
 
                 // A reaction (not the message) that failed to send - shown for reactions on any

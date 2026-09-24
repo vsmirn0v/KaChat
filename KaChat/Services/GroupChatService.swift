@@ -41,11 +41,15 @@ final class GroupChatService: ObservableObject {
     /// "Reply" action, consumed (wrapped into the outgoing payload, then cleared) by
     /// `sendGroupMessage`.
     @Published var replyingTo: GroupMessage?
+    /// The group message whose text the composer is editing (the user's own) - see `sendGroupEdit`.
+    @Published var editingMessage: GroupMessage?
     /// This wallet's group reactions, keyed by targetTxId then further by groupId at the top
     /// level - mirrors `ChatService.reactionsByTxId`'s shape for 1:1. Loaded once per group open
     /// (see `loadGroupReactions`) and kept live afterward by `sendGroupReaction`/the
     /// incoming-reaction interception in `handleIncomingGroupMessage` updating it directly.
     @Published var reactionsByGroupId: [String: [String: [GroupStore.ReactionSnapshot]]] = [:]
+    /// The newest edit per message txId, per group - see `MessageEditCodec`.
+    @Published var editsByGroupId: [String: [String: MessageEditSnapshot]] = [:]
 
     /// Set when a group-chat push notification is tapped before `ChatListView` exists yet
     /// (cold start) - consumed and cleared by `ChatListView.checkPendingGroupNavigation()`.
@@ -515,6 +519,25 @@ final class GroupChatService: ObservableObject {
         replyingTo = nil
     }
 
+    // MARK: - Edit
+
+    func startEditing(_ message: GroupMessage) {
+        replyingTo = nil
+        editingMessage = message
+    }
+
+    func cancelEditing() {
+        editingMessage = nil
+    }
+
+    func applyLocalGroupEdit(_ edit: MessageEditSnapshot, groupId: String) {
+        if let current = editsByGroupId[groupId]?[edit.targetTxId], current.deliveryStatus == .sent,
+           current.blockTime > edit.blockTime, current.editTxId != edit.editTxId {
+            return
+        }
+        editsByGroupId[groupId, default: [:]][edit.targetTxId] = edit
+    }
+
     // MARK: - Active group tracking (unread suppression while viewing)
 
     /// Mirrors `ChatService.enterConversation(for:)` - call from the group thread's `.onAppear`.
@@ -538,6 +561,7 @@ final class GroupChatService: ObservableObject {
     /// Loads this group's reactions from disk into the live in-memory index - mirrors
     /// `ChatService.loadReactions(for:)` for 1:1.
     func loadGroupReactions(for groupId: String) {
+        editsByGroupId[groupId] = store.fetchGroupEdits(groupId: groupId)
         reactionsByGroupId[groupId] = store.fetchGroupReactions(groupId: groupId)
     }
 
@@ -1702,6 +1726,62 @@ final class GroupChatService: ObservableObject {
         try await sendGroupReaction(targetTxId: targetTxId, groupId: groupId, emoji: emoji, action: action)
     }
 
+    /// Edits one of this wallet's own text messages in a group: applied locally at once
+    /// (pending), then sent as an edit envelope in a group-encrypted message exactly like a
+    /// reaction - one transaction, no new bubble. Sent or failed follow.
+    func sendGroupEdit(targetTxId: String, groupId: String, text: String) async throws {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        guard var bag = try keychain.loadGroupBag(groupId: groupId),
+              let gid = Data(hexString: groupId),
+              let groupRootEpoch = Data(hexString: bag.groupRootEpoch),
+              let blindingKey = Data(hexString: bag.blindingKey),
+              let deviceId = Data(hexString: bag.deviceId) else {
+            throw KasiaError.networkError("Missing group secrets - try rejoining this group.")
+        }
+        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KasiaError.walletNotFound
+        }
+        editingMessage = nil
+        let senderXOnlyPub = try schnorrXOnlyPublicKey(from: privateKey)
+        let senderId = GroupCipher.deriveSenderId(senderAddress: wallet.publicAddress)
+        let payload = MessageEditCodec.encode(targetTxId: targetTxId, text: clean)
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+
+        applyLocalGroupEdit(MessageEditSnapshot(targetTxId: targetTxId, text: clean, editTxId: nil, blockTime: now, deliveryStatus: .pending), groupId: groupId)
+        store.upsertGroupEdit(targetTxId: targetTxId, groupId: groupId, text: clean, editTxId: nil, blockTime: now, deliveryStatus: "pending")
+
+        bag.msgCounter += 1
+        let counter = bag.msgCounter
+        try keychain.saveGroupBag(bag)
+
+        let msgId = GroupCipher.buildMsgId(deviceId: deviceId, counter: counter)
+        let ciphertext = try GroupCipher.encryptMessage(
+            plaintext: payload, groupRootEpoch: groupRootEpoch, groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId
+        )
+        let aad = GroupCipher.buildMessageAAD(groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId)
+        let signature = try GroupCipher.sign(
+            GroupCipher.buildMessageSigningPayload(aad: aad, ciphertextWithTag: ciphertext), privateKey: privateKey
+        )
+        let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: senderXOnlyPub)
+        let payloadString = GroupCipher.buildGroupMessagePayload(
+            blindedGroupId: blindedGroupId, epoch: bag.currentEpoch, senderId: senderId, senderPubKey: senderXOnlyPub,
+            msgId: msgId, ciphertext: ciphertext, signature: signature
+        )
+
+        do {
+            let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
+                try await self?.sendSelfStashPayload(payloadString, from: wallet.publicAddress, privateKey: privateKey) ?? ""
+            }
+            applyLocalGroupEdit(MessageEditSnapshot(targetTxId: targetTxId, text: clean, editTxId: realTxId, blockTime: now, deliveryStatus: .sent), groupId: groupId)
+            store.upsertGroupEdit(targetTxId: targetTxId, groupId: groupId, text: clean, editTxId: realTxId, blockTime: now, deliveryStatus: nil)
+        } catch {
+            applyLocalGroupEdit(MessageEditSnapshot(targetTxId: targetTxId, text: clean, editTxId: nil, blockTime: now, deliveryStatus: .failed), groupId: groupId)
+            store.upsertGroupEdit(targetTxId: targetTxId, groupId: groupId, text: clean, editTxId: nil, blockTime: now, deliveryStatus: "failed")
+            throw error
+        }
+    }
+
     /// Shared self-stash send primitive for gcomm/gctl payloads - mirrors
     /// `BroadcastService.sendBroadcastInternal`'s UTXO fetch/reserve/submit sequence exactly,
     /// reusing `ChatService`'s shared UTXO reservation state so group sends can't race with
@@ -2138,6 +2218,18 @@ final class GroupChatService: ObservableObject {
             // they target - so intercept and route to the reactions store before this ever
             // becomes a GroupMessage. Our own outgoing reactions already apply their local update
             // at send time (sendGroupReaction), so this mainly covers incoming ones.
+            // An edit changes the message it names - if the editor sent it - and is never a
+            // bubble. Judged against the group's own messages (the store has them all).
+            if let edit = MessageEditCodec.parse(plaintext) {
+                if let target = (groupMessages[group.id] ?? []).first(where: { $0.txId == edit.targetTxId }),
+                   target.senderAddress == senderAddress, MessageEditCodec.isEditable(target.content) {
+                    let snapshot = MessageEditSnapshot(targetTxId: edit.targetTxId, text: edit.text, editTxId: txId, blockTime: blockTime, deliveryStatus: .sent)
+                    applyLocalGroupEdit(snapshot, groupId: group.id)
+                    store.upsertGroupEdit(targetTxId: edit.targetTxId, groupId: group.id, text: edit.text, editTxId: txId, blockTime: blockTime)
+                }
+                return
+            }
+
             if let reaction = MessageReactionCodec.parse(plaintext) {
                 let isOwnReaction = senderAddress == WalletManager.shared.currentWallet?.publicAddress
                 // Replay check BEFORE applying: catch-up re-serves the same reaction txs on every

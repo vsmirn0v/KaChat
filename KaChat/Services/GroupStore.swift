@@ -385,6 +385,58 @@ final class GroupStore {
         }
     }
 
+    // MARK: - Edits (CDGroupMessageEdit)
+
+    /// Records the newest edit of `targetTxId` - newest by block time wins, except that the
+    /// local user's own in-flight edit is replaced by its own outcome.
+    func upsertGroupEdit(targetTxId: String, groupId: String, text: String, editTxId: String?, blockTime: Int64, deliveryStatus: String? = nil) {
+        guard isLoaded else { return }
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupMessageEdit>(entityName: CDGroupMessageEdit.entityName)
+            request.predicate = NSPredicate(format: "targetTxId == %@", targetTxId)
+            let existing = (try? context.fetch(request)) ?? []
+            if let current = existing.first, current.deliveryStatus == nil || current.deliveryStatus == "sent",
+               current.blockTime > blockTime, current.editTxId != editTxId {
+                return
+            }
+            let edit = existing.first ?? CDGroupMessageEdit(context: context)
+            for duplicate in existing.dropFirst() {
+                context.delete(duplicate)
+            }
+            edit.targetTxId = targetTxId
+            edit.groupId = groupId
+            edit.text = text
+            edit.editTxId = editTxId
+            edit.blockTime = blockTime
+            edit.deliveryStatus = deliveryStatus
+            save(context)
+        }
+    }
+
+    /// All edits for `groupId`, keyed by the message they change.
+    func fetchGroupEdits(groupId: String) -> [String: MessageEditSnapshot] {
+        guard isLoaded else { return [:] }
+        var edits: [String: MessageEditSnapshot] = [:]
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupMessageEdit>(entityName: CDGroupMessageEdit.entityName)
+            request.predicate = NSPredicate(format: "groupId == %@", groupId)
+            guard let results = try? context.fetch(request) else { return }
+            for record in results {
+                guard let text = record.text else { continue }
+                let status: ChatMessage.DeliveryStatus
+                switch record.deliveryStatus {
+                case "failed": status = .failed
+                case "pending": status = .pending
+                default: status = .sent
+                }
+                edits[record.targetTxId] = MessageEditSnapshot(targetTxId: record.targetTxId, text: text, editTxId: record.editTxId, blockTime: record.blockTime, deliveryStatus: status)
+            }
+        }
+        return edits
+    }
+
     /// Deletes `reactorAddress`'s reaction on `targetTxId`, if any.
     func removeGroupReaction(targetTxId: String, reactorAddress: String) {
         guard isLoaded else { return }
@@ -525,7 +577,24 @@ final class GroupStore {
             makeIndex(name: "byTarget", on: reactionEntity, attributes: ["targetTxId"])
         ]
 
-        model.entities = [groupEntity, messageEntity, reactionEntity]
+        // CDGroupMessageEdit: the newest edit per target message (plaintext, like the reaction
+        // emoji - the store already holds decrypted material). New entity → lightweight migration.
+        let editEntity = NSEntityDescription()
+        editEntity.name = CDGroupMessageEdit.entityName
+        editEntity.managedObjectClassName = NSStringFromClass(CDGroupMessageEdit.self)
+        editEntity.properties = [
+            makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "groupId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "text", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "editTxId", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true)
+        ]
+        editEntity.indexes = [
+            makeIndex(name: "byGroup", on: editEntity, attributes: ["groupId"])
+        ]
+
+        model.entities = [groupEntity, messageEntity, reactionEntity, editEntity]
         return model
     }
 
@@ -609,4 +678,16 @@ final class CDGroupReaction: NSManagedObject {
     @NSManaged var blockTime: Int64
     @NSManaged var deliveryStatus: String?
     @NSManaged var failedAction: String?
+}
+
+@objc(CDGroupMessageEdit)
+final class CDGroupMessageEdit: NSManagedObject {
+    static let entityName = "CDGroupMessageEdit"
+
+    @NSManaged var targetTxId: String
+    @NSManaged var groupId: String
+    @NSManaged var text: String?
+    @NSManaged var editTxId: String?
+    @NSManaged var blockTime: Int64
+    @NSManaged var deliveryStatus: String?
 }
