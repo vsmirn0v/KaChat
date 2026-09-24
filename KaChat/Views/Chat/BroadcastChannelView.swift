@@ -645,6 +645,10 @@ struct BroadcastChannelView: View {
     /// in reasonable time").
     @ViewBuilder
     private func messageRow(_ message: BroadcastMessage) -> some View {
+        // An edited message reads with its newest text; the row itself is untouched.
+        let edit = broadcastService.edits(forChannel: channelName)[message.id]
+        let message = edit.map { message.replacingContent(MessageEditCodec.apply($0.text, to: message.content)) } ?? message
+        let canEdit = message.senderAddress == myAddress && message.deliveryStatus == .sent && MessageEditCodec.isEditable(message.content)
         let messageReplyQuote = replyQuote(for: message)
         // Hoisted out of the initializer with explicit types. A ternary producing an OPTIONAL
         // CLOSURE, and a dictionary subscript defaulted with ??, are both expensive to infer,
@@ -713,7 +717,9 @@ struct BroadcastChannelView: View {
             onMoreReactions: { emojiPickerTarget = IdentifiedTxId(id: message.id) },
             activeQuickReactionMessageId: $activeQuickReactionMessageId,
             revealOffset: revealOffset,
-            maxRevealOffset: maxRevealOffset
+            maxRevealOffset: maxRevealOffset,
+            isEdited: edit != nil,
+            onEdit: canEdit ? { beginEdit(message) } : nil
         )
         .id(message.id)
         .background(
@@ -748,7 +754,9 @@ struct BroadcastChannelView: View {
 
     private var composeBar: some View {
         VStack(spacing: 8) {
-            if let reply = broadcastService.replyingTo {
+            if let editing = broadcastService.editingMessage {
+                editBanner(for: editing)
+            } else if let reply = broadcastService.replyingTo {
                 replyBanner(for: reply)
             }
             ZStack(alignment: .topLeading) {
@@ -1178,6 +1186,46 @@ struct BroadcastChannelView: View {
         return outputURL
     }
 
+    /// Long-press > Edit on one of the user's own text bubbles: the composer takes the message's
+    /// current text under an "Editing message" banner until Send or the X.
+    private func beginEdit(_ message: BroadcastMessage) {
+        broadcastService.startEditing(message)
+        messageText = MessageReplyCodec.unwrappedText(message.content)
+    }
+
+    private func editBanner(for editing: BroadcastMessage) -> some View {
+        let current = broadcastService.edits(forChannel: channelName)[editing.id].map { MessageEditCodec.apply($0.text, to: editing.content) } ?? editing.content
+        return HStack(spacing: 8) {
+            Image(systemName: "pencil")
+                .font(.caption)
+                .foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Editing message")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.accentColor)
+                Text(MessageReplyCodec.previewText(for: MessageReplyCodec.unwrappedText(current)))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                broadcastService.cancelEditing()
+                messageText = ""
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+        .padding(.top, 8)
+    }
+
     private func replyBanner(for reply: BroadcastMessage) -> some View {
         let content = displayContent(for: reply)
         return HStack(spacing: 8) {
@@ -1218,6 +1266,19 @@ struct BroadcastChannelView: View {
         let feeOverride = feeOverrideSompi
         feeEstimateSompi = nil
         feeOverrideSompi = nil
+        // Editing: the composer's text replaces the message being edited - one edit
+        // transaction, no new row.
+        if let editing = broadcastService.editingMessage {
+            Task {
+                do {
+                    try await broadcastService.sendBroadcastEdit(channel: channelName, targetTxId: editing.id, text: trimmed)
+                } catch {
+                    showToast("Failed to edit: \(error.localizedDescription)")
+                }
+                isSending = false
+            }
+            return
+        }
         Task {
             do {
                 try await broadcastService.sendBroadcast(channel: channelName, content: trimmed, feeOverride: feeOverride)
@@ -1436,6 +1497,10 @@ private struct BroadcastMessageRow: View {
     var activeQuickReactionMessageId: Binding<String?> = .constant(nil)
     let revealOffset: CGFloat
     let maxRevealOffset: CGFloat
+    /// The text shown is an edit of what was sent (the parent swapped `content`); a small
+    /// "edited" chip sits on the bubble. `onEdit` is offered on the user's own text bubbles only.
+    var isEdited: Bool = false
+    var onEdit: (() -> Void)? = nil
 
     @State private var showFullText = false
     /// The link whose actions sheet is up. Broadcast keeps tap-to-open disabled (see
@@ -1757,6 +1822,17 @@ private struct BroadcastMessageRow: View {
             // chat anchor theirs to the bubble itself. That frame EXPANDS to fill up to 280pt
             // regardless of how narrow the bubble is, so anything overlaid after it anchors to
             // the frame's screen-side corner and visibly floats away from a short bubble.
+            .overlay(alignment: isOwnMessage ? .topLeading : .topTrailing) {
+                if isEdited {
+                    Text("edited")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color(.systemBackground)))
+                        .offset(y: -8)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if isOwnMessage {
                     deliveryBadge
@@ -1804,6 +1880,13 @@ private struct BroadcastMessageRow: View {
             onReply()
         } label: {
             Label("Reply", systemImage: "arrowshape.turn.up.left")
+        }
+        if let onEdit {
+            Button {
+                onEdit()
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
         }
         if let firstLink {
             Button {

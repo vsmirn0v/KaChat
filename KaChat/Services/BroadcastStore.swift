@@ -29,6 +29,11 @@ struct BroadcastMessage: Identifiable, Equatable {
     let content: String
     let blockTime: Int64
     let deliveryStatus: DeliveryStatus
+
+    /// The same row with `content` replaced - how an edit is shown without touching the row.
+    func replacingContent(_ newContent: String) -> BroadcastMessage {
+        BroadcastMessage(id: id, channelName: channelName, senderAddress: senderAddress, content: newContent, blockTime: blockTime, deliveryStatus: deliveryStatus)
+    }
 }
 
 /// Local-only, per-wallet store for KaChat 2.0 Broadcast channel data.
@@ -442,6 +447,82 @@ final class BroadcastStore {
         return changed
     }
 
+    // MARK: - Edits (CDBroadcastEdit)
+
+    /// The sender of `txId` in `channel`, if the row is here - an edit counts only when its
+    /// sender sent the message it names.
+    func sender(ofMessage txId: String) -> (senderAddress: String, content: String)? {
+        guard isLoaded else { return nil }
+        let context = viewContext
+        var found: (String, String)?
+        context.performAndWait {
+            let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+            request.predicate = NSPredicate(format: "id == %@", txId)
+            request.fetchLimit = 1
+            if let row = (try? context.fetch(request))?.first {
+                found = (row.senderAddress, row.content)
+            }
+        }
+        return found
+    }
+
+    /// Records the newest edit of `targetTxId` - newest by block time wins (a replay of older
+    /// history is a no-op), except that the local user's own in-flight edit is replaced by
+    /// its own outcome. Returns whether anything changed.
+    @discardableResult
+    func upsertEdit(targetTxId: String, channel: String, text: String, editTxId: String?, blockTime: Int64, deliveryStatus: String? = nil) -> Bool {
+        guard isLoaded else { return false }
+        let normalized = BroadcastChannelName.normalize(channel)
+        let context = viewContext
+        var changed = false
+        context.performAndWait {
+            let request = NSFetchRequest<CDBroadcastEdit>(entityName: CDBroadcastEdit.entityName)
+            request.predicate = NSPredicate(format: "targetTxId == %@", targetTxId)
+            let existing = (try? context.fetch(request)) ?? []
+            if let current = existing.first, current.deliveryStatus == nil || current.deliveryStatus == "sent" {
+                if current.editTxId == editTxId, current.text == text { return }
+                if current.blockTime > blockTime, current.editTxId != editTxId { return }
+            }
+            let edit = existing.first ?? CDBroadcastEdit(context: context)
+            for duplicate in existing.dropFirst() {
+                context.delete(duplicate)
+            }
+            edit.targetTxId = targetTxId
+            edit.channelName = normalized
+            edit.text = text
+            edit.editTxId = editTxId
+            edit.blockTime = blockTime
+            edit.deliveryStatus = deliveryStatus
+            save(context)
+            changed = true
+        }
+        return changed
+    }
+
+    /// All edits in `channel`, keyed by the message they change.
+    func fetchEdits(forChannel channel: String) -> [String: MessageEditSnapshot] {
+        guard isLoaded else { return [:] }
+        let normalized = BroadcastChannelName.normalize(channel)
+        var edits: [String: MessageEditSnapshot] = [:]
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDBroadcastEdit>(entityName: CDBroadcastEdit.entityName)
+            request.predicate = NSPredicate(format: "channelName == %@", normalized)
+            guard let results = try? context.fetch(request) else { return }
+            for record in results {
+                guard let text = record.text else { continue }
+                let status: ChatMessage.DeliveryStatus
+                switch record.deliveryStatus {
+                case "failed": status = .failed
+                case "pending": status = .pending
+                default: status = .sent
+                }
+                edits[record.targetTxId] = MessageEditSnapshot(targetTxId: record.targetTxId, text: text, editTxId: record.editTxId, blockTime: record.blockTime, deliveryStatus: status)
+            }
+        }
+        return edits
+    }
+
     private func fetchReactionRow(targetTxId: String, reactorAddress: String, in context: NSManagedObjectContext) -> CDBroadcastReaction? {
         let request = NSFetchRequest<CDBroadcastReaction>(entityName: CDBroadcastReaction.entityName)
         request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
@@ -722,7 +803,24 @@ final class BroadcastStore {
             makeIndex(name: "byChannel", on: hiddenSenderEntity, attributes: ["channelName"])
         ]
 
-        model.entities = [channelEntity, messageEntity, hiddenSenderEntity, reactionEntity]
+        // CDBroadcastEdit: the newest edit per target message in a room (plaintext, like the
+        // rows themselves). New entity → lightweight migration, like CDBroadcastReaction.
+        let editEntity = NSEntityDescription()
+        editEntity.name = CDBroadcastEdit.entityName
+        editEntity.managedObjectClassName = NSStringFromClass(CDBroadcastEdit.self)
+        editEntity.properties = [
+            makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "channelName", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "text", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "editTxId", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true)
+        ]
+        editEntity.indexes = [
+            makeIndex(name: "byChannel", on: editEntity, attributes: ["channelName"])
+        ]
+
+        model.entities = [channelEntity, messageEntity, hiddenSenderEntity, reactionEntity, editEntity]
         return model
     }
 
@@ -777,6 +875,18 @@ final class CDHiddenBroadcastSender: NSManagedObject {
 /// A reaction (tapback) sent or received on a broadcast message - see `MessageReactionContent`.
 /// `emoji == nil` is a remove-tombstone (kept, not deleted, so replaying indexer history stays
 /// idempotent - see the Reactions section's doc comment above).
+@objc(CDBroadcastEdit)
+final class CDBroadcastEdit: NSManagedObject {
+    static let entityName = "CDBroadcastEdit"
+
+    @NSManaged var targetTxId: String
+    @NSManaged var channelName: String
+    @NSManaged var text: String?
+    @NSManaged var editTxId: String?
+    @NSManaged var blockTime: Int64
+    @NSManaged var deliveryStatus: String?
+}
+
 @objc(CDBroadcastReaction)
 final class CDBroadcastReaction: NSManagedObject {
     static let entityName = "CDBroadcastReaction"

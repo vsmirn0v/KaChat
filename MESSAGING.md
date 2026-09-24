@@ -237,6 +237,40 @@ enveloped), merge, encrypt, upload. `walletHint` lets a device skip a foreign wa
 without decrypting; the decrypted archive's own `walletAddress` is still validated as today.
 A failed decrypt (wrong seed, corrupt file) aborts before any upload, never overwrites.
 
+## Message Edits
+
+A sender can edit their own earlier **text** message. Nothing on chain changes: the edit is a
+new message whose content is this envelope, naming the original by txId:
+
+```json
+{"type":"edit","targetTxId":"<txId of the message being edited>","text":"the new text"}
+```
+
+It travels exactly like a reaction envelope - inside the normal encrypted contextual content
+for 1:1 chats, inside the group-encrypted message for groups, and as the plaintext row content
+for public broadcast rooms (`kchat:1:bcast:<channel>:{"type":"edit",...}`) - and is **never
+rendered as a bubble**. Clients intercept it and show the newest edit's text in place of the
+original, with a small "edited" mark. Rules, identical on every platform:
+
+- Only the original sender's edits count. The editor is the transaction's sender (1:1: the
+  decrypting party; group: the signed sender id; broadcast: the tx signer); an edit naming
+  someone else's message is dropped. Clients also refuse edits on their own behalf unless
+  the target is theirs.
+- Newest by block time wins; an older edit replayed from history never overwrites a newer one.
+- Text only. A payment notice, voice message, photo, chess move, call line, reaction or any
+  other envelope is never editable; an edit naming one is dropped. A **reply** is editable:
+  the edit's `text` replaces the reply's text and the quote is kept
+  (`MessageEditCodec.apply`).
+- `text` is capped at 4 000 characters. Unknown extra fields are ignored.
+- No delete, and no edit window: any time.
+- Storage is up to the client (iOS keeps a small edits table beside reactions in each store;
+  the original row is never rewritten). The original stays on chain and in explorers.
+- Notification preview for an incoming edit envelope: "Edited a message".
+
+Reference implementation: `MessageEditCodec` in `Models.swift`; interception in
+`ChatService.addMessageToConversation`, `GroupChatService` (next to the reaction branch) and
+`BroadcastService` (scan, indexer page and sweep paths).
+
 ## Fresh-Address Payment Pools
 
 Privacy feature: when a user taps Send Kaspa in a 1:1 chat, the payment goes to a **fresh

@@ -79,6 +79,10 @@ final class BroadcastService: ObservableObject {
     /// live afterward by `sendBroadcastReaction` / the incoming-reaction interception in
     /// `processBroadcastHits` and `fetchFromIndexerAndMerge`.
     @Published private(set) var reactionsByChannel: [String: [String: [GroupStore.ReactionSnapshot]]] = [:]
+    /// The newest edit per message txId, per room - see `MessageEditCodec`.
+    @Published private(set) var editsByChannel: [String: [String: MessageEditSnapshot]] = [:]
+    /// The room message whose text the composer is editing (the user's own) - see `sendBroadcastEdit`.
+    @Published var editingMessage: BroadcastMessage?
     @Published var lastSendError: KasiaError?
     @Published var replyingTo: BroadcastMessage?
     /// Set when a broadcast-room notification is tapped, so the chat list can navigate to that
@@ -215,8 +219,16 @@ final class BroadcastService: ObservableObject {
             let page = try await BroadcastIndexerClient.fetchHistoryPage(baseURL: base, channel: channel, limit: 40)
             indexerFetchedChannels.insert(channel)
             let hidden = store.hiddenSenderAddresses(forChannel: channel)
+            var editsChanged = false
+            for row in page.messages where !hidden.contains(row.senderAddress) {
+                guard let edit = MessageEditCodec.parse(row.content) else { continue }
+                if applyIncomingEdit(edit, channel: channel, senderAddress: row.senderAddress, editTxId: row.txId, blockTime: row.blockTime) {
+                    editsChanged = true
+                }
+            }
+            if editsChanged { loadEdits(for: channel) }
             let rows = page.messages
-                .filter { !hidden.contains($0.senderAddress) && MessageReactionCodec.parse($0.content) == nil }
+                .filter { !hidden.contains($0.senderAddress) && MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
                 .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
             let known = Set(store.messages(forChannel: channel).map(\.id))
             let fresh = rows.filter { !known.contains($0.id) }
@@ -512,6 +524,7 @@ final class BroadcastService: ObservableObject {
         loadMessages(for: normalized)
         markChannelRead(normalized)
         loadReactions(for: normalized)
+        loadEdits(for: normalized)
         updateScanningStateIfNeeded()
         startIndexerPollingIfConfigured(channel: normalized)
     }
@@ -632,7 +645,14 @@ final class BroadcastService: ObservableObject {
             // re-serving the same history every poll is idempotent - see
             // `BroadcastStore.applyIncomingReaction`).
             var reactionsChanged = false
+            var editsChanged = false
             for row in visible {
+                if let edit = MessageEditCodec.parse(row.content) {
+                    if applyIncomingEdit(edit, channel: channel, senderAddress: row.senderAddress, editTxId: row.txId, blockTime: row.blockTime) {
+                        editsChanged = true
+                    }
+                    continue
+                }
                 guard let reaction = MessageReactionCodec.parse(row.content) else { continue }
                 let changed = store.applyIncomingReaction(
                     targetTxId: reaction.targetTxId,
@@ -647,9 +667,12 @@ final class BroadcastService: ObservableObject {
             if reactionsChanged {
                 loadReactions(for: channel)
             }
+            if editsChanged {
+                loadEdits(for: channel)
+            }
 
             let rows = visible
-                .filter { MessageReactionCodec.parse($0.content) == nil }
+                .filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
                 .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
             var insertedCount = await store.insertMessages(rows)
             if Self.serviceChannels.contains(channel) {
@@ -728,6 +751,66 @@ final class BroadcastService: ObservableObject {
         reactionsByChannel[BroadcastChannelName.normalize(name)] ?? [:]
     }
 
+    func edits(forChannel name: String) -> [String: MessageEditSnapshot] {
+        editsByChannel[BroadcastChannelName.normalize(name)] ?? [:]
+    }
+
+    private func loadEdits(for channel: String) {
+        let fresh = store.fetchEdits(forChannel: channel)
+        guard editsByChannel[channel] != fresh else { return }
+        editsByChannel[channel] = fresh
+    }
+
+    /// An edit envelope seen in a room (scan, indexer page or sweep): applied if its sender
+    /// sent the message it names and that message is text. Returns whether anything changed.
+    private func applyIncomingEdit(_ edit: MessageEditContent, channel: String, senderAddress: String, editTxId: String, blockTime: Int64) -> Bool {
+        guard let target = store.sender(ofMessage: edit.targetTxId),
+              target.senderAddress == senderAddress,
+              MessageEditCodec.isEditable(target.content) else { return false }
+        return store.upsertEdit(targetTxId: edit.targetTxId, channel: channel, text: edit.text, editTxId: editTxId, blockTime: blockTime, deliveryStatus: nil)
+    }
+
+    // MARK: - Edit
+
+    func startEditing(_ message: BroadcastMessage) {
+        replyingTo = nil
+        editingMessage = message
+    }
+
+    func cancelEditing() {
+        editingMessage = nil
+    }
+
+    /// Edits one of this wallet's own text messages in a room: applied locally at once
+    /// (pending), then sent as an edit envelope exactly like a reaction - one transaction, no
+    /// message row of its own. Sent or failed follow.
+    func sendBroadcastEdit(channel rawChannel: String, targetTxId: String, text: String) async throws {
+        let channel = BroadcastChannelName.normalize(rawChannel)
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        guard let wallet = WalletManager.shared.currentWallet else { throw KasiaError.walletNotFound }
+        guard let privateKey = WalletManager.shared.getPrivateKey() else { throw KasiaError.keychainError("Could not get private key") }
+        editingMessage = nil
+        let payload = MessageEditCodec.encode(targetTxId: targetTxId, text: clean)
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        store.upsertEdit(targetTxId: targetTxId, channel: channel, text: clean, editTxId: nil, blockTime: now, deliveryStatus: "pending")
+        loadEdits(for: channel)
+        do {
+            let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation {
+                try await self.sendBroadcastInternal(
+                    channel: channel, content: payload, walletAddress: wallet.publicAddress,
+                    privateKey: privateKey, pendingId: "edit_\(UUID().uuidString)"
+                )
+            }
+            store.upsertEdit(targetTxId: targetTxId, channel: channel, text: clean, editTxId: realTxId, blockTime: now, deliveryStatus: nil)
+            loadEdits(for: channel)
+        } catch {
+            store.upsertEdit(targetTxId: targetTxId, channel: channel, text: clean, editTxId: nil, blockTime: now, deliveryStatus: "failed")
+            loadEdits(for: channel)
+            throw error
+        }
+    }
+
     private func loadReactions(for channel: String) {
         let fresh = store.fetchReactions(forChannel: channel)
         guard reactionsByChannel[channel] != fresh else { return }
@@ -738,7 +821,7 @@ final class BroadcastService: ObservableObject {
         // Reaction envelopes are never rendered as message rows - drop any that made it into
         // the message table (rows scanned by an app version that predates reactions).
         let fresh = store.messages(forChannel: channel)
-            .filter { MessageReactionCodec.parse($0.content) == nil }
+            .filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
         // Only actually publish when the content changed - this is polled once a second while a
         // channel is open (for live retention pruning), and `@Published` fires on every
         // assignment regardless of equality, so an unconditional assignment here was re-rendering
@@ -1340,6 +1423,7 @@ final class BroadcastService: ObservableObject {
         let hidden = store.hiddenSendersByChannel()
         var touchedChannels = Set<String>()
         var reactionChannels = Set<String>()
+        var editChannels = Set<String>()
 
         for hit in hits {
             guard wanted.contains(hit.channel) else { continue }
@@ -1349,6 +1433,12 @@ final class BroadcastService: ObservableObject {
             // message they target - so intercept and route to the reactions index before this
             // ever becomes a message row. Our own outgoing reactions already applied their local
             // update at send time (sendBroadcastReaction); newest-blockTime-wins dedupes the echo.
+            if let edit = MessageEditCodec.parse(hit.content) {
+                if applyIncomingEdit(edit, channel: hit.channel, senderAddress: hit.senderAddress, editTxId: hit.txId, blockTime: hit.blockTime) {
+                    editChannels.insert(hit.channel)
+                }
+                continue
+            }
             if let reaction = MessageReactionCodec.parse(hit.content) {
                 let changed = store.applyIncomingReaction(
                     targetTxId: reaction.targetTxId,
@@ -1383,6 +1473,9 @@ final class BroadcastService: ObservableObject {
 
         for channel in reactionChannels {
             loadReactions(for: channel)
+        }
+        for channel in editChannels {
+            loadEdits(for: channel)
         }
 
         guard !touchedChannels.isEmpty else { return }

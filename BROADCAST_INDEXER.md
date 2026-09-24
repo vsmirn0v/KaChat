@@ -190,6 +190,9 @@ in-app bell toggle. The plumbing on the app side is DONE:
 - Live messages keep arriving via the app's own block scanning while the app is open (for the
   indexed channels, scanning follows the bell toggle - they have no "always listen"
   toggle); remote push (§5) covers the closed-app case.
+- Edit envelopes (`{"type":"edit","targetTxId":...,"text":...}`, see MESSAGING.md "Message
+  Edits") are ordinary rows to the indexer: store and serve them like any other. Clients
+  intercept them - they never show as messages.
 - While the app is on screen, every joined indexed room with its bell on that is NOT open is
   also swept: one `/get-broadcasts?limit=40` per room every 20 s, sequential
   (`BroadcastService.sweepClosedRooms`). The block scan misses blocks around reconnects and
