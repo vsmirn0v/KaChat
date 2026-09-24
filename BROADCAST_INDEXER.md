@@ -174,6 +174,9 @@ in-app bell toggle. The plumbing on the app side is DONE:
   - Also send `"mutable-content": 1` in `aps`. The app's notification extension applies these
     same preview rules itself (reply text, base64, truncated envelopes), so a body the server
     got wrong is still shown right - but the extension only runs when that flag is set.
+  - Edits: content that is an edit envelope (`{"type":"edit","targetTxId":...,"text":...}`,
+    MESSAGING.md "Message Edits") must NOT generate a push - it changes an earlier message
+    in place; clients apply it silently.
   - Reactions: content that is a reaction envelope
     (`{"type":"reaction","targetTxId":...,"emoji":...,"action":"add"|"remove"}`) must NOT
     generate a push at all — clients render reactions as pills on the target message, never

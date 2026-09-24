@@ -70,7 +70,12 @@ in `hidden_broadcast_senders`.
   text, never base64; file/audio
   envelope → `"Voice message"`; else text verbatim, ~150 chars. Reaction envelopes
   (`{"type":"reaction",...}`) → do NOT push at all (clients render them as pills on the
-  target message, never as messages).
+  target message, never as messages). Edit envelopes (`{"type":"edit",...}`, see
+  MESSAGING.md "Message Edits") → do NOT push either: an edit changes an earlier message in
+  place, there is nothing to announce.
+- **Unwrap BEFORE truncating.** A reply envelope's txid and sender address alone are ~130
+  characters, so truncating the raw JSON at 150 drops the reply's text entirely - the phone
+  then has nothing to show but "Replied to a message". Parse first, cut the inner `text`.
 
 ## 3. KaPosts pushes (NEW)
 

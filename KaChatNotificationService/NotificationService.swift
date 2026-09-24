@@ -76,6 +76,18 @@ class NotificationService: UNNotificationServiceExtension {
         // rules 1:1 bodies get, so a reply shows the reply's text and a media/reaction envelope
         // shows its placeholder instead of raw JSON on the lock screen.
         if request.content.threadIdentifier.hasPrefix("broadcast:") {
+            // An edit changes an earlier message in place - nothing to announce (the spec asks
+            // the server not to push these at all; this is the backstop).
+            if isEditEnvelope(content.body) {
+                content.title = ""
+                content.subtitle = ""
+                content.body = ""
+                content.sound = nil
+                content.badge = nil
+                content.interruptionLevel = .passive
+                contentHandler(content)
+                return
+            }
             content.body = broadcastPreviewText(for: content.body)
             contentHandler(content)
             return
@@ -107,7 +119,14 @@ class NotificationService: UNNotificationServiceExtension {
             // `broadcast:<channel>` the spec asks for lands here, and its body is still the raw
             // on-chain content - a reply/voice/photo envelope shows as JSON (or base64) on the
             // lock screen. Tidy any body that looks like one, whatever the thread-id says.
-            if Self.looksLikeEnvelope(content.body) {
+            if isEditEnvelope(content.body) {
+                content.title = ""
+                content.subtitle = ""
+                content.body = ""
+                content.sound = nil
+                content.badge = nil
+                content.interruptionLevel = .passive
+            } else if Self.looksLikeEnvelope(content.body) {
                 content.body = broadcastPreviewText(for: content.body)
             }
             contentHandler(content)
@@ -207,7 +226,8 @@ class NotificationService: UNNotificationServiceExtension {
                 // are invisible protocol messages - suppress the banner entirely (still stored
                 // above so the main app processes them on open). A payment_notice however IS a
                 // payment the user should see, worded like a real payment push.
-                if isSilentPoolEnvelope(decrypted) {
+                // An edit envelope changes an earlier bubble in place - nothing to announce.
+                if isSilentPoolEnvelope(decrypted) || isEditEnvelope(decrypted) {
                     content.title = ""
                     content.body = ""
                     content.sound = nil
@@ -218,7 +238,6 @@ class NotificationService: UNNotificationServiceExtension {
                 }
                 content.body = paymentNoticePreviewText(for: decrypted)
                     ?? reactionPreviewText(for: decrypted)
-                    ?? editPreviewText(for: decrypted)
                     ?? chessPreviewText(for: decrypted)
                     ?? callPreviewText(for: decrypted)
                     ?? unwrapReplyText(decrypted)
@@ -399,9 +418,13 @@ class NotificationService: UNNotificationServiceExtension {
             // `inGroup: !reactionTargetsMine`: when the shared own-txId list proves the reaction
             // targets MY message, use the 1:1 "to your message" wording instead of the neutral
             // "a message" fallback.
+            // An edit changes an earlier bubble in place - nothing to announce.
+            if isEditEnvelope(match.plaintext) {
+                suppressGroupNotification(content)
+                return
+            }
             let reactionTargetsMine = isReactionToMyMessage(match.plaintext)
             let displayBody = reactionPreviewText(for: match.plaintext, inGroup: !reactionTargetsMine)
-                ?? editPreviewText(for: match.plaintext)
                 ?? chessPreviewText(for: match.plaintext)
                 ?? callPreviewText(for: match.plaintext)
                 ?? unwrapReplyText(match.plaintext)
@@ -1008,15 +1031,18 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     /// An edit envelope (`{"type":"edit","targetTxId":...,"text":...}`, see MESSAGING.md
-    /// "Message Edits") reads as "Edited a message" rather than its JSON - the main app's
-    /// `MessageEditCodec` counterpart here, like `reactionPreviewText` above.
-    private func editPreviewText(for content: String) -> String? {
+    /// "Message Edits") - the main app's `MessageEditCodec` counterpart. An edit is never
+    /// announced: it changes an earlier bubble in place.
+    private func isEditEnvelope(_ content: String) -> Bool {
         struct PushEditEnvelope: Decodable { let type: String; let targetTxId: String }
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
               let parsed = try? JSONDecoder().decode(PushEditEnvelope.self, from: data),
-              parsed.type == "edit", !parsed.targetTxId.isEmpty else { return nil }
-        return "Edited a message"
+              parsed.type == "edit", !parsed.targetTxId.isEmpty else {
+            // A cut-off envelope still says what it is.
+            return trimmed.first == "{" && trimmed.replacingOccurrences(of: " ", with: "").contains("\"type\":\"edit\"")
+        }
+        return true
     }
 
     /// True when `content` is a reaction envelope targeting one of the wallet's OWN group

@@ -265,7 +265,9 @@ original, with a small "edited" mark. Rules, identical on every platform:
 - No delete, and no edit window: any time.
 - Storage is up to the client (iOS keeps a small edits table beside reactions in each store;
   the original row is never rewritten). The original stays on chain and in explorers.
-- Notification preview for an incoming edit envelope: "Edited a message".
+- **No notification** for an edit - it changes an earlier bubble in place. Clients never
+  banner it; push services must not push it (public rooms); the iOS notification extension
+  blanks one that arrives anyway (1:1 and groups, where the server cannot see inside).
 
 Reference implementation: `MessageEditCodec` in `Models.swift`; interception in
 `ChatService.addMessageToConversation`, `GroupChatService` (next to the reaction branch) and
