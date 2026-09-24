@@ -519,7 +519,7 @@ struct KaPostsView: View {
                         onOpenProfile: { address in
                             // pubkey is nil: the profile screen resolves it from the address,
                             // the same as a tap from a notification row.
-                            profileTarget = PosterProfileTarget(address: address, pubkey: nil)
+                            kaPostsPresent { profileTarget = PosterProfileTarget(address: address, pubkey: nil) }
                         }
                     )
                 case .notifications:
@@ -539,6 +539,7 @@ struct KaPostsView: View {
             .fullScreenCover(item: $menuReplyComposerTarget) { target in
                 replyComposerSheet(for: target)
             }
+            .kaPostsSlideCover { menuSheet = nil }
         }
     }
 
@@ -583,11 +584,13 @@ struct KaPostsView: View {
         }
         .fullScreenCover(item: $profileTarget) { target in
             posterProfileSheet(for: target)
+                .kaPostsSlideCover { profileTarget = nil }
         }
         .fullScreenCover(item: $detailTarget) { _ in
             // The TOP of the stack, not the item that triggered presentation - pushing a reply
             // changes the stack without re-presenting the cover.
             postDetailSheet(postId: threadStack.last ?? UUID())
+                .kaPostsSlideCover { popThread() }
         }
         // Half sheet rather than a confirmation dialog - see RepostActionsSheet.
         .sheet(item: $repostDialogTarget) { target in
@@ -617,6 +620,7 @@ struct KaPostsView: View {
         }
         .fullScreenCover(item: $engagementTarget) { target in
             KaPostEngagementView(post: target)
+                .kaPostsSlideCover { engagementTarget = nil }
         }
         .fullScreenCover(item: $quoteComposerTarget, onDismiss: { clearRestoredComposerDraft() }) { target in
             quoteComposerSheet(for: target)
@@ -652,7 +656,7 @@ struct KaPostsView: View {
             }
             if KaPostsDeepLink.pendingOpenNotifications {
                 KaPostsDeepLink.pendingOpenNotifications = false
-                menuSheet = .notifications
+                kaPostsPresent { menuSheet = .notifications }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openKaPost)) { notification in
@@ -667,7 +671,7 @@ struct KaPostsView: View {
                 Task { await openSharedPost(txId: pending) }
             } else if KaPostsDeepLink.pendingOpenNotifications {
                 KaPostsDeepLink.pendingOpenNotifications = false
-                menuSheet = .notifications
+                kaPostsPresent { menuSheet = .notifications }
             }
         }
         .onChange(of: selectedFeed) { tab in
@@ -746,7 +750,7 @@ struct KaPostsView: View {
             ForEach(SideMenuItem.allCases) { item in
                 Button {
                     Haptics.impact(.light)
-                    menuSheet = item
+                    kaPostsPresent { menuSheet = item }
                 } label: {
                     Image(systemName: item.icon)
                         .font(.system(size: 20, weight: .semibold))
@@ -862,9 +866,9 @@ struct KaPostsView: View {
                             onBlock: { moderationStore.block(post.posterAddress) },
                             onBookmark: { toggleBookmark(post) },
                             onRetry: { retryPost(post) },
-                            onViewEngagement: { engagementTarget = post },
+                            onViewEngagement: { kaPostsPresent { engagementTarget = post } },
                             onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
-                            onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress, pubkey: post.posterPubkey) },
+                            onOpenProfile: { kaPostsPresent { profileTarget = PosterProfileTarget(address: post.posterAddress, pubkey: post.posterPubkey) } },
                             onTip: { tip(post.posterAddress) },
                             onLike: { toggleLike(post) },
                             onDislike: { toggleDislike(post) },
@@ -1906,7 +1910,7 @@ struct KaPostsView: View {
             menuReplyComposerTarget = nil
             showComposer = false
             DispatchQueue.main.asyncAfter(deadline: .now() + (hadSheetUp ? 0.4 : 0)) {
-                profileTarget = PosterProfileTarget(address: resolution.ownerAddress, pubkey: pubkey)
+                kaPostsPresent { profileTarget = PosterProfileTarget(address: resolution.ownerAddress, pubkey: pubkey) }
             }
         }
     }
@@ -3155,7 +3159,7 @@ struct KaPostsView: View {
             // $engagementTarget sheet can't present while the thread sheet is up.
             onViewEngagement: { threadEngagementTarget = item },
             onFollowToggle: { toggleFollowSubmitting(address: item.posterAddress, pubkey: item.posterPubkey) },
-            onOpenProfile: { profileTarget = PosterProfileTarget(address: item.posterAddress, pubkey: item.posterPubkey) },
+            onOpenProfile: { kaPostsPresent { profileTarget = PosterProfileTarget(address: item.posterAddress, pubkey: item.posterPubkey) } },
             onTip: { tip(item.posterAddress) },
             onLike: { toggleLike(item) },
             onDislike: { toggleDislike(item) },
@@ -3431,7 +3435,7 @@ struct KaPostsView: View {
             if threadStack.last != post.id { threadStack.append(post.id) }
         } else {
             threadStack = [post.id]
-            detailTarget = PostDetailTarget(id: post.id)
+            kaPostsPresent { detailTarget = PostDetailTarget(id: post.id) }
         }
         // Remote post: pull its real reply thread from the indexer into the comments array,
         // then walk the author's own continuation so the Thread section can render.
@@ -3484,7 +3488,7 @@ struct KaPostsView: View {
     private func presentProfileDetail(_ post: DraftPost, ensureComment: DraftPost? = nil) {
         // Seeds this surface's stack; everything deeper pushes onto it (see openDetail).
         profileThreadStack = [post.id]
-        profileDetailTarget = PostDetailTarget(id: post.id)
+        kaPostsPresent { profileDetailTarget = PostDetailTarget(id: post.id) }
         Task {
             await loadThreadReplies(for: post, reset: true)
             if let ensureComment, let ensuredId = ensureComment.remoteId, !ensuredId.isEmpty {
@@ -3651,12 +3655,12 @@ struct KaPostsView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .kaPostsSwipeBack { menuSheet = nil }
             // Comment thread for a post tapped here - presented from this profile's OWN
             // NavigationStack so it stacks above the profile sheet, exactly as the poster
             // profile does it (the top-level $detailTarget cannot present from inside a sheet).
             .fullScreenCover(item: $profileDetailTarget) { target in
                 // The TOP of this surface's stack, not the item that presented it - pushing a
+                    .kaPostsSlideCover { popThread() }
                 // comment or jumping to an ancestor swaps what is drawn without re-presenting.
                 postDetailSheet(postId: profileThreadStack.last ?? target.id)
             }
@@ -3854,7 +3858,6 @@ struct KaPostsView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .kaPostsSwipeBack { profileTarget = nil }
             .navigationDestination(isPresented: Binding(
                 get: { posterProfileFollowListKind != nil },
                 set: { if !$0 { posterProfileFollowListKind = nil } }
@@ -3874,6 +3877,7 @@ struct KaPostsView: View {
             // NavigationStack so it stacks above the profile sheet (top-level $detailTarget can't).
             .fullScreenCover(item: $profileDetailTarget) { target in
                 // The TOP of this surface's stack - see the matching note on the own-profile sheet.
+                    .kaPostsSlideCover { popThread() }
                 postDetailSheet(postId: profileThreadStack.last ?? target.id)
             }
             // Quote tapped on a post in this profile - presented from the profile's OWN
@@ -4100,7 +4104,7 @@ struct KaPostsView: View {
             onBlock: { moderationStore.block(post.posterAddress) },
             onBookmark: { toggleBookmark(post) },
             onRetry: { retryPost(post) },
-            onViewEngagement: { engagementTarget = post },
+            onViewEngagement: { kaPostsPresent { engagementTarget = post } },
             onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
             onOpenProfile: {},
             onTip: { tip(post.posterAddress) },
@@ -4133,7 +4137,7 @@ struct KaPostsView: View {
             onBlock: { moderationStore.block(post.posterAddress) },
             onBookmark: { toggleBookmark(post) },
             onRetry: nil,
-            onViewEngagement: { engagementTarget = post },
+            onViewEngagement: { kaPostsPresent { engagementTarget = post } },
             onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
             onOpenProfile: {},
             onTip: { tip(post.posterAddress) },
@@ -4223,7 +4227,6 @@ struct KaPostsView: View {
             .navigationTitle(kind.title)
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .kaPostsSwipeBack { menuSheet = nil }
         }
     }
 
@@ -4281,7 +4284,6 @@ struct KaPostsView: View {
             .navigationTitle("Drafts")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .kaPostsSwipeBack { menuSheet = nil }
             // Presented from this sheet's own stack, like the profile's thread sheet - a
             // top-level presenter cannot open while this one is on screen.
             .fullScreenCover(item: $editingDraft) { draft in
@@ -4327,7 +4329,7 @@ struct KaPostsView: View {
                                     onBlock: { moderationStore.block(post.posterAddress) },
                                     onBookmark: { toggleBookmark(post) },
                                     onRetry: { retryPost(post) },
-                                    onViewEngagement: { engagementTarget = post },
+                                    onViewEngagement: { kaPostsPresent { engagementTarget = post } },
                                     onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                     onOpenProfile: {},
                                     onTip: { tip(post.posterAddress) },
@@ -4351,7 +4353,6 @@ struct KaPostsView: View {
             .navigationTitle("Bookmarks")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .kaPostsSwipeBack { menuSheet = nil }
         }
     }
 
@@ -4597,11 +4598,6 @@ struct KaPostsView: View {
                     // any comment in it. Same nested-sheet rule as the quote composer above.
                     replyComposerSheet(for: target)
                 }
-                // Back is a swipe from the left edge, as on any pushed screen: up a level while
-                // the thread has history, out of it at the root. No button - the thread is a
-                // full-screen cover (it must stack above the feed), which has no swipe of its
-                // own, so kaPostsSwipeBack gives it one.
-                .kaPostsSwipeBack { popThread() }
             } else {
                 // An id this view cannot resolve used to render an empty NavigationStack - a
                 // blank sheet with no way to tell whether it was loading, broken, or closed
@@ -4620,7 +4616,6 @@ struct KaPostsView: View {
                         .padding(.horizontal, 32)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .kaPostsSwipeBack { closeThread() }
                 .kaPostsStatusChrome()
             }
         }
@@ -7079,7 +7074,6 @@ struct KaPostEngagementView: View {
             .navigationTitle("Post Activity")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .kaPostsSwipeBack { dismiss() }
             .task { await load() }
         }
     }
@@ -7639,7 +7633,6 @@ struct KaPostsNotificationsView: View {
             .navigationTitle("Notifications")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .kaPostsSwipeBack { dismiss() }
             .task { await load() }
             // The open-conversation rule for KaPosts: while this stream is on screen,
             // AppDelegate.willPresent suppresses kaposts banners (local and push alike).
@@ -8059,21 +8052,15 @@ extension View {
         }
     }
 
-    /// Back, the way a pushed screen goes back: a swipe from the left edge. KaPosts' screens
-    /// are full-screen covers (each must stack above the one that opened it), and a cover has
-    /// no swipe of its own - so this gives every one of them the same swipe, and the Back
-    /// button is gone. Simultaneous with the content's own scrolling: a vertical drag is the
-    /// list's, a horizontal one that starts at the edge is back.
-    func kaPostsSwipeBack(_ action: @escaping () -> Void) -> some View {
-        simultaneousGesture(
-            DragGesture(minimumDistance: 24, coordinateSpace: .global)
-                .onEnded { value in
-                    guard value.startLocation.x < 48,
-                          value.translation.width > 80,
-                          abs(value.translation.height) < abs(value.translation.width) else { return }
-                    action()
-                }
-        )
+    /// A KaPosts cover that behaves like a pushed screen: it slides in from the right, and a
+    /// drag from the left edge pulls it out with the finger - let go past a third of the way
+    /// (or flick) and it is gone, otherwise it settles back. The covers are full-screen covers
+    /// because each must stack above the one that opened it, and a cover's own transition is
+    /// vertical; openers present it through `kaPostsPresent` (no cover animation) and this
+    /// draws the push instead, over a clear presentation background so the screen beneath
+    /// shows through. `onBack` is the same action the old Back button ran.
+    func kaPostsSlideCover(onBack: @escaping () -> Void) -> some View {
+        modifier(KaPostsSlideCover(onBack: onBack))
     }
 
     func kaPostsStatusChrome() -> some View {
@@ -8086,6 +8073,78 @@ extension View {
             ToolbarItem(placement: .principal) {
                 BalanceToolbarLabel()
             }
+        }
+    }
+}
+
+/// Presents or dismisses a KaPosts cover with the cover's own animation off - the push is
+/// drawn by `kaPostsSlideCover`.
+func kaPostsPresent(_ body: () -> Void) {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction, body)
+}
+
+private struct KaPostsSlideCover: ViewModifier {
+    let onBack: () -> Void
+    @State private var offset: CGFloat = UIScreen.main.bounds.width
+    @State private var dragging = false
+
+    func body(content: Content) -> some View {
+        let width = max(UIScreen.main.bounds.width, 1)
+        let progress = Double(max(0, min(1, 1 - offset / width)))
+        return ZStack {
+            // The screen beneath dims as this one covers it, like a navigation push.
+            Color.black.opacity(0.3 * progress)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            content
+                .background(Color(.systemBackground).ignoresSafeArea())
+                .offset(x: offset)
+                .shadow(color: Color.black.opacity(offset > 0 ? 0.28 : 0), radius: 16, x: -6, y: 0)
+        }
+        .modifier(ClearPresentationBackground())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12, coordinateSpace: .global)
+                .onChanged { value in
+                    if !dragging {
+                        // Only a drag that starts at the left edge and runs sideways - a
+                        // vertical one is the list's.
+                        guard value.startLocation.x < 48,
+                              abs(value.translation.width) > abs(value.translation.height) else { return }
+                        dragging = true
+                    }
+                    offset = max(0, value.translation.width)
+                }
+                .onEnded { value in
+                    guard dragging else { return }
+                    dragging = false
+                    let flick = value.predictedEndTranslation.width > width * 0.6
+                    if offset > width * 0.33 || flick {
+                        withAnimation(.easeOut(duration: 0.2)) { offset = width }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.21) {
+                            kaPostsPresent { onBack() }
+                            // A thread popping one level swaps its content in place rather
+                            // than closing; the parent should simply be there.
+                            DispatchQueue.main.async { offset = 0 }
+                        }
+                    } else {
+                        withAnimation(.easeOut(duration: 0.2)) { offset = 0 }
+                    }
+                }
+        )
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.28)) { offset = 0 }
+        }
+    }
+}
+
+private struct ClearPresentationBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.presentationBackground(.clear)
+        } else {
+            content
         }
     }
 }

@@ -64,7 +64,6 @@ struct KaPostsSettingsView: View {
             .navigationTitle("KaPosts Settings")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .kaPostsSwipeBack { onClose() }
             .onAppear {
                 if let sompi = settingsViewModel.settings.kaPostsDefaultTipSompi, sompi > 0 {
                     instantTipEnabled = true
