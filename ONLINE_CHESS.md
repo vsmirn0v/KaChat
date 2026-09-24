@@ -147,8 +147,9 @@ Example: `{"type":"chess_t","v":1,"t":"7c1e…","a":"move","g":"1-0","n":1,"from
 The leaderboard is two boards, by address, over the games played here - never the casual
 games inside 1:1 chats:
 
-- **1v1**: wins and losses in 1v1 games (`duel-N` rooms and private 1v1s). Most wins first,
-  fewest losses breaking ties.
+- **1v1**: wins and losses in **every game played here** - `duel-N` rooms, private 1v1s and
+  the games inside tournaments alike (`wins` / `losses`). Most wins first, fewest losses
+  breaking ties.
 - **Tournaments**: whole tournaments only - **won** (champion of the eight-player bracket)
   and **lost** (knocked out: a lost game inside a tournament is one tournament loss, counted
   the moment it happens; winning a game inside one scores nothing until the final is won).

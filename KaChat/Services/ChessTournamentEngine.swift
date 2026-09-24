@@ -304,12 +304,12 @@ enum ChessTournamentEngine {
         }
     }
 
-    /// The 1v1 board: players with a 1v1 game behind them, most wins first, fewest losses
-    /// breaking ties.
+    /// The 1v1 board: every game played here - 1v1 rooms and the games inside tournaments
+    /// alike - most wins first, fewest losses breaking ties.
     static func duelLeaderboard(_ rows: [ChessLeaderboardRow]) -> [ChessLeaderboardRow] {
-        rows.filter { $0.duelWins + $0.duelLosses > 0 }.sorted {
-            if $0.duelWins != $1.duelWins { return $0.duelWins > $1.duelWins }
-            if $0.duelLosses != $1.duelLosses { return $0.duelLosses < $1.duelLosses }
+        rows.filter { $0.wins + $0.losses > 0 }.sorted {
+            if $0.wins != $1.wins { return $0.wins > $1.wins }
+            if $0.losses != $1.losses { return $0.losses < $1.losses }
             return $0.lastPlayedAt > $1.lastPlayedAt
         }
     }

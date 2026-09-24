@@ -630,19 +630,28 @@ struct ChessLeaderboardRows: View {
                     Text(ContactsManager.shared.displayName(for: row.address))
                         .font(.subheadline.weight(row.address == walletManager.currentWallet?.publicAddress ? .bold : .semibold))
                         .lineLimit(1)
-                    Spacer()
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    // The numbers keep their full width; a long name gives way, not the score.
                     if mode == .duel {
                         HStack(spacing: 10) {
-                            Text("\(row.duelWins) W").foregroundColor(.green)
-                            Text("\(row.duelLosses) L").foregroundColor(.red)
+                            Text("\(row.wins) W").foregroundColor(.green)
+                            Text("\(row.losses) L").foregroundColor(.red)
                         }
                         .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .fixedSize()
+                        .layoutPriority(1)
                     } else {
                         HStack(spacing: 10) {
-                            Label("\(row.tournamentsWon)", systemImage: "trophy.fill").foregroundColor(.yellow)
+                            HStack(spacing: 4) {
+                                Image(systemName: "trophy.fill").foregroundColor(.yellow)
+                                Text("\(row.tournamentsWon)").foregroundColor(.yellow)
+                            }
                             Text("\(row.tournamentsLost) L").foregroundColor(.red)
                         }
                         .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .fixedSize()
+                        .layoutPriority(1)
                     }
                 }
                 .contentShape(Rectangle())
@@ -651,7 +660,7 @@ struct ChessLeaderboardRows: View {
                 .listRowBackground(row.address == walletManager.currentWallet?.publicAddress ? Color.accentColor.opacity(0.12) : nil)
             }
         } header: {
-            Text(mode == .duel ? "1v1 leaderboard · most wins, fewest losses" : "Tournament leaderboard · tournaments won, tournaments lost")
+            Text(mode == .duel ? "Games won and lost - 1v1s and tournament games alike" : "Tournaments won and lost")
         }
         .sheet(isPresented: Binding(
             get: { profileContact != nil },
