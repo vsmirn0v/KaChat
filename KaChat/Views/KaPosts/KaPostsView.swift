@@ -3651,11 +3651,7 @@ struct KaPostsView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Back") { menuSheet = nil }
-                }
-            }
+            .kaPostsSwipeBack { menuSheet = nil }
             // Comment thread for a post tapped here - presented from this profile's OWN
             // NavigationStack so it stacks above the profile sheet, exactly as the poster
             // profile does it (the top-level $detailTarget cannot present from inside a sheet).
@@ -3858,11 +3854,7 @@ struct KaPostsView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Back") { profileTarget = nil }
-                }
-            }
+            .kaPostsSwipeBack { profileTarget = nil }
             .navigationDestination(isPresented: Binding(
                 get: { posterProfileFollowListKind != nil },
                 set: { if !$0 { posterProfileFollowListKind = nil } }
@@ -4231,11 +4223,7 @@ struct KaPostsView: View {
             .navigationTitle(kind.title)
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Back") { menuSheet = nil }
-                }
-            }
+            .kaPostsSwipeBack { menuSheet = nil }
         }
     }
 
@@ -4293,11 +4281,7 @@ struct KaPostsView: View {
             .navigationTitle("Drafts")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Back") { menuSheet = nil }
-                }
-            }
+            .kaPostsSwipeBack { menuSheet = nil }
             // Presented from this sheet's own stack, like the profile's thread sheet - a
             // top-level presenter cannot open while this one is on screen.
             .fullScreenCover(item: $editingDraft) { draft in
@@ -4367,11 +4351,7 @@ struct KaPostsView: View {
             .navigationTitle("Bookmarks")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Back") { menuSheet = nil }
-                }
-            }
+            .kaPostsSwipeBack { menuSheet = nil }
         }
     }
 
@@ -4617,16 +4597,11 @@ struct KaPostsView: View {
                     // any comment in it. Same nested-sheet rule as the quote composer above.
                     replyComposerSheet(for: target)
                 }
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        // ONE control, and it always means back: up a level while the thread has
-                        // history, out of it at the root. There used to be two - a chevron here
-                        // and Done there - which made the common action, one step up, the one
-                        // that looked secondary, and hid it entirely on the profile surface where
-                        // the stack it was gated on was never pushed.
-                        Button("Back") { popThread() }
-                    }
-                }
+                // Back is a swipe from the left edge, as on any pushed screen: up a level while
+                // the thread has history, out of it at the root. No button - the thread is a
+                // full-screen cover (it must stack above the feed), which has no swipe of its
+                // own, so kaPostsSwipeBack gives it one.
+                .kaPostsSwipeBack { popThread() }
             } else {
                 // An id this view cannot resolve used to render an empty NavigationStack - a
                 // blank sheet with no way to tell whether it was loading, broken, or closed
@@ -4645,11 +4620,7 @@ struct KaPostsView: View {
                         .padding(.horizontal, 32)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Back") { closeThread() }
-                    }
-                }
+                .kaPostsSwipeBack { closeThread() }
                 .kaPostsStatusChrome()
             }
         }
@@ -7108,11 +7079,7 @@ struct KaPostEngagementView: View {
             .navigationTitle("Post Activity")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Back") { dismiss() }
-                }
-            }
+            .kaPostsSwipeBack { dismiss() }
             .task { await load() }
         }
     }
@@ -7672,11 +7639,7 @@ struct KaPostsNotificationsView: View {
             .navigationTitle("Notifications")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Back") { dismiss() }
-                }
-            }
+            .kaPostsSwipeBack { dismiss() }
             .task { await load() }
             // The open-conversation rule for KaPosts: while this stream is on screen,
             // AppDelegate.willPresent suppresses kaposts banners (local and push alike).
@@ -8094,6 +8057,23 @@ extension View {
         } else {
             self
         }
+    }
+
+    /// Back, the way a pushed screen goes back: a swipe from the left edge. KaPosts' screens
+    /// are full-screen covers (each must stack above the one that opened it), and a cover has
+    /// no swipe of its own - so this gives every one of them the same swipe, and the Back
+    /// button is gone. Simultaneous with the content's own scrolling: a vertical drag is the
+    /// list's, a horizontal one that starts at the edge is back.
+    func kaPostsSwipeBack(_ action: @escaping () -> Void) -> some View {
+        simultaneousGesture(
+            DragGesture(minimumDistance: 24, coordinateSpace: .global)
+                .onEnded { value in
+                    guard value.startLocation.x < 48,
+                          value.translation.width > 80,
+                          abs(value.translation.height) < abs(value.translation.width) else { return }
+                    action()
+                }
+        )
     }
 
     func kaPostsStatusChrome() -> some View {
