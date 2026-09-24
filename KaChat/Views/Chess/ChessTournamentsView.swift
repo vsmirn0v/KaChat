@@ -305,16 +305,14 @@ struct ChessTournamentsView: View {
                 Text("Finished 1v1 games")
             }
         } else {
-            // A finished tournament: its games, final first, each straight to its board.
-            ForEach(done) { tournament in
-                Section {
-                    let games = tournament.games.values.sorted { ($0.round, $0.id) > ($1.round, $1.id) }
-                    ForEach(games) { game in
-                        finishedGameRow(game, in: tournament)
-                    }
-                } header: {
-                    Text(tournament.name + (tournament.champion.map { " · won by \(name(for: $0))" } ?? ""))
+            // Finished tournaments as a list; each opens its bracket - the champion at the end
+            // of it, every game a tap away to see the board as it was left.
+            Section {
+                ForEach(done) { tournament in
+                    tournamentRow(tournament, action: tournament.champion.map { "Won by \(name(for: $0))" } ?? "Finished")
                 }
+            } header: {
+                Text("Finished tournaments")
             }
         }
     }
