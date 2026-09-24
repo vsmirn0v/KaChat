@@ -8109,79 +8109,138 @@ enum KaPostsSlideSnapshot {
 
 private struct KaPostsSlideCover: ViewModifier {
     let onBack: () -> Void
-    @State private var offset: CGFloat = UIScreen.main.bounds.width
-    @State private var dragging = false
-    @State private var beneath: UIImage? = KaPostsSlideSnapshot.image
 
     func body(content: Content) -> some View {
-        let width = max(UIScreen.main.bounds.width, 1)
-        let progress = Double(max(0, min(1, 1 - offset / width)))
-        return ZStack {
-            // The screen this one slid over, dimming as it is covered - a still picture.
-            if let beneath {
-                Image(uiImage: beneath)
-                    .resizable()
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            } else {
-                Color(.systemBackground).ignoresSafeArea()
-            }
-            Color.black.opacity(0.3 * progress)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            content
-                .background(Color(.systemBackground).ignoresSafeArea())
-                // The edge shadow is a 14pt gradient strip hung off the leading edge, not a
-                // `.shadow` on the whole screen: that one re-rasterized the entire list every
-                // frame of the drag.
-                .overlay(alignment: .leading) {
-                    LinearGradient(colors: [Color.black.opacity(0.22), Color.clear], startPoint: .trailing, endPoint: .leading)
-                        .frame(width: 14)
-                        .offset(x: -14)
-                        .opacity(offset > 0 ? 1 : 0)
-                        .allowsHitTesting(false)
-                        .ignoresSafeArea()
-                }
-                .offset(x: offset)
+        content.background(KaPostsSlideDriver(onBack: onBack))
+    }
+}
+
+/// The push, driven by UIKit. The SwiftUI version moved the screen by writing an offset into
+/// state on every frame of the drag, which re-evaluated the whole cover hierarchy each time
+/// - a long list behind a moving finger. This does what a navigation pop does: it finds the
+/// cover's own view controller, transforms its view's layer with Core Animation, and lets an
+/// edge-pan recognizer drive that transform directly. Nothing in SwiftUI re-renders while the
+/// finger moves. The snapshot of the screen beneath and a dim sit in the presentation
+/// container under the moving view.
+private struct KaPostsSlideDriver: UIViewRepresentable {
+    let onBack: () -> Void
+
+    func makeUIView(context: Context) -> KaPostsSlideDriverView {
+        KaPostsSlideDriverView(onBack: onBack)
+    }
+
+    func updateUIView(_ uiView: KaPostsSlideDriverView, context: Context) {
+        uiView.onBack = onBack
+    }
+}
+
+final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
+    var onBack: () -> Void
+    private weak var host: UIViewController?
+    private weak var dim: UIView?
+    private weak var beneath: UIImageView?
+    private var attached = false
+
+    init(onBack: @escaping () -> Void) {
+        self.onBack = onBack
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, !attached else { return }
+        // The nearest view controller up the responder chain is the cover's own host.
+        var responder: UIResponder? = self
+        var found: UIViewController?
+        while let current = responder {
+            if let controller = current as? UIViewController { found = controller; break }
+            responder = current.next
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 12, coordinateSpace: .global)
-                .onChanged { value in
-                    if !dragging {
-                        // Only a drag that starts at the left edge and runs sideways - a
-                        // vertical one is the list's.
-                        guard value.startLocation.x < 48,
-                              abs(value.translation.width) > abs(value.translation.height) else { return }
-                        dragging = true
-                    }
-                    // Straight to the finger: no implicit animation smoothing the drag.
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) { offset = max(0, value.translation.width) }
-                }
-                .onEnded { value in
-                    guard dragging else { return }
-                    dragging = false
-                    let flick = value.predictedEndTranslation.width > width * 0.6
-                    if offset > width * 0.33 || flick {
-                        withAnimation(.easeOut(duration: 0.2)) { offset = width }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.21) {
-                            kaPostsPresent { onBack() }
-                            // A thread popping one level swaps its content in place rather
-                            // than closing; the parent should simply be there.
-                            DispatchQueue.main.async { offset = 0 }
+        guard let controller = found, let container = controller.view.superview else { return }
+        attached = true
+        host = controller
+
+        let width = container.bounds.width
+        let picture = UIImageView(image: KaPostsSlideSnapshot.image)
+        picture.frame = container.bounds
+        picture.contentMode = .scaleAspectFill
+        picture.backgroundColor = .systemBackground
+        picture.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        let shade = UIView(frame: container.bounds)
+        shade.backgroundColor = .black
+        shade.alpha = 0
+        shade.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.insertSubview(picture, belowSubview: controller.view)
+        container.insertSubview(shade, aboveSubview: picture)
+        beneath = picture
+        dim = shade
+
+        let view = controller.view!
+        view.backgroundColor = .systemBackground
+        view.layer.shadowColor = UIColor.black.cgColor
+        view.layer.shadowOpacity = 0.25
+        view.layer.shadowRadius = 8
+        view.layer.shadowOffset = CGSize(width: -4, height: 0)
+        // A shadow path makes the shadow a one-time raster rather than per-frame work.
+        view.layer.shadowPath = UIBezierPath(rect: view.bounds).cgPath
+
+        view.transform = CGAffineTransform(translationX: width, y: 0)
+        UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseOut]) {
+            view.transform = .identity
+            shade.alpha = 0.3
+        }
+
+        let pan = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.edges = .left
+        pan.delegate = self
+        view.addGestureRecognizer(pan)
+    }
+
+    @objc private func handlePan(_ pan: UIScreenEdgePanGestureRecognizer) {
+        guard let controller = host, let view = controller.view, let container = view.superview else { return }
+        let width = max(container.bounds.width, 1)
+        let translation = max(0, pan.translation(in: container).x)
+        switch pan.state {
+        case .changed:
+            view.transform = CGAffineTransform(translationX: translation, y: 0)
+            dim?.alpha = 0.3 * (1 - translation / width)
+        case .ended, .cancelled:
+            let velocity = pan.velocity(in: container).x
+            if translation > width * 0.33 || velocity > 800 {
+                let remaining = Double(max(0.08, min(0.22, (width - translation) / max(velocity, 1200))))
+                UIView.animate(withDuration: remaining, delay: 0, options: [.curveEaseOut]) {
+                    view.transform = CGAffineTransform(translationX: width, y: 0)
+                    self.dim?.alpha = 0
+                } completion: { _ in
+                    kaPostsPresent { self.onBack() }
+                    // A thread popping one level swaps its content in place rather than
+                    // closing: the parent is drawn into this same view, so bring it back.
+                    DispatchQueue.main.async {
+                        guard view.window != nil, controller.presentingViewController != nil,
+                              controller.isBeingDismissed == false else { return }
+                        UIView.animate(withDuration: 0.2) {
+                            view.transform = .identity
+                            self.dim?.alpha = 0.3
                         }
-                    } else {
-                        withAnimation(.easeOut(duration: 0.2)) { offset = 0 }
                     }
                 }
-        )
-        .onAppear {
-            // A frame later, so the slide does not share its first frames with the screen's
-            // own first layout.
-            DispatchQueue.main.async {
-                withAnimation(.easeOut(duration: 0.26)) { offset = 0 }
+            } else {
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut]) {
+                    view.transform = .identity
+                    self.dim?.alpha = 0.3
+                }
             }
+        default:
+            break
         }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        true
     }
 }
