@@ -121,12 +121,66 @@ final class CoinGeckoService: Sendable {
     /// calls) — a launch plus a couple of chart-range taps was enough to make every subsequent
     /// range fetch come back empty, leaving the chart stuck on whatever range loaded first. A
     /// 429/5xx here gets one retry, honoring Retry-After (capped at 10s).
-    /// `days == 0` asks for everything CoinGecko has (`days=max`): the all-time chart.
+    /// `days == 0` is the all-time chart - see `fetchAllTimeHistory`.
+    /// All-time. CoinGecko's public tier stops at 365 days (error 10012 past it), so the
+    /// older part comes from Gate.io's daily KAS/USDT candles - public, no key, trading there
+    /// since 2023-03-21 - and CoinGecko's own last 365 days sit on top unchanged. Gate quotes
+    /// USDT; the older points are scaled into the chosen currency by the ratio at the seam
+    /// (CoinGecko's first point over Gate's close of that day), which is exact for USD and a
+    /// constant-rate approximation for any other currency. Daily granularity throughout.
+    private func fetchAllTimeHistory(currency: AppCurrency) async -> [PricePoint] {
+        async let recentTask = getPriceHistory(days: 365, currency: currency)
+        let gate = await fetchGateDailyCloses()
+        let recent = await recentTask
+        guard !gate.isEmpty else { return recent }
+        guard let firstRecent = recent.first else {
+            return currency == .usDollar ? gate : []
+        }
+        let anchor = gate.last(where: { $0.timestamp <= firstRecent.timestamp }) ?? gate[gate.count - 1]
+        let ratio = anchor.value > 0 ? firstRecent.value / anchor.value : 1
+        let older = gate
+            .filter { $0.timestamp < firstRecent.timestamp }
+            .map { PricePoint(timestamp: $0.timestamp, value: $0.value * ratio) }
+        return older + recent
+    }
+
+    /// Gate.io daily closes for KAS_USDT, oldest first, paged backwards 1000 days at a time
+    /// until the listing. Row shape: [time, quote volume, close, high, low, open, ...].
+    private func fetchGateDailyCloses() async -> [PricePoint] {
+        var closes: [Int64: Double] = [:]
+        var to = Int64(Date().timeIntervalSince1970)
+        for _ in 0..<6 {
+            guard var components = URLComponents(string: "https://api.gateio.ws/api/v4/spot/candlesticks") else { break }
+            components.queryItems = [
+                URLQueryItem(name: "currency_pair", value: "KAS_USDT"),
+                URLQueryItem(name: "interval", value: "1d"),
+                URLQueryItem(name: "limit", value: "1000"),
+                URLQueryItem(name: "to", value: String(to))
+            ]
+            guard let url = components.url,
+                  let (data, response) = try? await session.data(from: url),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let rows = try? JSONDecoder().decode([[String]].self, from: data),
+                  !rows.isEmpty else { break }
+            var earliest = to
+            for row in rows where row.count >= 3 {
+                if let time = Int64(row[0]), let close = Double(row[2]) {
+                    closes[time] = close
+                    earliest = min(earliest, time)
+                }
+            }
+            if rows.count < 1000 || earliest >= to { break }
+            to = earliest - 86_400
+        }
+        return closes.keys.sorted().map { PricePoint(timestamp: Date(timeIntervalSince1970: TimeInterval($0)), value: closes[$0] ?? 0) }
+    }
+
     func getPriceHistory(days: Int, currency: AppCurrency) async -> [PricePoint] {
+        if days == 0 { return await fetchAllTimeHistory(currency: currency) }
         guard var components = URLComponents(string: baseURL + "/api/v3/coins/kaspa/market_chart") else { return [] }
         components.queryItems = [
             URLQueryItem(name: "vs_currency", value: currency.rawValue),
-            URLQueryItem(name: "days", value: days == 0 ? "max" : String(days))
+            URLQueryItem(name: "days", value: String(days))
         ]
         guard let url = components.url else { return [] }
 
