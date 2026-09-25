@@ -26,6 +26,37 @@ struct ImportWalletView: View {
 
     private var canImport: Bool { allWordsValid && !alias.isEmpty }
 
+    /// Fills the slots from a phrase on the clipboard: 12 or 24 words, any spacing or line
+    /// breaks, numbering like "1." tolerated. Anything else is refused with a message, and the
+    /// clipboard is cleared once the words are in - a seed does not belong there.
+    private func pasteSeedPhrase() {
+        guard let raw = UIPasteboard.general.string else {
+            error = "Nothing to paste."
+            return
+        }
+        let pasted = raw
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace || $0 == "," })
+            .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: ".)")) }
+            .filter { !$0.isEmpty && !$0.allSatisfy(\.isNumber) }
+        guard pasted.count == 12 || pasted.count == 24 else {
+            error = "A recovery phrase is 12 or 24 words - the clipboard holds \(pasted.count)."
+            return
+        }
+        let unknown = pasted.filter { !BIP39.shared.isValidWord($0) }
+        guard unknown.isEmpty else {
+            error = "Not a recovery phrase word: \(unknown.prefix(3).joined(separator: ", "))."
+            return
+        }
+        seedWordCount = pasted.count
+        var filled = Array(repeating: "", count: 24)
+        for (index, word) in pasted.enumerated() { filled[index] = word }
+        words = filled
+        error = nil
+        UIPasteboard.general.string = ""
+        Haptics.success()
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             // Account name (uses the normal keyboard - it isn't sensitive)
@@ -52,6 +83,16 @@ struct ImportWalletView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 Spacer()
+                // A phrase on the clipboard fills the slots in one tap; the word-count picker
+                // follows whichever length was pasted.
+                Button {
+                    pasteSeedPhrase()
+                } label: {
+                    Label("Paste", systemImage: "doc.on.clipboard")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 Text("\(filledCount)/\(seedWordCount)")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(allWordsValid ? .green : .secondary)

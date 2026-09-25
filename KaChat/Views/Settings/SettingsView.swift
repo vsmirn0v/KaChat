@@ -1716,10 +1716,16 @@ struct SeedPhraseView: View {
                             }
                         }
 
-                        // Seed-phrase copy is intentionally NOT offered - the recovery phrase must
-                        // be transcribed by hand. The private key hex may be copied here (view
-                        // seed-phrase mode), but the clipboard is auto-wiped 30s later.
+                        // Both copies go through the sensitive path: local-only clipboard (never
+                        // Handoff / Universal Clipboard), wiped again 30 s later.
                         VStack(spacing: 12) {
+                            Button {
+                                copySensitiveToClipboard(seedPhrase.words.joined(separator: " "))
+                                Haptics.success()
+                                showToast("Seed phrase copied. Clipboard will clear in 30s.")
+                            } label: {
+                                Label("Copy Seed Phrase", systemImage: "doc.on.doc")
+                            }
                             Button {
                                 guard let privateKey = walletManager.getPrivateKey() else {
                                     showToast("Private key unavailable.", style: .error)
