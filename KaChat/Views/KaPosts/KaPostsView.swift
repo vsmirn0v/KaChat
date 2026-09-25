@@ -3758,6 +3758,8 @@ struct KaPostsView: View {
                             toggleFollowSubmitting(address: address, pubkey: pubkey)
                         }
                     )
+                    // Pushed inside the cover: the system back is the way out of this one.
+                    .environment(\.kaPostsBack, nil)
                 }
             }
         }
@@ -3916,6 +3918,8 @@ struct KaPostsView: View {
                             toggleFollowSubmitting(address: address, pubkey: pubkey)
                         }
                     )
+                    // Pushed inside the cover: the system back is the way out of this one.
+                    .environment(\.kaPostsBack, nil)
                 }
             }
             // Comment thread for a post tapped on this profile — presented from the profile's OWN
@@ -8620,15 +8624,62 @@ extension View {
     }
 
     func kaPostsStatusChrome() -> some View {
-        toolbar {
-            // Leading is the dot's alone - Done sits trailing on these screens so the two are
-            // not read as one control.
-            ToolbarItem(placement: .navigationBarLeading) {
+        modifier(KaPostsStatusChrome())
+    }
+}
+
+/// The dot-and-balance bar every KaPosts screen carries - and, on a screen that is the root of
+/// a slide cover, a back chevron in front of the dot, since otherwise the only way out of it
+/// is the edge swipe. The action comes down the environment from `kaPostsSlideCover`; a
+/// screen pushed INSIDE a cover (a follow list) has the system back and clears it.
+private struct KaPostsStatusChrome: ViewModifier {
+    @Environment(\.kaPostsBack) private var back
+
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItemGroup(placement: .navigationBarLeading) {
+                if let back {
+                    Button {
+                        Haptics.selection()
+                        back()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.body.weight(.semibold))
+                    }
+                    .accessibilityLabel("Back")
+                }
                 ConnectionStatusIndicator()
             }
             ToolbarItem(placement: .principal) {
                 BalanceToolbarLabel()
             }
+        }
+    }
+}
+
+private struct KaPostsBackKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    /// Closes the KaPosts cover this screen is the root of, with the slide - nil where there
+    /// is no cover to close (the feed itself, a screen pushed inside a cover).
+    var kaPostsBack: (() -> Void)? {
+        get { self[KaPostsBackKey.self] }
+        set { self[KaPostsBackKey.self] = newValue }
+    }
+}
+
+/// Lets SwiftUI (the chrome's back button) reach the UIKit driver that owns the slide.
+final class KaPostsSlideHandle {
+    weak var driver: KaPostsSlideDriverView?
+    var onBack: () -> Void = {}
+
+    func back() {
+        if let driver {
+            driver.slideOutThenBack()
+        } else {
+            kaPostsPresent { self.onBack() }
         }
     }
 }
@@ -8665,6 +8716,7 @@ enum KaPostsSlideSnapshot {
 
 private struct KaPostsSlideCover: ViewModifier {
     let onBack: () -> Void
+    @State private var handle = KaPostsSlideHandle()
 
     func body(content: Content) -> some View {
         content
@@ -8672,7 +8724,9 @@ private struct KaPostsSlideCover: ViewModifier {
             // background (coming back from Safari reset it once, and the slide driver's
             // snapshot of the screen beneath showed through the whole cover).
             .background(Color(.systemBackground).ignoresSafeArea())
-            .background(KaPostsSlideDriver(onBack: onBack))
+            .background(KaPostsSlideDriver(onBack: onBack, handle: handle))
+            // The chrome's back chevron: same slide out as the edge swipe.
+            .environment(\.kaPostsBack, { handle.back() })
     }
 }
 
@@ -8685,13 +8739,19 @@ private struct KaPostsSlideCover: ViewModifier {
 /// container under the moving view.
 private struct KaPostsSlideDriver: UIViewRepresentable {
     let onBack: () -> Void
+    let handle: KaPostsSlideHandle
 
     func makeUIView(context: Context) -> KaPostsSlideDriverView {
-        KaPostsSlideDriverView(onBack: onBack)
+        let view = KaPostsSlideDriverView(onBack: onBack)
+        handle.driver = view
+        handle.onBack = onBack
+        return view
     }
 
     func updateUIView(_ uiView: KaPostsSlideDriverView, context: Context) {
         uiView.onBack = onBack
+        handle.driver = uiView
+        handle.onBack = onBack
     }
 }
 
@@ -8765,6 +8825,37 @@ final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
         view.addGestureRecognizer(pan)
     }
 
+    /// The back chevron in the chrome: the same leaving as a completed swipe.
+    func slideOutThenBack() {
+        guard let controller = host, let view = controller.view, let container = view.superview else {
+            kaPostsPresent { self.onBack() }
+            return
+        }
+        insertBeneath(in: container, below: view)
+        slideOut(view: view, controller: controller, width: max(container.bounds.width, 1), duration: 0.22)
+    }
+
+    private func slideOut(view: UIView, controller: UIViewController, width: CGFloat, duration: Double) {
+        UIView.animate(withDuration: duration, delay: 0, options: [.curveEaseOut]) {
+            view.transform = CGAffineTransform(translationX: width, y: 0)
+            self.dim?.alpha = 0
+        } completion: { _ in
+            kaPostsPresent { self.onBack() }
+            // A thread popping one level swaps its content in place rather than closing:
+            // the parent is drawn into this same view, so bring it back.
+            DispatchQueue.main.async {
+                guard view.window != nil, controller.presentingViewController != nil,
+                      controller.isBeingDismissed == false else { return }
+                UIView.animate(withDuration: 0.2) {
+                    view.transform = .identity
+                    self.dim?.alpha = 0.3
+                } completion: { _ in
+                    self.removeBeneath()
+                }
+            }
+        }
+    }
+
     private func removeBeneath() {
         beneath?.removeFromSuperview()
         dim?.removeFromSuperview()
@@ -8803,24 +8894,7 @@ final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
             let velocity = pan.velocity(in: container).x
             if translation > width * 0.33 || velocity > 800 {
                 let remaining = Double(max(0.08, min(0.22, (width - translation) / max(velocity, 1200))))
-                UIView.animate(withDuration: remaining, delay: 0, options: [.curveEaseOut]) {
-                    view.transform = CGAffineTransform(translationX: width, y: 0)
-                    self.dim?.alpha = 0
-                } completion: { _ in
-                    kaPostsPresent { self.onBack() }
-                    // A thread popping one level swaps its content in place rather than
-                    // closing: the parent is drawn into this same view, so bring it back.
-                    DispatchQueue.main.async {
-                        guard view.window != nil, controller.presentingViewController != nil,
-                              controller.isBeingDismissed == false else { return }
-                        UIView.animate(withDuration: 0.2) {
-                            view.transform = .identity
-                            self.dim?.alpha = 0.3
-                        } completion: { _ in
-                            self.removeBeneath()
-                        }
-                    }
-                }
+                slideOut(view: view, controller: controller, width: width, duration: remaining)
             } else {
                 UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut]) {
                     view.transform = .identity
