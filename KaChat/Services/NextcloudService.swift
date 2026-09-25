@@ -86,6 +86,8 @@ enum NextcloudError: LocalizedError {
     case truncatedDownload(received: Int64, expected: Int64)
     case backupNotFound
     case noActiveWallet
+    /// HTTP 423 on the archive after the retries: Nextcloud's lock on the file did not clear.
+    case backupLocked
 
     var errorDescription: String? {
         switch self {
@@ -109,6 +111,10 @@ enum NextcloudError: LocalizedError {
                 + "Nothing on the server was changed, so trying again is safe."
         case .backupNotFound:
             return "No KaChat backup was found on this Nextcloud server."
+        case .backupLocked:
+            return "Nextcloud has the backup file locked (HTTP 423): another device or sync is reading "
+                + "or writing it right now. Try again in a minute. If it keeps happening, the lock is "
+                + "stale on the server - clear it with occ (maintenance mode on, empty the file locks, off)."
         }
     }
 }
@@ -1235,7 +1241,25 @@ final class NextcloudService: ObservableObject {
     /// or a different wallet - throws BEFORE the PUT, leaving the existing file untouched. The
     /// active wallet is re-checked around every await so a mid-flight account switch aborts
     /// instead of cross-pollinating archives.
+    /// Backups run one at a time on this device. The manual button and the automatic sync
+    /// both come here, and two uploads of the same file at once had Nextcloud answering the
+    /// second with HTTP 423 - its write lock on the file. A caller arriving while one runs
+    /// waits for it, then does its own read-merge-upload on top of what that one wrote.
+    private var backupChain: Task<Void, Error>?
+
     func runBackup() async throws {
+        let previous = backupChain
+        let task = Task { [weak self] in
+            _ = try? await previous?.value
+            guard let self else { throw CancellationError() }
+            try await self.performBackup()
+        }
+        backupChain = task
+        defer { if backupChain == task { backupChain = nil } }
+        try await task.value
+    }
+
+    private func performBackup() async throws {
         let walletAtStart = currentWalletAddress
         // Encryption key up front: writers ALWAYS encrypt (see BackupEnvelope), so if the
         // identity key is unavailable the backup is skipped rather than uploaded readable.
@@ -1327,13 +1351,30 @@ final class NextcloudService: ObservableObject {
         put.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&put, account: account)
         put.httpBody = data
-        let (_, putResponse) = try await URLSession.shared.data(for: put)
-        guard let http = putResponse as? HTTPURLResponse else { throw NextcloudError.malformedResponse }
-        if http.statusCode == 401 { throw NextcloudError.badCredentials }
-        guard (200..<300).contains(http.statusCode) else { throw NextcloudError.httpError(http.statusCode) }
-        let rawETag = http.value(forHTTPHeaderField: "OC-ETag") ?? http.value(forHTTPHeaderField: "ETag")
-        return rawETag.map { Self.normalizedETag($0) }.flatMap { $0.isEmpty ? nil : $0 }
+        var attempt = 0
+        while true {
+            let (_, putResponse) = try await URLSession.shared.data(for: put)
+            guard let http = putResponse as? HTTPURLResponse else { throw NextcloudError.malformedResponse }
+            if http.statusCode == 401 { throw NextcloudError.badCredentials }
+            if http.statusCode == 423 {
+                // Nextcloud's file lock: another device (or this one's own change watcher) is
+                // reading the archive, or another device is writing it, and a lock held by a
+                // live request clears the moment that request ends. Wait it out a few times
+                // before calling it stale.
+                guard attempt < Self.lockRetryDelays.count else { throw NextcloudError.backupLocked }
+                AppLog.log("%@", "[Nextcloud] Backup file locked (HTTP 423), retrying in \(Self.lockRetryDelays[attempt])s")
+                try await Task.sleep(nanoseconds: UInt64(Self.lockRetryDelays[attempt] * 1_000_000_000))
+                attempt += 1
+                continue
+            }
+            guard (200..<300).contains(http.statusCode) else { throw NextcloudError.httpError(http.statusCode) }
+            let rawETag = http.value(forHTTPHeaderField: "OC-ETag") ?? http.value(forHTTPHeaderField: "ETag")
+            return rawETag.map { Self.normalizedETag($0) }.flatMap { $0.isEmpty ? nil : $0 }
+        }
     }
+
+    /// Pauses between PUT attempts while the archive is locked - half a minute in all.
+    private static let lockRetryDelays: [Double] = [1, 2, 4, 8, 15]
 
     /// The backup file's server-side metadata (nil = no backup yet). A missing folder lists
     /// as a 404, which also just means "no backup yet".
