@@ -2365,8 +2365,9 @@ private struct GroupMessageBubbleRow: View {
     @EnvironmentObject var groupChatService: GroupChatService
     @EnvironmentObject var contactsManager: ContactsManager
     @ObservedObject private var knsService = KNSService.shared
-    /// Long-pressing a link surfaces this instead of `.contextMenu` (which never fires there -
-    /// mirrors `MessageBubbleView`'s identical fix) - matches 1:1 chat's own `linkMenuURL`.
+    /// Long-pressing a link surfaces this instead of the bubble's message sheet (the link
+    /// recognizer fires first and the sheet stands down - see `LinkLongPress`); matches 1:1
+    /// chat's own `linkMenuURL`.
     @State private var linkMenuURL: URL?
 
     private static let bubbleColor = OutgoingBubble.color
@@ -2646,54 +2647,25 @@ private struct GroupMessageBubbleRow: View {
                         .background(message.isOutgoing ? Self.bubbleColor : Color(.systemGray5))
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId.wrappedValue = message.id })
-                        .contextMenu {
-                            Button {
-                                onReply()
-                            } label: {
-                                Label("Reply", systemImage: "arrowshape.turn.up.left")
-                            }
-                            if let onEdit {
-                                Button {
-                                    onEdit()
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                            }
-                            Button {
+                        .messageActions(title: "Message", preview: displayContent) {
+                            var actions: [MessageAction] = [.reply(onReply)]
+                            if let onEdit { actions.append(.edit(onEdit)) }
+                            actions.append(.copyMessage {
                                 onCopy(displayContent, .success)
                                 UIPasteboard.general.string = displayContent
-                            } label: {
-                                Label("Copy Message", systemImage: "doc.on.doc")
-                            }
+                            })
                             if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
-                                Link(destination: url) {
-                                    Label("View in Explorer", systemImage: "safari")
-                                }
+                                actions.append(.explorer(url))
                             }
                             // The pill shows WHICH emoji are on the bubble; it has no room to
                             // say how many or from whom. In a group that is the interesting
                             // question.
                             if !reactions.isEmpty, let onShowReactions {
-                                Button {
-                                    onShowReactions()
-                                } label: {
-                                    Label("Reactions (\(reactions.count))", systemImage: "heart")
-                                }
+                                actions.append(.reactions(count: reactions.count, onShowReactions))
                             }
-                            if shouldShowRetry {
-                                Button {
-                                    onRetry()
-                                } label: {
-                                    Label("Retry Send", systemImage: "arrow.clockwise")
-                                }
-                            }
-                            if let onSelect {
-                                Button {
-                                    onSelect()
-                                } label: {
-                                    Label("Select", systemImage: "checkmark.circle")
-                                }
-                            }
+                            if shouldShowRetry { actions.append(.retry(onRetry)) }
+                            if let onSelect { actions.append(.select(onSelect)) }
+                            return actions
                         }
                         .tint(.accentColor)
                         // Half sheet rather than a confirmation dialog - see LinkActionsSheet.

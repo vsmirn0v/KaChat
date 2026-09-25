@@ -139,7 +139,7 @@ struct LinkPreviewCardView: View {
             // of why they shared through their own cloud - so the row says only that it is gone.
             revokedShareTile
                 .onTapGesture(count: 2) { onDoubleTap?() }
-                .contextMenu { contextMenuItems(hideLink: true) }
+                .messageActions(title: "Shared File") { menuActions(hideLink: true) }
         } else if let kind = data.nextcloudMedia, kind == .image || kind == .video {
             // Nextcloud media renders as a bare photo/video bubble (like a sent photo), not a
             // titled link card — the media IS the message. Tap opens the in-app viewer, which is
@@ -147,7 +147,7 @@ struct LinkPreviewCardView: View {
             nextcloudMediaBubble(data, kind: kind)
                 .onTapGesture(count: 2) { onDoubleTap?() }
                 .onTapGesture { handleTap(data) }
-                .contextMenu { contextMenuItems() }
+                .messageActions(title: "Link", preview: url.absoluteString) { menuActions() }
         } else if data.nextcloudMedia == .audio,
                   let downloadString = data.mediaDownloadURLString,
                   let downloadURL = URL(string: downloadString) {
@@ -164,7 +164,7 @@ struct LinkPreviewCardView: View {
                 onSelect: onSelect
             )
             .onTapGesture(count: 2) { onDoubleTap?() }
-            .contextMenu { contextMenuItems() }
+            .messageActions(title: "Link", preview: url.absoluteString) { menuActions() }
         } else if let kind = data.nextcloudMedia {
             // PDF/other files: an attachment card (icon, filename, type · size). PDF opens the
             // in-app viewer; everything else opens Nextcloud's own web viewer, the only thing
@@ -172,7 +172,7 @@ struct LinkPreviewCardView: View {
             nextcloudAttachmentCard(data, kind: kind)
                 .onTapGesture(count: 2) { onDoubleTap?() }
                 .onTapGesture { handleTap(data) }
-                .contextMenu { contextMenuItems() }
+                .messageActions(title: "Link", preview: url.absoluteString) { menuActions() }
         } else {
             cardContent(data)
                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -180,7 +180,7 @@ struct LinkPreviewCardView: View {
                 .onTapGesture { handleTap(data) }
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .frame(maxWidth: 260)
-                .contextMenu { contextMenuItems() }
+                .messageActions(title: "Link", preview: url.absoluteString) { menuActions() }
         }
     }
 
@@ -340,7 +340,7 @@ struct LinkPreviewCardView: View {
             .contentShape(RoundedRectangle(cornerRadius: 16))
             .onTapGesture(count: 2) { onDoubleTap?() }
             .onTapGesture { openURL(url) }
-            .contextMenu { contextMenuItems() }
+            .messageActions(title: "Link", preview: url.absoluteString) { menuActions() }
     }
 
     /// Shown instead of an automatic fetch when `autoFetch` is false (non-accepted 1:1 senders
@@ -379,7 +379,7 @@ struct LinkPreviewCardView: View {
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onTapGesture(count: 2) { onDoubleTap?() }
         .onTapGesture { loadRequested = true }
-        .contextMenu { contextMenuItems() }
+        .messageActions(title: "Link", preview: url.absoluteString) { menuActions() }
     }
 
     /// `hideLink` drops Copy Link, for a share the server says is revoked - the whole point of
@@ -391,27 +391,16 @@ struct LinkPreviewCardView: View {
     /// that hands them the URL to forward defeats the sender's choice to share it in one place.
     /// The check is a pure URL classification, so it holds for the tap-to-load placeholder too,
     /// before anything about the share has been fetched.
-    @ViewBuilder
-    private func contextMenuItems(hideLink: Bool = false) -> some View {
+    private func menuActions(hideLink: Bool = false) -> [MessageAction] {
+        var actions: [MessageAction] = []
         if !hideLink, LinkPreviewService.nextcloudShareEndpoints(for: url) == nil {
-            Button {
-                UIPasteboard.general.string = url.absoluteString
-            } label: {
-                Label("Copy Link", systemImage: "doc.on.doc")
-            }
+            actions.append(.copyLink { UIPasteboard.general.string = url.absoluteString })
         }
         if let explorerURL = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
-            Link(destination: explorerURL) {
-                Label("View in Explorer", systemImage: "safari")
-            }
+            actions.append(.explorer(explorerURL))
         }
-        if let onSelect {
-            Button {
-                onSelect()
-            } label: {
-                Label("Select", systemImage: "checkmark.circle")
-            }
-        }
+        if let onSelect { actions.append(.select(onSelect)) }
+        return actions
     }
 }
 

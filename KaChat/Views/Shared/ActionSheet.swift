@@ -630,3 +630,147 @@ extension SentTransaction {
         return hasRecipient ? 420 : 390
     }
 }
+
+// MARK: - Message long-press menu
+
+/// One row of a message's long-press menu: an icon, a title, and a line saying what it does.
+struct MessageAction: Identifiable {
+    let id = UUID()
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    var tint: Color = .accentColor
+    let action: () -> Void
+
+    // The rows every kind of bubble shares, worded once so a Reply reads the same on a photo,
+    // a voice note and a line of text.
+    static func reply(_ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Reply", subtitle: "Quotes this message above your reply.", systemImage: "arrowshape.turn.up.left", action: action)
+    }
+    static func edit(_ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Edit", subtitle: "Changes the text. Everyone sees the new version.", systemImage: "pencil", action: action)
+    }
+    static func copyMessage(_ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Copy Message", subtitle: "Copies the text to your clipboard.", systemImage: "doc.on.doc", action: action)
+    }
+    static func copyLink(_ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Copy Link", subtitle: "Copies the address to your clipboard.", systemImage: "link", action: action)
+    }
+    static func openLink(_ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Open Link", subtitle: "Opens it in your browser.", systemImage: "safari", action: action)
+    }
+    static func explorer(_ url: URL) -> MessageAction {
+        MessageAction(title: "View in Explorer", subtitle: "Opens this transaction in the block explorer.", systemImage: "safari") {
+            UIApplication.shared.open(url)
+        }
+    }
+    static func reactions(count: Int, _ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Reactions (\(count))", subtitle: "Who reacted, and with what.", systemImage: "heart", action: action)
+    }
+    static func retry(_ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Retry Send", subtitle: "Sends this message again.", systemImage: "arrow.clockwise", action: action)
+    }
+    static func select(_ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Select", subtitle: "Pick several messages at once.", systemImage: "checkmark.circle", action: action)
+    }
+}
+
+/// A message's long-press menu, as a half sheet: what the message is at the top, then a row
+/// per action. The same object as every other menu in the app; the system context menu was
+/// the one hold-out, with its bare verbs and its lifted, blurred preview.
+struct MessageActionsRequest: Identifiable {
+    let id = UUID()
+    let title: String
+    let preview: String?
+    let actions: [MessageAction]
+}
+
+struct MessageActionsSheet: View {
+    let request: MessageActionsRequest
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 4) {
+                Text(request.title)
+                    .font(.headline)
+                if let preview = request.preview?.trimmingCharacters(in: .whitespacesAndNewlines), !preview.isEmpty {
+                    Text(preview)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding(.top, 20)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 4)
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 12) {
+                    ForEach(request.actions) { action in
+                        ActionSheetRow(
+                            title: action.title,
+                            subtitle: action.subtitle,
+                            systemImage: action.systemImage,
+                            tint: action.tint
+                        ) {
+                            dismiss()
+                            // A beat after the sheet is away, so an action that presents a
+                            // sheet of its own (reactions, saving audio) is not presenting
+                            // over one that is still dismissing.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { action.action() }
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .presentationDetents([.height(height)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var height: CGFloat {
+        let header: CGFloat = request.preview == nil ? 76 : 116
+        let rows = CGFloat(request.actions.count) * 78
+        return min(UIScreen.main.bounds.height * 0.85, header + rows + 24)
+    }
+}
+
+/// The moment a link under the finger opened its own sheet - a bubble's message menu stands
+/// down for it, so a long press on a link is one sheet, not two.
+@MainActor
+enum LinkLongPress {
+    static var lastFiredAt: Date = .distantPast
+}
+
+private struct MessageActionsModifier: ViewModifier {
+    let title: String
+    let preview: String?
+    let actions: () -> [MessageAction]
+    @State private var request: MessageActionsRequest?
+
+    func body(content: Content) -> some View {
+        content
+            // Half a second: longer than the link long-press inside a text bubble (0.45s), so
+            // on a link that one wins and this never fires.
+            .onLongPressGesture(minimumDuration: 0.5) {
+                guard Date().timeIntervalSince(LinkLongPress.lastFiredAt) > 0.8 else { return }
+                let built = actions()
+                guard !built.isEmpty else { return }
+                Haptics.impact(.medium)
+                request = MessageActionsRequest(title: title, preview: preview, actions: built)
+            }
+            .sheet(item: $request) { MessageActionsSheet(request: $0) }
+    }
+}
+
+extension View {
+    /// The message's long-press menu as a half sheet, in place of `.contextMenu`. `actions`
+    /// is built at the press, so it sees the message as it is then.
+    func messageActions(title: String, preview: String? = nil, actions: @escaping () -> [MessageAction]) -> some View {
+        modifier(MessageActionsModifier(title: title, preview: preview, actions: actions))
+    }
+}

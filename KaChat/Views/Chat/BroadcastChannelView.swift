@@ -1798,10 +1798,13 @@ private struct BroadcastMessageRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     // Only the plain bubble gets this menu - `LinkPreviewCardView` carries its
                     // own (Open Link / Copy Link / View in Explorer), and stacking a second
-                    // `.contextMenu` on top of it would fight it. Matches group bubbles.
+                    // long-press menu on top of it would fight it. Matches group bubbles.
                     // Extracted: this menu's branches inside `bubble`'s already-long
                     // chain is what the type checker gives up on.
-                    .contextMenu { bubbleContextMenu(voicePayload: voicePayload) }
+                    .messageActions(title: voicePayload == nil ? "Message" : "Voice Message",
+                                    preview: voicePayload == nil ? displayText : nil) {
+                        bubbleActions(voicePayload: voicePayload)
+                    }
             }
         }
         .sheet(item: Binding(get: { linkMenuURL.map(IdentifiedURL.init) }, set: { if $0 == nil { linkMenuURL = nil } })) { wrapper in
@@ -1871,25 +1874,14 @@ private struct BroadcastMessageRow: View {
     ///
     /// `voicePayload` is passed in, not read off `self`: `bubble` computes it once into a local
     /// that shadows the property, because the decode is a full JSON parse + base64 of the audio.
-    @ViewBuilder
-    private func bubbleContextMenu(voicePayload: VoiceMessageSniff.Payload?) -> some View {
+    private func bubbleActions(voicePayload: VoiceMessageSniff.Payload?) -> [MessageAction] {
         // Reply was reachable only by double-tapping into the quick-reaction bar,
         // which is not where anyone looks for it. Android has had it here all
         // along.
-        Button {
-            onReply()
-        } label: {
-            Label("Reply", systemImage: "arrowshape.turn.up.left")
-        }
-        if let onEdit {
-            Button {
-                onEdit()
-            } label: {
-                Label("Edit", systemImage: "pencil")
-            }
-        }
+        var actions: [MessageAction] = [.reply(onReply)]
+        if let onEdit { actions.append(.edit(onEdit)) }
         if let firstLink {
-            Button {
+            actions.append(.openLink {
                 // Internal KaChat links open in-app rather than in Safari - see
                 // `LinkifiedMessageTextView.Coordinator.handleTap`.
                 if let internalLink = KaChatInternalLink.parse(firstLink) {
@@ -1897,47 +1889,28 @@ private struct BroadcastMessageRow: View {
                 } else {
                     UIApplication.shared.open(firstLink)
                 }
-            } label: {
-                Label("Open Link", systemImage: "safari")
-            }
+            })
             // Not for a Nextcloud share: the link is the address of someone's file, and the
             // preview card already refuses to hand it out - same rule here, same classifier.
             if LinkPreviewService.nextcloudShareEndpoints(for: firstLink) == nil {
-                Button {
-                    UIPasteboard.general.string = firstLink.absoluteString
-                } label: {
-                    Label("Copy Link", systemImage: "link")
-                }
+                actions.append(.copyLink { UIPasteboard.general.string = firstLink.absoluteString })
             }
         }
         if voicePayload == nil {
-            Button {
-                onCopyMessage()
-            } label: {
-                Label("Copy Message", systemImage: "doc.on.doc")
-            }
+            actions.append(.copyMessage { onCopyMessage() })
         }
         if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.id) {
-            Link(destination: url) {
-                Label("View in Explorer", systemImage: "safari")
-            }
+            actions.append(.explorer(url))
         }
         if isOwnMessage && message.deliveryStatus == .failed {
-            Button {
-                onRetry()
-            } label: {
-                Label("Retry Send", systemImage: "arrow.clockwise")
-            }
+            actions.append(.retry(onRetry))
         }
         // The pill on the bubble shows WHICH emoji are on the message; it has no
         // room to say how many or from whom. This does.
         if !reactions.isEmpty, let onShowReactions {
-            Button {
-                onShowReactions()
-            } label: {
-                Label("Reactions (\(reactions.count))", systemImage: "heart")
-            }
+            actions.append(.reactions(count: reactions.count, onShowReactions))
         }
+        return actions
     }
 
     private var deliveryBadge: some View {

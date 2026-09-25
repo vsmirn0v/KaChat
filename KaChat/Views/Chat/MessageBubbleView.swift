@@ -84,10 +84,9 @@ struct MessageBubbleView: View {
     var linkPreviewsAutoLoad: Bool = true
     @State private var shimmerPhase: CGFloat = -1
     @State private var showFullText = false
-    /// Long-pressing a link surfaces this instead of `.contextMenu` (which never fires there -
-    /// `LinkifiedMessageTextView`'s own long-press recognizer claims and cancels the touch before
-    /// the ancestor `.contextMenu` gesture sees it), offering the same actions a confirmationDialog
-    /// can trigger imperatively.
+    /// Long-pressing a link surfaces this instead of the bubble's message sheet:
+    /// `LinkifiedMessageTextView`'s own long-press recognizer fires first on a link and marks
+    /// the moment (`LinkLongPress`), and the bubble's `messageActions` stands down for it.
     @State private var linkMenuURL: URL?
 
     init(
@@ -546,60 +545,23 @@ struct MessageBubbleView: View {
                         .allowsHitTesting(false)
                 }
             }
-            .contextMenu {
-                Button {
-                    handleCopy(displayText, toast: "Message copied to clipboard.")
-                } label: {
-                    Label("Copy Message", systemImage: "doc.on.doc")
-                }
-
+            .messageActions(title: "Message", preview: displayText) {
+                var actions: [MessageAction] = [
+                    .copyMessage { handleCopy(displayText, toast: "Message copied to clipboard.") }
+                ]
                 if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
-                    Link(destination: url) {
-                        Label("View in Explorer", systemImage: "safari")
-                    }
+                    actions.append(.explorer(url))
                 }
-
                 // The pill on the bubble shows WHICH emoji are on it; it has no room to say how
                 // many or from whom. This does.
                 if !reactions.isEmpty, let onShowReactions {
-                    Button {
-                        onShowReactions()
-                    } label: {
-                        Label("Reactions (\(reactions.count))", systemImage: "heart")
-                    }
+                    actions.append(.reactions(count: reactions.count, onShowReactions))
                 }
-
-                if let onEdit {
-                    Button {
-                        onEdit()
-                    } label: {
-                        Label("Edit", systemImage: "pencil")
-                    }
-                }
-
-                if let onReply {
-                    Button {
-                        onReply()
-                    } label: {
-                        Label("Reply", systemImage: "arrowshape.turn.up.left")
-                    }
-                }
-
-                if shouldShowRetry {
-                    Button {
-                        onRetry?(message)
-                    } label: {
-                        Label("Retry Send", systemImage: "arrow.clockwise")
-                    }
-                }
-
-                if let onSelect {
-                    Button {
-                        onSelect()
-                    } label: {
-                        Label("Select", systemImage: "checkmark.circle")
-                    }
-                }
+                if let onEdit { actions.append(.edit(onEdit)) }
+                if let onReply { actions.append(.reply(onReply)) }
+                if shouldShowRetry { actions.append(.retry { onRetry?(message) }) }
+                if let onSelect { actions.append(.select(onSelect)) }
+                return actions
             }
             .tint(.accentColor)
             // A half sheet rather than a confirmation dialog: the dialog could only show a verb
@@ -821,20 +783,16 @@ struct MessageBubbleView: View {
         .padding(.vertical, 10)
         .background(message.isOutgoing ? kaspaBubbleColor : Color(.systemGray5))
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .contextMenu {
+        .messageActions(title: "Call") {
             // Every call line is a real on-chain message, so it gets the same explorer link
             // as any other bubble.
+            var actions: [MessageAction] = []
             if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
-                Link(destination: url) {
-                    Label("View in Explorer", systemImage: "safari")
-                }
+                actions.append(.explorer(url))
             }
-            if let onReply {
-                Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
-            }
-            if let onSelect {
-                Button { onSelect() } label: { Label("Select", systemImage: "checkmark.circle") }
-            }
+            if let onReply { actions.append(.reply(onReply)) }
+            if let onSelect { actions.append(.select(onSelect)) }
+            return actions
         }
     }
 
@@ -1099,34 +1057,16 @@ struct MessageBubbleView: View {
                     .allowsHitTesting(false)
             }
         }
-        .contextMenu {
-            Button {
-                handleCopy(displayText, toast: "Message copied to clipboard.")
-            } label: {
-                Label("Copy Message", systemImage: "doc.on.doc")
-            }
-
+        .messageActions(title: "Payment", preview: displayText) {
+            var actions: [MessageAction] = [
+                .copyMessage { handleCopy(displayText, toast: "Message copied to clipboard.") }
+            ]
             if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
-                Link(destination: url) {
-                    Label("View in Explorer", systemImage: "safari")
-                }
+                actions.append(.explorer(url))
             }
-
-            if let onReply {
-                Button {
-                    onReply()
-                } label: {
-                    Label("Reply", systemImage: "arrowshape.turn.up.left")
-                }
-            }
-
-            if let onSelect {
-                Button {
-                    onSelect()
-                } label: {
-                    Label("Select", systemImage: "checkmark.circle")
-                }
-            }
+            if let onReply { actions.append(.reply(onReply)) }
+            if let onSelect { actions.append(.select(onSelect)) }
+            return actions
         }
         .tint(.accentColor)
         .accessibilityElement(children: .combine)
@@ -1395,37 +1335,25 @@ struct KaChatInternalLinkCardView: View {
         // matches LinkPreviewCardView's identical pairing.
         .onTapGesture(count: 2) { onDoubleTap?() }
         .onTapGesture { KaChatLinkRouter.open(match.link) }
-        .contextMenu { contextMenuItems }
+        .messageActions(title: "KaChat Link", preview: match.url.absoluteString) { linkActions }
         .task(id: kaPostId) {
             guard let kaPostId else { return }
             await kaPostCache.load(postId: kaPostId)
         }
     }
 
-    @ViewBuilder
-    private var contextMenuItems: some View {
-        Button {
-            KaChatLinkRouter.open(match.link)
-        } label: {
-            Label("Open in KaChat", systemImage: "arrow.up.forward.app")
-        }
-        Button {
-            UIPasteboard.general.string = match.url.absoluteString
-        } label: {
-            Label("Copy Link", systemImage: "doc.on.doc")
-        }
+    private var linkActions: [MessageAction] {
+        var actions: [MessageAction] = [
+            MessageAction(title: "Open in KaChat", subtitle: "Opens it right here in the app.", systemImage: "arrow.up.forward.app") {
+                KaChatLinkRouter.open(match.link)
+            },
+            .copyLink { UIPasteboard.general.string = match.url.absoluteString }
+        ]
         if let explorerURL = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
-            Link(destination: explorerURL) {
-                Label("View in Explorer", systemImage: "safari")
-            }
+            actions.append(.explorer(explorerURL))
         }
-        if let onSelect {
-            Button {
-                onSelect()
-            } label: {
-                Label("Select", systemImage: "checkmark.circle")
-            }
-        }
+        if let onSelect { actions.append(.select(onSelect)) }
+        return actions
     }
 }
 
@@ -1674,6 +1602,7 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
             guard gesture.state == .began, let textView else { return }
             let point = gesture.location(in: textView)
             guard let url = url(at: point, in: textView) else { return }
+            Task { @MainActor in LinkLongPress.lastFiredAt = Date() }
             parent.onLinkLongPress(url)
         }
 
@@ -1963,42 +1892,19 @@ struct LazyImageBubble: View {
         .onTapGesture(count: 1) {
             openPreview()
         }
-        .contextMenu {
-            Button {
-                handleCopy(media.name, toast: "File name copied.")
-            } label: {
-                Label("Copy File Name", systemImage: "doc.on.doc")
-            }
-
+        .messageActions(title: "File", preview: media.name) {
+            var actions: [MessageAction] = [
+                MessageAction(title: "Copy File Name", subtitle: "Copies the name to your clipboard.", systemImage: "doc.on.doc") {
+                    handleCopy(media.name, toast: "File name copied.")
+                }
+            ]
             if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
-                Link(destination: url) {
-                    Label("View in Explorer", systemImage: "safari")
-                }
+                actions.append(.explorer(url))
             }
-
-            if let onReply {
-                Button {
-                    onReply()
-                } label: {
-                    Label("Reply", systemImage: "arrowshape.turn.up.left")
-                }
-            }
-
-            if shouldShowRetry {
-                Button {
-                    onRetry?()
-                } label: {
-                    Label("Retry Send", systemImage: "arrow.clockwise")
-                }
-            }
-
-            if let onSelect {
-                Button {
-                    onSelect()
-                } label: {
-                    Label("Select", systemImage: "checkmark.circle")
-                }
-            }
+            if let onReply { actions.append(.reply(onReply)) }
+            if shouldShowRetry { actions.append(.retry { onRetry?() }) }
+            if let onSelect { actions.append(.select(onSelect)) }
+            return actions
         }
         .tint(.accentColor)
         .task(id: txId) {
@@ -2595,42 +2501,19 @@ private struct AudioBubble: View {
         .background(isOutgoing ? kaspaBubbleColor : Color(.systemGray5))
         .foregroundColor(isOutgoing ? .white : .primary)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .contextMenu {
-            Button {
-                showShareSheet = true
-            } label: {
-                Label("Save Audio", systemImage: "square.and.arrow.down")
-            }
-
+        .messageActions(title: "Voice Message") {
+            var actions: [MessageAction] = [
+                MessageAction(title: "Save Audio", subtitle: "Saves or shares the recording as a file.", systemImage: "square.and.arrow.down") {
+                    showShareSheet = true
+                }
+            ]
             if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
-                Link(destination: url) {
-                    Label("View in Explorer", systemImage: "safari")
-                }
+                actions.append(.explorer(url))
             }
-
-            if let onReply {
-                Button {
-                    onReply()
-                } label: {
-                    Label("Reply", systemImage: "arrowshape.turn.up.left")
-                }
-            }
-
-            if let onRetry {
-                Button {
-                    onRetry()
-                } label: {
-                    Label("Retry Send", systemImage: "arrow.clockwise")
-                }
-            }
-
-            if let onSelect {
-                Button {
-                    onSelect()
-                } label: {
-                    Label("Select", systemImage: "checkmark.circle")
-                }
-            }
+            if let onReply { actions.append(.reply(onReply)) }
+            if let onRetry { actions.append(.retry(onRetry)) }
+            if let onSelect { actions.append(.select(onSelect)) }
+            return actions
         }
         .tint(.accentColor)
         .sheet(isPresented: $showShareSheet) {
@@ -3447,22 +3330,16 @@ private struct ShareableImage: Transferable {
 /// the layout code wasn't worth the added complexity.
 private extension View {
     /// Long-press "View in Explorer" for any chess bubble (invite/live card/log entry) - mirrors
-    /// `messageTextBubble`'s own `.contextMenu`, scoped down to just the one action since a
+    /// `messageTextBubble`'s own long-press sheet, scoped down to just the one action since a
     /// chess envelope's own JSON isn't meaningful to offer as "Copy Message".
     func chessExplorerMenu(txId: String, settingsViewModel: SettingsViewModel, onRetry: (() -> Void)? = nil) -> some View {
-        contextMenu {
-            if let onRetry {
-                Button {
-                    onRetry()
-                } label: {
-                    Label("Retry Send", systemImage: "arrow.clockwise")
-                }
-            }
+        messageActions(title: "Chess") {
+            var actions: [MessageAction] = []
+            if let onRetry { actions.append(.retry(onRetry)) }
             if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
-                Link(destination: url) {
-                    Label("View in Explorer", systemImage: "safari")
-                }
+                actions.append(.explorer(url))
             }
+            return actions
         }
     }
 }
