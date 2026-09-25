@@ -134,8 +134,19 @@ final class PortfolioViewModel: ObservableObject {
         Self.computeRangeChange(priceHistory)
     }
 
+    /// Year to date, as a day count: days since 1 January (at least two, so a chart has a
+    /// line to draw on New Year's Day). One value for both charts, recomputed each time it is
+    /// read so it is right after midnight too.
+    static var yearToDateDays: Int {
+        let calendar = Calendar.current
+        let now = Date()
+        let start = calendar.date(from: calendar.dateComponents([.year], from: now)) ?? now
+        return max(2, calendar.dateComponents([.day], from: start, to: now).day ?? 2)
+    }
+
     /// How to name the selected range in a label beside the change figure.
     var priceRangeLabel: String {
+        if priceRangeDays == Self.yearToDateDays { return "YTD" }
         switch priceRangeDays {
         case 1: return "24h"
         case 7: return "1W"
@@ -535,7 +546,8 @@ final class PortfolioViewModel: ObservableObject {
         case 1: next = 7
         case 7: next = 30
         case 30: next = 90
-        case 90: next = 365
+        case 90: next = Self.yearToDateDays
+        case Self.yearToDateDays: next = 365
         default: next = 1
         }
         setPriceRangeDays(next)

@@ -482,11 +482,14 @@ private struct PortfolioRangePicker: View {
     @ObservedObject var viewModel: PortfolioViewModel
     var onChange: () -> Void = {}
 
-    private let ranges: [(label: String, days: Int)] = [("1D", 1), ("1W", 7), ("1M", 30), ("3M", 90), ("1Y", 365)]
+    /// YTD is a day count that changes daily, so it is computed when the picker is built.
+    private let ranges: [(label: String, days: Int)] = [
+        ("1D", 1), ("1W", 7), ("1M", 30), ("3M", 90), ("YTD", PortfolioViewModel.yearToDateDays), ("1Y", 365)
+    ]
 
     var body: some View {
         HStack(spacing: 8) {
-            ForEach(ranges, id: \.days) { range in
+            ForEach(ranges, id: \.label) { range in
                 Button {
                     Haptics.impact(.light)
                     onChange()
