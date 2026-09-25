@@ -101,7 +101,13 @@ final class PortfolioViewModel: ObservableObject {
     }
 
     var valueHistory: [PricePoint] {
-        Self.computeValueHistory(transactions: scopedTransactions, priceHistory: priceHistory)
+        let series = Self.computeValueHistory(transactions: scopedTransactions, priceHistory: priceHistory)
+        // All: from the first transaction to today. The price history reaches back to 2023,
+        // and before anything was bought the value is a flat zero - not the portfolio's story.
+        guard priceRangeDays == 0, let firstTransaction = scopedTransactions.map(\.timestamp).min() else { return series }
+        let start = firstTransaction.addingTimeInterval(-86_400)
+        let trimmed = series.filter { $0.timestamp >= start }
+        return trimmed.count >= 2 ? trimmed : series
     }
 
     /// Current holdings value for a specific portfolio (not necessarily the active one) — used
