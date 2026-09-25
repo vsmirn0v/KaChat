@@ -99,35 +99,50 @@ struct SwapView: View {
                     swapService.setOtherCoin(coin)
                 }
             }
-            .confirmationDialog("Add to Portfolio", isPresented: $showPortfolioConfirm, titleVisibility: .visible) {
-                // One button per portfolio - the swap lands in the one you pick.
-                ForEach(PortfolioManager.shared.portfolios) { portfolio in
-                    // A portfolio that already holds this swap says so on its own button, so the
-                    // duplicate is visible at the moment of choosing rather than after the fact.
-                    Button(duplicatePortfolioIds.contains(portfolio.id)
-                           ? "\(portfolio.name) (already added)"
-                           : portfolio.name) {
-                        if let prefill = pendingPortfolioPrefill, let swapId = pendingPortfolioSwapId {
-                            swapService.confirmAddToPortfolio(prefill, swapId: swapId, portfolioId: portfolio.id)
-                            showToast("Added to \(portfolio.name)")
+            // A half sheet rather than a confirmation dialog, like every other chooser in the
+            // app: each portfolio gets a row with room to say when the swap is already in it.
+            .sheet(isPresented: $showPortfolioConfirm, onDismiss: {
+                pendingPortfolioPrefill = nil
+                pendingPortfolioSwapId = nil
+            }) {
+                let portfolios = PortfolioManager.shared.portfolios
+                VStack(spacing: 12) {
+                    Text("Add to Portfolio")
+                        .font(.headline)
+                        .padding(.top, 22)
+                    if let prefill = pendingPortfolioPrefill {
+                        Text("\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) - choose which portfolio to add it to.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                    }
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            ForEach(portfolios) { portfolio in
+                                let duplicate = duplicatePortfolioIds.contains(portfolio.id)
+                                ActionSheetRow(
+                                    title: portfolio.name,
+                                    subtitle: duplicate
+                                        ? "Already holds this swap - adding it again double-counts it."
+                                        : "The swap lands in this portfolio.",
+                                    systemImage: duplicate ? "exclamationmark.triangle" : "chart.pie",
+                                    tint: duplicate ? .orange : .accentColor
+                                ) {
+                                    if let prefill = pendingPortfolioPrefill, let swapId = pendingPortfolioSwapId {
+                                        swapService.confirmAddToPortfolio(prefill, swapId: swapId, portfolioId: portfolio.id)
+                                        showToast("Added to \(portfolio.name)")
+                                    }
+                                    showPortfolioConfirm = false
+                                }
+                            }
                         }
-                        pendingPortfolioPrefill = nil
-                        pendingPortfolioSwapId = nil
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
                     }
                 }
-                Button("Cancel", role: .cancel) {
-                    pendingPortfolioPrefill = nil
-                    pendingPortfolioSwapId = nil
-                }
-            } message: {
-                if let prefill = pendingPortfolioPrefill {
-                    let line = "\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) - choose which portfolio to add it to."
-                    if duplicatePortfolioIds.isEmpty {
-                        Text(line)
-                    } else {
-                        Text("\(line)\n\nThis swap is already in \(duplicateNames). Adding it again will double-count it.")
-                    }
-                }
+                .presentationDetents([.height(CGFloat(150 + min(portfolios.count, 4) * 78)), .large])
+                .presentationDragIndicator(.visible)
             }
             .confirmationDialog(
                 "Delete this swap?",
