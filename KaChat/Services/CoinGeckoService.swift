@@ -157,19 +157,27 @@ final class CoinGeckoService: Sendable {
         return older + recent
     }
 
-    /// Gate.io daily closes for a pair, oldest first, paged backwards 1000 days at a time
-    /// until the listing. Row shape: [time, quote volume, close, high, low, open, ...].
+    /// Gate.io daily closes for a pair, oldest first, paged backwards until the listing.
     /// No pair: nothing (so a caller can ask conditionally in one `async let`).
     private func fetchGateDailyCloses(pair: String?) async -> [PricePoint] {
         guard let pair else { return [] }
+        return await fetchGateCandles(pair: pair, interval: "1d", intervalSeconds: 86_400, pointCount: 6000)
+    }
+
+    /// Gate.io candle closes for a pair at an interval, oldest first, the newest `pointCount`
+    /// of them, paged backwards 1000 at a time and stopping early where the listing begins.
+    /// Row shape: [time, quote volume, close, high, low, open, ...].
+    private func fetchGateCandles(pair: String, interval: String, intervalSeconds: Int64, pointCount: Int) async -> [PricePoint] {
         var closes: [Int64: Double] = [:]
         var to = Int64(Date().timeIntervalSince1970)
-        for _ in 0..<6 {
+        var remaining = pointCount
+        for _ in 0..<8 where remaining > 0 {
+            let limit = min(1000, remaining)
             guard var components = URLComponents(string: "https://api.gateio.ws/api/v4/spot/candlesticks") else { break }
             components.queryItems = [
                 URLQueryItem(name: "currency_pair", value: pair),
-                URLQueryItem(name: "interval", value: "1d"),
-                URLQueryItem(name: "limit", value: "1000"),
+                URLQueryItem(name: "interval", value: interval),
+                URLQueryItem(name: "limit", value: String(limit)),
                 URLQueryItem(name: "to", value: String(to))
             ]
             guard let url = components.url,
@@ -184,14 +192,58 @@ final class CoinGeckoService: Sendable {
                     earliest = min(earliest, time)
                 }
             }
-            if rows.count < 1000 || earliest >= to { break }
-            to = earliest - 86_400
+            remaining -= rows.count
+            if rows.count < limit || earliest >= to { break }
+            to = earliest - intervalSeconds
         }
         return closes.keys.sorted().map { PricePoint(timestamp: Date(timeIntervalSince1970: TimeInterval($0)), value: closes[$0] ?? 0) }
     }
 
-    func getPriceHistory(days: Int, currency: AppCurrency) async -> [PricePoint] {
+    /// The same range from Gate.io when CoinGecko will not serve it: 5-minute candles for a
+    /// day, hourly for 90 days, daily beyond. Gate quotes USDT, which is the dollar series;
+    /// bitcoin divides by BTC/USDT candle for candle; any other currency is scaled by the
+    /// ratio of the latest known KAS price in it (`spotHint`) to Gate's latest close - a
+    /// constant-rate approximation, and without a spot to scale by there is no series.
+    private func fetchGateHistory(days: Int, currency: AppCurrency, spotHint: Double?) async -> [PricePoint] {
+        let (interval, seconds, count): (String, Int64, Int)
+        switch days {
+        case ...1: (interval, seconds, count) = ("5m", 300, 288)
+        case ...90: (interval, seconds, count) = ("1h", 3600, days * 24)
+        default: (interval, seconds, count) = ("1d", 86_400, days)
+        }
+        async let bitcoinTask = currency == .bitcoin
+            ? fetchGateCandles(pair: "BTC_USDT", interval: interval, intervalSeconds: seconds, pointCount: count)
+            : []
+        let kas = await fetchGateCandles(pair: "KAS_USDT", interval: interval, intervalSeconds: seconds, pointCount: count)
+        let bitcoin = await bitcoinTask
+        guard !kas.isEmpty else { return [] }
+        switch currency {
+        case .usDollar:
+            return kas
+        case .bitcoin:
+            let bitcoinByTime = Dictionary(bitcoin.map { ($0.timestamp, $0.value) }, uniquingKeysWith: { first, _ in first })
+            return kas.compactMap { point in
+                guard let bitcoinPrice = bitcoinByTime[point.timestamp], bitcoinPrice > 0 else { return nil }
+                return PricePoint(timestamp: point.timestamp, value: point.value / bitcoinPrice)
+            }
+        default:
+            guard let spotHint, spotHint > 0, let latest = kas.last?.value, latest > 0 else { return [] }
+            let ratio = spotHint / latest
+            return kas.map { PricePoint(timestamp: $0.timestamp, value: $0.value * ratio) }
+        }
+    }
+
+    /// CoinGecko first, Gate.io when it refuses (its keyless tier throttles bursts for a
+    /// stretch, and a range used to stay blank for as long as that lasted). `spotHint` is
+    /// the latest known KAS price in `currency`, for Gate's non-dollar scaling.
+    func getPriceHistory(days: Int, currency: AppCurrency, spotHint: Double? = nil) async -> [PricePoint] {
         if days == 0 { return await fetchAllTimeHistory(currency: currency) }
+        let fromCoinGecko = await fetchCoinGeckoHistory(days: days, currency: currency)
+        if !fromCoinGecko.isEmpty { return fromCoinGecko }
+        return await fetchGateHistory(days: days, currency: currency, spotHint: spotHint)
+    }
+
+    private func fetchCoinGeckoHistory(days: Int, currency: AppCurrency) async -> [PricePoint] {
         guard var components = URLComponents(string: baseURL + "/api/v3/coins/kaspa/market_chart") else { return [] }
         components.queryItems = [
             URLQueryItem(name: "vs_currency", value: currency.rawValue),

@@ -136,3 +136,83 @@ struct PricePoint: Equatable, Codable {
     let timestamp: Date
     let value: Double
 }
+
+/// What a chart's big number flips to on a tap - picked under the gear on the chart screens,
+/// one at a time or none. Bitcoin is a currency CoinGecko quotes KAS in directly; the others
+/// are USD-priced assets KAS is divided by (see `MarketPairService`).
+enum ChartPair: String, CaseIterable, Codable {
+    case bitcoin
+    case voo
+    case gold
+    case silver
+
+    var code: String {
+        switch self {
+        case .bitcoin: return "BTC"
+        case .voo: return "VOO"
+        case .gold: return "XAU"
+        case .silver: return "XAG"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .bitcoin: return "Bitcoin"
+        case .voo: return "VOO"
+        case .gold: return "Gold"
+        case .silver: return "Silver"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .bitcoin: return "Kaspa priced in bitcoin"
+        case .voo: return "Shares of Vanguard's S&P 500 ETF"
+        case .gold: return "Troy ounces of gold"
+        case .silver: return "Troy ounces of silver"
+        }
+    }
+
+    var yahooSymbol: String? {
+        switch self {
+        case .bitcoin: return nil
+        case .voo: return "VOO"
+        case .gold: return "GC=F"
+        case .silver: return "SI=F"
+        }
+    }
+
+    /// Written after an amount: "0.0000203 oz".
+    var unitSuffix: String {
+        switch self {
+        case .bitcoin: return ""
+        case .voo: return " VOO"
+        case .gold, .silver: return " oz"
+        }
+    }
+
+    private static let storageKey = "kachat_chart_pair"
+
+    /// The pick on disk. Absent means bitcoin - the default; an empty string means none.
+    static var stored: ChartPair? {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: storageKey) else { return .bitcoin }
+            return ChartPair(rawValue: raw)
+        }
+        set { UserDefaults.standard.set(newValue?.rawValue ?? "", forKey: storageKey) }
+    }
+}
+
+/// What a chart is counting in: the app currency (or bitcoin / US dollars when flipped to
+/// the bitcoin pair), or a pair's own unit.
+enum ChartUnit: Equatable {
+    case currency(AppCurrency)
+    case pair(ChartPair)
+
+    var code: String {
+        switch self {
+        case .currency(let currency): return currency.code
+        case .pair(let pair): return pair.code
+        }
+    }
+}

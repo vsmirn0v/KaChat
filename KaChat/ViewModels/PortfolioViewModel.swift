@@ -144,93 +144,173 @@ final class PortfolioViewModel: ObservableObject {
         Self.computeRangeChange(priceHistory)
     }
 
-    // MARK: - Charts against bitcoin
+    // MARK: - Charts against a pair
 
     /// Tap the big number on either chart and the chart, its readout and its change figure
-    /// switch to bitcoin (or, when the app already counts in bitcoin, to US dollars). The
-    /// series is fetched in that currency for the selected range, so the percent is the move
-    /// against bitcoin across that range, not a fiat figure re-labelled. Nothing else on the
-    /// portfolio moves - the cards, the stats and the converter stay in the app currency.
-    @Published private(set) var chartAlternateCurrency: AppCurrency?
+    /// switch to the pair picked under the gear: bitcoin (or US dollars when the app already
+    /// counts in bitcoin), VOO, gold or silver. The series is built in that unit for the
+    /// selected range, so the percent is the move against the pair across that range, not a
+    /// fiat figure re-labelled. Nothing else on the portfolio moves - the cards, the stats and
+    /// the converter stay in the app currency.
+    @Published private(set) var chartPair: ChartPair? = ChartPair.stored
+    @Published private(set) var chartFlipped = false
     @Published private(set) var alternatePrice: Double?
     @Published private(set) var alternatePriceHistory: [PricePoint] = []
+    /// Keyed by base days (see `baseDays(for:)`), raw - cut and thinned per range like the
+    /// app-currency series.
     private var alternateHistoryCache: [Int: [PricePoint]] = [:]
     private var alternateTask: Task<Void, Never>?
     private var alternatePriceFetchedAt: Date?
 
-    var chartCurrency: AppCurrency { chartAlternateCurrency ?? currentCurrency }
-    var chartPriceHistory: [PricePoint] { chartAlternateCurrency == nil ? priceHistory : alternatePriceHistory }
-    var chartCurrentPrice: Double? { chartAlternateCurrency == nil ? currentPriceUsd : alternatePrice }
+    /// What a flip shows, given the pick and the app currency; nil when no pair is on.
+    private var alternateUnit: ChartUnit? {
+        guard let chartPair else { return nil }
+        if chartPair == .bitcoin {
+            return .currency(currentCurrency == .bitcoin ? .usDollar : .bitcoin)
+        }
+        return .pair(chartPair)
+    }
+
+    var canFlipChart: Bool { alternateUnit != nil }
+    var chartUnit: ChartUnit { (chartFlipped ? alternateUnit : nil) ?? .currency(currentCurrency) }
+    var chartPriceHistory: [PricePoint] { chartFlipped && canFlipChart ? alternatePriceHistory : priceHistory }
+    var chartCurrentPrice: Double? { chartFlipped && canFlipChart ? alternatePrice : currentPriceUsd }
     var chartPriceRangeChange: (amount: Double, percent: Double)? { Self.computeRangeChange(chartPriceHistory) }
     var chartValueHistory: [PricePoint] { valueHistory(from: chartPriceHistory) }
     var chartValueRangeChange: (amount: Double, percent: Double)? { Self.computeRangeChange(chartValueHistory) }
-    /// Nil while the other currency's price is still on its way.
+    /// Nil while the pair's price is still on its way.
     var chartCurrentValue: Double? {
-        guard chartAlternateCurrency != nil else { return summary.currentValue }
+        guard chartFlipped, canFlipChart else { return summary.currentValue }
         return alternatePrice.map { summary.holdingsKas * $0 }
     }
 
-    func toggleChartCurrency() {
-        if chartAlternateCurrency != nil {
-            chartAlternateCurrency = nil
+    func flipChart() {
+        if chartFlipped {
+            chartFlipped = false
             alternateTask?.cancel()
             alternateTask = nil
             return
         }
-        chartAlternateCurrency = currentCurrency == .bitcoin ? .usDollar : .bitcoin
+        guard canFlipChart else { return }
+        chartFlipped = true
         loadAlternateChart()
+    }
+
+    /// The gear on a chart screen: which pair a tap flips to. One at a time, or none.
+    func setChartPair(_ pair: ChartPair?) {
+        guard pair != chartPair else { return }
+        chartPair = pair
+        ChartPair.stored = pair
+        alternateTask?.cancel()
+        alternateTask = nil
+        alternatePrice = nil
+        alternatePriceFetchedAt = nil
+        alternatePriceHistory = []
+        alternateHistoryCache.removeAll()
+        if pair == nil {
+            chartFlipped = false
+        } else if chartFlipped {
+            loadAlternateChart()
+        }
+    }
+
+    private func alternateHistoryKey(base: Int, unit: ChartUnit) -> String {
+        switch unit {
+        case .currency(let currency): return historyCacheKey(days: base, currency: currency)
+        case .pair(let pair): return "kachat_pair_history_\(pair.rawValue)_\(base)"
+        }
     }
 
     /// Same stale-while-refresh as the app-currency chart: whatever is on hand for the range
     /// paints at once, a fetch runs behind it unless the copy is fresh, and it retries on a
     /// growing pause while the range and the flip are still what is on screen.
     private func loadAlternateChart(force: Bool = false) {
-        guard let alternate = chartAlternateCurrency else { return }
+        guard chartFlipped, let unit = alternateUnit else { return }
         let days = priceRangeDays
-        if let cached = alternateHistoryCache[days] {
-            alternatePriceHistory = cached
-        } else if let persisted = readPersistedHistory(days: days, currency: alternate) {
-            alternatePriceHistory = Self.downsample(persisted.points)
+        let base = Self.baseDays(for: days)
+        let key = alternateHistoryKey(base: base, unit: unit)
+        if let cached = alternateHistoryCache[base] {
+            alternatePriceHistory = Self.downsample(Self.cut(cached, toDays: days))
+        } else if let persisted = readPersistedHistory(key: key) {
+            alternatePriceHistory = Self.downsample(Self.cut(persisted.points, toDays: days))
             if Date().timeIntervalSince(persisted.fetchedAt) < Self.historyCacheTTL {
-                alternateHistoryCache[days] = alternatePriceHistory
+                alternateHistoryCache[base] = persisted.points
             }
         } else {
             alternatePriceHistory = []
         }
-        let needsHistory = force || alternateHistoryCache[days] == nil
+        let needsHistory = force || alternateHistoryCache[base] == nil
         let priceAge = alternatePriceFetchedAt.map { Date().timeIntervalSince($0) } ?? .infinity
         let needsPrice = force || alternatePrice == nil || priceAge > 5 * 60
         guard needsHistory || needsPrice else { return }
         alternateTask?.cancel()
         alternateTask = Task { [weak self] in
             guard let self else { return }
-            let coinGecko = self.coinGecko
-            if needsPrice, let result = await coinGecko.getCurrentPrice(currency: alternate) {
-                guard !Task.isCancelled else { return }
-                self.alternatePrice = result.price
-                self.alternatePriceFetchedAt = Date()
-            }
-            guard needsHistory else { return }
             var history: [PricePoint] = []
+            var latest: Double?
             for delaySeconds in [0.0, 4.0, 12.0, 30.0] {
                 if delaySeconds > 0 { try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000)) }
-                guard !Task.isCancelled, self.chartAlternateCurrency == alternate, self.priceRangeDays == days else { return }
-                history = await Self.fetchHistoryDownsampled(coinGecko, days: days, currency: alternate)
-                if !history.isEmpty { break }
+                guard !Task.isCancelled, self.chartFlipped, self.alternateUnit == unit, self.priceRangeDays == days else { return }
+                (history, latest) = await self.fetchAlternate(unit: unit, base: base, wantHistory: needsHistory)
+                if (!needsHistory || !history.isEmpty) && latest != nil { break }
             }
-            guard !Task.isCancelled, !history.isEmpty else { return }
-            self.persistHistory(history, days: days, currency: alternate)
-            self.alternateHistoryCache[days] = history
-            if self.chartAlternateCurrency == alternate, self.priceRangeDays == days {
-                self.alternatePriceHistory = history
+            guard !Task.isCancelled, self.chartFlipped, self.alternateUnit == unit else { return }
+            if let latest {
+                self.alternatePrice = latest
+                self.alternatePriceFetchedAt = Date()
+            }
+            guard needsHistory, !history.isEmpty else { return }
+            self.persistHistory(history, key: key)
+            self.alternateHistoryCache[base] = history
+            if self.priceRangeDays == days {
+                self.alternatePriceHistory = Self.downsample(Self.cut(history, toDays: days))
             }
         }
+    }
+
+    /// One round for the flipped series: the base range in the unit, and the latest price
+    /// in it. Bitcoin comes from CoinGecko like any currency; the other pairs are KAS/USD over
+    /// the pair's USD price, with the app's own dollar series reused when it already is one.
+    private func fetchAlternate(unit: ChartUnit, base: Int, wantHistory: Bool) async -> ([PricePoint], Double?) {
+        let coinGecko = self.coinGecko
+        switch unit {
+        case .currency(let currency):
+            async let priceTask = coinGecko.getCurrentPrice(currency: currency)
+            let history = wantHistory ? await coinGecko.getPriceHistory(days: base, currency: currency) : []
+            return (history, await priceTask?.price)
+        case .pair(let pair):
+            let dollars = currentCurrency == .usDollar
+            async let spotTask = dollarSpot()
+            async let pairTask = MarketPairService.shared.history(pair, baseDays: base)
+            var kasHistory: [PricePoint] = []
+            if wantHistory {
+                if dollars, let own = priceHistoryCache[base] {
+                    kasHistory = own
+                } else {
+                    kasHistory = await coinGecko.getPriceHistory(days: base, currency: .usDollar)
+                }
+            }
+            let pairSeries = await pairTask
+            let spot = await spotTask
+            let latest: Double? = {
+                guard let spot, let pairLatest = pairSeries.latest, pairLatest > 0 else { return nil }
+                return spot / pairLatest
+            }()
+            let history = wantHistory ? MarketPairService.divide(kasHistory, by: pairSeries.points) : []
+            return (history, latest)
+        }
+    }
+
+    /// KAS in US dollars right now: the app's own figure when it counts in dollars, else asked.
+    private func dollarSpot() async -> Double? {
+        if currentCurrency == .usDollar, let price = currentPriceUsd { return price }
+        return await coinGecko.getCurrentPrice(currency: .usDollar)?.price
     }
 
     private func resetAlternateChart() {
         alternateTask?.cancel()
         alternateTask = nil
-        chartAlternateCurrency = nil
+        chartFlipped = false
         alternatePrice = nil
         alternatePriceFetchedAt = nil
         alternatePriceHistory = []
@@ -489,6 +569,14 @@ final class PortfolioViewModel: ObservableObject {
     /// `force` (pull-to-refresh) skips the TTL early-out but still paints the stale copy first.
     private func fetchSevenDayPriceHistoryForCards(force: Bool = false) {
         let currency = currentCurrency
+        if let base = priceHistoryCache[90] {
+            let sevenDays = Self.downsample(Self.cut(base, toDays: 7))
+            if sevenDays.count >= 2 {
+                sevenDayPriceHistory = sevenDays
+                publishWidgetSnapshot()
+                return
+            }
+        }
         if let persisted = readPersistedHistory(days: 7, currency: currency) {
             sevenDayPriceHistory = persisted.points
             publishWidgetSnapshot()
@@ -534,7 +622,8 @@ final class PortfolioViewModel: ObservableObject {
         let days = priceRangeDays
         async let price = coinGecko.getCurrentPrice(currency: currency)
         async let stats = coinGecko.getMarketStats(currency: currency)
-        async let history = Self.fetchHistoryDownsampled(coinGecko, days: days, currency: currency)
+        let base = Self.baseDays(for: days)
+        async let history = coinGecko.getPriceHistory(days: base, currency: currency, spotHint: currentPriceUsd)
         if let result = await stats {
             marketCap = result.marketCap
             marketCapRank = result.rank
@@ -546,11 +635,7 @@ final class PortfolioViewModel: ObservableObject {
         }
         let result = await history
         if !result.isEmpty {
-            persistHistory(result, days: days, currency: currency)
-            priceHistoryCache[days] = result
-            if priceRangeDays == days {
-                priceHistory = result
-            }
+            applyBaseHistory(result, base: base, currency: currency)
         }
         publishWidgetSnapshot()
     }
@@ -642,12 +727,35 @@ final class PortfolioViewModel: ObservableObject {
     /// (harmless no-op when its data is cached or its fetch is still in flight).
     func setPriceRangeDays(_ days: Int) {
         guard priceRangeDays != days else {
-            if priceHistoryCache[days] == nil { fetchPriceHistory(days: days) }
+            if priceHistoryCache[Self.baseDays(for: days)] == nil { fetchPriceHistory(days: days) }
             return
         }
         priceRangeDays = days
         fetchPriceHistory(days: days)
         loadAlternateChart()
+    }
+
+    /// The fetched series a range button is cut from. CoinGecko's keyless tier throttles
+    /// bursts, and one request per button meant a few taps parked the rest on retries. Three
+    /// fetches cover every button instead: a day of 5-minute points (1D), 90 days of hourly
+    /// points (1W, 1M and 3M are cuts of it) and 365 days of daily points (YTD and 1Y). All
+    /// is its own build. Cuts are local, so those taps never touch the network.
+    static func baseDays(for days: Int) -> Int {
+        switch days {
+        case 0: return 0
+        case ...1: return 1
+        case ...90: return 90
+        default: return 365
+        }
+    }
+
+    /// The last `days` of a base series, with the one point before the edge kept so the line
+    /// starts at the edge rather than a step inside it. Zero days is everything.
+    nonisolated static func cut(_ base: [PricePoint], toDays days: Int) -> [PricePoint] {
+        guard days > 0, !base.isEmpty else { return base }
+        let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
+        guard let firstInside = base.firstIndex(where: { $0.timestamp >= cutoff }) else { return base }
+        return Array(base[max(0, firstInside - 1)...])
     }
 
     func cyclePriceRange() {
@@ -684,15 +792,23 @@ final class PortfolioViewModel: ObservableObject {
     }
 
     private func readPersistedHistory(days: Int, currency: AppCurrency) -> CachedPriceHistory? {
-        guard let data = UserDefaults.standard.data(forKey: historyCacheKey(days: days, currency: currency)),
+        readPersistedHistory(key: historyCacheKey(days: days, currency: currency))
+    }
+
+    private func readPersistedHistory(key: String) -> CachedPriceHistory? {
+        guard let data = UserDefaults.standard.data(forKey: key),
               let cached = try? JSONDecoder().decode(CachedPriceHistory.self, from: data),
               !cached.points.isEmpty else { return nil }
         return cached
     }
 
     private func persistHistory(_ points: [PricePoint], days: Int, currency: AppCurrency) {
+        persistHistory(points, key: historyCacheKey(days: days, currency: currency))
+    }
+
+    private func persistHistory(_ points: [PricePoint], key: String) {
         guard let data = try? JSONEncoder().encode(CachedPriceHistory(fetchedAt: Date(), points: points)) else { return }
-        UserDefaults.standard.set(data, forKey: historyCacheKey(days: days, currency: currency))
+        UserDefaults.standard.set(data, forKey: key)
     }
 
     /// Stale-while-refresh per range. On every tap the best data already on hand for the
@@ -710,62 +826,68 @@ final class PortfolioViewModel: ObservableObject {
     /// than never. Completion repaints only if the range is still the one on screen.
     /// `force` (explicit refresh) skips the fresh-cache early-outs but still paints stale
     /// data first.
+    /// Cache and persistence are by BASE range (`baseDays(for:)`), raw; what the chart gets is
+    /// the range's cut of it, thinned. Gate.io stands behind CoinGecko inside the fetch, so a
+    /// throttled CoinGecko no longer leaves a range blank for the length of its ban.
     private func fetchPriceHistory(days: Int, force: Bool = false) {
         let currency = currentCurrency
-        if let cached = priceHistoryCache[days] {
-            priceHistory = cached
+        let base = Self.baseDays(for: days)
+        if let cached = priceHistoryCache[base] {
+            priceHistory = Self.downsample(Self.cut(cached, toDays: days))
             if !force { return }
-        } else if let persisted = readPersistedHistory(days: days, currency: currency) {
-            let points = Self.downsample(persisted.points)
-            priceHistory = points
+        } else if let persisted = readPersistedHistory(days: base, currency: currency) {
+            priceHistory = Self.downsample(Self.cut(persisted.points, toDays: days))
             if !force, Date().timeIntervalSince(persisted.fetchedAt) < Self.historyCacheTTL {
-                priceHistoryCache[days] = points
+                priceHistoryCache[base] = persisted.points
                 return
             }
         } else if priceRangeDays == days {
             priceHistory = []
         }
 
-        guard priceHistoryTasks[days] == nil else { return }
+        guard priceHistoryTasks[base] == nil else { return }
         let epoch = priceHistoryEpoch
-        priceHistoryTasks[days] = Task { [weak self] in
+        priceHistoryTasks[base] = Task { [weak self] in
             guard let self else { return }
             let coinGecko = self.coinGecko
             var result: [PricePoint] = []
-            // Growing pauses between attempts: CoinGecko's keyless tier 429s bursts for a
-            // stretch, so a parked range needs patient retries, not a single quick one. Only
-            // the range the user is still looking at earns the later retries; a range tapped
-            // past gets one shot (into its cache) and stops.
+            // Growing pauses between attempts: both sources can be down for a moment, so a
+            // parked range needs patient retries, not a single quick one. Only the base the
+            // user is still looking at earns the later retries; one tapped past gets one shot
+            // (into its cache) and stops.
             for delaySeconds in [0.0, 4.0, 12.0, 30.0] {
                 if delaySeconds > 0 {
-                    guard self.priceRangeDays == days else { break }
+                    guard Self.baseDays(for: self.priceRangeDays) == base else { break }
                     try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
                 }
                 guard !Task.isCancelled, self.priceHistoryEpoch == epoch else { return }
-                result = await Self.fetchHistoryDownsampled(coinGecko, days: days, currency: currency)
+                result = await coinGecko.getPriceHistory(days: base, currency: currency, spotHint: self.currentPriceUsd)
                 if !result.isEmpty { break }
             }
             guard !Task.isCancelled, self.priceHistoryEpoch == epoch else { return }
             if !result.isEmpty {
-                self.persistHistory(result, days: days, currency: currency)
-                self.priceHistoryCache[days] = result
-                if self.priceRangeDays == days {
-                    self.priceHistory = result
-                }
+                self.applyBaseHistory(result, base: base, currency: currency)
             }
-            self.priceHistoryTasks[days] = nil
+            self.priceHistoryTasks[base] = nil
         }
     }
 
-    /// Fetch + decode + downsample entirely off the main actor (nonisolated async runs on the
-    /// global executor) - the 1M/3M ranges arrive at hourly granularity (~720/~2160 points)
-    /// and must not be crunched on the UI thread mid range-switch.
-    private nonisolated static func fetchHistoryDownsampled(
-        _ coinGecko: CoinGeckoService,
-        days: Int,
-        currency: AppCurrency
-    ) async -> [PricePoint] {
-        downsample(await coinGecko.getPriceHistory(days: days, currency: currency))
+    /// A base series arrived: cache it, persist it, repaint the chart if its range is a cut of
+    /// this base, and refresh the cards' seven-day window when the 90-day base is what came.
+    private func applyBaseHistory(_ result: [PricePoint], base: Int, currency: AppCurrency) {
+        persistHistory(result, days: base, currency: currency)
+        priceHistoryCache[base] = result
+        if Self.baseDays(for: priceRangeDays) == base {
+            priceHistory = Self.downsample(Self.cut(result, toDays: priceRangeDays))
+        }
+        if base == 90 {
+            let sevenDays = Self.downsample(Self.cut(result, toDays: 7))
+            if sevenDays.count >= 2 {
+                persistHistory(sevenDays, days: 7, currency: currency)
+                sevenDayPriceHistory = sevenDays
+                publishWidgetSnapshot()
+            }
+        }
     }
 
     /// Caps a series at ~`maxCount` points for the chart, keeping each time-bucket's min AND

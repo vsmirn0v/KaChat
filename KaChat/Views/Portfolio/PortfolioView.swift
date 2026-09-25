@@ -251,9 +251,11 @@ private struct KasPriceChartScreen: View {
     @State private var scrubbed: PricePoint?
     @State private var range: ChartRangeSelection?
 
+    @State private var showPairSettings = false
+
     private var currency: AppCurrency { settingsViewModel.settings.currency }
-    /// What the chart and its readout count in - bitcoin once the price is tapped.
-    private var chartCurrency: AppCurrency { viewModel.chartCurrency }
+    /// What the chart and its readout count in - the pair once the price is tapped.
+    private var chartUnit: ChartUnit { viewModel.chartUnit }
 
     var body: some View {
         ScrollView {
@@ -269,15 +271,20 @@ private struct KasPriceChartScreen: View {
         .refreshable { await viewModel.refreshPriceAsync() }
         .navigationTitle("KAS Price")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ChartPairSettingsButton(isPresented: $showPairSettings) }
+        .sheet(isPresented: $showPairSettings) {
+            ChartPairSettingsSheet(viewModel: viewModel)
+        }
         // A finger scrubbing along the line from near the left edge is not a swipe out.
         .swipeBackDisabled()
     }
 
-    private func toggleCurrency() {
+    private func flip() {
+        guard viewModel.canFlipChart else { return }
         Haptics.impact(.light)
         scrubbed = nil
         range = nil
-        viewModel.toggleChartCurrency()
+        viewModel.flipChart()
     }
 
     /// Where Kaspa sits against every other coin, and what the whole supply is worth at the
@@ -324,21 +331,21 @@ private struct KasPriceChartScreen: View {
                     .font(.subheadline).foregroundColor(.secondary)
             }
             if let range {
-                ChartRangeSummary(range: range, valueText: { PortfolioFormat.price($0, currency: chartCurrency) })
+                ChartRangeSummary(range: range, valueText: { PortfolioFormat.price($0, unit: chartUnit) })
             }
             // The change sits UNDER the price rather than beside it. A long price and a long
             // change figure on one line had no room left at larger text sizes or in a currency
             // with a wordy symbol, and something had to shrink or clip. Stacked, neither
-            // constrains the other whatever they say. Tap the price: the same chart in bitcoin.
+            // constrains the other whatever they say. Tap the price: the same chart in the pair.
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text((scrubbed?.value ?? viewModel.chartCurrentPrice).map { PortfolioFormat.price($0, currency: chartCurrency) } ?? "—")
+                Text((scrubbed?.value ?? viewModel.chartCurrentPrice).map { PortfolioFormat.price($0, unit: chartUnit) } ?? "—")
                     .font(.system(size: 34, weight: .bold))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
                 ChartCurrencyChip(viewModel: viewModel)
             }
             .contentShape(Rectangle())
-            .onTapGesture { toggleCurrency() }
+            .onTapGesture { flip() }
             // Read off the series the chart is drawing, so the number and the line can never
             // disagree - and so it answers whichever range button is selected. Percent only:
             // the move in currency is the price above minus itself a moment ago, which the chart
@@ -361,7 +368,7 @@ private struct KasPriceChartScreen: View {
     @ViewBuilder
     private var chart: some View {
         if viewModel.chartPriceHistory.count >= 2 {
-            PortfolioAreaChart(points: viewModel.chartPriceHistory, preciseAxis: chartCurrency == .bitcoin, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
+            PortfolioAreaChart(points: viewModel.chartPriceHistory, preciseAxis: viewModel.chartFlipped, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
                 .frame(height: 260)
         } else {
             ProgressView()
@@ -380,10 +387,12 @@ private struct PortfolioValueChartScreen: View {
     @State private var scrubbed: PricePoint?
     @State private var range: ChartRangeSelection?
 
+    @State private var showPairSettings = false
+
     private var currency: AppCurrency { settingsViewModel.settings.currency }
-    /// What the chart and the big number count in - bitcoin once the value is tapped. The
+    /// What the chart and the big number count in - the pair once the value is tapped. The
     /// stats card below stays in the app currency: buys were recorded in it.
-    private var chartCurrency: AppCurrency { viewModel.chartCurrency }
+    private var chartUnit: ChartUnit { viewModel.chartUnit }
 
     /// Every amount on this screen goes through here, so the eye button masks all of them.
     private func money(_ value: Double) -> String {
@@ -391,14 +400,15 @@ private struct PortfolioValueChartScreen: View {
     }
 
     private func chartMoney(_ value: Double) -> String {
-        viewModel.valuesHidden ? PortfolioFormat.masked : PortfolioFormat.currency(value, chartCurrency)
+        viewModel.valuesHidden ? PortfolioFormat.masked : PortfolioFormat.amount(value, unit: chartUnit)
     }
 
-    private func toggleCurrency() {
+    private func flip() {
+        guard viewModel.canFlipChart else { return }
         Haptics.impact(.light)
         scrubbed = nil
         range = nil
-        viewModel.toggleChartCurrency()
+        viewModel.flipChart()
     }
 
     var body: some View {
@@ -410,10 +420,10 @@ private struct PortfolioValueChartScreen: View {
                 header(currentValue: viewModel.chartCurrentValue)
 
                 if history.count >= 2 {
-                    PortfolioAreaChart(points: history, hideValues: viewModel.valuesHidden, preciseAxis: chartCurrency == .bitcoin, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
+                    PortfolioAreaChart(points: history, hideValues: viewModel.valuesHidden, preciseAxis: viewModel.chartFlipped, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
                         .frame(height: 240)
-                } else if viewModel.chartAlternateCurrency != nil, viewModel.valueHistory.count >= 2 {
-                    // The bitcoin series for this range is still on its way.
+                } else if viewModel.chartFlipped, viewModel.valueHistory.count >= 2 {
+                    // The pair's series for this range is still on its way.
                     ProgressView()
                         .frame(height: 240)
                         .frame(maxWidth: .infinity)
@@ -433,6 +443,10 @@ private struct PortfolioValueChartScreen: View {
         .refreshable { await viewModel.refreshPriceAsync() }
         .navigationTitle("Value Over Time")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ChartPairSettingsButton(isPresented: $showPairSettings) }
+        .sheet(isPresented: $showPairSettings) {
+            ChartPairSettingsSheet(viewModel: viewModel)
+        }
         // A finger scrubbing along the line from near the left edge is not a swipe out.
         .swipeBackDisabled()
     }
@@ -455,7 +469,7 @@ private struct PortfolioValueChartScreen: View {
             }
             // The change sits UNDER the value rather than beside it - see the note on the price
             // header. A six-figure portfolio and its change had nowhere to go on one line.
-            // Tap the value: the same chart in bitcoin.
+            // Tap the value: the same chart in the pair.
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text((scrubbed?.value ?? currentValue).map(chartMoney) ?? "—")
                     .font(.system(size: 34, weight: .bold))
@@ -464,7 +478,7 @@ private struct PortfolioValueChartScreen: View {
                 ChartCurrencyChip(viewModel: viewModel)
             }
             .contentShape(Rectangle())
-            .onTapGesture { toggleCurrency() }
+            .onTapGesture { flip() }
             // Hidden while scrubbing: the big number is then a past value, and a change figure
             // for the range sitting under it would read as that point's own move.
             if scrubbed == nil, range == nil, let rangeChange {
@@ -474,7 +488,7 @@ private struct PortfolioValueChartScreen: View {
                         .font(.caption.weight(.bold))
                     Text(viewModel.valuesHidden
                          ? "\(String(format: "%.2f", abs(rangeChange.percent)))%"
-                         : "\(PortfolioFormat.currency(abs(rangeChange.amount), chartCurrency)) (\(String(format: "%.2f", abs(rangeChange.percent)))%)")
+                         : "\(PortfolioFormat.amount(abs(rangeChange.amount), unit: chartUnit)) (\(String(format: "%.2f", abs(rangeChange.percent)))%)")
                         .font(.subheadline.weight(.semibold))
                     Text(viewModel.priceRangeLabel)
                         .font(.caption.weight(.semibold))
@@ -521,25 +535,114 @@ private struct PortfolioValueChartScreen: View {
     }
 }
 
-// MARK: - Chart currency chip
+// MARK: - Chart currency chip + pair settings
 
-/// Beside the big number on a chart: which currency it and the chart count in, and that a tap
-/// flips it. Lit up while flipped away from the app currency.
+/// Beside the big number on a chart: what it and the chart count in, and that a tap flips
+/// it. Lit up while flipped to the pair; absent when no pair is picked.
 private struct ChartCurrencyChip: View {
     @ObservedObject var viewModel: PortfolioViewModel
 
     var body: some View {
-        let flipped = viewModel.chartAlternateCurrency != nil
-        HStack(spacing: 4) {
-            Text(viewModel.chartCurrency.code)
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.caption2.weight(.bold))
+        if viewModel.canFlipChart {
+            let flipped = viewModel.chartFlipped
+            HStack(spacing: 4) {
+                Text(viewModel.chartUnit.code)
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.caption2.weight(.bold))
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundColor(flipped ? .orange : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Capsule().fill((flipped ? Color.orange : Color.secondary).opacity(0.14)))
         }
-        .font(.caption.weight(.semibold))
-        .foregroundColor(flipped ? .orange : .secondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Capsule().fill((flipped ? Color.orange : Color.secondary).opacity(0.14)))
+    }
+}
+
+/// The gear at the top right of both chart screens.
+private struct ChartPairSettingsButton: ToolbarContent {
+    @Binding var isPresented: Bool
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button {
+                isPresented = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .accessibilityLabel("Chart settings")
+        }
+    }
+}
+
+/// What a tap on the big number flips the chart to: bitcoin, VOO, gold or silver. One at a
+/// time - turning one on turns the others off - or none, and then the number is just a number.
+private struct ChartPairSettingsSheet: View {
+    @ObservedObject var viewModel: PortfolioViewModel
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("Compare Against")
+                .font(.headline)
+                .padding(.top, 24)
+            Text("Tap the price or your value to see it in the pair you pick here. One at a time.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            VStack(spacing: 0) {
+                ForEach(Array(ChartPair.allCases.enumerated()), id: \.element) { index, pair in
+                    if index > 0 { Divider().padding(.leading, 56) }
+                    row(pair)
+                }
+            }
+            .background(portfolioGlassBackground(cornerRadius: 18))
+            .padding(.horizontal, 16)
+            Spacer(minLength: 0)
+        }
+        .presentationDetents([.height(440)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func row(_ pair: ChartPair) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon(pair))
+                .font(.title3)
+                .foregroundColor(tint(pair))
+                .frame(width: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pair.title).font(.body.weight(.semibold))
+                Text(pair.subtitle).font(.caption).foregroundColor(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { viewModel.chartPair == pair },
+                set: { on in
+                    Haptics.selection()
+                    viewModel.setChartPair(on ? pair : nil)
+                }
+            ))
+            .labelsHidden()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private func icon(_ pair: ChartPair) -> String {
+        switch pair {
+        case .bitcoin: return "bitcoinsign.circle.fill"
+        case .voo: return "chart.line.uptrend.xyaxis.circle.fill"
+        case .gold, .silver: return "circle.hexagongrid.circle.fill"
+        }
+    }
+
+    private func tint(_ pair: ChartPair) -> Color {
+        switch pair {
+        case .bitcoin: return .orange
+        case .voo: return .accentColor
+        case .gold: return .yellow
+        case .silver: return .gray
+        }
     }
 }
 
@@ -614,6 +717,35 @@ enum PortfolioFormat {
             decimals = min(12, max(8, Int(ceil(-log10(magnitude))) + 3))
         }
         return sign + "₿" + String(format: "%.\(decimals)f", magnitude)
+    }
+
+    /// A per-KAS price in whatever a chart counts in.
+    static func price(_ value: Double, unit: ChartUnit) -> String {
+        switch unit {
+        case .currency(let currency): return price(value, currency: currency)
+        case .pair(let pair): return pairAmount(value, pair: pair)
+        }
+    }
+
+    /// An amount in whatever a chart counts in.
+    static func amount(_ value: Double, unit: ChartUnit) -> String {
+        switch unit {
+        case .currency(let currency): return self.currency(value, currency)
+        case .pair(let pair): return pairAmount(value, pair: pair)
+        }
+    }
+
+    /// Shares of VOO, ounces of gold or silver: four decimals at the least, more for a figure
+    /// as small as one KAS in gold so at least four digits of it show.
+    static func pairAmount(_ value: Double, pair: ChartPair) -> String {
+        if pair == .bitcoin { return bitcoin(value) }
+        let sign = value < 0 ? "-" : ""
+        let magnitude = abs(value)
+        var decimals = 4
+        if magnitude > 0, magnitude < 0.001 {
+            decimals = min(12, max(4, Int(ceil(-log10(magnitude))) + 3))
+        }
+        return sign + String(format: "%.\(decimals)f", magnitude) + pair.unitSuffix
     }
 
     static func currency(_ value: Double, _ currency: AppCurrency) -> String {
