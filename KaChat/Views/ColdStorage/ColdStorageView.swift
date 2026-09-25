@@ -1384,7 +1384,7 @@ private struct ColdSendFlowView: View {
                         .focused($focusedField, equals: .recipient)
                         .onChange(of: toAddress) { handleInputChange($0) }
 
-                        AddressResolutionCard(input: toAddress)
+                        AddressResolutionCard(address: resolvedAddress ?? (isValidAddress ? toAddress.trimmingCharacters(in: .whitespacesAndNewlines) : nil), domain: resolvedDomain)
 
                     if !toAddress.isEmpty {
                         if isResolvingKNS {

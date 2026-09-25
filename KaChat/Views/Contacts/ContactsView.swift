@@ -3328,7 +3328,7 @@ struct KNSDomainSendView: View {
                         .autocorrectionDisabled()
                         .onChange(of: addressInput) { handleInputChange($0) }
 
-                        AddressResolutionCard(input: addressInput)
+                        AddressResolutionCard(address: resolvedAddress ?? (isValidAddress ? addressInput.trimmingCharacters(in: .whitespacesAndNewlines) : nil), domain: resolvedDomain)
 
                     if !addressInput.isEmpty {
                         if isResolvingKNS {
@@ -4591,7 +4591,7 @@ struct WithdrawKaspaView: View {
                             .autocorrectionDisabled()
                             .onChange(of: addressInput) { handleInputChange($0) }
 
-                            AddressResolutionCard(input: addressInput)
+                            AddressResolutionCard(address: resolvedAddress ?? (isValidAddress ? addressInput.trimmingCharacters(in: .whitespacesAndNewlines) : nil), domain: resolvedDomain)
 
                         if !addressInput.isEmpty {
                             if isResolvingKNS {

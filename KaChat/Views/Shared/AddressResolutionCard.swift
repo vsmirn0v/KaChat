@@ -1,119 +1,68 @@
 import SwiftUI
 
-/// Who is behind an address you are typing - the card the create-chat screen shows, for every
-/// other place an address or a `.kas` domain goes in (withdrawals, sends from an address, the
-/// portfolio, a group invite). Resolves on its own: a valid address fetches its KNS profile,
-/// a domain resolves to its owner first. Shown only once the input is something the app is
-/// confident about - a half-typed address gets nothing rather than a card flickering through
-/// wrong faces.
+/// Who is behind the address a screen has resolved - the card the create-chat screen shows,
+/// for every other place an address or a `.kas` domain goes in (withdrawals, sends from an
+/// address, the portfolio, a group invite). The SCREEN does the resolving, exactly as
+/// create-chat does (its own validity check and KNS lookup); this card takes the outcome and
+/// fetches the profile for the face and the domain. Nil address, no card - a half-typed
+/// address gets nothing rather than a card flickering through wrong faces.
 struct AddressResolutionCard: View {
-    let input: String
+    /// The address the input stands for: a valid typed address, or a domain's resolved owner.
+    let address: String?
+    /// The domain that resolved to it, when the user typed one (shown at once, before the
+    /// profile fetch lands).
+    var domain: String? = nil
 
-    @State private var address: String?
-    @State private var domain: String?
     @State private var profile: KNSAddressProfileInfo?
-    @State private var isLooking = false
-    @State private var domainNotFound = false
-
-    private var trimmed: String { input.trimmingCharacters(in: .whitespacesAndNewlines) }
+    @State private var isLoadingProfile = false
 
     var body: some View {
-        Group {
-            if let address {
-                HStack(spacing: 12) {
-                    KNSAvatarView(
-                        avatarURLString: profile?.avatarURL,
-                        fallbackText: profile?.domainName ?? domain ?? address,
-                        size: 44,
-                        contactAddress: address
-                    )
-                    VStack(alignment: .leading, spacing: 2) {
-                        let name = profile?.domainName ?? domain
-                        Text(name ?? (isLooking ? "Looking up..." : "No KNS domain"))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(name == nil ? .secondary : .primary)
-                            .lineLimit(1)
-                        Text(address)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: 0)
-                    if isLooking { ProgressView().controlSize(.small) }
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.primary.opacity(0.05))
+        if let address, !address.isEmpty {
+            HStack(spacing: 12) {
+                KNSAvatarView(
+                    avatarURLString: profile?.avatarURL,
+                    fallbackText: profile?.domainName ?? domain ?? address,
+                    size: 44,
+                    contactAddress: address
                 )
-            } else if isLooking {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Looking up \(trimmed)...")
-                        .font(.caption)
+                VStack(alignment: .leading, spacing: 2) {
+                    let name = profile?.domainName ?? domain
+                    Text(name ?? (isLoadingProfile ? "Looking up..." : "No KNS domain"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(name == nil ? .secondary : .primary)
+                        .lineLimit(1)
+                    Text(address)
+                        .font(.system(.caption2, design: .monospaced))
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-            } else if domainNotFound {
-                Label("No KNS domain named \(trimmed)", systemImage: "questionmark.circle")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else {
-                // Present but invisible. With nothing to show the Group would be an EmptyView,
-                // and SwiftUI never runs `.task` on one - so the lookup that fills the card
-                // would never start. A zero-height anchor keeps the task alive.
-                Color.clear
-                    .frame(height: 0)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
+                Spacer(minLength: 0)
+                if isLoadingProfile { ProgressView().controlSize(.small) }
             }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .task(id: address) { await loadProfile(for: address) }
         }
-        .task(id: trimmed) { await resolve(trimmed) }
     }
 
-    private func resolve(_ text: String) async {
-        domainNotFound = false
-        guard !text.isEmpty else {
-            address = nil; domain = nil; profile = nil; isLooking = false
-            return
-        }
-        if KaspaAddress.isValid(text) {
-            address = text
-            domain = nil
-            await loadProfile(for: text)
-            return
-        }
-        if KNSService.looksLikeDomain(text) {
-            address = nil; profile = nil
-            isLooking = true
-            // A pause while the domain is still being typed.
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled else { return }
-            if let resolution = await KNSService.shared.resolveDomain(text) {
-                guard !Task.isCancelled else { return }
-                address = resolution.ownerAddress
-                domain = resolution.domain
-                await loadProfile(for: resolution.ownerAddress)
-            } else {
-                guard !Task.isCancelled else { return }
-                isLooking = false
-                domainNotFound = true
-            }
-            return
-        }
-        address = nil; domain = nil; profile = nil; isLooking = false
-    }
-
+    /// Cached by KNSService, so an address already looked at costs nothing.
     private func loadProfile(for address: String) async {
+        guard KaspaAddress.isValid(address) else {
+            profile = nil
+            return
+        }
         if let cached = KNSService.shared.profileCache[address] {
             profile = cached
-            isLooking = false
             return
         }
-        isLooking = true
+        isLoadingProfile = true
         let fetched = await KNSService.shared.fetchProfile(for: address)
         guard !Task.isCancelled else { return }
         profile = fetched
-        isLooking = false
+        isLoadingProfile = false
     }
 }

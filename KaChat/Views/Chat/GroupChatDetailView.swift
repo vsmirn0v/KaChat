@@ -3504,7 +3504,7 @@ private struct AddGroupMembersView: View {
                     } label: {
                         HStack(spacing: 12) {
                             // Who this is - avatar and KNS domain - the same card as create-chat.
-                            AddressResolutionCard(input: typedAddress)
+                            AddressResolutionCard(address: typedAddress)
                             Image(systemName: selectedAddresses.contains(typedAddress) ? "checkmark.circle.fill" : "circle")
                                 .foregroundColor(selectedAddresses.contains(typedAddress) ? .accentColor : .secondary)
                         }

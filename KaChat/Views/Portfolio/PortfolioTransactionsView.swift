@@ -521,7 +521,7 @@ private struct AddPortfolioAddressSheet: View {
                             .textInputAutocapitalization(.never)
                             .onChange(of: addressText) { handleInputChange($0) }
 
-                            AddressResolutionCard(input: addressText)
+                            AddressResolutionCard(address: resolvedAddress ?? (KaspaAddress.isValid(trimmedInput) ? trimmedInput : nil))
 
                         validationStatus
 
