@@ -58,6 +58,14 @@ struct AddressResolutionCard: View {
                 Label("No KNS domain named \(trimmed)", systemImage: "questionmark.circle")
                     .font(.caption)
                     .foregroundColor(.secondary)
+            } else {
+                // Present but invisible. With nothing to show the Group would be an EmptyView,
+                // and SwiftUI never runs `.task` on one - so the lookup that fills the card
+                // would never start. A zero-height anchor keeps the task alive.
+                Color.clear
+                    .frame(height: 0)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
             }
         }
         .task(id: trimmed) { await resolve(trimmed) }
