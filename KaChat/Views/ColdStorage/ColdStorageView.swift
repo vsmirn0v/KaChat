@@ -2827,6 +2827,18 @@ private struct ColdStorageAccountActionsSheet: View {
                 // A turn later: the field does not exist yet on the tap that reveals it.
                 DispatchQueue.main.async { nameFocused = true }
             }
+            // Per account, not all of cold storage at once: this account's receives alone.
+            ActionSheetRow(
+                title: account.notifyOnReceive ? "Turn Off Receive Notifications" : "Turn On Receive Notifications",
+                subtitle: account.notifyOnReceive
+                    ? "Stops notifying when this account receives Kaspa. Other accounts keep theirs."
+                    : "Notifies you when this account receives Kaspa.",
+                systemImage: account.notifyOnReceive ? "bell.slash" : "bell"
+            ) {
+                ColdStorageManager.shared.setNotifyOnReceive(!account.notifyOnReceive, for: account)
+                Haptics.selection()
+                dismiss()
+            }
         }
     }
 

@@ -6,13 +6,30 @@ struct ColdStorageAccount: Codable, Identifiable, Equatable {
     let kpubString: String
     var maxAddressIndex: Int
     let importedAt: Date
+    /// Whether a receive to one of this account's addresses posts a notification
+    /// (AddressActivityNotifier). Per account, so one busy account can be quiet while the
+    /// others still tell you. Stored per wallet with the account; older records decode as on.
+    var notifyOnReceive: Bool = true
 
-    init(id: UUID = UUID(), label: String, kpubString: String, maxAddressIndex: Int = 0, importedAt: Date = Date()) {
+    init(id: UUID = UUID(), label: String, kpubString: String, maxAddressIndex: Int = 0, importedAt: Date = Date(), notifyOnReceive: Bool = true) {
         self.id = id
         self.label = label
         self.kpubString = kpubString
         self.maxAddressIndex = maxAddressIndex
         self.importedAt = importedAt
+        self.notifyOnReceive = notifyOnReceive
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, label, kpubString, maxAddressIndex, importedAt, notifyOnReceive }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        label = try container.decode(String.self, forKey: .label)
+        kpubString = try container.decode(String.self, forKey: .kpubString)
+        maxAddressIndex = try container.decode(Int.self, forKey: .maxAddressIndex)
+        importedAt = try container.decode(Date.self, forKey: .importedAt)
+        notifyOnReceive = try container.decodeIfPresent(Bool.self, forKey: .notifyOnReceive) ?? true
     }
 }
 
@@ -117,6 +134,13 @@ final class ColdStorageManager: ObservableObject {
 
     func removeAccount(_ account: ColdStorageAccount) {
         accounts.removeAll { $0.id == account.id }
+        saveAccounts()
+    }
+
+    /// Turns receive notifications on or off for one account (see `ColdStorageAccount.notifyOnReceive`).
+    func setNotifyOnReceive(_ enabled: Bool, for account: ColdStorageAccount) {
+        guard let idx = accounts.firstIndex(where: { $0.id == account.id }) else { return }
+        accounts[idx].notifyOnReceive = enabled
         saveAccounts()
     }
 

@@ -51,6 +51,31 @@ final class AddressActivityNotifier: ObservableObject {
     private var coldFingerprint: String = ""
     /// Cold-storage address -> owning account label (for notification wording).
     private var coldLabelByAddress: [String: String] = [:]
+    /// Cold-storage addresses whose account has receive notifications switched off. Still
+    /// "ours" for the self-send check; never notified.
+    private var coldMutedAddresses: Set<String> = []
+
+    /// Receive notifications for the wallet's spending addresses (Manage Addresses), per
+    /// wallet - the counterpart of a cold account's `notifyOnReceive`. Default on.
+    @Published var spendingReceiveNotificationsEnabled: Bool = true {
+        didSet {
+            guard let wallet = WalletManager.shared.currentWallet?.publicAddress else { return }
+            UserDefaults.standard.set(spendingReceiveNotificationsEnabled, forKey: Self.spendingNotifyKey(wallet: wallet))
+        }
+    }
+    private var spendingNotifyLoadedForWallet: String?
+    private static func spendingNotifyKey(wallet: String) -> String {
+        "kachat_spending_receive_notify_\(wallet.replacingOccurrences(of: ":", with: "_"))"
+    }
+
+    /// Loads the spending switch for the current wallet - call when a screen that shows it appears.
+    func reloadSpendingSwitchForCurrentWallet() {
+        guard let wallet = WalletManager.shared.currentWallet?.publicAddress else { return }
+        guard spendingNotifyLoadedForWallet != wallet else { return }
+        spendingNotifyLoadedForWallet = wallet
+        let stored = UserDefaults.standard.object(forKey: Self.spendingNotifyKey(wallet: wallet)) as? Bool
+        spendingReceiveNotificationsEnabled = stored ?? true
+    }
 
     // MARK: - Per-tx dedupe / in-flight tracking
 
@@ -427,21 +452,26 @@ final class AddressActivityNotifier: ObservableObject {
 
         let accounts = ColdStorageManager.shared.accounts
         let fingerprint = accounts
-            .map { "\($0.id.uuidString):\($0.maxAddressIndex)" }
+            .map { "\($0.id.uuidString):\($0.maxAddressIndex):\($0.notifyOnReceive)" }
             .joined(separator: ",")
         if walletChanged || fingerprint != coldFingerprint {
             var labelByAddress: [String: String] = [:]
+            var muted: Set<String> = []
             for account in accounts {
                 guard let extendedKey = KaspaExtendedPublicKey(kpubString: account.kpubString) else { continue }
                 for index in 0...account.maxAddressIndex {
                     if let address = try? extendedKey.receiveAddress(at: UInt32(index), network: network) {
                         labelByAddress[address] = account.label
+                        if !account.notifyOnReceive { muted.insert(address) }
                     }
                 }
             }
             coldLabelByAddress = labelByAddress
+            coldMutedAddresses = muted
             coldFingerprint = fingerprint
         }
+        if walletChanged { spendingNotifyLoadedForWallet = nil }
+        reloadSpendingSwitchForCurrentWallet()
 
         cachedWalletAddress = wallet.publicAddress
         cachedNetworkKey = networkKey
@@ -451,7 +481,10 @@ final class AddressActivityNotifier: ObservableObject {
     /// address (its receives are chat/payment classified) and minus currently-offered
     /// payment-pool reservation addresses (those notify through the chat's payment_notice).
     private func notifiableAddressSet(walletAddress: String) -> Set<String> {
-        var set = spendingAddressSet.union(coldLabelByAddress.keys)
+        // Per account: the spending chain has its own switch, and each cold-storage account
+        // its own - an account switched off is still ours (self-send check), just quiet.
+        var set = coldLabelByAddress.keys.filter { !coldMutedAddresses.contains($0) }.reduce(into: Set<String>()) { $0.insert($1) }
+        if spendingReceiveNotificationsEnabled { set.formUnion(spendingAddressSet) }
         set.remove(walletAddress)
         for offered in PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: walletAddress) {
             set.remove(offered)

@@ -11,6 +11,7 @@ struct ManageAddressesView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @ObservedObject private var activityNotifier = AddressActivityNotifier.shared
 
     @State private var entries: [SpendingAddressEntry] = []
     @State private var isLoading = false
@@ -284,6 +285,21 @@ struct ManageAddressesView: View {
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
+
+        // This account's own switch (cold-storage accounts have theirs in their menu): the
+        // spending addresses' receives, not every address the wallet watches.
+        Toggle(isOn: $activityNotifier.spendingReceiveNotificationsEnabled) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Notify on receive")
+                    .font(.subheadline.weight(.semibold))
+                Text("When a spending address receives Kaspa from someone else.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .tint(.accentColor)
+        .listRowSeparator(.hidden)
+        .onAppear { activityNotifier.reloadSpendingSwitchForCurrentWallet() }
 
         if isLoading && entries.isEmpty {
             HStack {
