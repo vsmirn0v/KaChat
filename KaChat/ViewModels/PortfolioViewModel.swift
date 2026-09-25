@@ -148,6 +148,7 @@ final class PortfolioViewModel: ObservableObject {
     var priceRangeLabel: String {
         if priceRangeDays == Self.yearToDateDays { return "YTD" }
         switch priceRangeDays {
+        case 0: return "All"
         case 1: return "24h"
         case 7: return "1W"
         case 30: return "1M"
@@ -548,6 +549,7 @@ final class PortfolioViewModel: ObservableObject {
         case 30: next = 90
         case 90: next = Self.yearToDateDays
         case Self.yearToDateDays: next = 365
+        case 365: next = 0
         default: next = 1
         }
         setPriceRangeDays(next)

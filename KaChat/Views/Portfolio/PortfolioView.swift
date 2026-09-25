@@ -483,8 +483,9 @@ private struct PortfolioRangePicker: View {
     var onChange: () -> Void = {}
 
     /// YTD is a day count that changes daily, so it is computed when the picker is built.
+    /// "All" is `days == 0`: everything CoinGecko has (`days=max`) - Kaspa's whole listed life.
     private let ranges: [(label: String, days: Int)] = [
-        ("1D", 1), ("1W", 7), ("1M", 30), ("3M", 90), ("YTD", PortfolioViewModel.yearToDateDays), ("1Y", 365)
+        ("1D", 1), ("1W", 7), ("1M", 30), ("3M", 90), ("YTD", PortfolioViewModel.yearToDateDays), ("1Y", 365), ("All", 0)
     ]
 
     var body: some View {

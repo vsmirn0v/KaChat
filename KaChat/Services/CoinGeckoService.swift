@@ -121,11 +121,12 @@ final class CoinGeckoService: Sendable {
     /// calls) — a launch plus a couple of chart-range taps was enough to make every subsequent
     /// range fetch come back empty, leaving the chart stuck on whatever range loaded first. A
     /// 429/5xx here gets one retry, honoring Retry-After (capped at 10s).
+    /// `days == 0` asks for everything CoinGecko has (`days=max`): the all-time chart.
     func getPriceHistory(days: Int, currency: AppCurrency) async -> [PricePoint] {
         guard var components = URLComponents(string: baseURL + "/api/v3/coins/kaspa/market_chart") else { return [] }
         components.queryItems = [
             URLQueryItem(name: "vs_currency", value: currency.rawValue),
-            URLQueryItem(name: "days", value: String(days))
+            URLQueryItem(name: "days", value: days == 0 ? "max" : String(days))
         ]
         guard let url = components.url else { return [] }
 
