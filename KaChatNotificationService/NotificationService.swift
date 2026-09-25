@@ -67,9 +67,9 @@ class NotificationService: UNNotificationServiceExtension {
         // Extract push data from userInfo
         let userInfo = request.content.userInfo
 
-        // Broadcast-room pushes (thread-id `broadcast:<channel>`, see PUSH_EXTENSIONS.md §2).
+        // Public Chat-room pushes (thread-id `public chat:<channel>`, see PUSH_EXTENSIONS.md §2).
         // They carry none of the tx_id/sender/type keys the 1:1 pipeline below needs, so
-        // without this they'd fall straight through the guard untouched. Broadcast content is
+        // without this they'd fall straight through the guard untouched. Public Chat content is
         // public and unencrypted - there is nothing to decrypt - but it IS the raw on-chain
         // message body, which for a reply/voice/photo/reaction is a JSON envelope
         // (`MessageReplyCodec` & co. in the main app). Run it through the same friendly-preview
@@ -88,12 +88,12 @@ class NotificationService: UNNotificationServiceExtension {
                 contentHandler(content)
                 return
             }
-            content.body = broadcastPreviewText(for: content.body)
+            content.body = publicChatPreviewText(for: content.body)
             contentHandler(content)
             return
         }
 
-        // KaPosts pushes (thread-id `kaposts`, see PUSH_EXTENSIONS.md §3). Like broadcasts they
+        // KaPosts pushes (thread-id `kaposts`, see PUSH_EXTENSIONS.md §3). Like public chats they
         // carry none of the 1:1 keys, so they fall through the guard below untouched - which is
         // why the five Settings switches never suppressed a single push. Drop the ones the reader
         // switched off; everything else passes through unchanged.
@@ -115,8 +115,8 @@ class NotificationService: UNNotificationServiceExtension {
         guard let txId = userInfo["tx_id"] as? String,
               let senderAddress = userInfo["sender"] as? String,
               let messageType = userInfo["type"] as? String else {
-            // Not a 1:1/group push. A broadcast push whose thread-id is not the
-            // `broadcast:<channel>` the spec asks for lands here, and its body is still the raw
+            // Not a 1:1/group push. A public chat push whose thread-id is not the
+            // `public chat:<channel>` the spec asks for lands here, and its body is still the raw
             // on-chain content - a reply/voice/photo envelope shows as JSON (or base64) on the
             // lock screen. Tidy any body that looks like one, whatever the thread-id says.
             if isEditEnvelope(content.body) {
@@ -127,7 +127,7 @@ class NotificationService: UNNotificationServiceExtension {
                 content.badge = nil
                 content.interruptionLevel = .passive
             } else if Self.looksLikeEnvelope(content.body) {
-                content.body = broadcastPreviewText(for: content.body)
+                content.body = publicChatPreviewText(for: content.body)
             }
             contentHandler(content)
             return
@@ -1102,7 +1102,7 @@ class NotificationService: UNNotificationServiceExtension {
     /// assembled from the same envelope mirrors the 1:1 path already uses. Order matches the main
     /// app's: reaction, then chess, then reply-unwrap (which itself falls through to the inline
     /// media sniff for direct photo/voice/video sends). The `{`-prefix guard keeps a plain text
-    /// broadcast - the overwhelming majority - completely untouched.
+    /// public chat - the overwhelming majority - completely untouched.
     /// `inGroup: true` for the reaction wording: a public room's reaction almost never targets
     /// the reader's own message, and this target has no store to check against.
     /// Whether a push body is (probably) raw on-chain content rather than a plain preview: a
@@ -1115,7 +1115,7 @@ class NotificationService: UNNotificationServiceExtension {
             && !trimmed.contains(" ")
     }
 
-    private func broadcastPreviewText(for body: String) -> String {
+    private func publicChatPreviewText(for body: String) -> String {
         var trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         // The whole on-chain payload, prefix and channel included: keep the content after them.
         for prefix in ["kchat:1:bcast:", "ciph_msg:1:bcast:"] where trimmed.hasPrefix(prefix) {

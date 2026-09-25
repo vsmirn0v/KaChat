@@ -3,17 +3,17 @@ import Combine
 import UIKit
 import UserNotifications
 
-/// KaChat 2.0 Broadcast feature: public, unencrypted, many-to-many channels.
-/// Swift analog of the Android client's `BroadcastRepository` + `BroadcastScanningService`
-/// combined - join/leave channels, send broadcasts, and scan new blocks for messages in
+/// KaChat 2.0 Public Chat feature: public, unencrypted, many-to-many channels.
+/// Swift analog of the Android client's `PublicChatRepository` + `PublicChatScanningService`
+/// combined - join/leave channels, send public chats, and scan new blocks for messages in
 /// channels that are currently "wanted" (always-listen or actively viewed).
 @MainActor
-final class BroadcastService: ObservableObject {
-    static let shared = BroadcastService()
+final class PublicChatService: ObservableObject {
+    static let shared = PublicChatService()
 
     /// Hardcoded curated channels shown in a "Popular" section, matching Android. These two are
     /// AUTO-JOINED for every account (see `ensureFeaturedChannelsJoined`).
-    /// nonisolated: read from BroadcastStore's background prune (retention rule) as well as
+    /// nonisolated: read from PublicChatStore's background prune (retention rule) as well as
     /// main-actor UI - immutable Sendable value, safe from anywhere.
     nonisolated static let featuredChannels = ["kaspa", "kachat-bugs"]
 
@@ -53,7 +53,7 @@ final class BroadcastService: ObservableObject {
     /// Native-language label for a curated language room, e.g. "kaspa-espanol" -> "Español".
     /// Native names (not English ones) so a speaker scanning the list finds their own language.
     nonisolated static func languageDisplayName(for channel: String) -> String? {
-        switch BroadcastChannelName.normalize(channel) {
+        switch PublicChatChannelName.normalize(channel) {
         case "kaspa-indonesia": return "Bahasa Indonesia"
         case "kaspa-czech": return "Čeština"
         case "kaspa-german": return "Deutsch"
@@ -71,38 +71,38 @@ final class BroadcastService: ObservableObject {
         }
     }
 
-    @Published private(set) var channels: [BroadcastChannel] = []
-    @Published private(set) var messagesByChannel: [String: [BroadcastMessage]] = [:]
-    /// This wallet's broadcast reactions, keyed by channel then by targetTxId - mirrors
+    @Published private(set) var channels: [PublicChatChannel] = []
+    @Published private(set) var messagesByChannel: [String: [PublicChatMessage]] = [:]
+    /// This wallet's public chat reactions, keyed by channel then by targetTxId - mirrors
     /// `GroupChatService.reactionsByGroupId`'s shape (and reuses `GroupStore.ReactionSnapshot`,
-    /// see `BroadcastStore.fetchReactions`). Loaded per channel on open (`acquire`) and kept
-    /// live afterward by `sendBroadcastReaction` / the incoming-reaction interception in
-    /// `processBroadcastHits` and `fetchFromIndexerAndMerge`.
+    /// see `PublicChatStore.fetchReactions`). Loaded per channel on open (`acquire`) and kept
+    /// live afterward by `sendPublicChatReaction` / the incoming-reaction interception in
+    /// `processPublicChatHits` and `fetchFromIndexerAndMerge`.
     @Published private(set) var reactionsByChannel: [String: [String: [GroupStore.ReactionSnapshot]]] = [:]
     /// The newest edit per message txId, per room - see `MessageEditCodec`.
     @Published private(set) var editsByChannel: [String: [String: MessageEditSnapshot]] = [:]
-    /// The room message whose text the composer is editing (the user's own) - see `sendBroadcastEdit`.
-    @Published var editingMessage: BroadcastMessage?
+    /// The room message whose text the composer is editing (the user's own) - see `sendPublicChatEdit`.
+    @Published var editingMessage: PublicChatMessage?
     @Published var lastSendError: KasiaError?
-    @Published var replyingTo: BroadcastMessage?
-    /// Set when a broadcast-room notification is tapped, so the chat list can navigate to that
+    @Published var replyingTo: PublicChatMessage?
+    /// Set when a public chat-room notification is tapped, so the chat list can navigate to that
     /// room - mirrors `ChatService.pendingChatNavigation`'s cold-start handling.
-    @Published var pendingBroadcastNavigation: String?
+    @Published var pendingPublicChatNavigation: String?
 
     /// Shows a "Popular" tab of curated channels in the list screen. Default matches Android.
-    private let store = BroadcastStore.shared
+    private let store = PublicChatStore.shared
 
     /// Reference count of open channel screens ("live viewing"), keyed by normalized name.
     private var liveViewRefCounts: [String: Int] = [:]
     private var blockNotificationHandlerId: UUID?
     private var isScanningActive = false
-    /// pendingId of broadcasts with an auto-retry already scheduled - prevents scheduling a
-    /// duplicate retry if `sendBroadcastInternal` fails again before the first retry fires.
+    /// pendingId of public chats with an auto-retry already scheduled - prevents scheduling a
+    /// duplicate retry if `sendPublicChatInternal` fails again before the first retry fires.
     private var scheduledSendRetries: Set<String> = []
 
-    /// Fast pre-filter for the broadcast payload prefix, applied to the still-hex-encoded
+    /// Fast pre-filter for the public chat payload prefix, applied to the still-hex-encoded
     /// `Protowire_RpcTransaction.payload` before paying the cost of hex-decoding it - avoids
-    /// decoding every transaction in every new block just to reject non-broadcast ones.
+    /// decoding every transaction in every new block just to reject non-public chat ones.
     private nonisolated static func hexOf(_ s: String) -> String { s.utf8.map { String(format: "%02x", $0) }.joined() }
     private nonisolated static let bcastPrefixHex: String = hexOf("kchat:1:bcast:")        // write + read
     private nonisolated static let legacyBcastPrefixHex: String = hexOf("ciph_msg:1:bcast:") // read-only
@@ -131,7 +131,7 @@ final class BroadcastService: ObservableObject {
 
     // MARK: - Wallet lifecycle
 
-    /// Switch to a different wallet's broadcast store. Call alongside
+    /// Switch to a different wallet's public chat store. Call alongside
     /// `MessageStore.shared.setCurrentWallet` at every wallet-lifecycle transition.
     func setCurrentWallet(_ walletAddress: String?) {
         store.setCurrentWallet(walletAddress)
@@ -205,7 +205,7 @@ final class BroadcastService: ObservableObject {
     /// is no indexer for the room or the request failed.
     @discardableResult
     func refreshFromIndexerNow(channel rawChannel: String) async -> Bool {
-        let channel = BroadcastChannelName.normalize(rawChannel)
+        let channel = PublicChatChannelName.normalize(rawChannel)
         guard !Self.indexerBaseURL(forChannel: channel).isEmpty else { return false }
         return await fetchNewestAndMerge(channel: channel)
     }
@@ -215,7 +215,7 @@ final class BroadcastService: ObservableObject {
         let base = Self.indexerBaseURL(forChannel: channel)
         guard !base.isEmpty else { return false }
         do {
-            let page = try await BroadcastIndexerClient.fetchHistoryPage(baseURL: base, channel: channel, limit: 40)
+            let page = try await PublicChatIndexerClient.fetchHistoryPage(baseURL: base, channel: channel, limit: 40)
             indexerFetchedChannels.insert(channel)
             let hidden = store.hiddenSenderAddresses(forChannel: channel)
             var editsChanged = false
@@ -234,7 +234,7 @@ final class BroadcastService: ObservableObject {
             let firstPass = !sweptChannels.contains(channel)
             sweptChannels.insert(channel)
             if Self.serviceChannels.contains(channel) {
-                // Our own arena rows take the chain's block time - see processBroadcastHits.
+                // Our own arena rows take the chain's block time - see processPublicChatHits.
                 var changed = false
                 for row in rows where store.updateBlockTime(id: row.id, blockTime: row.blockTime) { changed = true }
                 if changed { loadMessages(for: channel) }
@@ -252,7 +252,7 @@ final class BroadcastService: ObservableObject {
             return true
         } catch {
             // Best-effort; the next sweep tries again.
-            AppLog.log("%@", "[Broadcast] Sweep fetch failed for #\(channel): \(error.localizedDescription)")
+            AppLog.log("%@", "[PublicChat] Sweep fetch failed for #\(channel): \(error.localizedDescription)")
             return false
         }
     }
@@ -271,14 +271,14 @@ final class BroadcastService: ObservableObject {
     private var hiddenCuratedKey: String? { walletAddress.map { "kachat_broadcast_hidden_curated_\($0)" } }
 
     func isCuratedChannelShown(_ name: String) -> Bool {
-        !hiddenCuratedChannels.contains(BroadcastChannelName.normalize(name))
+        !hiddenCuratedChannels.contains(PublicChatChannelName.normalize(name))
     }
 
     /// Off: the room leaves the list and its notifications stop (the bell goes off, which also
     /// takes it off the push service's watch list). On: it comes back - #kaspa and
     /// #kachat-bugs with their bell on again, as they start; the language rooms as they were.
     func setCuratedChannel(_ rawName: String, shown: Bool) {
-        let name = BroadcastChannelName.normalize(rawName)
+        let name = PublicChatChannelName.normalize(rawName)
         guard Self.indexedChannels.contains(name) else { return }
         if shown {
             hiddenCuratedChannels.remove(name)
@@ -324,7 +324,7 @@ final class BroadcastService: ObservableObject {
     /// Messages from other people newer than the read marker. A room seen for the first time
     /// counts from now, not from the start of its history.
     func unreadCount(forChannel name: String) -> Int {
-        let channel = BroadcastChannelName.normalize(name)
+        let channel = PublicChatChannelName.normalize(name)
         guard !isViewing(channel: channel), !hiddenCuratedChannels.contains(channel) else { return 0 }
         let manual = manuallyUnreadChannels.contains(channel) ? 1 : 0
         guard let marker = lastReadByChannel[channel] else { return manual }
@@ -341,7 +341,7 @@ final class BroadcastService: ObservableObject {
     }
 
     func markChannelRead(_ name: String) {
-        let channel = BroadcastChannelName.normalize(name)
+        let channel = PublicChatChannelName.normalize(name)
         let newest = messagesByChannel[channel]?.last?.blockTime ?? 0
         lastReadByChannel[channel] = max(newest, Int64(Date().timeIntervalSince1970 * 1000))
         manuallyUnreadChannels.remove(channel)
@@ -349,7 +349,7 @@ final class BroadcastService: ObservableObject {
     }
 
     func markChannelUnread(_ name: String) {
-        manuallyUnreadChannels.insert(BroadcastChannelName.normalize(name))
+        manuallyUnreadChannels.insert(PublicChatChannelName.normalize(name))
         persistReadState()
     }
 
@@ -402,8 +402,8 @@ final class BroadcastService: ObservableObject {
     func leaveChannel(_ name: String) {
         // Curated rooms (Popular and the language rooms alike) can't be left - both are
         // permanent fixtures of the list screen, so no UI offers it; guard against stray paths.
-        guard !Self.indexedChannels.contains(BroadcastChannelName.normalize(name)) else { return }
-        let normalized = BroadcastChannelName.normalize(name)
+        guard !Self.indexedChannels.contains(PublicChatChannelName.normalize(name)) else { return }
+        let normalized = PublicChatChannelName.normalize(name)
         store.leaveChannel(normalized)
         messagesByChannel.removeValue(forKey: normalized)
         reactionsByChannel.removeValue(forKey: normalized)
@@ -415,7 +415,7 @@ final class BroadcastService: ObservableObject {
     func setNotifyEnabled(_ enabled: Bool, forChannel name: String) {
         // Indexed channels' bells also gate remote push - sync the registration so the push
         // service starts/stops sending for this channel.
-        if Self.indexedChannels.contains(BroadcastChannelName.normalize(name)) {
+        if Self.indexedChannels.contains(PublicChatChannelName.normalize(name)) {
             Task { await PushNotificationManager.shared.updateWatchedAddresses() }
         }
         store.setNotifyEnabled(enabled, forChannel: name)
@@ -448,9 +448,9 @@ final class BroadcastService: ObservableObject {
     // MARK: - Per-room indexer
 
     /// Channel -> indexer base URL, for rooms the user pointed somewhere other than the app's
-    /// configured broadcast indexer.
+    /// configured public chat indexer.
     ///
-    /// A broadcast is on-chain, so any indexer that watches the same network serves the same
+    /// A public chat is on-chain, so any indexer that watches the same network serves the same
     /// room - which means a room can be read through whichever one you trust or host, without
     /// changing the app-wide setting that every OTHER room uses. Empty here means "use the
     /// app-wide one", which is what the curated Popular rooms do (KaChat's own indexer).
@@ -463,24 +463,24 @@ final class BroadcastService: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: Self.indexerOverridesKey) }
     }
 
-    /// The indexer this room reads from: its own override, or the app-wide broadcast indexer.
+    /// The indexer this room reads from: its own override, or the app-wide public chat indexer.
     nonisolated static func indexerBaseURL(forChannel channel: String) -> String {
         let overrides = UserDefaults.standard.dictionary(forKey: indexerOverridesKey) as? [String: String] ?? [:]
-        let own = overrides[BroadcastChannelName.normalize(channel)]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let own = overrides[PublicChatChannelName.normalize(channel)]?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let own, !own.isEmpty { return own }
-        return AppSettings.load().broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return AppSettings.load().publicChatIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// This room's override as the user typed it, or "" when it follows the app-wide setting.
     func indexerOverride(forChannel channel: String) -> String {
-        indexerOverrides[BroadcastChannelName.normalize(channel)] ?? ""
+        indexerOverrides[PublicChatChannelName.normalize(channel)] ?? ""
     }
 
     /// Points one room at its own indexer. An empty (or whitespace) value clears the override so
     /// the room follows the app-wide setting again. Restarts this room's polling so the change
     /// takes effect without leaving the room.
     func setIndexerOverride(_ url: String, forChannel channel: String) {
-        let key = BroadcastChannelName.normalize(channel)
+        let key = PublicChatChannelName.normalize(channel)
         let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
         var overrides = indexerOverrides
         if trimmed.isEmpty { overrides.removeValue(forKey: key) } else { overrides[key] = trimmed }
@@ -496,15 +496,15 @@ final class BroadcastService: ObservableObject {
     /// Hides in the indexed channels also gate server-side push - re-sync the registration so
     /// the push service stops (or resumes) sending for that sender.
     private func syncHiddenSendersToPushIfNeeded(channel: String) {
-        guard Self.indexedChannels.contains(BroadcastChannelName.normalize(channel)) else { return }
+        guard Self.indexedChannels.contains(PublicChatChannelName.normalize(channel)) else { return }
         Task { await PushNotificationManager.shared.updateWatchedAddresses() }
     }
 
     // MARK: - Live viewing (reference counted)
 
-    /// Call when a broadcast channel screen appears; pairs with `release`.
+    /// Call when a public chat channel screen appears; pairs with `release`.
     func acquire(_ name: String) {
-        let normalized = BroadcastChannelName.normalize(name)
+        let normalized = PublicChatChannelName.normalize(name)
         ChatService.clearDeliveredNotifications(threadIdentifier: "broadcast:\(normalized)")
         liveViewRefCounts[normalized, default: 0] += 1
         store.pruneExpiredMessages()
@@ -533,7 +533,7 @@ final class BroadcastService: ObservableObject {
     private var deepBackfillResume: [String: (before: Int64, pagesLeft: Int)] = [:]
     private static let indexerPollIntervalNanos: UInt64 = 8 * 1_000_000_000
 
-    /// While a room is open, the KaChat broadcast indexer is polled every few seconds and new
+    /// While a room is open, the KaChat public chat indexer is polled every few seconds and new
     /// rows merge into the local store (txid-deduped) - live block scanning alone proved
     /// unreliable for freshness (the indexer had messages the app never showed). First fetch
     /// fires immediately on open, so history backfill is included. No-op when the URL is unset;
@@ -569,7 +569,7 @@ final class BroadcastService: ObservableObject {
             // small limit is the mechanism. A burst larger than 30 between two polls is
             // recovered on the next room open (deep backfill re-runs per session).
             let steadyStateLimit = deepBackfilledChannels.contains(channel) ? 30 : 200
-            var messages = try await BroadcastIndexerClient.fetchHistoryPage(
+            var messages = try await PublicChatIndexerClient.fetchHistoryPage(
                 baseURL: baseURL, channel: channel, limit: steadyStateLimit
             )
             indexerFetchedChannels.insert(channel)
@@ -578,7 +578,7 @@ final class BroadcastService: ObservableObject {
             // only ever showed the newest single page (200 rows) — busy rooms like
             // #kachat-bugs never loaded anywhere near the 30 days the indexer holds.
             if !deepBackfilledChannels.contains(channel) {
-                let cutoff = Int64(Date().timeIntervalSince1970 * 1000) - BroadcastStore.indexerRetentionMillis
+                let cutoff = Int64(Date().timeIntervalSince1970 * 1000) - PublicChatStore.indexerRetentionMillis
                 var hasMore: Bool
                 var oldest: Int64?
                 var pagesLeft: Int
@@ -596,16 +596,16 @@ final class BroadcastService: ObservableObject {
                 var interrupted = false
                 while hasMore, let before = oldest, before > cutoff, pagesLeft > 0 {
                     pagesLeft -= 1
-                    let page: (messages: [BroadcastIndexerClient.IndexedBroadcast], hasMore: Bool)
+                    let page: (messages: [PublicChatIndexerClient.IndexedPublicChat], hasMore: Bool)
                     do {
-                        page = try await BroadcastIndexerClient.fetchHistoryPage(
+                        page = try await PublicChatIndexerClient.fetchHistoryPage(
                             baseURL: baseURL, channel: channel, before: before
                         )
                     } catch {
                         // Keep what this attempt did get: the pages already appended still
                         // merge below, and the cursor recorded after each of them is where the
                         // next 8s tick resumes - not page 1.
-                        AppLog.log("%@", "[Broadcast] Deep backfill for #\(channel) paused at before=\(before): \(error.localizedDescription)")
+                        AppLog.log("%@", "[PublicChat] Deep backfill for #\(channel) paused at before=\(before): \(error.localizedDescription)")
                         interrupted = true
                         break
                     }
@@ -630,7 +630,7 @@ final class BroadcastService: ObservableObject {
             // Reactions never become visible message rows - route them to the per-channel
             // reactions index instead (newest-blockTime-wins per (target, reactor), so
             // re-serving the same history every poll is idempotent - see
-            // `BroadcastStore.applyIncomingReaction`).
+            // `PublicChatStore.applyIncomingReaction`).
             var reactionsChanged = false
             var editsChanged = false
             for row in visible {
@@ -664,7 +664,7 @@ final class BroadcastService: ObservableObject {
             var insertedCount = await store.insertMessages(rows)
             if Self.serviceChannels.contains(channel) {
                 // Rows this phone sent carry its own clock until the chain's time reaches us -
-                // see processBroadcastHits.
+                // see processPublicChatHits.
                 for row in rows where store.updateBlockTime(id: row.id, blockTime: row.blockTime) {
                     insertedCount += 1
                 }
@@ -676,12 +676,12 @@ final class BroadcastService: ObservableObject {
             // Global notification center: live (session-gated) incoming channel messages. The
             // center dedupes by txId, so re-serving the same history every poll is a no-op.
             // The center stores the body verbatim, so hand it the FRIENDLY preview rather than
-            // the raw wire content: a broadcast reply/voice/photo/chess message is a JSON
+            // the raw wire content: a public chat reply/voice/photo/chess message is a JSON
             // envelope (`MessageReplyCodec` and friends) and would otherwise show as raw JSON
             // in the bell list. Same call the scan-driven local banner already makes below in
             // `notifyIfEnabled`.
             for row in rows {
-                GlobalNotificationCenter.shared.recordBroadcastIfLive(
+                GlobalNotificationCenter.shared.recordPublicChatIfLive(
                     channel: channel, senderAddress: row.senderAddress,
                     content: MessageReplyCodec.previewText(for: row.content),
                     txId: row.id, blockTime: row.blockTime
@@ -689,7 +689,7 @@ final class BroadcastService: ObservableObject {
             }
         } catch {
             // Best-effort on top of live scanning - the loop just tries again next tick.
-            AppLog.log("%@", "[Broadcast] Indexer fetch failed for #\(channel): \(error.localizedDescription)")
+            AppLog.log("%@", "[PublicChat] Indexer fetch failed for #\(channel): \(error.localizedDescription)")
         }
     }
 
@@ -698,12 +698,12 @@ final class BroadcastService: ObservableObject {
     /// looking at are suppressed (here for scan-driven local banners, and in
     /// `AppDelegate.willPresent` for remote pushes), everything else fires even in-app.
     func isViewing(channel: String) -> Bool {
-        liveViewRefCounts[BroadcastChannelName.normalize(channel)] != nil
+        liveViewRefCounts[PublicChatChannelName.normalize(channel)] != nil
     }
 
-    /// Call when a broadcast channel screen disappears; pairs with `acquire`.
+    /// Call when a public chat channel screen disappears; pairs with `acquire`.
     func release(_ name: String) {
-        let normalized = BroadcastChannelName.normalize(name)
+        let normalized = PublicChatChannelName.normalize(name)
         guard let count = liveViewRefCounts[normalized] else { return }
         if count <= 1 {
             // Everything that arrived while the room was open has been seen.
@@ -729,17 +729,17 @@ final class BroadcastService: ObservableObject {
 
     // MARK: - Messages
 
-    func messages(forChannel name: String) -> [BroadcastMessage] {
-        messagesByChannel[BroadcastChannelName.normalize(name)] ?? []
+    func messages(forChannel name: String) -> [PublicChatMessage] {
+        messagesByChannel[PublicChatChannelName.normalize(name)] ?? []
     }
 
     /// Aggregated reactions for a channel, keyed by the reacted-to message's txId.
     func reactions(forChannel name: String) -> [String: [GroupStore.ReactionSnapshot]] {
-        reactionsByChannel[BroadcastChannelName.normalize(name)] ?? [:]
+        reactionsByChannel[PublicChatChannelName.normalize(name)] ?? [:]
     }
 
     func edits(forChannel name: String) -> [String: MessageEditSnapshot] {
-        editsByChannel[BroadcastChannelName.normalize(name)] ?? [:]
+        editsByChannel[PublicChatChannelName.normalize(name)] ?? [:]
     }
 
     private func loadEdits(for channel: String) {
@@ -759,7 +759,7 @@ final class BroadcastService: ObservableObject {
 
     // MARK: - Edit
 
-    func startEditing(_ message: BroadcastMessage) {
+    func startEditing(_ message: PublicChatMessage) {
         replyingTo = nil
         editingMessage = message
     }
@@ -771,8 +771,8 @@ final class BroadcastService: ObservableObject {
     /// Edits one of this wallet's own text messages in a room: applied locally at once
     /// (pending), then sent as an edit envelope exactly like a reaction - one transaction, no
     /// message row of its own. Sent or failed follow.
-    func sendBroadcastEdit(channel rawChannel: String, targetTxId: String, text: String) async throws {
-        let channel = BroadcastChannelName.normalize(rawChannel)
+    func sendPublicChatEdit(channel rawChannel: String, targetTxId: String, text: String) async throws {
+        let channel = PublicChatChannelName.normalize(rawChannel)
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         guard let wallet = WalletManager.shared.currentWallet else { throw KasiaError.walletNotFound }
@@ -784,7 +784,7 @@ final class BroadcastService: ObservableObject {
         loadEdits(for: channel)
         do {
             let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation {
-                try await self.sendBroadcastInternal(
+                try await self.sendPublicChatInternal(
                     channel: channel, content: payload, walletAddress: wallet.publicAddress,
                     privateKey: privateKey, pendingId: "edit_\(UUID().uuidString)"
                 )
@@ -827,13 +827,13 @@ final class BroadcastService: ObservableObject {
         // this is polled once a second while a room is open, and re-reading + re-mapping the whole
         // message list on the main queue every second when nothing expired was pure waste.
         if store.pruneExpiredMessages() {
-            loadMessages(for: BroadcastChannelName.normalize(name))
+            loadMessages(for: PublicChatChannelName.normalize(name))
         }
     }
 
     // MARK: - Reply
 
-    func startReplyTo(_ message: BroadcastMessage) {
+    func startReplyTo(_ message: PublicChatMessage) {
         replyingTo = message
     }
 
@@ -843,7 +843,7 @@ final class BroadcastService: ObservableObject {
 
     // MARK: - Retry
 
-    func retryBroadcast(_ message: BroadcastMessage) {
+    func retryPublicChat(_ message: PublicChatMessage) {
         guard message.deliveryStatus == .failed else { return }
         guard let wallet = WalletManager.shared.currentWallet, wallet.publicAddress == message.senderAddress else { return }
         guard let privateKey = WalletManager.shared.getPrivateKey() else { return }
@@ -858,7 +858,7 @@ final class BroadcastService: ObservableObject {
         Task {
             do {
                 _ = try await ChatService.shared.enqueueOutgoingTxOperation {
-                    try await self.sendBroadcastInternal(
+                    try await self.sendPublicChatInternal(
                         channel: channel,
                         content: content,
                         walletAddress: wallet.publicAddress,
@@ -883,13 +883,13 @@ final class BroadcastService: ObservableObject {
 
     /// Reacts to `targetTxId` with `emoji` ("add"), or removes this wallet's existing reaction
     /// on it ("remove") - mirroring `GroupChatService.sendGroupReaction`'s optimistic-apply/
-    /// status-flip flow. The wire format is a NORMAL broadcast whose content is the shared
+    /// status-flip flow. The wire format is a NORMAL public chat whose content is the shared
     /// `MessageReactionCodec` JSON ({"type":"reaction","targetTxId":...,"emoji":...,"action":
-    /// "add"|"remove"}), sent through the exact same tx pipeline as a text broadcast (no reply
+    /// "add"|"remove"}), sent through the exact same tx pipeline as a text public chat (no reply
     /// wrapping) - Android and desktop speak the identical shape. Never creates a visible
     /// message row; receivers intercept it into their reactions index instead.
-    func sendBroadcastReaction(channel rawChannel: String, targetTxId: String, emoji: String, action: String) async throws {
-        let channel = BroadcastChannelName.normalize(rawChannel)
+    func sendPublicChatReaction(channel rawChannel: String, targetTxId: String, emoji: String, action: String) async throws {
+        let channel = PublicChatChannelName.normalize(rawChannel)
         guard let wallet = WalletManager.shared.currentWallet else {
             throw KasiaError.walletNotFound
         }
@@ -902,7 +902,7 @@ final class BroadcastService: ObservableObject {
 
         // Optimistic local apply: pending "add" shows the pill immediately; "remove" clears it.
         // A remove is stored as a tombstone (emoji nil) rather than a row delete - see
-        // `BroadcastStore`'s Reactions doc comment for why.
+        // `PublicChatStore`'s Reactions doc comment for why.
         store.upsertOwnReaction(
             targetTxId: targetTxId,
             channel: channel,
@@ -916,7 +916,7 @@ final class BroadcastService: ObservableObject {
 
         do {
             let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation {
-                try await self.sendBroadcastInternal(
+                try await self.sendPublicChatInternal(
                     channel: channel,
                     content: payload,
                     walletAddress: wallet.publicAddress,
@@ -954,21 +954,21 @@ final class BroadcastService: ObservableObject {
         }
     }
 
-    /// Re-attempts a broadcast reaction whose send previously failed. `action` is the failed
-    /// reaction's stored `failedAction` ("add"/"remove"). Delegates to `sendBroadcastReaction`,
+    /// Re-attempts a public chat reaction whose send previously failed. `action` is the failed
+    /// reaction's stored `failedAction` ("add"/"remove"). Delegates to `sendPublicChatReaction`,
     /// which clears the failed flag optimistically and re-flags it only if this attempt fails too.
-    func retryBroadcastReaction(channel: String, targetTxId: String, emoji: String, action: String) async throws {
-        try await sendBroadcastReaction(channel: channel, targetTxId: targetTxId, emoji: emoji, action: action)
+    func retryPublicChatReaction(channel: String, targetTxId: String, emoji: String, action: String) async throws {
+        try await sendPublicChatReaction(channel: channel, targetTxId: targetTxId, emoji: emoji, action: action)
     }
 
     // MARK: - Fee estimation
 
-    /// Estimate the on-chain fee for sending `content` as a broadcast right now, matching how
+    /// Estimate the on-chain fee for sending `content` as a public chat right now, matching how
     /// 1:1 chat shows a live "fee: N sompi" preview while typing (`ChatService.estimateMessageFee`).
     /// Accounts for an active reply, since replies wrap the content in a larger envelope.
-    func estimateBroadcastFee(channel rawChannel: String, content: String, feeOverride: UInt64? = nil) async throws -> UInt64 {
+    func estimatePublicChatFee(channel rawChannel: String, content: String, feeOverride: UInt64? = nil) async throws -> UInt64 {
         if let feeOverride { return feeOverride }
-        let channel = BroadcastChannelName.normalize(rawChannel)
+        let channel = PublicChatChannelName.normalize(rawChannel)
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw KasiaError.networkError("Message is empty")
@@ -993,12 +993,12 @@ final class BroadcastService: ObservableObject {
             payloadText = trimmed
         }
 
-        let payload = KasiaTransactionBuilder.buildBroadcastPayload(channel: channel, content: payloadText)
+        let payload = KasiaTransactionBuilder.buildPublicChatPayload(channel: channel, content: payloadText)
         let utxos = try await ChatService.shared.fetchUtxosWithFallback(for: wallet.publicAddress)
         guard !utxos.isEmpty else {
             throw KasiaError.networkError("No spendable UTXOs")
         }
-        return KasiaTransactionBuilder.estimateBroadcastFee(
+        return KasiaTransactionBuilder.estimatePublicChatFee(
             payload: payload,
             inputCount: 1,
             senderScriptPubKey: senderScriptPubKey
@@ -1008,13 +1008,13 @@ final class BroadcastService: ObservableObject {
     /// Same estimate, but for a payload of a known byte size rather than real text - used for a
     /// live preview while a voice message is still being recorded (its final size isn't known
     /// yet), matching Android's `VoiceMessage.estimatedWirePayloadSize` heuristic.
-    func estimateBroadcastFee(channel rawChannel: String, payloadByteCount: Int) -> UInt64? {
+    func estimatePublicChatFee(channel rawChannel: String, payloadByteCount: Int) -> UInt64? {
         guard let wallet = WalletManager.shared.currentWallet,
               let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else {
             return nil
         }
         let dummyPayload = Data(count: max(0, payloadByteCount))
-        return KasiaTransactionBuilder.estimateBroadcastFee(
+        return KasiaTransactionBuilder.estimatePublicChatFee(
             payload: dummyPayload,
             inputCount: 1,
             senderScriptPubKey: senderScriptPubKey
@@ -1025,9 +1025,9 @@ final class BroadcastService: ObservableObject {
 
     /// Send a voice message - wraps the same inline JSON shape used by 1:1 chat's
     /// `ChatService.sendAudio` (and matching Android's `VoiceMessageContent` field-for-field) so a
-    /// voice message recorded on either platform plays back on both, then reuses `sendBroadcast`
+    /// voice message recorded on either platform plays back on both, then reuses `sendPublicChat`
     /// for the actual optimistic-send/reply-wrap/retry plumbing.
-    func sendBroadcastAudio(
+    func sendPublicChatAudio(
         channel: String,
         audioData: Data,
         fileName: String = "voice.webm",
@@ -1041,13 +1041,13 @@ final class BroadcastService: ObservableObject {
             mimeType: mimeType,
             dataUrlContent: "data:\(mimeType);base64,\(base64)"
         )
-        try await sendBroadcast(channel: channel, content: jsonString)
+        try await sendPublicChat(channel: channel, content: jsonString)
     }
 
-    func sendBroadcast(channel rawChannel: String, content: String, feeOverride: UInt64? = nil) async throws {
-        let channel = BroadcastChannelName.normalize(rawChannel)
+    func sendPublicChat(channel rawChannel: String, content: String, feeOverride: UInt64? = nil) async throws {
+        let channel = PublicChatChannelName.normalize(rawChannel)
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard BroadcastChannelName.isValid(channel) else {
+        guard PublicChatChannelName.isValid(channel) else {
             throw KasiaError.networkError("Invalid channel name")
         }
         guard !trimmed.isEmpty else { return }
@@ -1059,7 +1059,7 @@ final class BroadcastService: ObservableObject {
         }
 
         // If replying, wrap the content in the shared reply envelope (matches Android's
-        // BroadcastViewModel.sendBroadcast) so the quote survives even if the original message is
+        // PublicChatViewModel.sendPublicChat) so the quote survives even if the original message is
         // later pruned or its sender hidden.
         let payload: String
         if let reply = replyingTo {
@@ -1088,7 +1088,7 @@ final class BroadcastService: ObservableObject {
 
         do {
             _ = try await ChatService.shared.enqueueOutgoingTxOperation {
-                try await self.sendBroadcastInternal(
+                try await self.sendPublicChatInternal(
                     channel: channel,
                     content: payload,
                     walletAddress: wallet.publicAddress,
@@ -1110,8 +1110,8 @@ final class BroadcastService: ObservableObject {
         }
     }
 
-    /// If sending too quickly back-to-back races the previous broadcast's not-yet-confirmed
-    /// UTXOs, `sendBroadcastInternal` surfaces that as a "no confirmed inputs" error - automatic-
+    /// If sending too quickly back-to-back races the previous public chat's not-yet-confirmed
+    /// UTXOs, `sendPublicChatInternal` surfaces that as a "no confirmed inputs" error - automatic-
     /// ally retry those with backoff (matches 1:1 chat's `scheduleOutgoingRetry`) instead of
     /// leaving the user to notice and manually tap retry. Any other error still fails immediately.
     private func handleSendFailure(
@@ -1124,9 +1124,9 @@ final class BroadcastService: ObservableObject {
     ) async throws {
         if ChatService.shared.isNoConfirmedInputsError(error) {
             let delay = ChatService.shared.nextNoInputRetryDelay(for: pendingId)
-            AppLog.log("[BroadcastService] Deferred retry (no confirmed inputs) for %@ in %.0fs",
+            AppLog.log("[PublicChatService] Deferred retry (no confirmed inputs) for %@ in %.0fs",
                   String(pendingId.prefix(12)), delay)
-            scheduleBroadcastRetry(
+            schedulePublicChatRetry(
                 channel: channel,
                 content: content,
                 walletAddress: walletAddress,
@@ -1147,7 +1147,7 @@ final class BroadcastService: ObservableObject {
         throw surfaced
     }
 
-    private func scheduleBroadcastRetry(
+    private func schedulePublicChatRetry(
         channel: String,
         content: String,
         walletAddress: String,
@@ -1168,7 +1168,7 @@ final class BroadcastService: ObservableObject {
             }
             do {
                 _ = try await ChatService.shared.enqueueOutgoingTxOperation {
-                    try await self.sendBroadcastInternal(
+                    try await self.sendPublicChatInternal(
                         channel: channel,
                         content: content,
                         walletAddress: walletAddress,
@@ -1193,7 +1193,7 @@ final class BroadcastService: ObservableObject {
     /// resolved to it in-store; reaction sends (which have no message row - their `pendingId` is
     /// synthetic) use the returned id to stamp the reaction's `reactionTxId`.
     @discardableResult
-    private func sendBroadcastInternal(
+    private func sendPublicChatInternal(
         channel: String,
         content: String,
         walletAddress: String,
@@ -1204,8 +1204,8 @@ final class BroadcastService: ObservableObject {
         let chatService = ChatService.shared
 
         // Fetch UTXOs fresh (not the 20s-stale `fetchCachedUtxos`) and merge in any pending
-        // change output from a just-submitted broadcast, excluding whatever it just spent - the
-        // same in-flight UTXO chaining 1:1 messages use, so sending several broadcasts back-to-
+        // change output from a just-submitted public chat, excluding whatever it just spent - the
+        // same in-flight UTXO chaining 1:1 messages use, so sending several public chats back-to-
         // back doesn't try to double-spend the same not-yet-confirmed UTXO.
         let freshUtxos = try await NodePoolService.shared.getUtxosByAddresses([walletAddress])
         let candidateUtxos = chatService.prepareMessageUtxos(confirmed: freshUtxos)
@@ -1214,7 +1214,7 @@ final class BroadcastService: ObservableObject {
         }
 
         do {
-            return try await buildSignSubmitBroadcast(
+            return try await buildSignSubmitPublicChat(
                 channel: channel,
                 content: content,
                 walletAddress: walletAddress,
@@ -1226,7 +1226,7 @@ final class BroadcastService: ObservableObject {
         } catch {
             // The node pool hedges submits across nodes, so the node this landed on can be a few
             // seconds behind the node that served the UTXO snapshot (or behind a just-accepted
-            // broadcast whose change we chained). It then rejects with kaspad's raw
+            // public chat whose change we chained). It then rejects with kaspad's raw
             // "... is an orphan, where orphan is disallowed" / "already spent" text. That's a
             // transient state mismatch, not a user error - retry ONCE with a freshly fetched,
             // confirmed-only input set (mirrors the 1:1 path's confirmed-only fallback) before
@@ -1236,9 +1236,9 @@ final class BroadcastService: ObservableObject {
             let confirmedOnly = chatService.prepareMessageUtxos(confirmed: refetched)
                 .filter { $0.blockDaaScore > 0 }
             guard !confirmedOnly.isEmpty else { throw error }
-            AppLog.log("[BroadcastService] Submit rejected (%@) for %@ - retrying with confirmed-only inputs",
+            AppLog.log("[PublicChatService] Submit rejected (%@) for %@ - retrying with confirmed-only inputs",
                        error.localizedDescription, String(pendingId.prefix(12)))
-            return try await buildSignSubmitBroadcast(
+            return try await buildSignSubmitPublicChat(
                 channel: channel,
                 content: content,
                 walletAddress: walletAddress,
@@ -1251,9 +1251,9 @@ final class BroadcastService: ObservableObject {
     }
 
     /// One build -> sign -> submit -> bookkeeping attempt against a fixed candidate UTXO set.
-    /// Split out of `sendBroadcastInternal` so the orphan/already-spent fallback there can rerun
+    /// Split out of `sendPublicChatInternal` so the orphan/already-spent fallback there can rerun
     /// the whole attempt against a refreshed input set.
-    private func buildSignSubmitBroadcast(
+    private func buildSignSubmitPublicChat(
         channel: String,
         content: String,
         walletAddress: String,
@@ -1264,7 +1264,7 @@ final class BroadcastService: ObservableObject {
     ) async throws -> String {
         let chatService = ChatService.shared
 
-        let tx = try KasiaTransactionBuilder.buildBroadcastTx(
+        let tx = try KasiaTransactionBuilder.buildPublicChatTx(
             from: walletAddress,
             channel: channel,
             content: content,
@@ -1310,7 +1310,7 @@ final class BroadcastService: ObservableObject {
 
     /// The channels that justify the block stream on the CURRENT network path. On WiFi this is
     /// every wanted channel. On an expensive (cellular/metered) path, featured rooms are
-    /// dropped when the KaChat broadcast indexer is configured: an OPEN featured room is kept
+    /// dropped when the KaChat public chat indexer is configured: an OPEN featured room is kept
     /// fresh by the existing 8s indexer poll (`startIndexerPollingIfConfigured`), and a closed
     /// one is covered by remote push - so streaming every block for them is pure duplicate
     /// cost. Non-indexed rooms (user-added channels with alwaysListen, or open non-featured
@@ -1337,7 +1337,7 @@ final class BroadcastService: ObservableObject {
 
     private nonisolated static let blockScanQueue = DispatchQueue(label: "com.kachat.broadcastBlockScan", qos: .utility)
 
-    /// One fully-parsed broadcast candidate from a scanned block.
+    /// One fully-parsed public chat candidate from a scanned block.
     struct BlockScanHit {
         let channel: String
         let txId: String
@@ -1351,21 +1351,21 @@ final class BroadcastService: ObservableObject {
     /// of bug (GroupChatService got the identical treatment). Pure extraction, no state:
     /// wanted/hidden filtering happens on the main hop, which only fires for actual hits
     /// (almost every block has zero).
-    private nonisolated static func extractBroadcastHits(_ data: Data, hrp: String) -> [BlockScanHit] {
+    private nonisolated static func extractPublicChatHits(_ data: Data, hrp: String) -> [BlockScanHit] {
         guard let notification = try? Protowire_BlockAddedNotificationMessage(serializedBytes: data) else { return [] }
         var hits: [BlockScanHit] = []
         for tx in notification.block.transactions {
             guard tx.payload.hasPrefix(bcastPrefixHex) || tx.payload.hasPrefix(legacyBcastPrefixHex) else { continue }
             guard let payloadData = CryptoUtils.hexToData(tx.payload),
                   let payloadString = String(data: payloadData, encoding: .utf8),
-                  let parsed = KasiaTransactionBuilder.parseBroadcastPayload(payloadString) else { continue }
+                  let parsed = KasiaTransactionBuilder.parsePublicChatPayload(payloadString) else { continue }
             guard let firstOutput = tx.outputs.first,
                   let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
                   let senderAddress = KaspaAddress.address(fromScriptPublicKey: scriptData, hrp: hrp) else { continue }
             let txId = tx.verboseData.transactionID
             guard !txId.isEmpty else { continue }
             hits.append(BlockScanHit(
-                channel: BroadcastChannelName.normalize(parsed.channel),
+                channel: PublicChatChannelName.normalize(parsed.channel),
                 txId: txId,
                 senderAddress: senderAddress,
                 content: parsed.content,
@@ -1381,10 +1381,10 @@ final class BroadcastService: ObservableObject {
                 guard type == .blockAdded else { return }
                 Self.blockScanQueue.async {
                     let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
-                    let hits = Self.extractBroadcastHits(data, hrp: hrp)
+                    let hits = Self.extractPublicChatHits(data, hrp: hrp)
                     guard !hits.isEmpty else { return }
                     Task { @MainActor in
-                        self?.processBroadcastHits(hits)
+                        self?.processPublicChatHits(hits)
                     }
                 }
             }
@@ -1402,9 +1402,9 @@ final class BroadcastService: ObservableObject {
 
     // MARK: - Block scanning
 
-    /// Main-actor tail of the block scan: runs ONLY when a block actually contained broadcast
+    /// Main-actor tail of the block scan: runs ONLY when a block actually contained public chat
     /// payloads (rare). State filtering + store insert + UI refresh.
-    private func processBroadcastHits(_ hits: [BlockScanHit]) {
+    private func processPublicChatHits(_ hits: [BlockScanHit]) {
         let wanted = wantedChannels
         guard !wanted.isEmpty else { return }
         let hidden = store.hiddenSendersByChannel()
@@ -1419,7 +1419,7 @@ final class BroadcastService: ObservableObject {
             // Reactions are never shown as their own bubble (or notified) - just attached to the
             // message they target - so intercept and route to the reactions index before this
             // ever becomes a message row. Our own outgoing reactions already applied their local
-            // update at send time (sendBroadcastReaction); newest-blockTime-wins dedupes the echo.
+            // update at send time (sendPublicChatReaction); newest-blockTime-wins dedupes the echo.
             if let edit = MessageEditCodec.parse(hit.content) {
                 if applyIncomingEdit(edit, channel: hit.channel, senderAddress: hit.senderAddress, editTxId: hit.txId, blockTime: hit.blockTime) {
                     editChannels.insert(hit.channel)
@@ -1484,15 +1484,15 @@ final class BroadcastService: ObservableObject {
         guard !store.hiddenSenderAddresses(forChannel: channel).contains(senderAddress) else { return }
         let settings = AppSettings.load()
         guard settings.notificationsEnabled else { return }
-        // Child Mode removes Broadcasts entirely - no local banners for them either.
+        // Child Mode removes Public Chats entirely - no local banners for them either.
         // The remote push is the only banner source - see `ChatService.localBannersEnabled`.
         guard ChatService.localBannersEnabled else { return }
         guard !settings.childModeEnabled else { return }
         // Indexed channels are covered by remote push (registered via
-        // watched_broadcast_channels) while the app is backgrounded or closed - skip the
+        // watched_publicChat_channels) while the app is backgrounded or closed - skip the
         // scan-driven local banner there so one message can't notify twice. While the app is
         // ACTIVE the scan is the notification source whatever the mode
-        // (AppDelegate.willPresent drops broadcast pushes in foreground), so the banner fires.
+        // (AppDelegate.willPresent drops public chat pushes in foreground), so the banner fires.
         if Self.indexedChannels.contains(channel), settings.notificationMode == .remotePush,
            UIApplication.shared.applicationState != .active {
             return
@@ -1524,20 +1524,20 @@ final class BroadcastService: ObservableObject {
         )
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
-                AppLog.log("[BroadcastService] Failed to send local notification: %@", error.localizedDescription)
+                AppLog.log("[PublicChatService] Failed to send local notification: %@", error.localizedDescription)
             }
         }
     }
 }
 
 
-// MARK: - Broadcast indexer client
+// MARK: - Public Chat indexer client
 
-/// Minimal read client for the KaChat-owned broadcast indexer (see PUBLIC_CHATS_INDEXER.md - the
+/// Minimal read client for the KaChat-owned public chat indexer (see PUBLIC_CHATS_INDEXER.md - the
 /// server tracks #kaspa and #kachat-bugs history so clients aren't limited to what they catch
 /// live). The API contract this client expects is the source of truth for the server build.
-enum BroadcastIndexerClient {
-    struct IndexedBroadcast: Decodable {
+enum PublicChatIndexerClient {
+    struct IndexedPublicChat: Decodable {
         let txId: String
         let channel: String?
         let senderAddress: String
@@ -1546,7 +1546,7 @@ enum BroadcastIndexerClient {
     }
 
     private struct HistoryResponse: Decodable {
-        let messages: [IndexedBroadcast]
+        let messages: [IndexedPublicChat]
         let hasMore: Bool?
     }
 
@@ -1556,13 +1556,13 @@ enum BroadcastIndexerClient {
 
         var errorDescription: String? {
             switch self {
-            case .badURL: return "Invalid broadcast indexer URL"
-            case .badResponse(let code): return "Broadcast indexer returned HTTP \(code)"
+            case .badURL: return "Invalid public chats indexer URL"
+            case .badResponse(let code): return "Public chats indexer returned HTTP \(code)"
             }
         }
     }
 
-    /// GET /get-broadcasts?channel=<name>&limit=<n>[&before=<blockTimeMs>]
+    /// GET /get-public chats?channel=<name>&limit=<n>[&before=<blockTimeMs>]
     /// -> {"messages":[{txId, channel, senderAddress, content, blockTime}], "hasMore": Bool}
     /// blockTime is ms; results newest-first; `before` pages older history.
     static func fetchHistory(
@@ -1570,7 +1570,7 @@ enum BroadcastIndexerClient {
         channel: String,
         limit: Int = 200,
         before: Int64? = nil
-    ) async throws -> [IndexedBroadcast] {
+    ) async throws -> [IndexedPublicChat] {
         try await fetchHistoryPage(baseURL: baseURL, channel: channel, limit: limit, before: before).messages
     }
 
@@ -1582,7 +1582,7 @@ enum BroadcastIndexerClient {
         channel: String,
         limit: Int = 200,
         before: Int64? = nil
-    ) async throws -> (messages: [IndexedBroadcast], hasMore: Bool) {
+    ) async throws -> (messages: [IndexedPublicChat], hasMore: Bool) {
         var trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasSuffix("/") { trimmed = String(trimmed.dropLast()) }
         var components = URLComponents(string: "\(trimmed)/get-broadcasts")

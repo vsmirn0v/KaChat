@@ -200,7 +200,7 @@ final class WalletManager: ObservableObject {
                     isLoggedOut = true
                     ContactsManager.shared.setActiveWalletAddress(nil)
                     await MessageStore.shared.setCurrentWallet(nil)
-                    BroadcastService.shared.setCurrentWallet(nil)
+                    PublicChatService.shared.setCurrentWallet(nil)
                     GroupChatService.shared.setCurrentWallet(nil)
                     ColdStorageManager.shared.setCurrentWallet(nil)
                     PortfolioManager.shared.setCurrentWallet(nil)
@@ -237,7 +237,7 @@ final class WalletManager: ObservableObject {
                 isLoading = false
                 // Switch MessageStore to this wallet's store
                 await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
-                BroadcastService.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                PublicChatService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 GroupChatService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 // Discover group invites for THIS account right away - switching accounts in-app
                 // does not fire a scenePhase .active, so without this a group you were added to
@@ -262,7 +262,7 @@ final class WalletManager: ObservableObject {
             UserDefaults.standard.removeObject(forKey: logoutFlagKey)
             ContactsManager.shared.setActiveWalletAddress(nil)
             await MessageStore.shared.setCurrentWallet(nil)
-            BroadcastService.shared.setCurrentWallet(nil)
+            PublicChatService.shared.setCurrentWallet(nil)
             GroupChatService.shared.setCurrentWallet(nil)
             ColdStorageManager.shared.setCurrentWallet(nil)
             PortfolioManager.shared.setCurrentWallet(nil)
@@ -384,7 +384,7 @@ final class WalletManager: ObservableObject {
         // Switch MessageStore to this wallet's store FIRST
         // This must happen before resetForNewWallet() to avoid clearing the wrong store
         await MessageStore.shared.setCurrentWallet(wallet.publicAddress)
-        BroadcastService.shared.setCurrentWallet(wallet.publicAddress)
+        PublicChatService.shared.setCurrentWallet(wallet.publicAddress)
         GroupChatService.shared.setCurrentWallet(wallet.publicAddress)
         // Discover group invites for this newly-activated account immediately (see the same
         // call in loadWallet) - an in-app account activation does not fire scenePhase .active.
@@ -468,7 +468,7 @@ final class WalletManager: ObservableObject {
 
         // Switch MessageStore back to default store (no wallet)
         await MessageStore.shared.setCurrentWallet(nil)
-        BroadcastService.shared.setCurrentWallet(nil)
+        PublicChatService.shared.setCurrentWallet(nil)
         GroupChatService.shared.setCurrentWallet(nil)
         ColdStorageManager.shared.setCurrentWallet(nil)
         PortfolioManager.shared.setCurrentWallet(nil)
@@ -498,7 +498,7 @@ final class WalletManager: ObservableObject {
         ContactsManager.shared.setActiveWalletAddress(nil)
 
         await MessageStore.shared.setCurrentWallet(nil)
-        BroadcastService.shared.setCurrentWallet(nil)
+        PublicChatService.shared.setCurrentWallet(nil)
         GroupChatService.shared.setCurrentWallet(nil)
         ColdStorageManager.shared.setCurrentWallet(nil)
         PortfolioManager.shared.setCurrentWallet(nil)
@@ -594,8 +594,8 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.setCurrentWallet(account.publicAddress)
         MessageStore.shared.clearAll()
         await MessageStore.shared.destroyLocalStoreFiles()
-        BroadcastService.shared.setCurrentWallet(account.publicAddress)
-        BroadcastStore.shared.clearAll()
+        PublicChatService.shared.setCurrentWallet(account.publicAddress)
+        PublicChatStore.shared.clearAll()
         GroupChatService.shared.setCurrentWallet(account.publicAddress)
         GroupChatService.shared.clearAllLocalData()
         ColdStorageManager.shared.setCurrentWallet(account.publicAddress)
@@ -624,7 +624,7 @@ final class WalletManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: logoutFlagKey)
 
         await MessageStore.shared.setCurrentWallet(nil)
-        BroadcastService.shared.setCurrentWallet(nil)
+        PublicChatService.shared.setCurrentWallet(nil)
         GroupChatService.shared.setCurrentWallet(nil)
         ColdStorageManager.shared.setCurrentWallet(nil)
         PortfolioManager.shared.setCurrentWallet(nil)
@@ -893,7 +893,7 @@ final class WalletManager: ObservableObject {
     /// balance never counts as zero - only an actual fetched/cached 0. Reactive: `balanceSompi`
     /// lives on the published `currentWallet`, so observers re-evaluate the moment any
     /// refresh/UTXO push reports funds. Drives the zero-balance compose gates in 1:1 chats,
-    /// group chats, broadcast channels, and KaPosts.
+    /// group chats, public chat channels, and KaPosts.
     var hasConfirmedZeroChattingBalance: Bool {
         guard let balance = currentWallet?.balanceSompi else { return false }
         return balance == 0
@@ -1428,7 +1428,7 @@ final class WalletManager: ObservableObject {
     /// private key (re-derived for the chosen index), `currentWallet`/`publicAddress`,
     /// `getPrivateKey()` (handshakes/ECIES encryption), ContactsManager scope, MessageStore's
     /// per-wallet SQLite (a fresh file keyed by the new address - the old address's store was
-    /// empty since no conversations existed), Broadcast/Group/ColdStorage/
+    /// empty since no conversations existed), Public Chat/Group/ColdStorage/
     /// Portfolio scopes, share-extension shared data, and ChatService polling + UTXO
     /// subscriptions (restarted for the new address; push registration always reads
     /// `currentWallet.publicAddress` live at register time).

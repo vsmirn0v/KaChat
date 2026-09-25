@@ -36,7 +36,7 @@ Current deployment target is iOS 16.0 (widgets require iOS 17.0). The current re
 - Wallet onboarding/import and secure key handling (Secure Enclave wrapped)
 - One-to-one encrypted chats using handshake + contextual message flow
 - Encrypted group chats (`kchat:1:gcomm` / `gctl` payloads)
-- Public broadcast channels (for example `#kaspa`) with hideable senders
+- Public chat rooms (for example `#kaspa`) with hideable senders
 - KaPosts: on-chain social posts tied to KNS identities
 - On-chain KAS transfers integrated into conversations, with reactions, image attachments, link previews, and in-chat chess games
 - Fresh-address payment pools for payment privacy (see MESSAGING.md)
@@ -274,7 +274,7 @@ Defaults are managed via `AppSettings`.
 - [MESSAGING.md](MESSAGING.md): protocol and transaction semantics
 - [POOLS_v2.md](POOLS_v2.md): node pool and failover architecture
 - [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md): push delivery design
-- [PUSH_EXTENSIONS.md](PUSH_EXTENSIONS.md): push server handoff for broadcasts and KaPosts
+- [PUSH_EXTENSIONS.md](PUSH_EXTENSIONS.md): push server handoff for public chats and KaPosts
 - [PUBLIC_CHATS_INDEXER.md](PUBLIC_CHATS_INDEXER.md) and [KAPOSTS_INDEXER.md](KAPOSTS_INDEXER.md): indexer build guides
 - [KACHAT_APP_LINKS.md](KACHAT_APP_LINKS.md): the kachat.app link site (share previews, Universal/App Links, download page)
 

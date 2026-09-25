@@ -3,7 +3,7 @@ import CoreData
 import CryptoKit
 
 /// Local-only, per-wallet store for group chat metadata and messages.
-/// Like `BroadcastStore`, this is intentionally never synced anywhere - group secrets
+/// Like `PublicChatStore`, this is intentionally never synced anywhere - group secrets
 /// (GroupBag) live in Keychain only, and message content here is stored as raw gcomm
 /// ciphertext (not plaintext), decrypted on read using the Keychain-held keys. Compromising
 /// this database alone does not reveal message content, matching MessageStore's posture for
@@ -628,7 +628,7 @@ struct CDGroupMessageSnapshot: Sendable {
 }
 
 // GroupStore only touches Core Data via context.performAndWait on its own contexts;
-// treat as Sendable for structured concurrency usage (matches BroadcastStore's convention).
+// treat as Sendable for structured concurrency usage (matches PublicChatStore's convention).
 extension GroupStore: @unchecked Sendable {}
 
 @objc(CDGroup)

@@ -271,7 +271,7 @@ original, with a small "edited" mark. Rules, identical on every platform:
 
 Reference implementation: `MessageEditCodec` in `Models.swift`; interception in
 `ChatService.addMessageToConversation`, `GroupChatService` (next to the reaction branch) and
-`BroadcastService` (scan, indexer page and sweep paths).
+`PublicChatService` (scan, indexer page and sweep paths).
 
 ## Fresh-Address Payment Pools
 

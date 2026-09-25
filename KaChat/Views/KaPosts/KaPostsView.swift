@@ -6378,7 +6378,7 @@ private struct KaPostTipSheet: View {
                 await MainActor.run {
                     Haptics.success()
                     guard let txId else {
-                        // Deferred rather than broadcast (no confirmed inputs yet) - there is no
+                        // Deferred rather than public chat (no confirmed inputs yet) - there is no
                         // transaction to show, and the retry timer owns it from here.
                         dismiss()
                         return
@@ -8466,7 +8466,7 @@ struct KaPostsNotificationsView: View {
 
 /// KaPosts inside its navigation chrome - used by BOTH the standalone dock tab and the
 /// chats-slot presentation, so the header (green connection dot leading, balance centered,
-/// bold large title) is rendered by the exact same UIKit bar as Chats and Broadcasts and
+/// bold large title) is rendered by the exact same UIKit bar as Chats and Public Chats and
 /// never shifts between pages.
 struct KaPostsPageView: View {
     var body: some View {

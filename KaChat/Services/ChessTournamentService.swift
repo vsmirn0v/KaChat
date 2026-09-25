@@ -3,8 +3,8 @@ import Combine
 import UIKit
 
 /// Chess tournaments (ONLINE_CHESS.md): the `#chess-arena` room read through
-/// `BroadcastService`, reduced by `ChessTournamentEngine` into the bracket every phone agrees
-/// on, and the actions a player can take - each one a broadcast transaction.
+/// `PublicChatService`, reduced by `ChessTournamentEngine` into the bracket every phone agrees
+/// on, and the actions a player can take - each one a public chat transaction.
 @MainActor
 final class ChessTournamentService: ObservableObject {
     static let shared = ChessTournamentService()
@@ -33,7 +33,7 @@ final class ChessTournamentService: ObservableObject {
     private var claimedGames: Set<String> = []
 
     private init() {
-        BroadcastService.shared.$messagesByChannel
+        PublicChatService.shared.$messagesByChannel
             .map { $0[ChessTournamentCodec.arenaChannel] ?? [] }
             .removeDuplicates()
             .receive(on: RunLoop.main)
@@ -49,19 +49,19 @@ final class ChessTournamentService: ObservableObject {
     func acquire() {
         refCount += 1
         guard refCount == 1 else { return }
-        let broadcast = BroadcastService.shared
-        if !arenaJoined, !broadcast.channels.contains(where: { $0.channelName == ChessTournamentCodec.arenaChannel }) {
-            broadcast.joinChannel(ChessTournamentCodec.arenaChannel)
+        let publicChat = PublicChatService.shared
+        if !arenaJoined, !publicChat.channels.contains(where: { $0.channelName == ChessTournamentCodec.arenaChannel }) {
+            publicChat.joinChannel(ChessTournamentCodec.arenaChannel)
         }
         arenaJoined = true
-        broadcast.acquire(ChessTournamentCodec.arenaChannel)
+        publicChat.acquire(ChessTournamentCodec.arenaChannel)
         if let me = myAddress { resolveNames(for: [me]) }
         historyReady = false
         Task { [weak self] in
             let deadline = Date().addingTimeInterval(8)
             while Date() < deadline {
-                if BroadcastService.shared.indexerFetchedChannels.contains(ChessTournamentCodec.arenaChannel)
-                    || BroadcastService.indexerBaseURL(forChannel: ChessTournamentCodec.arenaChannel).isEmpty { break }
+                if PublicChatService.shared.indexerFetchedChannels.contains(ChessTournamentCodec.arenaChannel)
+                    || PublicChatService.indexerBaseURL(forChannel: ChessTournamentCodec.arenaChannel).isEmpty { break }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
             self?.historyReady = true
@@ -83,7 +83,7 @@ final class ChessTournamentService: ObservableObject {
                 // Only while it matters: a seat held or a game on. Idle in the lobby, the
                 // room's own poll is plenty.
                 guard self.myActiveTournament != nil else { continue }
-                await BroadcastService.shared.refreshFromIndexerNow(channel: ChessTournamentCodec.arenaChannel)
+                await PublicChatService.shared.refreshFromIndexerNow(channel: ChessTournamentCodec.arenaChannel)
             }
         }
     }
@@ -91,14 +91,14 @@ final class ChessTournamentService: ObservableObject {
     func release() {
         refCount = max(0, refCount - 1)
         guard refCount == 0 else { return }
-        BroadcastService.shared.release(ChessTournamentCodec.arenaChannel)
+        PublicChatService.shared.release(ChessTournamentCodec.arenaChannel)
         clockTask?.cancel()
         clockTask = nil
         fastPollTask?.cancel()
         fastPollTask = nil
     }
 
-    private func reduce(_ rows: [BroadcastMessage]) {
+    private func reduce(_ rows: [PublicChatMessage]) {
         // Every change, not only a change in row COUNT: our own sends replace a pending row in
         // place when the transaction lands, so the count stays the same - and a count guard
         // here left a player's own leave (and moves) unapplied until the next unrelated row or
@@ -255,11 +255,11 @@ final class ChessTournamentService: ObservableObject {
     func feeText(for message: ChessTournamentMessage) -> String? {
         guard let wallet = WalletManager.shared.currentWallet,
               let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else { return nil }
-        let payload = KasiaTransactionBuilder.buildBroadcastPayload(
+        let payload = KasiaTransactionBuilder.buildPublicChatPayload(
             channel: ChessTournamentCodec.arenaChannel,
             content: ChessTournamentCodec.encode(message)
         )
-        let sompi = KasiaTransactionBuilder.estimateBroadcastFee(payload: payload, inputCount: 1, senderScriptPubKey: senderScriptPubKey)
+        let sompi = KasiaTransactionBuilder.estimatePublicChatFee(payload: payload, inputCount: 1, senderScriptPubKey: senderScriptPubKey)
         // Four decimals: "0.0017 KAS" reads at a glance; the exact sompi is in the transaction.
         return String(format: "%.4f KAS", Double(sompi) / 100_000_000)
     }
@@ -270,7 +270,7 @@ final class ChessTournamentService: ObservableObject {
         return "Join (Fee: \(fee))"
     }
 
-    // MARK: - Actions (each one a broadcast transaction)
+    // MARK: - Actions (each one a public chat transaction)
 
     /// Joins the public room taking players now. If that room fills before this join lands
     /// (someone else got the last seat), `reduce` notices and joins the next room.
@@ -288,8 +288,8 @@ final class ChessTournamentService: ObservableObject {
         // other phone is choosing from. Only then pick the room. The subscription delivers the
         // merge on the next run-loop turn, so reduce the rows here and now instead of reading
         // a room number off the old state.
-        await BroadcastService.shared.refreshFromIndexerNow(channel: ChessTournamentCodec.arenaChannel)
-        reduce(BroadcastService.shared.messages(forChannel: ChessTournamentCodec.arenaChannel))
+        await PublicChatService.shared.refreshFromIndexerNow(channel: ChessTournamentCodec.arenaChannel)
+        reduce(PublicChatService.shared.messages(forChannel: ChessTournamentCodec.arenaChannel))
         let id = duel ? currentDuelRoomId : currentPublicRoomId
         if let busy = myActiveTournament {
             lastError = busy.status == .open ? "You're already waiting in \(busy.name)." : "You're still playing in \(busy.name)."
@@ -409,7 +409,7 @@ final class ChessTournamentService: ObservableObject {
         }
     }
 
-    /// One broadcast transaction, with the retries a fast sequence of sends needs: the change
+    /// One public chat transaction, with the retries a fast sequence of sends needs: the change
     /// of the previous transaction is not spendable until it is mined, so a move sent within a
     /// second of the last one can hit "no spendable UTXO" - the same retry KaPosts threads use.
     private func send(_ message: ChessTournamentMessage) async -> Bool {
@@ -417,7 +417,7 @@ final class ChessTournamentService: ObservableObject {
         var attempt = 0
         while true {
             do {
-                try await BroadcastService.shared.sendBroadcast(channel: ChessTournamentCodec.arenaChannel, content: content)
+                try await PublicChatService.shared.sendPublicChat(channel: ChessTournamentCodec.arenaChannel, content: content)
                 lastError = nil
                 return true
             } catch {

@@ -1202,8 +1202,8 @@ extension ChatService {
             throw KasiaError.keychainError("Could not get private key")
         }
 
-        // If replying, wrap the content in the shared reply envelope (matches broadcasts'
-        // sendBroadcast) so the quote survives even if the original message is later pruned.
+        // If replying, wrap the content in the shared reply envelope (matches public chats'
+        // sendPublicChat) so the quote survives even if the original message is later pruned.
         let payload: String
         if let reply = replyingTo {
             let preview = MessageReplyCodec.previewText(for: reply.content)
@@ -1454,7 +1454,7 @@ extension ChatService {
             )
             // Animated publish: the outgoing bubble flows into the list (layout change +
             // the detail view's animated scroll ride the same transaction) - matching the
-            // broadcast room's send feel.
+            // public chat room's send feel.
             withAnimation(.easeOut(duration: 0.25)) {
                 addMessageToConversation(pendingMessage, contactAddress: contact.address)
             }
@@ -2169,7 +2169,7 @@ extension ChatService {
     }
 
     /// Returns the submitted transaction id, or nil when the send was DEFERRED rather than
-    /// broadcast (no confirmed inputs yet - it is retried on a timer). Discardable, since most
+    /// public chat (no confirmed inputs yet - it is retried on a timer). Discardable, since most
     /// callers only care that it did not throw; the ones that show a sent confirmation use it.
     @discardableResult
     func sendPayment(

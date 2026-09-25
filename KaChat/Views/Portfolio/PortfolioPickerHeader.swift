@@ -55,7 +55,7 @@ struct PortfolioPickerHeader: View {
                     showAddSheet = false
                 }
             }
-            // One half-height sheet for the whole card menu, matching the broadcast retention
+            // One half-height sheet for the whole card menu, matching the public chat retention
             // sheet. `.sheet(item:)` rather than a boolean: the sheet is built FROM the tapped
             // card's own snapshot, so it can never be handed a different portfolio.
             .sheet(item: $pressedPortfolio) { target in

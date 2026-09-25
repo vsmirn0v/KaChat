@@ -219,7 +219,7 @@ final class ChatService: ObservableObject {
     /// The background load of the open chat's whole history (see `loadFullHistory`).
     var fullHistoryLoadTask: Task<Void, Never>?
 
-    /// Whether the app posts its OWN banners for the messages, group traffic, broadcasts and
+    /// Whether the app posts its OWN banners for the messages, group traffic, public chats and
     /// KaPosts activity it discovers itself - through the UTXO subscription, the sweep, the
     /// open-chat poll, background fetch, or a silent push.
     ///
@@ -228,7 +228,7 @@ final class ChatService: ObservableObject {
     /// message from notifying twice, and the seams showed: the same message arriving as two
     /// differently-worded banners, or a foreground push dropped on the assumption a local one
     /// would follow. Discovery still runs and the data is still fresh when the app opens; it just
-    /// no longer announces it. Broadcast rooms the push server does not index, and any message
+    /// no longer announces it. Public Chat rooms the push server does not index, and any message
     /// the push service misses, notify nothing - that is the trade, made on purpose. The
     /// posting paths and their ledgers stay behind this switch rather than being torn out, so
     /// the choice is one line to revisit.

@@ -1,12 +1,12 @@
 import SwiftUI
 import AVFoundation
 
-/// Records a short voice message for a broadcast channel, reusing the exact same Opus/WebM
+/// Records a short voice message for a public chat channel, reusing the exact same Opus/WebM
 /// encoding pipeline as 1:1 chat's voice messages (`WebMOpusEncoder`, `ChatDetailView.swift`) so
 /// the wire format is identical - a cap of 10s / ~13KB keeps it well inside a single self-stash
 /// transaction's payload.
 @MainActor
-final class BroadcastAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
+final class PublicChatAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     enum State: Equatable {
         case idle
         case recording
@@ -112,7 +112,7 @@ final class BroadcastAudioRecorder: NSObject, ObservableObject, AVAudioRecorderD
     /// BEFORE the payload-capped WebM encode - the encode truncates to ~13KB (≈9s), so callers
     /// that upload the recording elsewhere (group chat's "Send Media via Nextcloud") need the
     /// untouched original. The copy is the CALLER's to clean up; this class still deletes its own
-    /// working PCM as before. Defaulted so existing callers (broadcast) are untouched.
+    /// working PCM as before. Defaulted so existing callers (public chat) are untouched.
     func stopAndEncode(keepOriginalPCMAt keepURL: URL? = nil) async throws -> (data: Data, fileName: String, mimeType: String) {
         timer?.invalidate()
         timer = nil
@@ -151,7 +151,7 @@ final class BroadcastAudioRecorder: NSObject, ObservableObject, AVAudioRecorderD
 /// Plays back a single voice message's decoded audio. One instance per message bubble (matches
 /// Android's per-bubble `MediaPlayer` - no single "now playing" registry there either).
 @MainActor
-final class BroadcastAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
+final class PublicChatAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var isPlaying = false
     @Published private(set) var isReady = false
     @Published private(set) var durationText = "0:00"
@@ -177,7 +177,7 @@ final class BroadcastAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDeleg
                     self.isPreparing = false
                 }
             } catch {
-                AppLog.log("[BroadcastAudioPlayer] Failed to decode voice message: %@", error.localizedDescription)
+                AppLog.log("[PublicChatAudioPlayer] Failed to decode voice message: %@", error.localizedDescription)
                 await MainActor.run { self.isPreparing = false }
             }
         }
@@ -217,10 +217,10 @@ final class BroadcastAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDeleg
 
 /// A compact play/pause + duration bubble for a voice message, styled to match the surrounding
 /// text bubble's colors rather than Android's Material look.
-struct BroadcastAudioBubble: View {
+struct PublicChatAudioBubble: View {
     let data: Data
     let isOwnMessage: Bool
-    @StateObject private var player = BroadcastAudioPlayer()
+    @StateObject private var player = PublicChatAudioPlayer()
 
     var body: some View {
         HStack(spacing: 8) {

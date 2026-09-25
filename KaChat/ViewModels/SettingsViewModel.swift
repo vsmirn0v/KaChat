@@ -3,7 +3,7 @@ import Combine
 
 /// Thread-safe cache for `AppSettings.load()`. Load used to do a UserDefaults read + a fresh
 /// JSONDecoder + a full ~25-field decode on EVERY call - and it's called from hot paths (per
-/// Kaspa block in the group/broadcast scanners at ~10 blocks/sec, per day-separator render, per
+/// Kaspa block in the group/public chat scanners at ~10 blocks/sec, per day-separator render, per
 /// API request). Invalidated whenever settings change (`.settingsDidChange` is posted by every
 /// write path: `AppSettings.save` and `SettingsViewModel.saveSettings`).
 private final class AppSettingsCache: @unchecked Sendable {
@@ -64,7 +64,7 @@ extension AppSettings {
         hideColdStorageTab = overlay.hiddenTabs.contains(AppTab.coldStorage.rawValue)
         hideSwapTab = overlay.hiddenTabs.contains(AppTab.swap.rawValue)
         hideKaPostsTab = overlay.hiddenTabs.contains(AppTab.kaposts.rawValue)
-        hideBroadcasts = overlay.hiddenTabs.contains(AppTab.broadcasts.rawValue)
+        hidePublicChats = overlay.hiddenTabs.contains(AppTab.publicChats.rawValue)
         hideAppsTab = overlay.hiddenTabs.contains(AppTab.apps.rawValue)
         hideChessTab = overlay.hiddenTabs.contains(AppTab.chess.rawValue)
         hideMoreItem = overlay.hiddenTabs.contains(AppTab.more.rawValue)
@@ -72,7 +72,7 @@ extension AppSettings {
 
     func dockOverlay() -> DockOverlay {
         // Raw hide flags, NOT AppTab.isEnabled: isEnabled also applies the Child Mode mask
-        // (Swap/KaPosts/Broadcasts forced off), and baking that mask into the persisted
+        // (Swap/KaPosts/Public Chats forced off), and baking that mask into the persisted
         // per-account overlay would leave those tabs hidden even after Child Mode is turned
         // back off. The overlay must only ever record the user's own dock choices.
         var hidden: [String] = []
@@ -80,7 +80,7 @@ extension AppSettings {
         if hideColdStorageTab { hidden.append(AppTab.coldStorage.rawValue) }
         if hideSwapTab { hidden.append(AppTab.swap.rawValue) }
         if hideKaPostsTab { hidden.append(AppTab.kaposts.rawValue) }
-        if hideBroadcasts { hidden.append(AppTab.broadcasts.rawValue) }
+        if hidePublicChats { hidden.append(AppTab.publicChats.rawValue) }
         if hideAppsTab { hidden.append(AppTab.apps.rawValue) }
         if hideChessTab { hidden.append(AppTab.chess.rawValue) }
         if hideMoreItem { hidden.append(AppTab.more.rawValue) }
@@ -157,21 +157,21 @@ extension AppSettings {
             settings.kaPostIndexerURL = defaultKaPostIndexerURL
             save(settings)
         }
-        // One-time 4.0 dock rules: EVERY existing user gets KaPosts/Broadcasts enabled.
+        // One-time 4.0 dock rules: EVERY existing user gets KaPosts/Public Chats enabled.
         // The decode fallbacks cover production 3.0 users (their blobs lack these keys), but
         // 4.0 TestFlight builds already wrote hideKaPostsTab = true into saved blobs via the
         // old defaults - this sentinel-guarded pass flips them once. The dock cap then does
-        // the right thing: full dock -> KaPosts/Broadcasts cycle behind Chats. ("+More" no
+        // the right thing: full dock -> KaPosts/Public Chats cycle behind Chats. ("+More" no
         // longer exists as a dock item, so hideMoreItem isn't touched anymore.)
         let dockRulesKey = "kachat_dock_40_rules_applied"
         if !userDefaults.bool(forKey: dockRulesKey) {
             settings.hideKaPostsTab = false
-            settings.hideBroadcasts = false
+            settings.hidePublicChats = false
             userDefaults.set(true, forKey: dockRulesKey)
             save(settings)
         }
         // One-time 4.1 dock rules: Ecosystem replaces Swap's dock slot and takes over holding
-        // KaPosts, Broadcasts and the websites list, so every existing user is moved onto the new
+        // KaPosts, Public Chats and the websites list, so every existing user is moved onto the new
         // arrangement rather than only new installs getting it. Their per-tab on/off choices are
         // untouched - only the ORDER is reset, which is what decides who gets a dock slot.
         let ecosystemRulesKey = "kachat_dock_41_ecosystem_applied"

@@ -1,25 +1,25 @@
 import Foundation
 
-enum BroadcastChannelPresentationMode: Equatable {
+enum PublicChatChannelPresentationMode: Equatable {
     case inlineReplacement
     case navigationDestination
 }
 
-enum BroadcastListPresentationMode: Equatable {
+enum PublicChatListPresentationMode: Equatable {
     case splitDetail
     case navigationDestination
 }
 
-enum BroadcastNavigationPolicy {
-    static func listPresentationMode(usesSplitLayout: Bool) -> BroadcastListPresentationMode {
+enum PublicChatNavigationPolicy {
+    static func listPresentationMode(usesSplitLayout: Bool) -> PublicChatListPresentationMode {
         usesSplitLayout ? .splitDetail : .navigationDestination
     }
 
-    static func channelPresentationMode(isMacCatalyst: Bool) -> BroadcastChannelPresentationMode {
+    static func channelPresentationMode(isMacCatalyst: Bool) -> PublicChatChannelPresentationMode {
         isMacCatalyst ? .inlineReplacement : .navigationDestination
     }
 
-    static var currentChannelPresentationMode: BroadcastChannelPresentationMode {
+    static var currentChannelPresentationMode: PublicChatChannelPresentationMode {
         channelPresentationMode(isMacCatalyst: isCurrentPlatformMacCatalyst)
     }
 

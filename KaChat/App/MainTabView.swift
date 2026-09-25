@@ -20,7 +20,7 @@ struct MainTabView: View {
     /// tab is showing - a call is not a page of the chat it started from.
     @ObservedObject private var callService = CallService.shared
     @ObservedObject private var pictureInPicture = CallPictureInPicture.shared
-    /// What the Chats slot currently shows: .chats, or a masked-out tab (.kaposts/.broadcasts)
+    /// What the Chats slot currently shows: .chats, or a masked-out tab (.kaposts/.public chats)
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
@@ -173,8 +173,8 @@ struct MainTabView: View {
             // Switch to Chats tab when notification is tapped
             selectedTab = 1
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { _ in
-            routeToBroadcasts()
+        .onReceive(NotificationCenter.default.publisher(for: .openPublicChat)) { _ in
+            routeToPublicChats()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openKNSProfileEditor)) { _ in
             routeToFeature(.profile)
@@ -257,9 +257,9 @@ struct MainTabView: View {
             ProfileView()
         case .kaposts:
             KaPostsPageView()
-        case .broadcasts:
+        case .publicChats:
             NavigationStack {
-                BroadcastListView()
+                PublicChatListView()
             }
         case .ecosystem:
             EcosystemView()
@@ -326,10 +326,10 @@ struct MainTabView: View {
 
     // MARK: - Notification routing
 
-    /// Broadcast notification or a shared room link: the rooms are the Chats screen's Public
+    /// Public Chat notification or a shared room link: the rooms are the Chats screen's Public
     /// Chats tab now. ChatListView switches to that tab on the same signals, and the rooms
     /// screen picks up the pending channel itself.
-    private func routeToBroadcasts() { selectedTab = AppTab.chats.tag }
+    private func routeToPublicChats() { selectedTab = AppTab.chats.tag }
 
     /// KaPosts notification or a shared-post link. KaPostsView picks up the pending txid itself.
     private func routeToKaPosts() { routeToFeature(.kaposts) }
@@ -373,8 +373,8 @@ struct MainTabView: View {
             routeToWalletTab(tab)
             return
         }
-        if BroadcastService.shared.pendingBroadcastNavigation != nil {
-            routeToBroadcasts()
+        if PublicChatService.shared.pendingPublicChatNavigation != nil {
+            routeToPublicChats()
             return
         }
         if KaPostsDeepLink.pendingPostTxId != nil || KaPostsDeepLink.pendingOpenNotifications {
@@ -428,7 +428,7 @@ struct MainTabView: View {
         .environmentObject(ChatService.shared)
         .environmentObject(SettingsViewModel())
         .environmentObject(GiftService.shared)
-        .environmentObject(BroadcastService.shared)
+        .environmentObject(PublicChatService.shared)
 }
 
 

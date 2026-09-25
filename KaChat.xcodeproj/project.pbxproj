@@ -20,7 +20,7 @@
 		4D3D20062F72000600000002 /* DesktopEmojiLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20062F72000600000001 /* DesktopEmojiLibrary.swift */; };
 		4D3D20072F72000700000002 /* DesktopEmojiPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20072F72000700000001 /* DesktopEmojiPickerView.swift */; };
 		4D3D20082F72000800000002 /* ComposerKeyCommandPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20082F72000800000001 /* ComposerKeyCommandPolicy.swift */; };
-		4D3D20092F72000900000002 /* BroadcastNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20092F72000900000001 /* BroadcastNavigationPolicy.swift */; };
+		4D3D20092F72000900000002 /* PublicChatNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20092F72000900000001 /* PublicChatNavigationPolicy.swift */; };
 		588DACE23026E3D300D94B9B /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 588DACE13026E3D300D94B9B /* WidgetKit.framework */; };
 		588DACE43026E3D300D94B9B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 588DACE33026E3D300D94B9B /* SwiftUI.framework */; };
 		588DACF53026E3D500D94B9B /* KaChatWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 588DACDF3026E3D300D94B9B /* KaChatWidgetsExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -33,14 +33,14 @@
 		APLC00010000000000000BF1 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = APLC00010000000000000BF2 /* AppLocalization.swift */; };
 		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
 		B7A11C0E4D3F48A2915E7C21 /* PostTranslationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */; };
-		BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* BroadcastAudioRecording.swift */; };
-		BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* BroadcastChannelView.swift */; };
-		BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */; };
-		BCLV00010001000100000001 /* BroadcastListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCLV00010001000000000001 /* BroadcastListView.swift */; };
-		BCRI00010001000100000001 /* BroadcastRoomInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */; };
-		BCST00010001000100000001 /* BroadcastStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCST00010001000000000001 /* BroadcastStore.swift */; };
+		BCAR00010001000100000001 /* PublicChatAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* PublicChatAudioRecording.swift */; };
+		BCCV00010001000100000001 /* PublicChatChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* PublicChatChannelView.swift */; };
+		BCHS00010001000100000001 /* HiddenPublicChatSendersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCHS00010001000000000001 /* HiddenPublicChatSendersView.swift */; };
+		BCLV00010001000100000001 /* PublicChatListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCLV00010001000000000001 /* PublicChatListView.swift */; };
+		BCRI00010001000100000001 /* PublicChatRoomInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCRI00010001000000000001 /* PublicChatRoomInfoView.swift */; };
+		BCST00010001000100000001 /* PublicChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCST00010001000000000001 /* PublicChatStore.swift */; };
 		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
-		BSVC00010001000100000001 /* BroadcastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BSVC00010001000000000001 /* BroadcastService.swift */; };
+		BSVC00010001000100000001 /* PublicChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BSVC00010001000000000001 /* PublicChatService.swift */; };
 		C3F79B2E51A64D08B7E1265A /* EcosystemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */; };
 		C7A1F42E63B84D8195C0AE71 /* AddToPortfolioSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */; };
 		CACHEMGR00010001000100000001 /* CacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACHEMGR00010001000000000001 /* CacheManager.swift */; };
@@ -278,7 +278,7 @@
 		4D3D20062F72000600000001 /* DesktopEmojiLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopEmojiLibrary.swift; sourceTree = "<group>"; };
 		4D3D20072F72000700000001 /* DesktopEmojiPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopEmojiPickerView.swift; sourceTree = "<group>"; };
 		4D3D20082F72000800000001 /* ComposerKeyCommandPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerKeyCommandPolicy.swift; sourceTree = "<group>"; };
-		4D3D20092F72000900000001 /* BroadcastNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastNavigationPolicy.swift; sourceTree = "<group>"; };
+		4D3D20092F72000900000001 /* PublicChatNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatNavigationPolicy.swift; sourceTree = "<group>"; };
 		588DACDF3026E3D300D94B9B /* KaChatWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		588DACE13026E3D300D94B9B /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		588DACE33026E3D300D94B9B /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -293,14 +293,14 @@
 		APLC00010000000000000BF2 /* AppLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLocalization.swift; sourceTree = "<group>"; };
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
 		B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaNetworkStatsService.swift; sourceTree = "<group>"; };
-		BCAR00010001000000000001 /* BroadcastAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastAudioRecording.swift; sourceTree = "<group>"; };
-		BCCV00010001000000000001 /* BroadcastChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastChannelView.swift; sourceTree = "<group>"; };
-		BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenBroadcastSendersView.swift; sourceTree = "<group>"; };
-		BCLV00010001000000000001 /* BroadcastListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastListView.swift; sourceTree = "<group>"; };
-		BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastRoomInfoView.swift; sourceTree = "<group>"; };
-		BCST00010001000000000001 /* BroadcastStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastStore.swift; sourceTree = "<group>"; };
+		BCAR00010001000000000001 /* PublicChatAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatAudioRecording.swift; sourceTree = "<group>"; };
+		BCCV00010001000000000001 /* PublicChatChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatChannelView.swift; sourceTree = "<group>"; };
+		BCHS00010001000000000001 /* HiddenPublicChatSendersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenPublicChatSendersView.swift; sourceTree = "<group>"; };
+		BCLV00010001000000000001 /* PublicChatListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatListView.swift; sourceTree = "<group>"; };
+		BCRI00010001000000000001 /* PublicChatRoomInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatRoomInfoView.swift; sourceTree = "<group>"; };
+		BCST00010001000000000001 /* PublicChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatStore.swift; sourceTree = "<group>"; };
 		BGTM00012E0100000001 /* BackgroundTaskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskManager.swift; sourceTree = "<group>"; };
-		BSVC00010001000000000001 /* BroadcastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastService.swift; sourceTree = "<group>"; };
+		BSVC00010001000000000001 /* PublicChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatService.swift; sourceTree = "<group>"; };
 		C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostTranslationService.swift; sourceTree = "<group>"; };
 		CACHEMGR00010001000000000001 /* CacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManager.swift; sourceTree = "<group>"; };
 		CALL0001A000000000000001 /* NextcloudTalkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudTalkClient.swift; sourceTree = "<group>"; };
@@ -720,10 +720,10 @@
 				GIFT00010001000000000001 /* GiftService.swift */,
 				ADDRACT0001000100000001 /* AddressActivityService.swift */,
 				CACHEMGR00010001000000000001 /* CacheManager.swift */,
-				BCST00010001000000000001 /* BroadcastStore.swift */,
+				BCST00010001000000000001 /* PublicChatStore.swift */,
 				GRST00010001000000000001 /* GroupStore.swift */,
 				GRCS00010001000000000001 /* GroupChatService.swift */,
-				BSVC00010001000000000001 /* BroadcastService.swift */,
+				BSVC00010001000000000001 /* PublicChatService.swift */,
 				PF0002A0000000000000001 /* PortfolioLedgerStore.swift */,
 				PF0003A0000000000000001 /* CoinGeckoService.swift */,
 				MPS0001A000000000000001 /* MarketPairService.swift */,
@@ -860,14 +860,14 @@
 				4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */,
 				4D3D20032F72000300000001 /* MessageImageSharePayload.swift */,
 				4D3D20042F72000400000001 /* ChatImageAttachmentLoader.swift */,
-				BCLV00010001000000000001 /* BroadcastListView.swift */,
-				4D3D20092F72000900000001 /* BroadcastNavigationPolicy.swift */,
-				BCCV00010001000000000001 /* BroadcastChannelView.swift */,
+				BCLV00010001000000000001 /* PublicChatListView.swift */,
+				4D3D20092F72000900000001 /* PublicChatNavigationPolicy.swift */,
+				BCCV00010001000000000001 /* PublicChatChannelView.swift */,
 				GRDV00010001000000000001 /* GroupChatDetailView.swift */,
 				CH0003A0000000000000001 /* ChessGameView.swift */,
-				BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */,
-				BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */,
-				BCAR00010001000000000001 /* BroadcastAudioRecording.swift */,
+				BCHS00010001000000000001 /* HiddenPublicChatSendersView.swift */,
+				BCRI00010001000000000001 /* PublicChatRoomInfoView.swift */,
+				BCAR00010001000000000001 /* PublicChatAudioRecording.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -1447,18 +1447,18 @@
 				ADDRACT0001000100000002 /* AddressActivityService.swift in Sources */,
 				CACHEMGR00010001000100000001 /* CacheManager.swift in Sources */,
 				GIFT00010001000100000002 /* GiftClaimView.swift in Sources */,
-				BCST00010001000100000001 /* BroadcastStore.swift in Sources */,
+				BCST00010001000100000001 /* PublicChatStore.swift in Sources */,
 				GRST00010001000100000001 /* GroupStore.swift in Sources */,
 				GRCS00010001000100000001 /* GroupChatService.swift in Sources */,
-				BSVC00010001000100000001 /* BroadcastService.swift in Sources */,
-				BCLV00010001000100000001 /* BroadcastListView.swift in Sources */,
-				4D3D20092F72000900000002 /* BroadcastNavigationPolicy.swift in Sources */,
-				BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */,
+				BSVC00010001000100000001 /* PublicChatService.swift in Sources */,
+				BCLV00010001000100000001 /* PublicChatListView.swift in Sources */,
+				4D3D20092F72000900000002 /* PublicChatNavigationPolicy.swift in Sources */,
+				BCCV00010001000100000001 /* PublicChatChannelView.swift in Sources */,
 				GRDV00010001000100000001 /* GroupChatDetailView.swift in Sources */,
 				CH0003B0000000000000001 /* ChessGameView.swift in Sources */,
-				BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */,
-				BCRI00010001000100000001 /* BroadcastRoomInfoView.swift in Sources */,
-				BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */,
+				BCHS00010001000100000001 /* HiddenPublicChatSendersView.swift in Sources */,
+				BCRI00010001000100000001 /* PublicChatRoomInfoView.swift in Sources */,
+				BCAR00010001000100000001 /* PublicChatAudioRecording.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

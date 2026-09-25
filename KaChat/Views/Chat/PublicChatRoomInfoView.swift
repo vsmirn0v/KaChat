@@ -1,15 +1,15 @@
 import SwiftUI
 
-/// Everything about one broadcast room that is not the messages: what it is, what is in it, how
+/// Everything about one public chat room that is not the messages: what it is, what is in it, how
 /// to share it, who you have hidden, and which indexer it reads from.
 ///
 /// Reached by tapping the `#name` title in the room. It replaced two toolbar buttons (share and
 /// hidden users) that had no room to say what they were, and gave the per-room indexer somewhere
 /// to live that is not the app-wide Connection Settings.
-struct BroadcastRoomInfoView: View {
+struct PublicChatRoomInfoView: View {
     let channelName: String
 
-    @EnvironmentObject var broadcastService: BroadcastService
+    @EnvironmentObject var publicChatService: PublicChatService
 
     @State private var indexerText: String = ""
     @State private var toastMessage: String?
@@ -24,18 +24,18 @@ struct BroadcastRoomInfoView: View {
     }
     @State private var indexerCheck: IndexerCheck = .idle
 
-    private var normalized: String { BroadcastChannelName.normalize(channelName) }
+    private var normalized: String { PublicChatChannelName.normalize(channelName) }
 
     private var isCurated: Bool {
-        BroadcastService.indexedChannels.contains(normalized)
+        PublicChatService.indexedChannels.contains(normalized)
     }
 
-    private var messages: [BroadcastMessage] {
-        broadcastService.messages(forChannel: normalized)
+    private var messages: [PublicChatMessage] {
+        publicChatService.messages(forChannel: normalized)
     }
 
     /// Everyone who has said something in what this device is holding. Not "members" - a
-    /// broadcast room has no membership, anyone can post to it - so it is deliberately labelled
+    /// public chat room has no membership, anyone can post to it - so it is deliberately labelled
     /// as what it is.
     private var participantCount: Int {
         Set(messages.map(\.senderAddress)).count
@@ -50,38 +50,38 @@ struct BroadcastRoomInfoView: View {
     }
 
     private var hiddenCount: Int {
-        broadcastService.hiddenSenderAddresses(forChannel: normalized).count
+        publicChatService.hiddenSenderAddresses(forChannel: normalized).count
     }
 
-    private var channel: BroadcastChannel? {
-        broadcastService.channels.first { $0.channelName == normalized }
+    private var channel: PublicChatChannel? {
+        publicChatService.channels.first { $0.channelName == normalized }
     }
 
     /// Only the curated rooms have history worth a number: the indexer keeps theirs. A room you
     /// made holds nothing for anyone who was not there (see the room's info button).
     private var retentionDescription: String? {
-        guard BroadcastService.indexedChannels.contains(normalized) else { return nil }
+        guard PublicChatService.indexedChannels.contains(normalized) else { return nil }
         guard let millis = channel?.retentionMillis, millis > 0 else { return nil }
         let days = Int((Double(millis) / 86_400_000).rounded())
         return days == 1 ? "1 day" : "\(days) days"
     }
 
     private var shareText: String {
-        KaChatInternalLink.broadcastRoomShareText(channel: normalized)
+        KaChatInternalLink.publicChatRoomShareText(channel: normalized)
     }
 
     /// What the field's placeholder should say: the app-wide indexer this room falls back to.
     private var appWideIndexer: String {
-        let configured = AppSettings.load().broadcastIndexerURL
+        let configured = AppSettings.load().publicChatIndexerURL
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return configured.isEmpty ? AppSettings.defaultBroadcastIndexerURL : configured
+        return configured.isEmpty ? AppSettings.defaultPublicChatIndexerURL : configured
     }
 
     var body: some View {
         Form {
             Section {
                 LabeledContent("Room") { Text("#\(normalized)") }
-                if let language = BroadcastService.languageDisplayName(for: normalized) {
+                if let language = PublicChatService.languageDisplayName(for: normalized) {
                     LabeledContent("Language") { Text(language) }
                 }
                 LabeledContent("Kind") {
@@ -121,7 +121,7 @@ struct BroadcastRoomInfoView: View {
                     Label("Share this room", systemImage: "square.and.arrow.up")
                 }
                 NavigationLink {
-                    HiddenBroadcastSendersView(channel: normalized)
+                    HiddenPublicChatSendersView(channel: normalized)
                 } label: {
                     LabeledContent {
                         Text("\(hiddenCount)")
@@ -164,14 +164,14 @@ struct BroadcastRoomInfoView: View {
                 Text("Indexer for this room")
             } footer: {
                 // The honest explanation of why this is per room at all.
-                Text("A broadcast lives on the Kaspa blockDAG, so any indexer watching the same network serves the same room. Point this one wherever you like - your own, or someone else's - without changing the indexer every other room uses. Leave it blank to follow \(appWideIndexer).")
+                Text("A public chat lives on the Kaspa blockDAG, so any indexer watching the same network serves the same room. Point this one wherever you like - your own, or someone else's - without changing the indexer every other room uses. Leave it blank to follow \(appWideIndexer).")
             }
         }
         .navigationTitle("Room Info")
         .navigationBarTitleDisplayMode(.inline)
         .toast(message: toastMessage, style: .success)
         .onAppear {
-            indexerText = broadcastService.indexerOverride(forChannel: normalized)
+            indexerText = publicChatService.indexerOverride(forChannel: normalized)
         }
     }
 
@@ -207,15 +207,15 @@ struct BroadcastRoomInfoView: View {
 
     private var indexerChanged: Bool {
         indexerText.trimmingCharacters(in: .whitespacesAndNewlines)
-            != broadcastService.indexerOverride(forChannel: normalized)
+            != publicChatService.indexerOverride(forChannel: normalized)
     }
 
     /// Saves the override, then asks the indexer for this room. A wrong URL is otherwise silent:
     /// the room simply stops filling in, with nothing on screen to say why.
     private func saveIndexer() {
         let trimmed = indexerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed != broadcastService.indexerOverride(forChannel: normalized) else { return }
-        broadcastService.setIndexerOverride(trimmed, forChannel: normalized)
+        guard trimmed != publicChatService.indexerOverride(forChannel: normalized) else { return }
+        publicChatService.setIndexerOverride(trimmed, forChannel: normalized)
         toastMessage = trimmed.isEmpty
             ? "This room follows the app's indexer again."
             : "Indexer updated for #\(normalized)."
@@ -226,7 +226,7 @@ struct BroadcastRoomInfoView: View {
         indexerCheck = .checking
         Task {
             do {
-                let page = try await BroadcastIndexerClient.fetchHistoryPage(
+                let page = try await PublicChatIndexerClient.fetchHistoryPage(
                     baseURL: target,
                     channel: normalized,
                     limit: 1

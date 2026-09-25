@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// Manage senders hidden in ONE broadcast room - reached from Room Info (tap the #name in the
+/// Manage senders hidden in ONE public chat room - reached from Room Info (tap the #name in the
 /// room). A hidden user's messages never show in this room and never notify (local banners
 /// and, for indexed channels, remote push via the registration's hidden map).
-struct HiddenBroadcastSendersView: View {
+struct HiddenPublicChatSendersView: View {
     let channel: String
 
-    @EnvironmentObject var broadcastService: BroadcastService
+    @EnvironmentObject var publicChatService: PublicChatService
     @EnvironmentObject var contactsManager: ContactsManager
     @ObservedObject private var knsService = KNSService.shared
 
@@ -32,7 +32,7 @@ struct HiddenBroadcastSendersView: View {
                         }
                         Spacer()
                         Button("Unhide") {
-                            broadcastService.unhideSender(address, inChannel: channel)
+                            publicChatService.unhideSender(address, inChannel: channel)
                             reload()
                         }
                         .font(.caption)
@@ -51,7 +51,7 @@ struct HiddenBroadcastSendersView: View {
         }
     }
 
-    /// Same alias -> KNS name -> short address fallback used inside a broadcast room, so a
+    /// Same alias -> KNS name -> short address fallback used inside a public chat room, so a
     /// hidden sender's name here reads identically to how it did before being hidden.
     private func displayName(for address: String) -> String {
         if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
@@ -64,14 +64,14 @@ struct HiddenBroadcastSendersView: View {
     }
 
     private func reload() {
-        hiddenAddresses = Array(broadcastService.hiddenSenderAddresses(forChannel: channel)).sorted()
+        hiddenAddresses = Array(publicChatService.hiddenSenderAddresses(forChannel: channel)).sorted()
     }
 }
 
 #Preview {
     NavigationStack {
-        HiddenBroadcastSendersView(channel: "kaspa")
-            .environmentObject(BroadcastService.shared)
+        HiddenPublicChatSendersView(channel: "kaspa")
+            .environmentObject(PublicChatService.shared)
             .environmentObject(ContactsManager.shared)
     }
 }

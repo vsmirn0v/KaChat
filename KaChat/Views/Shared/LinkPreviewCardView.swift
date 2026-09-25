@@ -6,8 +6,8 @@ import PDFKit
 /// Rich link-preview card shown below a chat bubble's text when the message contains a link -
 /// mirrors iMessage. Renders nothing while the fetch is in flight and nothing if no preview data
 /// was found and no [fallbackText] was given, rather than a placeholder that could flash or look
-/// broken. Used by 1:1 (`MessageBubbleView`), group (`GroupChatDetailView`), and broadcast
-/// (`BroadcastChannelView`) bubbles.
+/// broken. Used by 1:1 (`MessageBubbleView`), group (`GroupChatDetailView`), and public chat
+/// (`PublicChatChannelView`) bubbles.
 struct LinkPreviewCardView: View {
     let url: URL
     /// The owning message's transaction id, for the "View in Explorer" long-press action -
@@ -32,7 +32,7 @@ struct LinkPreviewCardView: View {
     var isOutgoing: Bool = false
     /// Whether the preview fetch may start on render. True (the default) for accepted 1:1
     /// contacts and for group chats (members chose each other); false for non-accepted senders
-    /// and for broadcast rooms (anyone can post there), where the card renders as a
+    /// and for public chat rooms (anyone can post there), where the card renders as a
     /// "Tap to load preview" placeholder and only fetches - and therefore only touches the
     /// link's server - when the user explicitly taps it. A URL that already resolved this
     /// session shows its cached result either way, since no new fetch is involved.
@@ -344,7 +344,7 @@ struct LinkPreviewCardView: View {
     }
 
     /// Shown instead of an automatic fetch when `autoFetch` is false (non-accepted 1:1 senders
-    /// and broadcast rooms): a neutral card naming the link's host, fetched only on tap. The
+    /// and public chat rooms): a neutral card naming the link's host, fetched only on tap. The
     /// long-press menu still offers Copy Link / View in Explorer / Select, so the message stays
     /// fully usable without ever loading the preview.
     @ViewBuilder

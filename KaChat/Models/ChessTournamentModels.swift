@@ -3,7 +3,7 @@ import CryptoKit
 
 // MARK: - Wire protocol (ONLINE_CHESS.md §2)
 
-/// One tournament message as it travels in the `#chess-arena` broadcast channel. Every field
+/// One tournament message as it travels in the `#chess-arena` public chat channel. Every field
 /// is optional on the wire except `type`/`v`/`t`/`a`; `decode` returns nil for anything that is
 /// not a well-formed tournament message, so the arena can carry other content harmlessly.
 struct ChessTournamentMessage: Codable, Equatable {

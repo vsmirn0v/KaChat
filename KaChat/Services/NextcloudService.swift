@@ -341,7 +341,7 @@ final class NextcloudService: ObservableObject {
 
     /// Points the service at `walletAddress`'s stored Nextcloud state, or clears everything for
     /// nil. Called by WalletManager on every wallet load, account switch, logout and delete -
-    /// the same hook MessageStore/BroadcastService/etc. use. Cancels any in-flight automatic
+    /// the same hook MessageStore/PublicChatService/etc. use. Cancels any in-flight automatic
     /// backup first, and drops the thumbnail cache so the picker never shows a previous
     /// account's server content.
     func setCurrentWallet(_ walletAddress: String?) {

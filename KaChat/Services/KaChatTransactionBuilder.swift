@@ -2,9 +2,9 @@ import Foundation
 import CryptoKit
 import P256K
 
-/// Broadcast channel name rules, matching the Android client's
+/// Public Chat channel name rules, matching the Android client's
 /// `MessageProtocol.normalizeChannelName`/`isValidChannelName`.
-enum BroadcastChannelName {
+enum PublicChatChannelName {
     static let maxLength = 36
 
     /// Normalize a channel name for comparison/storage: trimmed, lowercased.
@@ -174,10 +174,10 @@ struct KasiaTransactionBuilder {
         return estimateFee(payload: payload, inputCount: inputCount, outputs: [output]) + 3
     }
 
-    /// Build a broadcast channel message transaction (KaChat 2.0 Broadcast feature).
+    /// Build a public chat channel message transaction (KaChat 2.0 Public Chat feature).
     /// Same self-stash shape as a contextual message, but the payload is plaintext -
-    /// broadcasts are public one-to-many channels, so pairwise encryption doesn't apply.
-    static func buildBroadcastTx(
+    /// public chats are public one-to-many channels, so pairwise encryption doesn't apply.
+    static func buildPublicChatTx(
         from senderAddress: String,
         channel: String,
         content: String,
@@ -185,7 +185,7 @@ struct KasiaTransactionBuilder {
         utxos: [UTXO],
         feeOverride: UInt64? = nil
     ) throws -> KaspaRpcTransaction {
-        let payload = buildBroadcastPayload(channel: channel, content: content)
+        let payload = buildPublicChatPayload(channel: channel, content: content)
 
         guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
             throw KasiaError.invalidAddress
@@ -225,8 +225,8 @@ struct KasiaTransactionBuilder {
         return try signTransaction(unsignedTx, privateKey: senderPrivateKey, utxos: selectedUtxos)
     }
 
-    /// Estimate fee for a broadcast message (compose-bar fee preview)
-    static func estimateBroadcastFee(payload: Data, inputCount: Int, senderScriptPubKey: Data) -> UInt64 {
+    /// Estimate fee for a public chat message (compose-bar fee preview)
+    static func estimatePublicChatFee(payload: Data, inputCount: Int, senderScriptPubKey: Data) -> UInt64 {
         let output = KaspaRpcTransactionOutput(
             value: 0,
             scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
@@ -234,13 +234,13 @@ struct KasiaTransactionBuilder {
         return estimateFee(payload: payload, inputCount: inputCount, outputs: [output]) + 3
     }
 
-    /// Build the plaintext broadcast payload: ciph_msg:1:bcast:<channel>:<content>
-    static func buildBroadcastPayload(channel: String, content: String) -> Data {
+    /// Build the plaintext public chat payload: ciph_msg:1:bcast:<channel>:<content>
+    static func buildPublicChatPayload(channel: String, content: String) -> Data {
         Data("kchat:1:bcast:\(channel):\(content)".utf8)
     }
 
     /// Build a group chat message (`gcomm`) or control (`gctl`) transaction. Same self-stash
-    /// shape as a broadcast/contextual message - the payload string is fully built ahead of time
+    /// shape as a public chat/contextual message - the payload string is fully built ahead of time
     /// by GroupChatService/GroupCipher, this just wraps it in a signed tx.
     static func buildGroupPayloadTx(
         from senderAddress: String,
@@ -299,8 +299,8 @@ struct KasiaTransactionBuilder {
     }
 
     /// Parse a decoded transaction payload string back into (channel, content).
-    /// Returns nil if the payload isn't a broadcast message.
-    static func parseBroadcastPayload(_ payloadString: String) -> (channel: String, content: String)? {
+    /// Returns nil if the payload isn't a public chat message.
+    static func parsePublicChatPayload(_ payloadString: String) -> (channel: String, content: String)? {
         // Dual-read: new `kchat:` root and legacy `ciph_msg:` root (tail identical).
         let prefix: String
         if payloadString.hasPrefix("kchat:1:bcast:") { prefix = "kchat:1:bcast:" }
@@ -1367,7 +1367,7 @@ struct KasiaTransactionBuilder {
             scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
         )
 
-        // A user-set fee (see ChatDetailView/BroadcastChannelView/GroupChatDetailView's tappable
+        // A user-set fee (see ChatDetailView/PublicChatChannelView/GroupChatDetailView's tappable
         // fee pill) always wins over the computed estimate, regardless of input count.
         let feeFor: (Int) -> UInt64 = { inputCount in
             feeOverride ?? (estimateFee(payload: payload, inputCount: inputCount, outputs: [outputTemplate]) + 3)

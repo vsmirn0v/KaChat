@@ -9,15 +9,15 @@ struct ChatListView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var groupChatService: GroupChatService
     /// Observed for the Public Chats tab's unread badge.
-    @ObservedObject private var publicChats = BroadcastService.shared
+    @ObservedObject private var publicChats = PublicChatService.shared
     @State private var showPublicChatsSettings = false
-    /// The public room open on top of this list (see BroadcastListView.externalSelection).
+    /// The public room open on top of this list (see PublicChatListView.externalSelection).
     @State private var selectedPublicRoom: String?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     enum ChatsListTab: Int, CaseIterable {
         case chats, groups
-        /// The broadcast rooms, as the third tab. They were their own "Broadcasts" feature;
+        /// The public chat rooms, as the third tab. They were their own "Public Chats" feature;
         /// now they live here, one swipe past Group Chats, under the name Public Chats.
         case publicChats
     }
@@ -88,7 +88,7 @@ struct ChatListView: View {
                             startInPaymentMode: selectedContactStartInPaymentMode
                         ))
                         .modifier(GroupChatDetailNavigationDestination(selectedGroup: $selectedGroup))
-                        .modifier(BroadcastChannelDestination(selectedChannel: $selectedPublicRoom))
+                        .modifier(PublicChatChannelDestination(selectedChannel: $selectedPublicRoom))
                 }
             }
         }
@@ -297,20 +297,20 @@ struct ChatListView: View {
                     .tag(ChatsListTab.chats)
                 groupsTabContent
                     .tag(ChatsListTab.groups)
-                // The broadcast rooms screen, whole, as the third page. Its room selection is
+                // The public chat rooms screen, whole, as the third page. Its room selection is
                 // ours: the destination has to be declared outside this (lazy) TabView.
-                BroadcastListView(embeddedInChats: true, selection: $selectedPublicRoom)
+                PublicChatListView(embeddedInChats: true, selection: $selectedPublicRoom)
                     .tag(ChatsListTab.publicChats)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
-        // A broadcast notification or a shared room link lands on this tab; the rooms screen
+        // A public chat notification or a shared room link lands on this tab; the rooms screen
         // itself opens the room once it is showing.
-        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .openPublicChat)) { _ in
             withAnimation(.easeInOut(duration: 0.2)) { selectedListTab = .publicChats }
         }
         .onAppear {
-            if BroadcastService.shared.pendingBroadcastNavigation != nil {
+            if PublicChatService.shared.pendingPublicChatNavigation != nil {
                 selectedListTab = .publicChats
             }
         }
@@ -1276,7 +1276,7 @@ struct ChatListView: View {
 }
 
 /// `.navigationDestination(item:)` (iOS 17+) rather than `isPresented:` + a synthetic get/set
-/// boolean - see `BroadcastChannelDestination` below for why: popping back via the native swipe
+/// boolean - see `PublicChatChannelDestination` below for why: popping back via the native swipe
 /// gesture toggles the synthetic boolean through a quick true→false transition that can race
 /// UIKit's own pop animation, which is what produced the black screen flashing in from the right
 /// when swiping back out of a chat quickly. Binding directly to the optional `Contact` item is
@@ -1538,8 +1538,8 @@ struct ConversationRow: View {
             switch internalLink.link {
             case .kaPost:
                 result = "Shared a KaPosts post"
-            case .broadcastRoom(let channel):
-                result = "Broadcast room #\(channel)"
+            case .publicChatRoom(let channel):
+                result = "Public chat room #\(channel)"
             }
             Self.previewCache.setObject(result as NSString, forKey: key)
             return result

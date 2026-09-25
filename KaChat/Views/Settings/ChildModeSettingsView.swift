@@ -369,7 +369,7 @@ struct ChildModeSettingsView: View {
         } header: {
             Text("What stays available")
         } footer: {
-            Text("While Child Mode is on, Swaps, KaPosts and Broadcasts are removed everywhere - the dock, the Chats-tab cycle, links and notifications. Face ID never unlocks Child Mode; only the password does.")
+            Text("While Child Mode is on, Swaps, KaPosts and Public Chats are removed everywhere - the dock, the Chats-tab cycle, links and notifications. Face ID never unlocks Child Mode; only the password does.")
         }
     }
 }

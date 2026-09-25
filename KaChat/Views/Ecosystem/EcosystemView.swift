@@ -85,8 +85,8 @@ struct EcosystemView: View {
             NavigationStack { ColdStorageListView() }
         case .kaposts:
             KaPostsPageView()
-        case .broadcasts:
-            NavigationStack { BroadcastListView() }
+        case .publicChats:
+            NavigationStack { PublicChatListView() }
         case .swap:
             SwapView()
         case .chess:
@@ -235,7 +235,7 @@ struct EcosystemView: View {
                 .opacity(0.5)
             Text("Nothing here right now")
                 .font(.headline)
-            Text("KaPosts, Broadcasts, ChangeNOW Swap and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock.")
+            Text("KaPosts, Public Chats, ChangeNOW Swap and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

@@ -99,7 +99,7 @@ struct ProfileView: View {
             // Pinned large-title header: the system .large title scrolls away with the content,
             // so the title lives here as fixed chrome instead - same font/weight/leading inset
             // as the system large title, with the content sliding underneath through the
-            // material (same pinned pattern as BroadcastChannelView's top notice). The nav bar
+            // material (same pinned pattern as PublicChatChannelView's top notice). The nav bar
             // itself runs .inline, where the principal balance view already occupies the title
             // slot - identical to what the bar showed mid-scroll before.
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -131,7 +131,7 @@ struct ProfileView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     // Global notification center: KaPosts activity, group @mentions, live
-                    // broadcasts. A plain red DOT (no count) signals unread.
+                    // public chats. A plain red DOT (no count) signals unread.
                     Button {
                         showNotifCenter = true
                     } label: {

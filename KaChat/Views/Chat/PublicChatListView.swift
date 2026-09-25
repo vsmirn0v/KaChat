@@ -1,10 +1,10 @@
 import SwiftUI
 
-struct BroadcastListView: View {
-    @EnvironmentObject var broadcastService: BroadcastService
+struct PublicChatListView: View {
+    @EnvironmentObject var publicChatService: PublicChatService
 
     /// Channel to auto-push into on first appearance - set when this view is opened by tapping a
-    /// broadcast-room notification (see `ChatListView.navigateToBroadcast`), so the notification
+    /// public chat-room notification (see `ChatListView.navigateToPublicChat`), so the notification
     /// lands the user directly in the room instead of just this list.
     let initialChannel: String?
     /// True when shown as the Chats screen's "Public Chats" tab: the Chats screen already owns
@@ -48,49 +48,49 @@ struct BroadcastListView: View {
 
     var body: some View {
         Group {
-            switch BroadcastNavigationPolicy.currentChannelPresentationMode {
+            switch PublicChatNavigationPolicy.currentChannelPresentationMode {
             case .inlineReplacement:
                 if let selectedChannel {
                     inlineChannelView(selectedChannel)
                 } else {
-                    broadcastListContent
+                    publicChatListContent
                 }
             case .navigationDestination:
                 if externalSelection != nil {
                     // The host declares the destination (see `externalSelection`).
-                    broadcastListContent
+                    publicChatListContent
                 } else {
-                    broadcastListContent
-                        .modifier(BroadcastChannelDestination(selectedChannel: selectedChannelBinding))
+                    publicChatListContent
+                        .modifier(PublicChatChannelDestination(selectedChannel: selectedChannelBinding))
                 }
             }
         }
         .onAppear {
             // The curated Popular channels always have store rows so their bell state exists
             // before first entry.
-            broadcastService.ensureFeaturedChannelsJoined()
-            broadcastService.refreshChannels()
+            publicChatService.ensureFeaturedChannelsJoined()
+            publicChatService.refreshChannels()
             if !hasAppliedInitialChannel, let initialChannel {
                 hasAppliedInitialChannel = true
                 selectedChannel = initialChannel
             }
             // Cold-start push tap: MainTabView routes here, and the pending channel (set by the
             // notification handler) is consumed on mount - ChatListView no longer brokers this.
-            if let pending = broadcastService.pendingBroadcastNavigation {
-                broadcastService.pendingBroadcastNavigation = nil
+            if let pending = publicChatService.pendingPublicChatNavigation {
+                publicChatService.pendingPublicChatNavigation = nil
                 openChannelFromHandoff(pending)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { notification in
-            // Already viewing the broadcast list (or a room within it) when another broadcast
+        .onReceive(NotificationCenter.default.publisher(for: .openPublicChat)) { notification in
+            // Already viewing the public chat list (or a room within it) when another public chat
             // notification is tapped - swap straight to the new room instead of no-oping, since
             // `ChatListView`'s own handling only covers opening the list from scratch.
             guard let channel = notification.userInfo?["channel"] as? String else { return }
             openChannelFromHandoff(channel)
         }
-        .onChange(of: broadcastService.pendingBroadcastNavigation) { newValue in
+        .onChange(of: publicChatService.pendingPublicChatNavigation) { newValue in
             guard let channel = newValue else { return }
-            broadcastService.pendingBroadcastNavigation = nil
+            publicChatService.pendingPublicChatNavigation = nil
             openChannelFromHandoff(channel)
         }
     }
@@ -105,13 +105,13 @@ struct BroadcastListView: View {
     ///   the list behind it. Same join-then-open shape as `openCuratedChannel`.
     private func openChannelFromHandoff(_ rawName: String) {
         guard let normalized = KaChatInternalLink.normalizeAndValidateChannel(rawName) else { return }
-        if !broadcastService.channels.contains(where: { $0.channelName == normalized }) {
-            broadcastService.joinChannel(normalized)
+        if !publicChatService.channels.contains(where: { $0.channelName == normalized }) {
+            publicChatService.joinChannel(normalized)
         }
         selectedChannel = normalized
     }
 
-    private var broadcastListContent: some View {
+    private var publicChatListContent: some View {
         // One page, no tabs: the curated Popular rooms pinned on top (enter/exit freely, no
         // leaving - they're permanent), then everything the user joined under Your Channels.
         combinedList
@@ -158,7 +158,7 @@ struct BroadcastListView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)
                     ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
-                        broadcastService.leaveChannel(name)
+                        publicChatService.leaveChannel(name)
                         channelToLeave = nil
                     }
                     ActionSheetRow(title: "Keep", subtitle: "Leave the room as it is.", systemImage: "xmark") {
@@ -174,7 +174,7 @@ struct BroadcastListView: View {
     }
 
     private func inlineChannelView(_ channel: String) -> some View {
-        BroadcastChannelView(channelName: channel)
+        PublicChatChannelView(channelName: channel)
             .id(channel)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -191,34 +191,34 @@ struct BroadcastListView: View {
 
     /// The rooms in the list: the two curated rooms pinned on top, then every other joined room
     /// (your own, and any language room you opened) by latest activity.
-    private var listedChannels: [BroadcastChannel] {
-        let featured = BroadcastService.featuredChannels.compactMap { name in
-            broadcastService.channels.first { $0.channelName == name }
+    private var listedChannels: [PublicChatChannel] {
+        let featured = PublicChatService.featuredChannels.compactMap { name in
+            publicChatService.channels.first { $0.channelName == name }
         }
-        .filter { broadcastService.isCuratedChannelShown($0.channelName) }
-        let others = broadcastService.channels
-            .filter { !BroadcastService.featuredChannels.contains($0.channelName) }
-            .filter { !BroadcastService.serviceChannels.contains($0.channelName) }
+        .filter { publicChatService.isCuratedChannelShown($0.channelName) }
+        let others = publicChatService.channels
+            .filter { !PublicChatService.featuredChannels.contains($0.channelName) }
+            .filter { !PublicChatService.serviceChannels.contains($0.channelName) }
             // A default room switched off in Public Chats settings stays out of the list.
-            .filter { broadcastService.isCuratedChannelShown($0.channelName) }
+            .filter { publicChatService.isCuratedChannelShown($0.channelName) }
             .sorted { lastActivity($0) > lastActivity($1) }
         return featured + others
     }
 
-    private func lastActivity(_ channel: BroadcastChannel) -> Int64 {
-        broadcastService.messages(forChannel: channel.channelName).last?.blockTime
+    private func lastActivity(_ channel: PublicChatChannel) -> Int64 {
+        publicChatService.messages(forChannel: channel.channelName).last?.blockTime
             ?? Int64((channel.joinedAt ?? .distantPast).timeIntervalSince1970 * 1000)
     }
 
     /// Curated language rooms not opened yet - offered for discovery under "Other Languages".
     private var unjoinedLanguageChannels: [String] {
-        let joined = Set(broadcastService.channels.map(\.channelName))
-        return BroadcastService.languageChannels.filter {
-            !joined.contains($0) && broadcastService.isCuratedChannelShown($0)
+        let joined = Set(publicChatService.channels.map(\.channelName))
+        return PublicChatService.languageChannels.filter {
+            !joined.contains($0) && publicChatService.isCuratedChannelShown($0)
         }
     }
 
-    private func roomRow(_ channel: BroadcastChannel) -> some View {
+    private func roomRow(_ channel: PublicChatChannel) -> some View {
         Button {
             selectedChannel = channel.channelName
         } label: {
@@ -312,8 +312,8 @@ struct BroadcastListView: View {
             .padding(.trailing, 20)
             .padding(.bottom, 16)
         }
-        .onAppear { broadcastService.primeChannelSummaries() }
-        .onChange(of: broadcastService.channels) { _ in broadcastService.primeChannelSummaries() }
+        .onAppear { publicChatService.primeChannelSummaries() }
+        .onChange(of: publicChatService.channels) { _ in publicChatService.primeChannelSummaries() }
         .sheet(item: Binding(
             get: { roomActionTarget.map(RoomActionTarget.init) },
             set: { if $0 == nil { roomActionTarget = nil } }
@@ -329,8 +329,8 @@ struct BroadcastListView: View {
     /// are permanent, so they offer no delete.
     @ViewBuilder
     private func roomActionSheet(for name: String) -> some View {
-        let channel = broadcastService.channels.first { $0.channelName == name }
-        let isCurated = BroadcastService.indexedChannels.contains(name)
+        let channel = publicChatService.channels.first { $0.channelName == name }
+        let isCurated = PublicChatService.indexedChannels.contains(name)
         let notifyOn = channel?.notifyEnabled ?? false
         VStack(spacing: 12) {
             Text("#\(name)")
@@ -339,15 +339,15 @@ struct BroadcastListView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            if broadcastService.unreadCount(forChannel: name) > 0 {
+            if publicChatService.unreadCount(forChannel: name) > 0 {
                 ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this room.", systemImage: "envelope.open") {
                     roomActionTarget = nil
-                    broadcastService.markChannelRead(name)
+                    publicChatService.markChannelRead(name)
                 }
             } else {
                 ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
                     roomActionTarget = nil
-                    broadcastService.markChannelUnread(name)
+                    publicChatService.markChannelUnread(name)
                 }
             }
 
@@ -365,7 +365,7 @@ struct BroadcastListView: View {
 
             ActionSheetRow(title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", systemImage: "link") {
                 roomActionTarget = nil
-                UIPasteboard.general.string = KaChatInternalLink.broadcastRoom(channel: name).universalLinkString
+                UIPasteboard.general.string = KaChatInternalLink.publicChatRoom(channel: name).universalLinkString
                 showToast("Room link copied")
             }
 
@@ -390,21 +390,21 @@ struct BroadcastListView: View {
     /// Opens a curated room, creating its store row first when it has none (the language rooms
     /// are not auto-joined). `joinChannel` is a no-op for an already-joined room.
     private func openCuratedChannel(_ name: String) {
-        if !broadcastService.channels.contains(where: { $0.channelName == name }) {
-            broadcastService.joinChannel(name)
+        if !publicChatService.channels.contains(where: { $0.channelName == name }) {
+            publicChatService.joinChannel(name)
         }
         selectedChannel = name
     }
 
-    private func toggleNotify(_ channel: BroadcastChannel) {
+    private func toggleNotify(_ channel: PublicChatChannel) {
         let newValue = !channel.notifyEnabled
-        broadcastService.setNotifyEnabled(newValue, forChannel: channel.channelName)
-        let isIndexed = BroadcastService.indexedChannels.contains(channel.channelName)
+        publicChatService.setNotifyEnabled(newValue, forChannel: channel.channelName)
+        let isIndexed = PublicChatService.indexedChannels.contains(channel.channelName)
         showToast(newValue
             ? (isIndexed
-                ? "You'll get notifications for new messages in this broadcast, even when the app is closed"
-                : "You'll get a notification for new messages in this broadcast as long as your app remains open")
-            : "Notifications are off for this broadcast")
+                ? "You'll get notifications for new messages in this public chat, even when the app is closed"
+                : "You'll get a notification for new messages in this public chat as long as your app remains open")
+            : "Notifications are off for this public chat")
     }
 
     private func showToast(_ message: String) {
@@ -498,12 +498,12 @@ struct BroadcastListView: View {
 
     @discardableResult
     private func join(_ rawName: String) -> Bool {
-        let normalized = BroadcastChannelName.normalize(rawName)
-        guard BroadcastChannelName.isValid(normalized) else {
-            joinError = "Channel names must be 1-\(BroadcastChannelName.maxLength) characters with no spaces or colons."
+        let normalized = PublicChatChannelName.normalize(rawName)
+        guard PublicChatChannelName.isValid(normalized) else {
+            joinError = "Channel names must be 1-\(PublicChatChannelName.maxLength) characters with no spaces or colons."
             return false
         }
-        guard broadcastService.joinChannel(normalized) else {
+        guard publicChatService.joinChannel(normalized) else {
             joinError = "Something went wrong joining that channel."
             return false
         }
@@ -532,18 +532,18 @@ private func glassBackground(cornerRadius: CGFloat) -> some View {
 /// inert until the list view is torn down and recreated. Binding directly to the optional item is
 /// the API SwiftUI provides specifically for this swap; iOS 16 falls back to the older, slightly
 /// more race-prone pattern since `item:` isn't available there.
-struct BroadcastChannelDestination: ViewModifier {
+struct PublicChatChannelDestination: ViewModifier {
     @Binding var selectedChannel: String?
 
     func body(content: Content) -> some View {
         if #available(iOS 17.0, *) {
             content.navigationDestination(item: $selectedChannel) { channel in
-                // `.id` forces a fresh `BroadcastChannelView` (not just a `channelName` update to
+                // `.id` forces a fresh `PublicChatChannelView` (not just a `channelName` update to
                 // the existing one) when switching rooms in place, so `onAppear`/`onDisappear`
                 // re-fire to correctly swap the live-view acquire/release tracking, and per-room
                 // state (draft text, reply-in-progress, etc.) resets instead of leaking across
                 // channels.
-                BroadcastChannelView(channelName: channel)
+                PublicChatChannelView(channelName: channel)
                     .id(channel)
             }
         } else {
@@ -552,7 +552,7 @@ struct BroadcastChannelDestination: ViewModifier {
                 set: { if !$0 { selectedChannel = nil } }
             )) {
                 if let selectedChannel {
-                    BroadcastChannelView(channelName: selectedChannel)
+                    PublicChatChannelView(channelName: selectedChannel)
                         .id(selectedChannel)
                 } else {
                     EmptyView()
@@ -567,12 +567,12 @@ struct BroadcastChannelDestination: ViewModifier {
 struct PublicChatRow: View {
     let channelName: String
     /// nil for a curated room not opened yet (no store row): shows its language name instead.
-    let channel: BroadcastChannel?
-    @EnvironmentObject var broadcastService: BroadcastService
+    let channel: PublicChatChannel?
+    @EnvironmentObject var publicChatService: PublicChatService
     @ObservedObject private var knsService = KNSService.shared
 
-    private var lastMessage: BroadcastMessage? {
-        broadcastService.messages(forChannel: channelName).last
+    private var lastMessage: PublicChatMessage? {
+        publicChatService.messages(forChannel: channelName).last
     }
 
     private func senderName(_ address: String) -> String {
@@ -591,7 +591,7 @@ struct PublicChatRow: View {
 
     private var emptyText: String {
         guard channel == nil else { return "No messages yet" }
-        return BroadcastService.languageDisplayName(for: channelName).map { "\($0) - tap to open" } ?? "Tap to open"
+        return PublicChatService.languageDisplayName(for: channelName).map { "\($0) - tap to open" } ?? "Tap to open"
     }
 
     var body: some View {
@@ -636,7 +636,7 @@ struct PublicChatRow: View {
                             .italic()
                     }
                     Spacer()
-                    let unread = channel == nil ? 0 : broadcastService.unreadCount(forChannel: channelName)
+                    let unread = channel == nil ? 0 : publicChatService.unreadCount(forChannel: channelName)
                     if unread > 0 {
                         Text("\(unread)")
                             .font(.caption2)
@@ -658,17 +658,17 @@ struct PublicChatRow: View {
 /// Public Chats settings, behind the gear at the top right of the tab: every default room with
 /// a switch. Off takes the room out of the list and silences it for good; on brings it back.
 struct PublicChatsSettingsView: View {
-    @EnvironmentObject var broadcastService: BroadcastService
+    @EnvironmentObject var publicChatService: PublicChatService
     @Environment(\.dismiss) private var dismiss
 
     private func row(_ name: String) -> some View {
         Toggle(isOn: Binding(
-            get: { broadcastService.isCuratedChannelShown(name) },
-            set: { broadcastService.setCuratedChannel(name, shown: $0) }
+            get: { publicChatService.isCuratedChannelShown(name) },
+            set: { publicChatService.setCuratedChannel(name, shown: $0) }
         )) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("#\(name)")
-                if let language = BroadcastService.languageDisplayName(for: name) {
+                if let language = PublicChatService.languageDisplayName(for: name) {
                     Text(language)
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -681,14 +681,14 @@ struct PublicChatsSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    ForEach(BroadcastService.featuredChannels, id: \.self) { row($0) }
+                    ForEach(PublicChatService.featuredChannels, id: \.self) { row($0) }
                 } header: {
                     Text("Popular")
                 } footer: {
                     Text("A room that is switched off no longer appears in Public Chats and never sends a notification. Switch it back on at any time.")
                 }
                 Section("Other Languages") {
-                    ForEach(BroadcastService.languageChannels, id: \.self) { row($0) }
+                    ForEach(PublicChatService.languageChannels, id: \.self) { row($0) }
                 }
             }
             .navigationTitle("Public Chats")

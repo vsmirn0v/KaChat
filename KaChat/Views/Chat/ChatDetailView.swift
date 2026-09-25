@@ -55,7 +55,7 @@ struct ChatDetailView: View {
     }
 
     /// True only when the chatting-address balance is a CONFIRMED zero - see
-    /// `WalletManager.hasConfirmedZeroChattingBalance` (shared with group chats, broadcast
+    /// `WalletManager.hasConfirmedZeroChattingBalance` (shared with group chats, public chat
     /// channels, and KaPosts). An unknown/still-loading balance never triggers the gate; it
     /// tears down reactively the moment any refresh/UTXO push reports funds.
     private var isChattingBalanceZero: Bool {
@@ -199,7 +199,7 @@ struct ChatDetailView: View {
     @State private var revealOffset: CGFloat = 0
     private let maxRevealOffset: CGFloat = 64
     /// Tap-a-reply-quote-to-jump-to-original - mirrors `GroupChatDetailView`/
-    /// `BroadcastChannelView`'s identical pair. `pendingJumpToTxId` is set from inside a message
+    /// `PublicChatChannelView`'s identical pair. `pendingJumpToTxId` is set from inside a message
     /// row (no `ScrollViewProxy` in scope there) and consumed by an `.onChange` inside the
     /// `ScrollViewReader` closure, which does have the proxy.
     @State private var pendingJumpToTxId: String?
@@ -781,7 +781,7 @@ struct ChatDetailView: View {
                         if tail.isOutgoing && tail.txId.hasPrefix("pending_") {
                             // A send initiated on THIS device: every local send path (message,
                             // audio, payment, handshake) inserts its optimistic row with a
-                            // provisional "pending_" txId before broadcast, and provisional ids
+                            // provisional "pending_" txId before public chat, and provisional ids
                             // never travel through sync or the shared archive (phantom scrub) -
                             // so this is exactly "you just hit send here", and sending implies
                             // returning to now. An own message mirrored in from another device
@@ -826,7 +826,7 @@ struct ChatDetailView: View {
                             }
                     )
                     .simultaneousGesture(
-                        // Swipe-left-to-reveal-timestamps (iMessage-style, matches broadcast
+                        // Swipe-left-to-reveal-timestamps (iMessage-style, matches public chat
                         // rooms): dragging left shifts every message row left together,
                         // uncovering each message's time; releasing snaps back. Only engages for
                         // mostly-horizontal drags so vertical scrolling is unaffected.
@@ -1117,7 +1117,7 @@ struct ChatDetailView: View {
             }
         }
         .task(id: myAddress) {
-            // Matches broadcast rooms' room-level own-avatar fetch - resolves regardless of who's
+            // Matches public chat rooms' room-level own-avatar fetch - resolves regardless of who's
             // messaged, since it's always needed for our own outgoing bubbles.
             guard let myAddress, knsService.profileCache[myAddress] == nil else { return }
             _ = await knsService.fetchProfile(for: myAddress)
@@ -2874,7 +2874,7 @@ struct ChatDetailView: View {
     /// offers the gift-claim flow, plus the address itself (QR + copy) so the user can fund it
     /// from anywhere. Disappears automatically once `balanceSompi` goes positive (reactive via
     /// `walletManager.currentWallet`). The card body lives in the shared
-    /// `ZeroBalanceFundingCardView` (bottom of this file), reused by group chats, broadcast
+    /// `ZeroBalanceFundingCardView` (bottom of this file), reused by group chats, public chat
     /// channels, and KaPosts.
     private var zeroBalanceGateCard: some View {
         ZeroBalanceFundingCardView(
@@ -3504,7 +3504,7 @@ struct ChatDetailView: View {
         }
     }
 
-    /// "You" for our own address, else the contact's alias - matches broadcast rooms'
+    /// "You" for our own address, else the contact's alias - matches public chat rooms'
     /// `displayName(for:)`, simplified since a 1:1 chat only ever has two possible senders.
     private func replyDisplayName(for address: String) -> String {
         if address == walletManager.currentWallet?.publicAddress {
@@ -3967,7 +3967,7 @@ struct ChatDetailView: View {
             isSending = false
         }
 
-        // "Send Media via Nextcloud" (1:1 chats only — this view; groups/broadcasts keep their
+        // "Send Media via Nextcloud" (1:1 chats only — this view; groups/public chats keep their
         // own send paths): upload the best-quality bytes we have and send the public share link
         // as a normal text message (the recipient's link-preview feature renders it as a media
         // bubble). Any upload/share failure falls back to the on-chain envelope below, with a
@@ -5211,7 +5211,7 @@ private final class AudioRecorderDelegate: NSObject, AVAudioRecorderDelegate {
 
 /// The zero-balance funding card - "fund your chatting address" title, gift-state-aware Claim
 /// Gift, QR of the chatting address, and the address itself with a copy affordance. Shared by
-/// the 1:1 chat gate (this file), `GroupChatDetailView`, `BroadcastChannelView`, and KaPosts'
+/// the 1:1 chat gate (this file), `GroupChatDetailView`, `PublicChatChannelView`, and KaPosts'
 /// compose/reply interception (`ZeroBalanceFundingSheetView` below). Lives in this file rather
 /// than its own to avoid pbxproj churn - see the repo's dangling-reference history.
 struct ZeroBalanceFundingCardView: View {

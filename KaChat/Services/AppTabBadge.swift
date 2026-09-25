@@ -13,9 +13,9 @@ enum AppTabBadge {
         case .profile: return GlobalNotificationCenter.shared.unreadCount
         // KaPosts keeps its own count, already filtered by the per-kind switches in Settings.
         case .kaposts: return KaPostsNotificationCenter.shared.unseenCount
-        // Broadcasts' share of the feed. Deliberately overlaps Profile's total: the bell is the
+        // Public Chats' share of the feed. Deliberately overlaps Profile's total: the bell is the
         // whole feed, and a tab badge is that tab's part of it.
-        case .broadcasts: return GlobalNotificationCenter.shared.unreadCount(for: .broadcast)
+        case .publicChats: return GlobalNotificationCenter.shared.unreadCount(for: .publicChat)
         default: return 0
         }
     }

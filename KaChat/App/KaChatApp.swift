@@ -13,7 +13,7 @@ struct KaChatApp: App {
     @StateObject private var settingsViewModel = SettingsViewModel()
     @StateObject private var pushManager = PushNotificationManager.shared
     @StateObject private var giftService = GiftService.shared
-    @StateObject private var broadcastService = BroadcastService.shared
+    @StateObject private var publicChatService = PublicChatService.shared
     @StateObject private var groupChatService = GroupChatService.shared
     @State private var pendingOutboundShareId: String?
     @State private var isProcessingOutboundShare = false
@@ -54,7 +54,7 @@ struct KaChatApp: App {
                 .environmentObject(settingsViewModel)
                 .environmentObject(pushManager)
                 .environmentObject(giftService)
-                .environmentObject(broadcastService)
+                .environmentObject(publicChatService)
                 .environmentObject(groupChatService)
                 .onAppear {
                     ChatService.shared.settingsViewModel = settingsViewModel
@@ -324,7 +324,7 @@ struct KaChatApp: App {
     }
 
     private func handleIncomingURL(_ url: URL) {
-        // Every in-app target link - KaPosts posts and broadcast rooms, in both their
+        // Every in-app target link - KaPosts posts and public chat rooms, in both their
         // `kachat://` and `https://kachat.duckdns.org/...` forms - is parsed and validated in
         // ONE place (`KaChatInternalLink.parse`) and routed through ONE place
         // (`KaChatLinkRouter.open`), shared with the in-chat preview cards so a tapped card and
@@ -686,8 +686,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             let activeAddress = ChatService.shared.activeConversationAddress
             let threadId = notification.request.content.threadIdentifier
             let settings = AppSettings.load()
-            // Child Mode: never display KaPosts/broadcast notifications. Registration already
-            // drops the broadcast channels + KaPosts pubkey (see PushNotificationManager), but a
+            // Child Mode: never display KaPosts/public chat notifications. Registration already
+            // drops the public chat channels + KaPosts pubkey (see PushNotificationManager), but a
             // push can still race the re-registration - suppress it client-side too.
             if settings.childModeEnabled, threadId == "kaposts" || threadId.hasPrefix("broadcast:") {
                 completionHandler([])
@@ -714,14 +714,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             // already existed for the read-state auto-mark but was never consulted here.
             let isActiveGroup = threadId.hasPrefix("group:") &&
                 GroupChatService.shared.activeGroupId == String(threadId.dropFirst("group:".count))
-            // Broadcasts follow the same one-rule policy: suppressed only while THAT room's
-            // screen is open (thread id "broadcast:<channel>" on local banners and pushes alike).
-            let isActiveBroadcast = threadId.hasPrefix("broadcast:") &&
-                BroadcastService.shared.isViewing(channel: String(threadId.dropFirst("broadcast:".count)))
+            // Public Chats follow the same one-rule policy: suppressed only while THAT room's
+            // screen is open (thread id "public chat:<channel>" on local banners and pushes alike).
+            let isActivePublicChat = threadId.hasPrefix("broadcast:") &&
+                PublicChatService.shared.isViewing(channel: String(threadId.dropFirst("broadcast:".count)))
             // The push is the only banner source now (see `ChatService.localBannersEnabled`).
             // Three rules used to live here for the app's own local banners - dropping a push
             // whose txId a local banner had already claimed, deferring KaPosts pushes to the
-            // in-app poller's banners, and dropping broadcast pushes in the foreground because
+            // in-app poller's banners, and dropping public chat pushes in the foreground because
             // the scan's banner covered them. With nothing posting locally, each of those would
             // have swallowed the only notification left, so they are gone. What remains is the
             // one rule that is about the reader, not the plumbing: no banner for the stream
@@ -742,7 +742,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 return
             }
 
-            if sender == ourAddress || ((isActiveConversation || isActiveGroup || isActiveBroadcast) && UIApplication.shared.applicationState == .active) {
+            if sender == ourAddress || ((isActiveConversation || isActiveGroup || isActivePublicChat) && UIApplication.shared.applicationState == .active) {
                 completionHandler([])
             } else if !settings.shouldDeliverIncomingNotification(for: contact) {
                 completionHandler([])
@@ -873,12 +873,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         Task { @MainActor in
             CallService.shared.handleCallNotificationTap(tappedUserInfo)
         }
-        // The threadIdentifier contains the contact address, "broadcast:<channel>" for a
-        // broadcast room notification (see `BroadcastService.notifyIfEnabled`), or
+        // The threadIdentifier contains the contact address, "public chat:<channel>" for a
+        // public chat room notification (see `PublicChatService.notifyIfEnabled`), or
         // "group:<groupId>" for a group chat notification.
         let threadIdentifier = response.notification.request.content.threadIdentifier
 
-        // Child Mode: a stray KaPosts/broadcast notification tap (e.g. one delivered before the
+        // Child Mode: a stray KaPosts/public chat notification tap (e.g. one delivered before the
         // mode was switched on, or a remote push that raced the re-registration) must not route
         // into the hidden features - land on the main Chats screen instead.
         if AppSettings.load().childModeEnabled,
@@ -956,12 +956,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             if !channel.isEmpty {
                 // Store pending navigation for cold start scenario
                 Task { @MainActor in
-                    BroadcastService.shared.pendingBroadcastNavigation = channel
+                    PublicChatService.shared.pendingPublicChatNavigation = channel
                 }
 
                 // Also post notification for already-running views
                 NotificationCenter.default.post(
-                    name: .openBroadcast,
+                    name: .openPublicChat,
                     object: nil,
                     userInfo: ["channel": channel]
                 )
@@ -1066,8 +1066,8 @@ enum KaChatLinkRouter {
         switch link {
         case .kaPost(let txId):
             openKaPost(txId: txId)
-        case .broadcastRoom(let channel):
-            openBroadcastRoom(channel: channel)
+        case .publicChatRoom(let channel):
+            openPublicChatRoom(channel: channel)
         }
     }
 
@@ -1087,8 +1087,8 @@ enum KaChatLinkRouter {
     }
 
     @MainActor
-    private static func openBroadcastRoom(channel: String) {
-        // Child Mode removes Broadcasts entirely (see AppTab.isEnabled) - same no-op to the main
+    private static func openPublicChatRoom(channel: String) {
+        // Child Mode removes Public Chats entirely (see AppTab.isEnabled) - same no-op to the main
         // screen KaPosts links get, rather than opening a hidden feature by link.
         guard !AppSettings.load().childModeEnabled else {
             NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
@@ -1102,12 +1102,12 @@ enum KaChatLinkRouter {
         // else has to land in the user's own channel list first, exactly as if they'd typed the
         // name into "Join or Create a Channel", or the room screen would open something the
         // list screen doesn't know about.
-        if !BroadcastService.indexedChannels.contains(normalized) {
-            BroadcastService.shared.joinChannel(normalized)
+        if !PublicChatService.indexedChannels.contains(normalized) {
+            PublicChatService.shared.joinChannel(normalized)
         }
-        BroadcastService.shared.pendingBroadcastNavigation = normalized
+        PublicChatService.shared.pendingPublicChatNavigation = normalized
         NotificationCenter.default.post(
-            name: .openBroadcast,
+            name: .openPublicChat,
             object: nil,
             userInfo: ["channel": normalized]
         )
@@ -1125,7 +1125,7 @@ extension Notification.Name {
     static let openKaPost = Notification.Name("openKaPost")
     static let openPortfolio = Notification.Name("openPortfolio")
     static let openColdStorage = Notification.Name("openColdStorage")
-    static let openBroadcast = Notification.Name("openBroadcast")
+    static let openPublicChat = Notification.Name("openBroadcast")
     /// Open Customize Dock. Posted rather than pushed because that screen EDITS the dock, and the
     /// dock's tabs are the TabView's own children: changing placement rebuilds them, which
     /// destroys any navigation stack pushed inside one. Presented from MainTabView instead, above

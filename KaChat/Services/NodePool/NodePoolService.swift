@@ -791,7 +791,7 @@ final class NodePoolService: ObservableObject {
     }
 
     /// Subscribe to block-added notifications (piggybacks on the primary UTXO connection).
-    /// Tracked per client token: GroupChatService and BroadcastService gate their block scans
+    /// Tracked per client token: GroupChatService and PublicChatService gate their block scans
     /// independently (group count, open rooms, expensive-path state), and the underlying
     /// wanted-flag is a single bool - without the token set, one client unsubscribing would
     /// silently stop re-registration for the other on the next reconnect.

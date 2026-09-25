@@ -153,7 +153,7 @@ struct RenameSheet: View {
 /// Who reacted to one message, and with what.
 ///
 /// The pill on a bubble shows which emoji are on it and nothing else - not how many of each, and
-/// not from whom. Shared by 1:1, group and broadcast messages, which each carry their own
+/// not from whom. Shared by 1:1, group and public chat messages, which each carry their own
 /// reaction snapshot type; callers map theirs into `Entry`.
 struct ReactionsSheet: View {
     struct Entry: Identifiable {
@@ -323,7 +323,7 @@ struct LinkActionsSheet: View {
     let url: URL
     let onOpen: () -> Void
     let onCopy: () -> Void
-    /// Nil where replying makes no sense (a KaPost, a broadcast you cannot reply into).
+    /// Nil where replying makes no sense (a KaPost, a public chat you cannot reply into).
     var onReply: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 

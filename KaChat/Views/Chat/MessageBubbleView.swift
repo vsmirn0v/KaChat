@@ -21,8 +21,8 @@ struct MessageBubbleView: View {
     var onShowReactions: (() -> Void)? = nil
     let onAcceptHandshake: (() -> Void)?
     let onDeclineHandshake: (() -> Void)?
-    /// Parsed reply envelope, if `message.content` is a reply - matches broadcast rooms'
-    /// `BroadcastMessageRow.replyQuote`.
+    /// Parsed reply envelope, if `message.content` is a reply - matches public chat rooms'
+    /// `PublicChatMessageRow.replyQuote`.
     let replyQuote: MessageReplyContent?
     let replySenderDisplayName: String?
     let onReply: (() -> Void)?
@@ -55,8 +55,8 @@ struct MessageBubbleView: View {
     /// Tapping the reply quote (if any) jumps to and highlights the original message - nil
     /// when `replyQuote` is nil, since there's nothing to jump to.
     let onJumpToReply: (() -> Void)?
-    /// Sender's KNS avatar (or nil for plain initials), matching broadcast rooms'
-    /// `BroadcastMessageRow.avatarButton`.
+    /// Sender's KNS avatar (or nil for plain initials), matching public chat rooms'
+    /// `PublicChatMessageRow.avatarButton`.
     let avatarURLString: String?
     let avatarDisplayName: String
     /// Parsed chess envelope, if `message.content` is one - mirrors `replyQuote`. `chessSummary`
@@ -153,13 +153,13 @@ struct MessageBubbleView: View {
         self.onOpenChessGame = onOpenChessGame
     }
 
-    /// The reply's own text, or the raw content when this isn't a reply - matches broadcast
-    /// rooms' `BroadcastMessageRow.displayText`.
+    /// The reply's own text, or the raw content when this isn't a reply - matches public chat
+    /// rooms' `PublicChatMessageRow.displayText`.
     private var displayText: String {
         replyQuote?.text ?? message.content
     }
 
-    /// A link into KaChat itself (shared KaPosts post / broadcast-room invite) inside this
+    /// A link into KaChat itself (shared KaPosts post / public chat-room invite) inside this
     /// message, if any. Cached inside `KaChatInternalLink.match`, like the http-link helpers it
     /// sits next to, since this is evaluated from `body` on every visible row.
     private var internalLink: KaChatInternalLink.Match? {
@@ -291,7 +291,7 @@ struct MessageBubbleView: View {
                             )
                             .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
                         } else if let internalLink {
-                            // A link back into KaChat (shared KaPosts post / broadcast-room
+                            // A link back into KaChat (shared KaPosts post / public chat-room
                             // invite) is claimed here BEFORE the generic link branch below -
                             // the universal-link form is a perfectly ordinary https URL, so
                             // without this it would be scraped over the network like a
@@ -359,7 +359,7 @@ struct MessageBubbleView: View {
                 }
 
                 // Delivery status only - the time now shows via swipe-to-reveal, matching
-                // broadcast rooms, instead of always being visible under every bubble.
+                // public chat rooms, instead of always being visible under every bubble.
                 if shouldShowStatusIcon {
                     if shouldShowRetry {
                         // Tappable "Retry" next to the red error icon, so a failed send can be
@@ -1186,13 +1186,13 @@ struct MessageBubbleView: View {
 }
 
 /// The preview card for a link that points back INSIDE KaChat (`KaChatInternalLink`): a shared
-/// KaPosts post or a broadcast-room invite. Deliberately NOT a `LinkPreviewCardView`: that card
+/// KaPosts post or a public chat-room invite. Deliberately NOT a `LinkPreviewCardView`: that card
 /// scrapes the URL's server for Open Graph metadata, which for our own links would mean a
 /// pointless network round trip (and, for a stranger's message, a tap-to-load placeholder) to
 /// learn something the app already knows. Everything here is built locally, and a tap routes
 /// in-app through `KaChatLinkRouter` instead of handing the URL to Safari.
 ///
-/// Used by 1:1 bubbles (`MessageBubbleView`) and broadcast rows (`BroadcastChannelView`).
+/// Used by 1:1 bubbles (`MessageBubbleView`) and public chat rows (`PublicChatChannelView`).
 struct KaChatInternalLinkCardView: View {
     let match: KaChatInternalLink.Match
     /// The owning message's transaction id, for the shared "View in Explorer" action - matches
@@ -1224,7 +1224,7 @@ struct KaChatInternalLinkCardView: View {
     private var iconName: String {
         switch match.link {
         case .kaPost: return "square.and.pencil"          // AppTab.kaposts.icon
-        case .broadcastRoom: return "dot.radiowaves.left.and.right" // AppTab.broadcasts.icon
+        case .publicChatRoom: return "dot.radiowaves.left.and.right" // AppTab.public chats.icon
         }
     }
 
@@ -1238,7 +1238,7 @@ struct KaChatInternalLinkCardView: View {
             case "quote": return "KaPosts quote"
             default: return "KaPosts"
             }
-        case .broadcastRoom: return "Broadcast Room"
+        case .publicChatRoom: return "Public Chat Room"
         }
     }
 
@@ -1246,7 +1246,7 @@ struct KaChatInternalLinkCardView: View {
         switch match.link {
         case .kaPost:
             return kaPostEntry?.authorName ?? "KaPosts post"
-        case .broadcastRoom(let channel):
+        case .publicChatRoom(let channel):
             return "#\(channel)"
         }
     }
@@ -1260,14 +1260,14 @@ struct KaChatInternalLinkCardView: View {
             return entry.snippet.isEmpty
                 ? (entry.action == "quote" ? "Reposted a post." : "Tap to open this post in KaChat.")
                 : entry.snippet
-        case .broadcastRoom(let channel):
+        case .publicChatRoom(let channel):
             // Curated rooms and rooms already in the list just open; anything else is created
             // and added to the user's channel list on tap, so say so before they tap.
-            let known = BroadcastService.indexedChannels.contains(channel)
-                || BroadcastService.shared.channels.contains { $0.channelName == channel }
+            let known = PublicChatService.indexedChannels.contains(channel)
+                || PublicChatService.shared.channels.contains { $0.channelName == channel }
             return known
-                ? "Tap to open this KaChat broadcast room."
-                : "Tap to join this KaChat broadcast room."
+                ? "Tap to open this KaChat public chat room."
+                : "Tap to join this KaChat public chat room."
         }
     }
 
@@ -1367,7 +1367,7 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
     /// silently swallowed the touch before the bubble's ancestor double-tap gesture ever saw it.
     var onLinkDoubleTap: () -> Void = {}
     /// When false, tapping a link does nothing - only the long-press menu can open it. Used in
-    /// broadcast rooms, where links can come from anonymous public senders, so opening one
+    /// public chat rooms, where links can come from anonymous public senders, so opening one
     /// should always require a deliberate long-press rather than a single accidental tap.
     var tapOpensLink: Bool = true
 
@@ -1646,7 +1646,7 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
 
 /// Full text of a message too long to render inline (see `MessageBubbleView.inlineTextTruncationThreshold`)
 /// - a plain scrollable, selectable text view, matching iMessage's "tap to see more" detail sheet.
-/// Shared with `BroadcastChannelView`'s room bubble, not just private-chat messages.
+/// Shared with `PublicChatChannelView`'s room bubble, not just private-chat messages.
 struct FullMessageTextView: View {
     let text: String
     let onCopy: () -> Void

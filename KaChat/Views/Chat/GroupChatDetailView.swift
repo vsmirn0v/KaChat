@@ -39,9 +39,9 @@ enum GroupMentionCodec {
 /// Group chat thread view - mirrors 1:1 chat's look (avatars, "+" send-mode menu, photo/audio
 /// bubbles via the same `MediaFile`/`LazyImageBubble`/`LazyAudioBubble` components
 /// `MessageBubbleView.swift` uses) with two deliberate differences: no in-thread payments (the
-/// group protocol has no shared-wallet/escrow concept, same reason broadcast rooms don't support
+/// group protocol has no shared-wallet/escrow concept, same reason public chat rooms don't support
 /// them - "Pay in Kaspa" isn't in the "+" menu here), and audio recording reuses
-/// `BroadcastAudioRecorder`'s simpler engine (broadcast already proved out group-shaped media
+/// `PublicChatAudioRecorder`'s simpler engine (public chat already proved out group-shaped media
 /// without 1:1's payment-integrated fee-estimation machinery).
 struct GroupChatDetailView: View {
     /// Hoisted out of the body chain - an inline service call in .onChange tipped the
@@ -75,13 +75,13 @@ struct GroupChatDetailView: View {
     @State private var toastStyle: ToastStyle = .success
     @State private var toastToken = UUID()
     // Plain @State (not @FocusState) - ComposerTextView takes a normal `Binding<Bool>` for focus
-    // itself (matching 1:1/broadcast's identical `isMessageFocused`), it doesn't use the
+    // itself (matching 1:1/public chat's identical `isMessageFocused`), it doesn't use the
     // `.focused()` modifier that @FocusState's own binding type is specifically for.
     @State private var isComposerFocused = false
     @State private var scrollViewReference = ScrollViewReference()
     @Environment(\.dismiss) private var dismiss
 
-    /// Tap-a-reply-quote-to-jump-to-original - mirrors `ChatDetailView`/`BroadcastChannelView`'s
+    /// Tap-a-reply-quote-to-jump-to-original - mirrors `ChatDetailView`/`PublicChatChannelView`'s
     /// identical pair. `pendingJumpToTxId` is set from inside a message row (no `ScrollViewProxy`
     /// in scope there) and consumed by an `.onChange` inside the `ScrollViewReader` closure, which
     /// does have the proxy.
@@ -93,7 +93,7 @@ struct GroupChatDetailView: View {
     @State private var emojiPickerTarget: IdentifiedTxId?
     @State private var highlightedMessageID: UUID?
 
-    /// Scroll-to-bottom floating button, matching 1:1/broadcast's identical debounced-visibility
+    /// Scroll-to-bottom floating button, matching 1:1/public chat's identical debounced-visibility
     /// pattern - shown once the bottom of the thread scrolls out of view.
     @State private var isBottomAnchorVisible = true
     @State private var bottomAnchorVisibilityWorkItem: DispatchWorkItem?
@@ -126,7 +126,7 @@ struct GroupChatDetailView: View {
     /// scrolls (open positioning, new-message scrollToBottom, keyboard pin) own bottom-pinning.
     @State private var isGrowingHistoryWindow = false
 
-    /// Swipe-left-to-reveal-timestamps, matching 1:1 chat's `ChatDetailView`/broadcast rooms'
+    /// Swipe-left-to-reveal-timestamps, matching 1:1 chat's `ChatDetailView`/public chat rooms'
     /// identical gesture.
     @State private var revealOffset: CGFloat = 0
     /// Ticks once a minute while the thread is open, purely so expiring system lines disappear
@@ -135,7 +135,7 @@ struct GroupChatDetailView: View {
     private let maxRevealOffset: CGFloat = 64
 
     // Avatar menu destinations - "View Profile"/"Open Chat"/"Pay in Kaspa" for a tapped member,
-    // matching BroadcastChannelView's identical avatarButton pattern.
+    // matching PublicChatChannelView's identical avatarButton pattern.
     @State private var openContact: Contact?
     @State private var openContactInPaymentMode = false
     @State private var profileContact: Contact?
@@ -167,7 +167,7 @@ struct GroupChatDetailView: View {
     /// Nextcloud server linked, the + menu drops Send Photo / Send Audio in favor of "Send from
     /// Nextcloud", and the message bar's camera/mic captures ride the Nextcloud auto-upload path.
     @ObservedObject private var nextcloudService = NextcloudService.shared
-    @StateObject private var recorder = BroadcastAudioRecorder()
+    @StateObject private var recorder = PublicChatAudioRecorder()
 
     /// Nextcloud-uploaded voice notes aren't payload-bound - only the server carries them - so
     /// the recording ceiling relaxes to 10 minutes while "Send Media via Nextcloud" is active,
@@ -175,7 +175,7 @@ struct GroupChatDetailView: View {
     private var effectiveMaxRecordingDuration: TimeInterval {
         (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
             ? 600
-            : BroadcastAudioRecorder.maxDuration
+            : PublicChatAudioRecorder.maxDuration
     }
 
     /// `@mention` inline autocomplete - see `GroupMentionCodec`'s doc comment for the wire
@@ -189,7 +189,7 @@ struct GroupChatDetailView: View {
     /// ask for more width than they need.
     @State private var mentionListWidth: CGFloat?
 
-    // Live "fee: N KAS" preview above the composer - matches 1:1/broadcast's identical bubble.
+    // Live "fee: N KAS" preview above the composer - matches 1:1/public chat's identical bubble.
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
@@ -321,7 +321,7 @@ struct GroupChatDetailView: View {
     ///
     /// It used to call `Calendar.startOfDay` AND `isDate(_:inSameDayAs:)` for EVERY message,
     /// every time. Calendar arithmetic is not cheap (timezone and DST resolution per call), and
-    /// a few hundred messages meant a few hundred of them per frame while typing. Broadcast rooms
+    /// a few hundred messages meant a few hundred of them per frame while typing. Public Chat rooms
     /// have no day separators at all, which is a good part of why they feel smoother with far
     /// more messages on screen.
     ///
@@ -455,7 +455,7 @@ struct GroupChatDetailView: View {
                             }
                         }
                         // Debounced rather than setting `isBottomAnchorVisible` directly, matching
-                        // broadcast rooms exactly - this 1pt marker can appear/disappear rapidly
+                        // public chat rooms exactly - this 1pt marker can appear/disappear rapidly
                         // during a fast scroll/fling right at the lazy-loaded viewport edge.
                         Color.clear
                             .frame(height: 1)
@@ -1133,7 +1133,7 @@ struct GroupChatDetailView: View {
         feeEstimateSompi = groupChatService.estimateGroupMediaFee(rawBytes: rawBytes)
     }
 
-    /// Raw encoded-Opus-bytes/sec estimate for `BroadcastAudioRecorder`'s fixed 6kbps/48kHz
+    /// Raw encoded-Opus-bytes/sec estimate for `PublicChatAudioRecorder`'s fixed 6kbps/48kHz
     /// config (bitrate/8 + WebM container overhead) - matches `ChatDetailView.estimateEncodedSize`'s
     /// identical heuristic for the same recorder settings.
     private func updateRecordingFeeEstimate(elapsedSeconds: TimeInterval) {
@@ -1279,7 +1279,7 @@ struct GroupChatDetailView: View {
         HStack(alignment: .bottom, spacing: 8) {
             HStack(spacing: 4) {
                 // ComposerTextView (not a plain TextField) so Cmd+V image paste works on macOS,
-                // matching 1:1/broadcast - a plain TextField only ever intercepts text paste.
+                // matching 1:1/public chat - a plain TextField only ever intercepts text paste.
                 ComposerTextView(
                     text: $draft,
                     isFocused: $isComposerFocused,
@@ -1919,7 +1919,7 @@ struct GroupChatDetailView: View {
         }
     }
 
-    /// Resolves a member's name the same way 1:1/broadcast do (contact alias, then KNS domain,
+    /// Resolves a member's name the same way 1:1/public chat do (contact alias, then KNS domain,
     /// then a generated fallback) - NOT `group.members[].displayName`, which is only a one-time
     /// snapshot taken when the roster was built/received (via `createGroup`'s local
     /// `contactsManager` lookup, or `applyRootPayload`'s wire payload, which carries no display
@@ -2305,11 +2305,11 @@ private struct GroupMessageBubbleRow: View {
     let group: GroupChat
     let avatarURLString: String?
     /// Resolved by `GroupChatDetailView` (which has live `contactsManager`/`knsService` access,
-    /// and knows the wallet's own address for "You") - matches 1:1/broadcast's identical
+    /// and knows the wallet's own address for "You") - matches 1:1/public chat's identical
     /// pattern of resolving names in the parent rather than this row re-deriving them from the
     /// group roster's frozen `displayName` snapshot.
     let senderDisplayName: String
-    /// Own avatar, shown on outgoing messages - matches broadcast's `BroadcastMessageRow`
+    /// Own avatar, shown on outgoing messages - matches public chat's `PublicChatMessageRow`
     /// showing `avatarButton` on both sides depending on `isOwnMessage`.
     let myAvatarURLString: String?
     let replySenderDisplayName: String?
@@ -2421,7 +2421,7 @@ private struct GroupMessageBubbleRow: View {
         return GroupMentionCodec.decodeForDisplay(raw, members: group.members, resolveDisplayName: resolveDisplayName(for:))
     }
 
-    /// A link back into KaChat (shared KaPosts post / broadcast-room invite) in this message.
+    /// A link back into KaChat (shared KaPosts post / public chat-room invite) in this message.
     /// Same rule as 1:1 (`MessageBubbleView.internalLink`), and it has to be claimed BEFORE the
     /// generic link path: the universal-link form is an ordinary https URL, so without this a
     /// shared post would be scraped over the network like a stranger's link instead of
@@ -2595,7 +2595,7 @@ private struct GroupMessageBubbleRow: View {
                         .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId.wrappedValue = message.id })
                     } else if let internalLink {
                         // A link into KaChat: the post/invite card IS the message, exactly as in
-                        // 1:1 chats and broadcast rooms - text around the link is not drawn,
+                        // 1:1 chats and public chat rooms - text around the link is not drawn,
                         // since KaPosts' own share text quotes the post above it.
                         KaChatInternalLinkCardView(
                             match: internalLink,
@@ -2766,7 +2766,7 @@ private struct GroupMessageBubbleRow: View {
 
     /// The sender's avatar. Tapping it opens the sender half sheet - View Profile / Open Chat /
     /// Pay in Kaspa / Copy Address / Mute / Hide - presented by the parent, the same shape as
-    /// `BroadcastChannelView`'s. This was a popup `Menu` of bare labels; the sheet has room to
+    /// `PublicChatChannelView`'s. This was a popup `Menu` of bare labels; the sheet has room to
     /// say what each option does, and one sheet serves every row.
     private var avatarButton: some View {
         Button {
@@ -2867,7 +2867,7 @@ struct GroupChatInfoView: View {
     }
     var onDeleted: (() -> Void)?
 
-    /// Re-broadcast the current group root to a single member (or all when address is nil), then
+    /// Re-public chat the current group root to a single member (or all when address is nil), then
     /// surface the result in an alert. Admin-only (guarded again in the service).
     private func resendInvites(to address: String?) {
         Task {
@@ -2914,7 +2914,7 @@ struct GroupChatInfoView: View {
         return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(plural)."
     }
 
-    /// Same resolution 1:1/broadcast/the message list use (contact alias, then KNS domain, then
+    /// Same resolution 1:1/public chat/the message list use (contact alias, then KNS domain, then
     /// a generated fallback) - not `member.displayName`, which is only a one-time snapshot from
     /// when the roster was built/received and never updated afterward (see `GroupChatDetailView.
     /// displayName(for:)`'s identical doc comment). Applied uniformly to every member, including
@@ -2971,7 +2971,7 @@ struct GroupChatInfoView: View {
         Binding(get: { groupPhotoError != nil }, set: { if !$0 { groupPhotoError = nil } })
     }
 
-    /// Admin picked a new group photo: shrink to a ~10 KB JPEG and broadcast it via gctl_photo.
+    /// Admin picked a new group photo: shrink to a ~10 KB JPEG and public chat it via gctl_photo.
     private func handleGroupPhotoSelection(_ newItem: PhotosPickerItem?) {
         guard let newItem else { return }
         Task {
@@ -3294,9 +3294,9 @@ struct GroupChatInfoView: View {
 }
 
 /// Eye-toggle screen for a group's hidden members - lists everyone currently hidden (see
-/// `GroupChatService.groupHiddenMembers`) with a one-tap unhide, matching broadcast rooms' own
+/// `GroupChatService.groupHiddenMembers`) with a one-tap unhide, matching public chat rooms' own
 /// hidden-senders management screen in spirit (there isn't a literal shared one to reuse, since
-/// broadcast's hiding is global across channels while this is scoped to one group).
+/// public chat's hiding is global across channels while this is scoped to one group).
 private struct HiddenGroupMembersView: View {
     let group: GroupChat
     @EnvironmentObject var groupChatService: GroupChatService

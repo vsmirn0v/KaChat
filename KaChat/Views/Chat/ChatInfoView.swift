@@ -6,7 +6,7 @@ struct ChatInfoView: View {
     @Binding var contact: Contact
     var title: String = "Chat Info"
     /// Per-contact notification overrides only make sense for a 1:1 chat thread - hidden when
-    /// viewing a broadcast sender's profile (there's no per-sender notification setting there).
+    /// viewing a public chat sender's profile (there's no per-sender notification setting there).
     var showsNotificationSettings: Bool = true
     @Environment(\.dismiss) private var dismiss
     /// Revealed values for the Aliases section's rows (nil while hidden behind dots).
@@ -293,7 +293,7 @@ struct ChatInfoView: View {
                     // contact linking, two pickers and a stats block - which is a lot of screen
                     // to scroll past to reach any one of them.
                     // Straight into the 1:1 thread. This screen is reached as "User Info" from a
-                    // group roster or a broadcast room, where the person may be someone you have
+                    // group roster or a public chat room, where the person may be someone you have
                     // never messaged - and the only route to them was backing out and finding
                     // them on the chat list.
                     infoCard(
@@ -828,7 +828,7 @@ struct ChatInfoView: View {
         String(format: AppLocalization.string(key), locale: AppLocalization.locale, arguments: args)
     }
 
-    /// Ensures a contact row exists for this address (a broadcast sender or a group member may
+    /// Ensures a contact row exists for this address (a public chat sender or a group member may
     /// not be one yet), dismisses this sheet, and asks the router to open their thread.
     private func openChatWithContact() {
         let address = contact.address

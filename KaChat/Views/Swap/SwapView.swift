@@ -169,7 +169,7 @@ struct SwapView: View {
         }
     }
 
-    // MARK: - Tab bar (same underline style as Broadcasts' Channels/Popular)
+    // MARK: - Tab bar (same underline style as Public Chats' Channels/Popular)
 
     private var swapTabBar: some View {
         VStack(spacing: 0) {

@@ -308,7 +308,7 @@ struct KaspaAddress {
     }
 
     /// Inverse of `scriptPublicKey(from:)` - recovers the address that a script pays to.
-    /// Used to derive a broadcast message's sender directly from a self-stash tx's own
+    /// Used to derive a public chat message's sender directly from a self-stash tx's own
     /// output, without needing the sender's public key ahead of time.
     static func address(fromScriptPublicKey script: Data, hrp: String = "kaspa") -> String? {
         guard script.count >= 2 else { return nil }

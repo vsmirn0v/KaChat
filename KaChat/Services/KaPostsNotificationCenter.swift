@@ -2,7 +2,7 @@ import Foundation
 
 /// Unseen-KaPosts-activity count, kept apart from `GlobalNotificationCenter`.
 ///
-/// KaPosts activity used to be listed in the global center alongside group mentions, broadcasts
+/// KaPosts activity used to be listed in the global center alongside group mentions, public chats
 /// and wallet events. It does not belong there: KaPosts has its own notifications screen with its
 /// own richer rows, so the same like or reply was reported twice, and the profile bell's count was
 /// dominated by whichever feed happened to be busiest. The global center no longer keeps KaPosts

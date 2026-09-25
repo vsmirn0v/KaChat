@@ -1,4 +1,4 @@
-# Push Extensions — Broadcasts + KaPosts (server handoff)
+# Push Extensions — Public Chats + KaPosts (server handoff)
 
 **Audience:** the AI/engineer on the server box running the push service (kasia-indexer fork
 with `PushNotificationActor` — see `PUSH_NOTIFICATIONS.md` for the base chat/group system)

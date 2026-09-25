@@ -1038,7 +1038,7 @@ enum MessageReactionCodec {
 /// edit is a new transaction that names the original by txId and carries the new text, and
 /// every client shows the newest edit's text in place of the original with an "edited" mark.
 /// Same envelope-in-content pattern as reactions - embedded in the normal encrypted contextual
-/// content (1:1), the group-encrypted message (groups), or the plaintext broadcast row (public
+/// content (1:1), the group-encrypted message (groups), or the plaintext public chat row (public
 /// chats) - and never rendered as a bubble of its own. Rules, the same on every platform:
 /// only the original sender's edits count; the newest by block time wins; text only (a
 /// payment, voice message, photo, chess move or call line is never editable). Wire format in
@@ -1528,7 +1528,7 @@ enum MediaFileEnvelope {
 
 /// Lightweight sniff for the same inline voice-message JSON shape `MediaFile` parses in 1:1 chats
 /// (`ChatService.sendAudio`/`MessageBubbleView.MediaFile`) - used where only a yes/no check and a
-/// placeholder label are needed (e.g. a broadcast bubble or a reply quote preview), without
+/// placeholder label are needed (e.g. a public chat bubble or a reply quote preview), without
 /// pulling in the full image/audio-player decoding path.
 enum VoiceMessageSniff {
     struct Payload {
@@ -1751,7 +1751,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case swap
     case profile
     case kaposts
-    case broadcasts
+    /// Displayed as "Public Chats"; the raw value stays `broadcasts` because it is PERSISTED
+    /// in `tabOrder` (see `ecosystem` below).
+    case publicChats = "broadcasts"
     case apps
     /// Chess tournaments (5.1) - Kaspa Hub > Chess Online. See ONLINE_CHESS.md.
     case chess
@@ -1776,7 +1778,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .swap: return "Swap"
         case .profile: return "Profile"
         case .kaposts: return "KaPosts"
-        case .broadcasts: return "Public Chats"
+        case .publicChats: return "Public Chats"
         // Short enough for a dock label. `ecosystemTitle` carries the full name, which is what
         // the Ecosystem grid and the screen itself show.
         case .apps: return "Websites"
@@ -1794,7 +1796,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .swap: return "arrow.left.arrow.right"
         case .profile: return "person.crop.circle"
         case .kaposts: return "square.and.pencil"
-        case .broadcasts: return "dot.radiowaves.left.and.right"
+        case .publicChats: return "dot.radiowaves.left.and.right"
         case .apps: return "globe"
         case .chess: return "checkerboard.rectangle"
         // Kaspa Hub wears the Kaspa mark itself, not an SF Symbol - see `usesKaspaLogo`.
@@ -1831,7 +1833,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .swap: return 5
         case .kaposts: return 6
         case .more: return 7
-        case .broadcasts: return 8
+        case .publicChats: return 8
         case .apps: return 9
         case .chess: return 11
         case .ecosystem: return 10
@@ -1854,9 +1856,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
 
     /// Ecosystem takes the dock slot Swap used to hold, so a default install shows exactly the
     /// five the dock can fit - Portfolio, Storage, Chats, Ecosystem, Profile - with Swap, KaPosts,
-    /// Broadcasts and the websites list still ENABLED but living inside Ecosystem rather than
+    /// Public Chats and the websites list still ENABLED but living inside Ecosystem rather than
     /// competing for a dock slot.
-    static let defaultOrder: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile, .swap, .kaposts, .broadcasts, .apps, .chess]
+    static let defaultOrder: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile, .swap, .kaposts, .publicChats, .apps, .chess]
 
     /// What a fresh install starts with: the three that were asked for, in that order, plus the
     /// two that fill the dock to its cap. Everything else starts in Kaspa Hub.
@@ -1870,7 +1872,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
 
     /// The dock renders at most this many items (the iPhone tab bar's hard limit); anything past
     /// it falls off rather than letting the system TabView spawn its own "More" list. KaPosts and
-    /// Broadcasts drop out first (in that order) when over the cap - they stay reachable by
+    /// Public Chats drop out first (in that order) when over the cap - they stay reachable by
     /// Ecosystem (see `ecosystemSections(from:)`). Anything enabled that doesn't fit simply
     /// tail-drops out of the dock and is reached through Ecosystem instead.
     static let maxDockItems = 5
@@ -1888,14 +1890,14 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
 
     /// True when this tab is enabled (not hidden) in settings, independent of dock capacity.
     ///
-    /// Child Mode (Settings > Security) hard-hides Swaps, KaPosts and Broadcasts here - this is
+    /// Child Mode (Settings > Security) hard-hides Swaps, KaPosts and Public Chats here - this is
     /// the single choke point every dock consumer flows through (`visible`, `ecosystemSections`),
     /// so while it's on those tabs can't render in the dock NOR appear inside Ecosystem,
     /// regardless of dock settings.
     func isEnabled(in settings: AppSettings) -> Bool {
         if settings.childModeEnabled {
             switch self {
-            case .swap, .kaposts, .broadcasts: return false
+            case .swap, .kaposts, .publicChats: return false
             default: break
             }
         }
@@ -1904,9 +1906,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .coldStorage: return !settings.hideColdStorageTab
         case .swap: return !settings.hideSwapTab
         case .kaposts: return !settings.hideKaPostsTab
-        // Public Chats (the broadcast rooms) moved INTO the Chats screen as its third tab in
+        // Public Chats (the public chat rooms) moved INTO the Chats screen as its third tab in
         // 5.0. The case stays so saved dock/hub blobs still decode; it never renders on its own.
-        case .broadcasts: return false
+        case .publicChats: return false
         case .apps: return !settings.hideAppsTab
         case .chess: return !settings.hideChessTab && !settings.childModeEnabled
         case .ecosystem: return !settings.hideEcosystemTab
@@ -2076,10 +2078,10 @@ struct AppSettings: Codable {
     /// RETIRED (4.0): the "+ More" dock item is gone (`AppTab.isEnabled` hard-hides `.more`).
     /// Kept only so existing saved blobs that contain the key keep decoding/encoding cleanly.
     var hideMoreItem: Bool
-    /// Broadcasts isn't a tab (it's an entry row inside the Chats list, see `ChatListView`'s
+    /// Public Chats isn't a tab (it's an entry row inside the Chats list, see `ChatListView`'s
     /// `chatsTabContent`) but is still user-hideable from Settings > Customization > Menu, so it
     /// gets its own flag here rather than a case in `AppTab`.
-    var hideBroadcasts: Bool
+    var hidePublicChats: Bool
     /// Apps (ecosystem link bubbles) as a dock tab. Hidden (default) = the Apps row lives on
     /// the Profile screen instead; toggled on = dock tab, Profile row disappears.
     var hideAppsTab: Bool
@@ -2098,7 +2100,7 @@ struct AppSettings: Codable {
 
     // Security
     /// Child Mode (Settings > Security): while on, the app is strictly Chats, Group Chats,
-    /// Portfolio and Cold Storage - Swaps, KaPosts and Broadcasts are removed from every access
+    /// Portfolio and Cold Storage - Swaps, KaPosts and Public Chats are removed from every access
     /// point (dock, Ecosystem, deep links, notifications, push registration). Turning it
     /// OFF is validated against the salted password hash in the Keychain (see ChildModeService) -
     /// this flag alone is just the fast-path gate the UI reads.
@@ -2128,9 +2130,9 @@ struct AppSettings: Codable {
     var indexerURL: String
     /// K social-network indexer powering KaPosts (reusing the already-running public K indexer).
     var kaPostIndexerURL: String
-    /// KaChat-owned broadcast indexer (tracks #kaspa and #kachat-bugs history) - served from
+    /// KaChat-owned public chat indexer (tracks #kaspa and #kachat-bugs history) - served from
     /// the same box/domain as the KaPosts indexer.
-    var broadcastIndexerURL: String
+    var publicChatIndexerURL: String
     var pushIndexerURL: String
     /// Server-side KaPost translation (see `TRANSLATION_SERVICE.md`). Its own field rather than
     /// riding on `kaPostIndexerURL`, so someone running their own translator does not have to run
@@ -2140,7 +2142,7 @@ struct AppSettings: Codable {
     /// never user-editable.
     ///
     /// It used to be an editable field with no empty-string fallback (unlike the KaPosts and
-    /// broadcast indexer fields, which fall back to their defaults). Saving Connection Settings
+    /// public chat indexer fields, which fall back to their defaults). Saving Connection Settings
     /// with that field blank wrote "" straight through, and an empty base URL builds a
     /// scheme-less URL that URLSession rejects with NSURLErrorUnsupportedURL (-1002) - so every
     /// KNS call failed until it was typed back in by hand.
@@ -2170,7 +2172,7 @@ struct AppSettings: Codable {
     // Default URLs per network
     static let defaultIndexerURL = "https://kachat.duckdns.org"
     static let defaultKaPostIndexerURL = "https://kachat.duckdns.org"
-    static let defaultBroadcastIndexerURL = defaultKaPostIndexerURL
+    static let defaultPublicChatIndexerURL = defaultKaPostIndexerURL
     /// Retired default - the public K social indexer (`mainnet.kaspatalk.net`). KaPosts now
     /// runs on KaChat's own indexer, which enforces two-way KaChat-only exclusivity server-side
     /// and is a fresh network with no relation to the K social graph. Anyone still on the old
@@ -2182,7 +2184,7 @@ struct AppSettings: Codable {
     /// The previous shipped default (the community `indexer.kasia.wtf`), now replaced by KaChat's
     /// own indexer (`kachat.duckdns.org`). Swept in `SettingsViewModel.load()` like kasia.fyi.
     static let legacyDefaultIndexerURLKasiaWtf = "https://indexer.kasia.wtf"
-    /// Our own push service (chat/group push + the broadcast/KaPosts extensions - see
+    /// Our own push service (chat/group push + the public chat/KaPosts extensions - see
     /// PUSH_EXTENSIONS.md). Superseded the community indexer.kasia.wtf once kachat.duckdns.org
     /// went live.
     static let defaultPushIndexerURL = "https://kachat.duckdns.org"
@@ -2250,7 +2252,7 @@ struct AppSettings: Codable {
             currency: .usDollar,
             // Fresh-install dock: EVERYTHING on. The dock renders as many as fit
             // (maxDockItems) - Portfolio, Storage, Chats, Ecosystem, Profile - and Swap,
-            // KaPosts, Broadcasts and the websites list are reached through Ecosystem rather
+            // KaPosts, Public Chats and the websites list are reached through Ecosystem rather
             // than competing for a slot. Existing users are
             // unaffected: their saved settings decode with their own explicit values (or the ??
             // fallbacks in init(from:) for keys that predate them). "+ More" no longer exists
@@ -2260,7 +2262,7 @@ struct AppSettings: Codable {
             hideColdStorageTab: false,
             hideKaPostsTab: false,
             hideMoreItem: true,
-            hideBroadcasts: false,
+            hidePublicChats: false,
             hideAppsTab: false,
             hideChessTab: false,
             hideEcosystemTab: false,
@@ -2275,7 +2277,7 @@ struct AppSettings: Codable {
             swapDisclaimerAgreed: false,
             indexerURL: defaultIndexerURL,
             kaPostIndexerURL: defaultKaPostIndexerURL,
-            broadcastIndexerURL: defaultBroadcastIndexerURL,
+            publicChatIndexerURL: defaultPublicChatIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
             translationServiceURL: defaultTranslationServiceURL,
             kaspaRestAPIURL: defaultKaspaMainnetURL,
@@ -2319,7 +2321,7 @@ struct AppSettings: Codable {
         case hideColdStorageTab
         case hideKaPostsTab
         case hideMoreItem
-        case hideBroadcasts
+        case hidePublicChats = "hideBroadcasts"
         case hideAppsTab
         case hideChessTab
         case hideEcosystemTab
@@ -2334,7 +2336,7 @@ struct AppSettings: Codable {
         case verboseAPILogging
         case indexerURL
         case kaPostIndexerURL
-        case broadcastIndexerURL
+        case publicChatIndexerURL = "broadcastIndexerURL"
         case pushIndexerURL
         case translationServiceURL
         case kaspaRestAPIURL
@@ -2386,7 +2388,7 @@ struct AppSettings: Codable {
         hideColdStorageTab: Bool = false,
         hideKaPostsTab: Bool = false,
         hideMoreItem: Bool = true,
-        hideBroadcasts: Bool = false,
+        hidePublicChats: Bool = false,
         hideAppsTab: Bool = false,
         hideChessTab: Bool = false,
         hideEcosystemTab: Bool = false,
@@ -2401,7 +2403,7 @@ struct AppSettings: Codable {
         verboseAPILogging: Bool = false,
         indexerURL: String,
         kaPostIndexerURL: String = AppSettings.defaultKaPostIndexerURL,
-        broadcastIndexerURL: String = AppSettings.defaultBroadcastIndexerURL,
+        publicChatIndexerURL: String = AppSettings.defaultPublicChatIndexerURL,
         pushIndexerURL: String,
         translationServiceURL: String = AppSettings.defaultTranslationServiceURL,
         kaspaRestAPIURL: String,
@@ -2443,7 +2445,7 @@ struct AppSettings: Codable {
         self.hideColdStorageTab = hideColdStorageTab
         self.hideKaPostsTab = hideKaPostsTab
         self.hideMoreItem = hideMoreItem
-        self.hideBroadcasts = hideBroadcasts
+        self.hidePublicChats = hidePublicChats
         self.hideAppsTab = hideAppsTab
         self.hideChessTab = hideChessTab
         self.hideEcosystemTab = hideEcosystemTab
@@ -2458,7 +2460,7 @@ struct AppSettings: Codable {
         self.verboseAPILogging = verboseAPILogging
         self.indexerURL = indexerURL
         self.kaPostIndexerURL = kaPostIndexerURL
-        self.broadcastIndexerURL = broadcastIndexerURL
+        self.publicChatIndexerURL = publicChatIndexerURL
         self.pushIndexerURL = pushIndexerURL
         self.translationServiceURL = translationServiceURL
         self.kaspaRestAPIURL = kaspaRestAPIURL
@@ -2529,18 +2531,18 @@ struct AppSettings: Codable {
         hideSwapTab = try container.decodeIfPresent(Bool.self, forKey: .hideSwapTab) ?? false
         hideColdStorageTab = try container.decodeIfPresent(Bool.self, forKey: .hideColdStorageTab) ?? false
         // Seeding for EXISTING users (blobs saved before these keys existed): KaPosts and
-        // Broadcasts land ENABLED. With a full dock they don't get a slot, and are reached
+        // Public Chats land ENABLED. With a full dock they don't get a slot, and are reached
         // through Ecosystem instead - see AppTab.ecosystemSections.
         hideKaPostsTab = try container.decodeIfPresent(Bool.self, forKey: .hideKaPostsTab) ?? false
         hideMoreItem = try container.decodeIfPresent(Bool.self, forKey: .hideMoreItem) ?? false
-        hideBroadcasts = try container.decodeIfPresent(Bool.self, forKey: .hideBroadcasts) ?? false
+        hidePublicChats = try container.decodeIfPresent(Bool.self, forKey: .hidePublicChats) ?? false
         // Defaults to SHOWN. It used to default to hidden because it competed for a dock slot;
         // it now lives in Ecosystem, where it costs nothing, so an install that predates this key
         // should have it rather than not.
         hideAppsTab = try container.decodeIfPresent(Bool.self, forKey: .hideAppsTab) ?? false
         hideChessTab = try container.decodeIfPresent(Bool.self, forKey: .hideChessTab) ?? false
         // Defaults to SHOWN for everyone, new and existing: Ecosystem is where Swap, KaPosts,
-        // Broadcasts and the websites list live now, so hiding it by default would strand them.
+        // Public Chats and the websites list live now, so hiding it by default would strand them.
         hideEcosystemTab = try container.decodeIfPresent(Bool.self, forKey: .hideEcosystemTab) ?? false
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
         // Absent on every blob saved before placement existed; the one-time migration below
@@ -2566,10 +2568,10 @@ struct AppSettings: Codable {
         let supersededIndexerDefaults = ["https://kaposts.duckdns.org", "https://mainnet.kaspatalk.net"]
         kaPostIndexerURL = supersededIndexerDefaults.contains(storedKaPostIndexer)
             ? AppSettings.defaultKaPostIndexerURL : storedKaPostIndexer
-        let storedBroadcastIndexer = try container.decodeIfPresent(String.self, forKey: .broadcastIndexerURL) ?? ""
-        broadcastIndexerURL = storedBroadcastIndexer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || storedBroadcastIndexer == "https://kaposts.duckdns.org"
-            ? AppSettings.defaultBroadcastIndexerURL : storedBroadcastIndexer
+        let storedPublicChatIndexer = try container.decodeIfPresent(String.self, forKey: .publicChatIndexerURL) ?? ""
+        publicChatIndexerURL = storedPublicChatIndexer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || storedPublicChatIndexer == "https://kaposts.duckdns.org"
+            ? AppSettings.defaultPublicChatIndexerURL : storedPublicChatIndexer
 
         let storedTranslation = try container.decodeIfPresent(String.self, forKey: .translationServiceURL) ?? ""
         translationServiceURL = storedTranslation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -2644,7 +2646,7 @@ struct AppSettings: Codable {
         try container.encode(hideColdStorageTab, forKey: .hideColdStorageTab)
         try container.encode(hideKaPostsTab, forKey: .hideKaPostsTab)
         try container.encode(hideMoreItem, forKey: .hideMoreItem)
-        try container.encode(hideBroadcasts, forKey: .hideBroadcasts)
+        try container.encode(hidePublicChats, forKey: .hidePublicChats)
         try container.encode(hideAppsTab, forKey: .hideAppsTab)
         try container.encode(hideChessTab, forKey: .hideChessTab)
         try container.encode(hideEcosystemTab, forKey: .hideEcosystemTab)
@@ -2659,7 +2661,7 @@ struct AppSettings: Codable {
         try container.encode(verboseAPILogging, forKey: .verboseAPILogging)
         try container.encode(indexerURL, forKey: .indexerURL)
         try container.encode(kaPostIndexerURL, forKey: .kaPostIndexerURL)
-        try container.encode(broadcastIndexerURL, forKey: .broadcastIndexerURL)
+        try container.encode(publicChatIndexerURL, forKey: .publicChatIndexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)
         try container.encode(kaspaRestAPIURL, forKey: .kaspaRestAPIURL)
         try container.encode(kaspaExplorer, forKey: .kaspaExplorer)
@@ -2994,7 +2996,7 @@ struct GrpcEndpoint: Codable, Identifiable, Equatable {
 // Single-admin, epoch-based group messaging - see GroupCipher.swift for the crypto and
 // GroupChatService for the orchestration layer. Secret key material (GroupBag) lives in
 // Keychain only (never synced anywhere); non-secret roster/message metadata lives in
-// GroupStore's local-only Core Data store (mirrors BroadcastStore's pattern).
+// GroupStore's local-only Core Data store (mirrors PublicChatStore's pattern).
 
 /// A member of a group chat.
 struct GroupMember: Codable, Identifiable, Equatable, Hashable {

@@ -1,15 +1,15 @@
 import SwiftUI
 import AVFoundation
 
-/// A single broadcast channel's message stream + compose bar.
+/// A single public chat channel's message stream + compose bar.
 /// Public and unencrypted - anyone who has joined the same channel name can read and
 /// post here. Reuses iOS's existing row/compose visual language rather than mirroring
 /// Android's screen design, while matching its feature set (replies, per-message actions,
 /// avatar actions, delivery status, date dividers, scroll-to-bottom).
-struct BroadcastChannelView: View {
+struct PublicChatChannelView: View {
     let channelName: String
 
-    @EnvironmentObject var broadcastService: BroadcastService
+    @EnvironmentObject var publicChatService: PublicChatService
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
@@ -18,7 +18,7 @@ struct BroadcastChannelView: View {
     /// Drives the "Send Media via Nextcloud" voice path, mirroring 1:1/group chat: with the
     /// toggle active, mic captures upload to the server and the room only carries the share link.
     @ObservedObject private var nextcloudService = NextcloudService.shared
-    @StateObject private var recorder = BroadcastAudioRecorder()
+    @StateObject private var recorder = PublicChatAudioRecorder()
 
     /// Nextcloud-uploaded voice notes aren't payload-bound - only the server carries them - so
     /// the recording ceiling relaxes to 10 minutes while "Send Media via Nextcloud" is active,
@@ -26,7 +26,7 @@ struct BroadcastChannelView: View {
     private var effectiveMaxRecordingDuration: TimeInterval {
         (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
             ? 600
-            : BroadcastAudioRecorder.maxDuration
+            : PublicChatAudioRecorder.maxDuration
     }
 
     @State private var messageText = ""
@@ -61,7 +61,7 @@ struct BroadcastChannelView: View {
     @State private var showFeeEditor = false
     @State private var feeEditorText = ""
     /// Tap-a-reply-quote-to-jump-to-original - mirrors `ChatDetailView`/`GroupChatDetailView`'s
-    /// identical pair. `BroadcastMessage.id` is already the wire txId, unlike 1:1/group's `UUID`
+    /// identical pair. `PublicChatMessage.id` is already the wire txId, unlike 1:1/group's `UUID`
     /// row ids, so this stays a `String` throughout.
     @State private var pendingJumpToTxId: String?
     /// Set by a tap on the header band, consumed inside the `ScrollViewReader` (which is where
@@ -73,7 +73,7 @@ struct BroadcastChannelView: View {
     @State private var showNotifySheet = false
     @State private var highlightedMessageID: String?
     /// Which message (if any) currently has its double-tap quick-reaction bar open - mirrors
-    /// group chat's identical `GroupChatDetailView.activeQuickReactionMessageId`, except broadcast
+    /// group chat's identical `GroupChatDetailView.activeQuickReactionMessageId`, except public chat
     /// row ids are the wire txId `String` rather than a local `UUID`.
     @State private var activeQuickReactionMessageId: String?
     /// The message whose full emoji picker is open. Owned by the SCREEN, not by the reaction bar.
@@ -85,18 +85,18 @@ struct BroadcastChannelView: View {
 
     private func emojiPickerSheet(targetTxId: String) -> some View {
         EmojiReactionPicker { emoji in
-            toggleBroadcastReaction(targetTxId: targetTxId, emoji: emoji)
+            togglePublicChatReaction(targetTxId: targetTxId, emoji: emoji)
         }
     }
 
     /// Adds the reaction, or removes it when it is the one already on this message from us -
     /// the same toggle the quick bar performs.
-    private func toggleBroadcastReaction(targetTxId: String, emoji: String) {
-        let reactions = broadcastService.reactions(forChannel: channelName)[targetTxId] ?? []
+    private func togglePublicChatReaction(targetTxId: String, emoji: String) {
+        let reactions = publicChatService.reactions(forChannel: channelName)[targetTxId] ?? []
         let mine = reactions.first { $0.reactorAddress == myAddress }
         let action = mine?.emoji == emoji ? "remove" : "add"
         Task {
-            try? await broadcastService.sendBroadcastReaction(
+            try? await publicChatService.sendPublicChatReaction(
                 channel: channelName,
                 targetTxId: targetTxId,
                 emoji: emoji,
@@ -112,9 +112,9 @@ struct BroadcastChannelView: View {
     }
 
     /// Indexer-tracked curated channel (#kaspa / #kachat-bugs): history comes from the
-    /// broadcast indexer and retention is fixed at 30 days.
+    /// public chat indexer and retention is fixed at 30 days.
     private var isIndexedChannel: Bool {
-        BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName))
+        PublicChatService.indexedChannels.contains(PublicChatChannelName.normalize(channelName))
     }
 
     // Split into four expressions rather than one 14-modifier chain. The type checker solves a
@@ -124,16 +124,16 @@ struct BroadcastChannelView: View {
     var body: some View {
         chrome
         .onAppear {
-            broadcastService.acquire(channelName)
+            publicChatService.acquire(channelName)
             // What was typed here last time, exactly as 1:1 chats do.
             if messageText.isEmpty {
-                let saved = ChatService.shared.draft(for: "room:\(BroadcastChannelName.normalize(channelName))")
+                let saved = ChatService.shared.draft(for: "room:\(PublicChatChannelName.normalize(channelName))")
                 if !saved.isEmpty { messageText = saved }
             }
         }
         .onDisappear {
-            ChatService.shared.setDraft(messageText, for: "room:\(BroadcastChannelName.normalize(channelName))")
-            broadcastService.release(channelName)
+            ChatService.shared.setDraft(messageText, for: "room:\(PublicChatChannelName.normalize(channelName))")
+            publicChatService.release(channelName)
         }
         .task {
             // Keeps retention feeling "live" while this room is open - a message disappears
@@ -151,7 +151,7 @@ struct BroadcastChannelView: View {
                 // round trips buy nothing with nobody looking. The loop stays alive so the
                 // first tick after returning to the foreground prunes as before.
                 guard UIApplication.shared.applicationState == .active else { continue }
-                broadcastService.pruneNowAndRefresh(forChannel: channelName)
+                publicChatService.pruneNowAndRefresh(forChannel: channelName)
             }
         }
         .task(id: myAddress) {
@@ -190,7 +190,7 @@ struct BroadcastChannelView: View {
         }
         .sheet(item: $reactionsSheetTarget) { target in
             ReactionsSheet(
-                entries: (broadcastService.reactions(forChannel: channelName)[target.txId] ?? [])
+                entries: (publicChatService.reactions(forChannel: channelName)[target.txId] ?? [])
                     .map { ReactionsSheet.Entry(emoji: $0.emoji, reactorAddress: $0.reactorAddress) },
                 myAddress: myAddress ?? "",
                 displayName: { displayName(for: $0) },
@@ -213,16 +213,16 @@ struct BroadcastChannelView: View {
     }
 
     private var roomNotifyEnabled: Bool {
-        let normalized = BroadcastChannelName.normalize(channelName)
-        return broadcastService.channels.first { $0.channelName == normalized }?.notifyEnabled ?? false
+        let normalized = PublicChatChannelName.normalize(channelName)
+        return publicChatService.channels.first { $0.channelName == normalized }?.notifyEnabled ?? false
     }
 
     /// The half sheet behind the bell: what notifications do in this room, and the switch.
     private var notifySheet: some View {
-        let isCurated = BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName))
+        let isCurated = PublicChatService.indexedChannels.contains(PublicChatChannelName.normalize(channelName))
         let on = roomNotifyEnabled
         return VStack(spacing: 14) {
-            Text("#\(BroadcastChannelName.normalize(channelName))")
+            Text("#\(PublicChatChannelName.normalize(channelName))")
                 .font(.headline)
                 .padding(.top, 24)
             Text(on
@@ -241,7 +241,7 @@ struct BroadcastChannelView: View {
                                  : "Notifies you of new messages while the app is open."),
                 systemImage: on ? "bell.slash" : "bell"
             ) {
-                broadcastService.setNotifyEnabled(!on, forChannel: channelName)
+                publicChatService.setNotifyEnabled(!on, forChannel: channelName)
                 Haptics.selection()
                 showNotifySheet = false
             }
@@ -261,7 +261,7 @@ struct BroadcastChannelView: View {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 // A room you made yourself: what "public" does and does not mean here. The
                 // curated rooms are indexed, so they need no such warning.
-                if !BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName)) {
+                if !PublicChatService.indexedChannels.contains(PublicChatChannelName.normalize(channelName)) {
                     Button {
                         showOwnRoomExplainer = true
                     } label: {
@@ -304,7 +304,7 @@ struct BroadcastChannelView: View {
         // arrangement as 1:1 and group threads.
         .navigationTitle("")
         .navigationDestination(isPresented: $showRoomInfo) {
-            BroadcastRoomInfoView(channelName: channelName)
+            PublicChatRoomInfoView(channelName: channelName)
         }
         .navigationDestination(isPresented: Binding(
             get: { openContact != nil },
@@ -397,7 +397,7 @@ struct BroadcastChannelView: View {
     /// put at the top of their own lists. Its own view, not spelled out inline: doing that here
     /// pushed this file past the type checker's budget once already.
     private var roomTitleChip: some View {
-        BroadcastRoomTitleChip(channelName: channelName) { showRoomInfo = true }
+        PublicChatRoomTitleChip(channelName: channelName) { showRoomInfo = true }
     }
 
     /// Jumps to the oldest message in the room, from a tap on the header band.
@@ -406,13 +406,13 @@ struct BroadcastChannelView: View {
     /// pagination behind it and no render window in front of it, so there is nothing to open up
     /// first. The scroll itself has to happen where the proxy is, hence the pending flag.
     private func jumpToRoomStart() {
-        guard !broadcastService.messages(forChannel: channelName).isEmpty else { return }
+        guard !publicChatService.messages(forChannel: channelName).isEmpty else { return }
         Haptics.impact(.light)
         pendingJumpToStart = true
     }
 
     private var messageList: some View {
-        let messages = broadcastService.messages(forChannel: channelName)
+        let messages = publicChatService.messages(forChannel: channelName)
         return Group {
             if messages.isEmpty {
                 emptyState
@@ -555,10 +555,10 @@ struct BroadcastChannelView: View {
         }
     }
 
-    /// Tap-a-reply-quote-to-jump-to-original - broadcast has no pagination (the full room
+    /// Tap-a-reply-quote-to-jump-to-original - public chat has no pagination (the full room
     /// history is already in `messages`), so a jump either finds the target right away or it's
     /// genuinely gone (pruned/undelivered).
-    private func jumpToReplyOriginal(id: String, in messages: [BroadcastMessage], using proxy: ScrollViewProxy) {
+    private func jumpToReplyOriginal(id: String, in messages: [PublicChatMessage], using proxy: ScrollViewProxy) {
         guard messages.contains(where: { $0.id == id }) else {
             showToast("Original message not available.")
             return
@@ -586,7 +586,7 @@ struct BroadcastChannelView: View {
         }
     }
 
-    private func shouldShowDateDivider(at index: Int, in messages: [BroadcastMessage]) -> Bool {
+    private func shouldShowDateDivider(at index: Int, in messages: [PublicChatMessage]) -> Bool {
         guard index > 0 else { return true }
         let previous = Date(timeIntervalSince1970: Double(messages[index - 1].blockTime) / 1000)
         let current = Date(timeIntervalSince1970: Double(messages[index].blockTime) / 1000)
@@ -618,14 +618,14 @@ struct BroadcastChannelView: View {
     }
 
     /// Reply text -> the underlying content, or voice-message placeholder if applicable.
-    private func displayContent(for message: BroadcastMessage) -> (text: String, replyQuote: MessageReplyContent?) {
+    private func displayContent(for message: PublicChatMessage) -> (text: String, replyQuote: MessageReplyContent?) {
         if let reply = MessageReplyCodec.parse(message.content) {
             return (reply.text, reply)
         }
         return (message.content, nil)
     }
 
-    private func replyQuote(for message: BroadcastMessage) -> MessageReplyContent? {
+    private func replyQuote(for message: PublicChatMessage) -> MessageReplyContent? {
         MessageReplyCodec.parse(message.content)
     }
 
@@ -644,9 +644,9 @@ struct BroadcastChannelView: View {
     /// expression the type checker would not finish ("unable to type-check this expression
     /// in reasonable time").
     @ViewBuilder
-    private func messageRow(_ message: BroadcastMessage) -> some View {
+    private func messageRow(_ message: PublicChatMessage) -> some View {
         // An edited message reads with its newest text; the row itself is untouched.
-        let edit = broadcastService.edits(forChannel: channelName)[message.id]
+        let edit = publicChatService.edits(forChannel: channelName)[message.id]
         let message = edit.map { message.replacingContent(MessageEditCodec.apply($0.text, to: message.content)) } ?? message
         let canEdit = message.senderAddress == myAddress && message.deliveryStatus == .sent && MessageEditCodec.isEditable(message.content)
         let messageReplyQuote = replyQuote(for: message)
@@ -658,9 +658,9 @@ struct BroadcastChannelView: View {
             pendingJumpToTxId = messageReplyQuote?.replyToId
         }
         let messageReactions: [GroupStore.ReactionSnapshot] =
-            broadcastService.reactions(forChannel: channelName)[message.id] ?? []
+            publicChatService.reactions(forChannel: channelName)[message.id] ?? []
         let replySender: String? = messageReplyQuote.map { displayName(for: $0.replyToSender) }
-        BroadcastMessageRow(
+        PublicChatMessageRow(
             message: message,
             isOwnMessage: message.senderAddress == myAddress,
             avatarURLString: knsService.profileCache[message.senderAddress]?.avatarURL,
@@ -674,25 +674,25 @@ struct BroadcastChannelView: View {
                 UIPasteboard.general.string = message.senderAddress
                 showToast(message.senderAddress.addressCopiedToastText)
             },
-            onHideSender: { broadcastService.hideSender(message.senderAddress, inChannel: channelName) },
+            onHideSender: { publicChatService.hideSender(message.senderAddress, inChannel: channelName) },
             onAvatarTap: {
                 senderSheetTarget = SenderSheetTarget(
                     address: message.senderAddress,
                     isOwnMessage: message.senderAddress == myAddress
                 )
             },
-            onReply: { broadcastService.startReplyTo(message) },
+            onReply: { publicChatService.startReplyTo(message) },
             onCopyMessage: {
                 UIPasteboard.general.string = displayContent(for: message).text
                 showToast("Message copied.")
             },
-            onRetry: { broadcastService.retryBroadcast(message) },
+            onRetry: { publicChatService.retryPublicChat(message) },
             onJumpToReply: jumpToReply,
             reactions: messageReactions,
             myReactorAddress: myAddress ?? "",
             onRetryReaction: { reaction in
                 Task {
-                    try? await broadcastService.retryBroadcastReaction(
+                    try? await publicChatService.retryPublicChatReaction(
                         channel: channelName,
                         targetTxId: reaction.targetTxId,
                         emoji: reaction.emoji,
@@ -702,11 +702,11 @@ struct BroadcastChannelView: View {
             },
             onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.id) },
             onReact: { emoji in
-                let existing = broadcastService.reactions(forChannel: channelName)[message.id]?
+                let existing = publicChatService.reactions(forChannel: channelName)[message.id]?
                     .first { $0.reactorAddress == myAddress }
                 let action = existing?.emoji == emoji ? "remove" : "add"
                 Task {
-                    try? await broadcastService.sendBroadcastReaction(
+                    try? await publicChatService.sendPublicChatReaction(
                         channel: channelName,
                         targetTxId: message.id,
                         emoji: emoji,
@@ -754,9 +754,9 @@ struct BroadcastChannelView: View {
 
     private var composeBar: some View {
         VStack(spacing: 8) {
-            if let editing = broadcastService.editingMessage {
+            if let editing = publicChatService.editingMessage {
                 editBanner(for: editing)
-            } else if let reply = broadcastService.replyingTo {
+            } else if let reply = publicChatService.replyingTo {
                 replyBanner(for: reply)
             }
             ZStack(alignment: .topLeading) {
@@ -788,7 +788,7 @@ struct BroadcastChannelView: View {
                         }
 
                         // Only a mic/voice-message icon here, matching 1:1 chat's look but
-                        // deliberately without its photo picker - broadcasts don't support
+                        // deliberately without its photo picker - public chats don't support
                         // photo attachments (only text and voice messages).
                         sendOrRecordButton
                     }
@@ -803,7 +803,7 @@ struct BroadcastChannelView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .onChange(of: broadcastService.replyingTo) { _ in
+        .onChange(of: publicChatService.replyingTo) { _ in
             scheduleFeeEstimate(for: messageText)
         }
         .onChange(of: recorder.elapsedSeconds) { elapsed in
@@ -957,7 +957,7 @@ struct BroadcastChannelView: View {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
             do {
-                let estimate = try await broadcastService.estimateBroadcastFee(channel: channelName, content: trimmed, feeOverride: feeOverrideSompi)
+                let estimate = try await publicChatService.estimatePublicChatFee(channel: channelName, content: trimmed, feeOverride: feeOverrideSompi)
                 guard !Task.isCancelled else { return }
                 feeEstimateSompi = estimate
                 isEstimatingFee = false
@@ -984,7 +984,7 @@ struct BroadcastChannelView: View {
         // mirroring 1:1 chat's identical branch.
         if nextcloudService.isConnected && nextcloudService.mediaSendEnabled {
             isEstimatingFee = false
-            feeEstimateSompi = broadcastService.estimateBroadcastFee(
+            feeEstimateSompi = publicChatService.estimatePublicChatFee(
                 channel: channelName,
                 payloadByteCount: Self.nextcloudLinkPayloadSize
             )
@@ -994,7 +994,7 @@ struct BroadcastChannelView: View {
         let bytesPerSecondOfRecording = 2870.0
         let estimatedBytes = Int(baseOverheadBytes + elapsedSeconds * bytesPerSecondOfRecording)
         isEstimatingFee = false
-        feeEstimateSompi = broadcastService.estimateBroadcastFee(channel: channelName, payloadByteCount: estimatedBytes)
+        feeEstimateSompi = publicChatService.estimatePublicChatFee(channel: channelName, payloadByteCount: estimatedBytes)
     }
 
     private var recordingBar: some View {
@@ -1059,7 +1059,7 @@ struct BroadcastChannelView: View {
                 let recorded = try await recorder.stopAndEncode(keepOriginalPCMAt: originalPCMURL)
 
                 // "Send Media via Nextcloud": upload an AAC .m4a of the recording and send the
-                // public share link as a plain text broadcast (the link-preview feature renders
+                // public share link as a plain text public chat (the link-preview feature renders
                 // it as a playable audio card). The .m4a re-export matters: the recipients'
                 // audio card streams through AVPlayer, which cannot decode WebM/Opus. Mirrors
                 // `ChatDetailView.sendAudioAsync`/`GroupChatDetailView.sendRecording`.
@@ -1080,12 +1080,12 @@ struct BroadcastChannelView: View {
                             contentType: "audio/mp4"
                         )
                     } catch {
-                        AppLog.log("[BroadcastChannelView] Nextcloud audio upload failed, falling back to on-chain: %@",
+                        AppLog.log("[PublicChatChannelView] Nextcloud audio upload failed, falling back to on-chain: %@",
                                    error.localizedDescription)
                         // The on-chain envelope is payload-capped (~9s) - a longer Nextcloud-mode
                         // recording would arrive silently truncated, so surface an error instead
                         // of falling back.
-                        if recordedSeconds > BroadcastAudioRecorder.maxDuration {
+                        if recordedSeconds > PublicChatAudioRecorder.maxDuration {
                             showToast("Nextcloud upload failed, and the recording is too long to send on-chain.")
                             return
                         }
@@ -1096,13 +1096,13 @@ struct BroadcastChannelView: View {
                         // the audio card instantly, with zero network - see
                         // `ChatDetailView.seedNextcloudPreview`.
                         await seedNextcloudPreview(for: shareURL, kind: .audio, title: voiceFilename, byteSize: uploadedByteCount)
-                        try await broadcastService.sendBroadcast(channel: channelName, content: shareURL.absoluteString)
+                        try await publicChatService.sendPublicChat(channel: channelName, content: shareURL.absoluteString)
                         return
                     }
                     // No share link - fall through to the on-chain envelope path.
                 }
 
-                try await broadcastService.sendBroadcastAudio(
+                try await publicChatService.sendPublicChatAudio(
                     channel: channelName,
                     audioData: recorded.data,
                     fileName: recorded.fileName,
@@ -1188,13 +1188,13 @@ struct BroadcastChannelView: View {
 
     /// Long-press > Edit on one of the user's own text bubbles: the composer takes the message's
     /// current text under an "Editing message" banner until Send or the X.
-    private func beginEdit(_ message: BroadcastMessage) {
-        broadcastService.startEditing(message)
+    private func beginEdit(_ message: PublicChatMessage) {
+        publicChatService.startEditing(message)
         messageText = MessageReplyCodec.unwrappedText(message.content)
     }
 
-    private func editBanner(for editing: BroadcastMessage) -> some View {
-        let current = broadcastService.edits(forChannel: channelName)[editing.id].map { MessageEditCodec.apply($0.text, to: editing.content) } ?? editing.content
+    private func editBanner(for editing: PublicChatMessage) -> some View {
+        let current = publicChatService.edits(forChannel: channelName)[editing.id].map { MessageEditCodec.apply($0.text, to: editing.content) } ?? editing.content
         return HStack(spacing: 8) {
             Image(systemName: "pencil")
                 .font(.caption)
@@ -1211,7 +1211,7 @@ struct BroadcastChannelView: View {
             }
             Spacer()
             Button {
-                broadcastService.cancelEditing()
+                publicChatService.cancelEditing()
                 messageText = ""
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -1226,7 +1226,7 @@ struct BroadcastChannelView: View {
         .padding(.top, 8)
     }
 
-    private func replyBanner(for reply: BroadcastMessage) -> some View {
+    private func replyBanner(for reply: PublicChatMessage) -> some View {
         let content = displayContent(for: reply)
         return HStack(spacing: 8) {
             Image(systemName: "arrowshape.turn.up.left.fill")
@@ -1244,7 +1244,7 @@ struct BroadcastChannelView: View {
             }
             Spacer()
             Button {
-                broadcastService.cancelReply()
+                publicChatService.cancelReply()
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundColor(.secondary)
@@ -1268,10 +1268,10 @@ struct BroadcastChannelView: View {
         feeOverrideSompi = nil
         // Editing: the composer's text replaces the message being edited - one edit
         // transaction, no new row.
-        if let editing = broadcastService.editingMessage {
+        if let editing = publicChatService.editingMessage {
             Task {
                 do {
-                    try await broadcastService.sendBroadcastEdit(channel: channelName, targetTxId: editing.id, text: trimmed)
+                    try await publicChatService.sendPublicChatEdit(channel: channelName, targetTxId: editing.id, text: trimmed)
                 } catch {
                     showToast("Failed to edit: \(error.localizedDescription)")
                 }
@@ -1281,7 +1281,7 @@ struct BroadcastChannelView: View {
         }
         Task {
             do {
-                try await broadcastService.sendBroadcast(channel: channelName, content: trimmed, feeOverride: feeOverride)
+                try await publicChatService.sendPublicChat(channel: channelName, content: trimmed, feeOverride: feeOverride)
             } catch {
                 showToast("Failed to send: \(error.localizedDescription)")
             }
@@ -1374,7 +1374,7 @@ struct BroadcastChannelView: View {
                     tint: .red
                 ) {
                     senderSheetTarget = nil
-                    broadcastService.hideSender(address, inChannel: channelName)
+                    publicChatService.hideSender(address, inChannel: channelName)
                 }
             }
 
@@ -1407,7 +1407,7 @@ struct BroadcastChannelView: View {
 /// The room's header chip: an icon over a name capsule, matching `ChatDetailView`'s and
 /// `GroupChatDetailView`'s chips measure for measure. A room has no photo, so the circle carries
 /// the same glyph the room list uses rather than an avatar.
-private struct BroadcastRoomTitleChip: View {
+private struct PublicChatRoomTitleChip: View {
     let channelName: String
     let action: () -> Void
 
@@ -1454,9 +1454,9 @@ private struct BroadcastRoomTitleChip: View {
     }
 }
 
-private struct BroadcastMessageRow: View {
+private struct PublicChatMessageRow: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
-    let message: BroadcastMessage
+    let message: PublicChatMessage
     let isOwnMessage: Bool
     let avatarURLString: String?
     let displayName: String
@@ -1468,7 +1468,7 @@ private struct BroadcastMessageRow: View {
     let onCopyAddress: () -> Void
     let onHideSender: () -> Void
     /// Tapping the avatar. The parent presents the sender half sheet (see
-    /// `BroadcastChannelView.senderSheet`); the row itself no longer owns a menu.
+    /// `PublicChatChannelView.senderSheet`); the row itself no longer owns a menu.
     let onAvatarTap: () -> Void
     let onReply: () -> Void
     let onCopyMessage: () -> Void
@@ -1477,7 +1477,7 @@ private struct BroadcastMessageRow: View {
     /// `replyQuote` is nil, since there's nothing to jump to.
     var onJumpToReply: (() -> Void)?
     /// This message's current reactions (one per reactor), for the pill shown on its corner -
-    /// same `GroupStore.ReactionSnapshot` shape group bubbles use (see `BroadcastStore.fetchReactions`).
+    /// same `GroupStore.ReactionSnapshot` shape group bubbles use (see `PublicChatStore.fetchReactions`).
     var reactions: [GroupStore.ReactionSnapshot] = []
     /// The local wallet's address, used to find *my* reaction among `reactions` so the pill can
     /// show my reaction's status (pending → nothing, sent → green check, failed → red error + Retry).
@@ -1493,7 +1493,7 @@ private struct BroadcastMessageRow: View {
     /// Asks the SCREEN to open the full emoji picker - see `QuickReactionBarView.onMore`.
     var onMoreReactions: (() -> Void)?
     /// Shared across every bubble in the room (not per-bubble `@State`) - mirrors group chat's
-    /// identical binding, keyed by the broadcast row's `String` txId.
+    /// identical binding, keyed by the public chat row's `String` txId.
     var activeQuickReactionMessageId: Binding<String?> = .constant(nil)
     let revealOffset: CGFloat
     let maxRevealOffset: CGFloat
@@ -1503,7 +1503,7 @@ private struct BroadcastMessageRow: View {
     var onEdit: (() -> Void)? = nil
 
     @State private var showFullText = false
-    /// The link whose actions sheet is up. Broadcast keeps tap-to-open disabled (see
+    /// The link whose actions sheet is up. Public Chat keeps tap-to-open disabled (see
     /// `LinkifiedMessageTextView.tapOpensLink`) - a room's senders are anonymous, so opening a
     /// link stays a deliberate long-press. The CHOOSER is a half sheet now, matching 1:1 and
     /// group; the gesture that summons it is unchanged.
@@ -1530,7 +1530,7 @@ private struct BroadcastMessageRow: View {
         return ageMs < 600_000 ? .sent : nil
     }
 
-    /// See `MessageBubbleView.inlineTextTruncationThreshold`'s doc comment - broadcast rooms are
+    /// See `MessageBubbleView.inlineTextTruncationThreshold`'s doc comment - public chat rooms are
     /// public/unencrypted, so a huge wall of text (e.g. stray base64) landing here is if anything
     /// more likely than in a private chat.
     private static let inlineTextTruncationThreshold = 2_000
@@ -1628,7 +1628,7 @@ private struct BroadcastMessageRow: View {
     }
 
     /// The sender's avatar. Tapping it opens the sender half sheet presented by the parent (see
-    /// `BroadcastChannelView.senderSheet`). This was a popup `Menu` of bare labels; the sheet
+    /// `PublicChatChannelView.senderSheet`). This was a popup `Menu` of bare labels; the sheet
     /// has room to say what each option does, and one sheet serves every row.
     private var avatarButton: some View {
         Button(action: onAvatarTap) {
@@ -1674,7 +1674,7 @@ private struct BroadcastMessageRow: View {
     @ViewBuilder
     private func bubbleContent(voicePayload: VoiceMessageSniff.Payload?) -> some View {
         if let voicePayload {
-            BroadcastAudioBubble(data: voicePayload.data, isOwnMessage: isOwnMessage)
+            PublicChatAudioBubble(data: voicePayload.data, isOwnMessage: isOwnMessage)
         } else if displayText.utf8.count > Self.inlineTextTruncationThreshold {
             truncatedTextContent
         } else if MessageTextRenderPlan.prefersUIKitTextView(displayText) {
@@ -1733,7 +1733,7 @@ private struct BroadcastMessageRow: View {
                 txId: message.id,
                 onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil,
                 isOutgoing: isOwnMessage,
-                // Broadcast rooms are open to anyone, so previews never auto-fetch here - each
+                // Public Chat rooms are open to anyone, so previews never auto-fetch here - each
                 // card is tap-to-load (Decision 5A), including the local user's own posts for
                 // one consistent rule in public rooms.
                 autoFetch: false
@@ -1788,7 +1788,7 @@ private struct BroadcastMessageRow: View {
                     fallbackText: displayText,
                     onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil,
                     isOutgoing: isOwnMessage,
-                    // Broadcast rooms are open to anyone, so previews never auto-fetch here -
+                    // Public Chat rooms are open to anyone, so previews never auto-fetch here -
                     // each card is tap-to-load (Decision 5A).
                     autoFetch: false
                 )
@@ -1938,8 +1938,8 @@ private struct BroadcastMessageRow: View {
 
 #Preview {
     NavigationStack {
-        BroadcastChannelView(channelName: "kaspa")
-            .environmentObject(BroadcastService.shared)
+        PublicChatChannelView(channelName: "kaspa")
+            .environmentObject(PublicChatService.shared)
             .environmentObject(ContactsManager.shared)
             .environmentObject(ChatService.shared)
             .environmentObject(WalletManager.shared)

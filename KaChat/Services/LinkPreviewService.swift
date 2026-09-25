@@ -12,15 +12,15 @@ import Foundation
 /// | Target         | Custom scheme                  | Universal link                                    |
 /// |----------------|--------------------------------|---------------------------------------------------|
 /// | KaPosts post   | `kachat://kapost/<txid>`       | `https://kachat.app/post/<txid>`                  |
-/// | Broadcast room | `kachat://broadcast/<channel>` | `https://kachat.app/broadcast/<channel>`          |
+/// | Public Chat room | `kachat://public chat/<channel>` | `https://kachat.app/public chat/<channel>`          |
 ///
-/// `<channel>` is the NORMALIZED room name with no leading `#` (see `BroadcastChannelName`).
+/// `<channel>` is the NORMALIZED room name with no leading `#` (see `PublicChatChannelName`).
 /// Everything a pasted link carries is attacker-controlled, so `parse` re-validates the channel
 /// name from scratch (`normalizeAndValidateChannel`) rather than trusting the URL's text - a
 /// malformed or hostile name is rejected outright, never joined.
 enum KaChatInternalLink: Equatable {
     case kaPost(txId: String)
-    case broadcastRoom(channel: String)
+    case publicChatRoom(channel: String)
 
     /// The universal-link host - the only host the app ever writes into a share. With KaChat
     /// installed iOS opens these links in the app; without it, kachat.app shows the post (or
@@ -34,7 +34,7 @@ enum KaChatInternalLink: Equatable {
     var shareLinkString: String {
         switch self {
         case .kaPost(let txId): return "kachat://kapost/\(txId)"
-        case .broadcastRoom(let channel): return "kachat://broadcast/\(channel)"
+        case .publicChatRoom(let channel): return "kachat://broadcast/\(channel)"
         }
     }
 
@@ -43,19 +43,19 @@ enum KaChatInternalLink: Equatable {
     var universalLinkString: String {
         switch self {
         case .kaPost(let txId): return "https://\(Self.universalLinkHost)/post/\(txId)"
-        case .broadcastRoom(let channel): return "https://\(Self.universalLinkHost)/broadcast/\(channel)"
+        case .publicChatRoom(let channel): return "https://\(Self.universalLinkHost)/broadcast/\(channel)"
         }
     }
 
-    /// The share sheet's text for a broadcast-room invite - one human line and the kachat.app
+    /// The share sheet's text for a public chat-room invite - one human line and the kachat.app
     /// link. Only the https form goes out: it previews everywhere and opens the app when it
     /// is installed, and a bare `kachat://` line previews nowhere. Single definition so the
     /// room screen's Share button and the list row's share menu can't drift apart.
-    static func broadcastRoomShareText(channel: String) -> String {
+    static func publicChatRoomShareText(channel: String) -> String {
         // Through the same gate an INCOMING link goes through, so a share can never emit a link
         // this app would refuse to open (and a stray leading "#" is stripped, not doubled).
-        let normalized = normalizeAndValidateChannel(channel) ?? BroadcastChannelName.normalize(channel)
-        let link = KaChatInternalLink.broadcastRoom(channel: normalized)
+        let normalized = normalizeAndValidateChannel(channel) ?? PublicChatChannelName.normalize(channel)
+        let link = KaChatInternalLink.publicChatRoom(channel: normalized)
         return """
         Join #\(normalized) on KaChat.
 
@@ -74,11 +74,11 @@ enum KaChatInternalLink: Equatable {
         switch scheme {
         case "kachat":
             // kachat://<target>/<payload> - exactly one payload component, so a link with extra
-            // path segments (kachat://broadcast/a/b) is rejected rather than silently truncated.
+            // path segments (kachat://public chat/a/b) is rejected rather than silently truncated.
             guard let host = url.host?.lowercased(), parts.count == 1, let payload = parts.first else { return nil }
             switch host {
             case "kapost": return kaPostLink(rawTxId: payload)
-            case "broadcast": return broadcastLink(rawChannel: payload)
+            case "broadcast": return publicChatLink(rawChannel: payload)
             default: return nil
             }
         case "http", "https":
@@ -87,7 +87,7 @@ enum KaChatInternalLink: Equatable {
             guard host == universalLinkHost || legacyUniversalLinkHosts.contains(host), parts.count == 2 else { return nil }
             switch parts[0].lowercased() {
             case "post": return kaPostLink(rawTxId: parts[1])
-            case "broadcast": return broadcastLink(rawChannel: parts[1])
+            case "broadcast": return publicChatLink(rawChannel: parts[1])
             default: return nil
             }
         default:
@@ -106,13 +106,13 @@ enum KaChatInternalLink: Equatable {
         return .kaPost(txId: id)
     }
 
-    private static func broadcastLink(rawChannel: String) -> KaChatInternalLink? {
+    private static func publicChatLink(rawChannel: String) -> KaChatInternalLink? {
         guard let channel = normalizeAndValidateChannel(rawChannel) else { return nil }
-        return .broadcastRoom(channel: channel)
+        return .publicChatRoom(channel: channel)
     }
 
     /// The single gate every pasted/scanned room name passes through before it can be joined or
-    /// opened. Beyond `BroadcastChannelName`'s own rules (non-empty, <= 36 chars, no whitespace,
+    /// opened. Beyond `PublicChatChannelName`'s own rules (non-empty, <= 36 chars, no whitespace,
     /// no colon) this rejects:
     /// - URL-structural characters (`/ \ ? # % @`), which can only come from a malformed link;
     /// - `..`, so no path-traversal-looking name ever reaches the store's file/key paths;
@@ -123,8 +123,8 @@ enum KaChatInternalLink: Equatable {
     static func normalizeAndValidateChannel(_ rawChannel: String) -> String? {
         var raw = rawChannel.trimmingCharacters(in: .whitespacesAndNewlines)
         while raw.hasPrefix("#") { raw.removeFirst() }
-        let normalized = BroadcastChannelName.normalize(raw)
-        guard BroadcastChannelName.isValid(normalized) else { return nil }
+        let normalized = PublicChatChannelName.normalize(raw)
+        guard PublicChatChannelName.isValid(normalized) else { return nil }
         guard !normalized.contains("..") else { return nil }
         let structural: Set<Character> = ["/", "\\", "?", "#", "%", "@", "\"", "'", "<", ">"]
         guard !normalized.contains(where: { structural.contains($0) }) else { return nil }
@@ -165,7 +165,7 @@ enum KaChatInternalLink: Equatable {
 
     private static let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
 
-    /// Trailing prose punctuation is not part of the link ("... open kachat://broadcast/kaspa.").
+    /// Trailing prose punctuation is not part of the link ("... open kachat://public chat/kaspa.").
     private static let trailingTrim = CharacterSet(charactersIn: ".,;:!?)]}'\"")
 
     private final class MatchBox: NSObject {
@@ -374,7 +374,7 @@ enum NextcloudMediaKind: String, Equatable {
 
 /// Fetches Open Graph preview metadata for links sent in chat messages. Auto-fetch on render is
 /// gated by sender trust (see `LinkPreviewCardView.autoFetch`): accepted 1:1 contacts and group
-/// chats fetch automatically; non-accepted senders and broadcast rooms fetch only when the user
+/// chats fetch automatically; non-accepted senders and public chat rooms fetch only when the user
 /// taps the placeholder card. Each recipient's own device does this fetch when the message
 /// renders, rather than the sender embedding preview data in the encrypted message payload, so
 /// link previews never bloat the on-chain/indexer payload. Mirrors `KNSService`'s async-fetch

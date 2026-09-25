@@ -12,13 +12,15 @@ final class GlobalNotificationCenter: ObservableObject {
 
     struct Entry: Identifiable, Codable, Equatable {
         enum Source: String, Codable {
-            case kaposts, group, broadcast, wallet
+            case kaposts, group, wallet
+            /// Stored entries carry the old name.
+            case publicChat = "broadcast"
 
             var label: String {
                 switch self {
                 case .kaposts: return "KaPosts"
                 case .group: return "Group"
-                case .broadcast: return "Broadcast"
+                case .publicChat: return "Public Chat"
                 case .wallet: return "Wallet"
                 }
             }
@@ -27,7 +29,7 @@ final class GlobalNotificationCenter: ObservableObject {
                 switch self {
                 case .kaposts: return "megaphone"
                 case .group: return "person.3"
-                case .broadcast: return "dot.radiowaves.left.and.right"
+                case .publicChat: return "dot.radiowaves.left.and.right"
                 case .wallet: return "arrow.down.circle"
                 }
             }
@@ -45,7 +47,7 @@ final class GlobalNotificationCenter: ObservableObject {
     @Published private(set) var entries: [Entry] = []
     @Published private(set) var lastSeenAt: Int64 = 0
 
-    /// Broadcast rows older than app launch are history, not live arrivals - never listed.
+    /// Public Chat rows older than app launch are history, not live arrivals - never listed.
     static let sessionStartMs = Int64(Date().timeIntervalSince1970 * 1000)
 
     private let maxEntries = 100
@@ -55,7 +57,7 @@ final class GlobalNotificationCenter: ObservableObject {
     }
 
     /// Unread entries from ONE source, for a tab that wants its own badge rather than the
-    /// profile bell's total. Broadcasts is the only caller today; the numbers deliberately
+    /// profile bell's total. Public Chats is the only caller today; the numbers deliberately
     /// overlap, because the bell is the whole feed and a tab badge is that tab's share of it.
     func unreadCount(for source: Entry.Source) -> Int {
         entries.filter { $0.source == source && $0.timestamp > lastSeenAt }.count
@@ -128,12 +130,12 @@ final class GlobalNotificationCenter: ObservableObject {
     /// older build recorded are dropped on load (see `reload`).
     func recordGroupMentionIfNeeded(groupId: String, groupName: String, senderAddress: String, text: String, txId: String?, timestampMs: Int64) {}
 
-    // MARK: - Broadcasts (called from BroadcastService on merged rows)
+    // MARK: - Public Chats (called from PublicChatService on merged rows)
 
     /// Public rooms live in the Chats tab now, with their own unread counts and long-press
     /// controls, so their messages no longer go through the bell. Kept as a no-op for the
     /// call site; rows an older build recorded are dropped on load (see `load`).
-    func recordBroadcastIfLive(channel: String, senderAddress: String, content: String, txId: String, blockTime: Int64) {}
+    func recordPublicChatIfLive(channel: String, senderAddress: String, content: String, txId: String, blockTime: Int64) {}
 
     // MARK: - KaPosts poll
 
@@ -240,7 +242,7 @@ struct GlobalNotificationListView: View {
                         .padding(.vertical, 2)
                         // Every row deep-opens its subject through the same pending-deep-link
                         // flow the OS notification taps use: KaPosts rows the exact
-                        // post/comment, group rows the group thread, broadcast rows the room,
+                        // post/comment, group rows the group thread, public chat rows the room,
                         // wallet rows the wallet screen.
                         .contentShape(Rectangle())
                         .onTapGesture { open(entry) }
@@ -290,13 +292,13 @@ struct GlobalNotificationListView: View {
                     userInfo: ["groupId": target]
                 )
             }
-        case .broadcast:
+        case .publicChat:
             guard !childMode, !target.isEmpty else { return }
-            BroadcastService.shared.pendingBroadcastNavigation = target
+            PublicChatService.shared.pendingPublicChatNavigation = target
             dismiss()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                 NotificationCenter.default.post(
-                    name: .openBroadcast,
+                    name: .openPublicChat,
                     object: nil,
                     userInfo: ["channel": target]
                 )

@@ -469,8 +469,8 @@ final class PushNotificationManager: ObservableObject {
             platform: platform,
             watchedAddresses: watchedAddresses,
             watchedGroupIds: watchedGroupIds,
-            watchedBroadcastChannels: collectWatchedBroadcastChannels(),
-            hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
+            watchedPublicChatChannels: collectWatchedPublicChatChannels(),
+            hiddenPublicChatSenders: collectHiddenPublicChatSenders(),
             kapostsPubkey: collectKaPostsPubkey(),
             kapostsNotifyLikes: kinds.kaPostsNotifyLikes,
             kapostsNotifyDislikes: kinds.kaPostsNotifyDislikes,
@@ -758,8 +758,8 @@ final class PushNotificationManager: ObservableObject {
             deviceToken: token,
             watchedAddresses: watchedAddresses,
             watchedGroupIds: watchedGroupIds,
-            watchedBroadcastChannels: collectWatchedBroadcastChannels(),
-            hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
+            watchedPublicChatChannels: collectWatchedPublicChatChannels(),
+            hiddenPublicChatSenders: collectHiddenPublicChatSenders(),
             kapostsPubkey: collectKaPostsPubkey(),
             kapostsNotifyLikes: kinds.kaPostsNotifyLikes,
             kapostsNotifyDislikes: kinds.kaPostsNotifyDislikes,
@@ -890,9 +890,9 @@ final class PushNotificationManager: ObservableObject {
         let groupIds = (watchedGroupIds ?? collectWatchedGroupIds() ?? []).sorted()
         let aliasList = (aliases ?? collectAliases(forWatchedAddresses: addrs)).sorted()
         let primary = primaryAddress ?? collectPrimaryAddress() ?? ""
-        let broadcastChannels = collectWatchedBroadcastChannels()
+        let publicChatChannels = collectWatchedPublicChatChannels()
         let kapostsKey = collectKaPostsPubkey() ?? ""
-        let hiddenBroadcast = collectHiddenBroadcastSenders()
+        let hiddenPublicChat = collectHiddenPublicChatSenders()
             .sorted { $0.key < $1.key }
             .map { "\($0.key):\($0.value.joined(separator: "+"))" }
         let apnsEnvironment = ApnsEnvironment.current.rawValue
@@ -904,7 +904,7 @@ final class PushNotificationManager: ObservableObject {
         let kaPostsKinds = [kinds.kaPostsNotifyLikes, kinds.kaPostsNotifyDislikes, kinds.kaPostsNotifyComments, kinds.kaPostsNotifyReposts, kinds.kaPostsNotifyFollows]
             .map { $0 ? "1" : "0" }.joined()
         let silentGroups = GroupChatService.shared.groupSilentNotifications.sorted().joined(separator: "+")
-        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast + ["|", kapostsKey] + ["|", apnsEnvironment] + ["|", voip] + ["|", kaPostsKinds] + ["|", silentGroups]).joined(separator: ",")
+        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + publicChatChannels + ["|"] + hiddenPublicChat + ["|", kapostsKey] + ["|", apnsEnvironment] + ["|", voip] + ["|", kaPostsKinds] + ["|", silentGroups]).joined(separator: ",")
     }
 
     /// Unregister device (call on logout/wallet delete)
@@ -1482,16 +1482,16 @@ final class PushNotificationManager: ObservableObject {
             }
     }
 
-    /// Indexer-tracked broadcast channels (#kaspa/#kachat-bugs) whose bell is on - the push
-    /// service sends broadcast-room pushes for these while the app is closed. Bell off =
+    /// Indexer-tracked public chat channels (#kaspa/#kachat-bugs) whose bell is on - the push
+    /// service sends public chat-room pushes for these while the app is closed. Bell off =
     /// channel excluded = no push.
-    private func collectWatchedBroadcastChannels() -> [String] {
-        // Child Mode: no broadcast channels registered with the push service at all. Toggling
+    private func collectWatchedPublicChatChannels() -> [String] {
+        // Child Mode: no public chat channels registered with the push service at all. Toggling
         // the mode posts .settingsDidChange -> refreshRegistrationIfNeeded -> updateWatchedAddresses,
         // whose fingerprint includes this list, so the re-registration happens automatically.
         guard !AppSettings.load().childModeEnabled else { return [] }
-        return BroadcastService.shared.channels
-            .filter { BroadcastService.indexedChannels.contains($0.channelName) && $0.notifyEnabled }
+        return PublicChatService.shared.channels
+            .filter { PublicChatService.indexedChannels.contains($0.channelName) && $0.notifyEnabled }
             .map(\.channelName)
             .sorted()
     }
@@ -1499,10 +1499,10 @@ final class PushNotificationManager: ObservableObject {
     /// Per-room hidden senders for the watched (indexed) channels - the push service must not
     /// send pushes from these senders to this device. Legacy global hides apply to every
     /// watched channel.
-    private func collectHiddenBroadcastSenders() -> [String: [String]] {
-        let hidden = BroadcastService.shared.hiddenSendersByChannel()
+    private func collectHiddenPublicChatSenders() -> [String: [String]] {
+        let hidden = PublicChatService.shared.hiddenSendersByChannel()
         var result: [String: [String]] = [:]
-        for channel in collectWatchedBroadcastChannels() {
+        for channel in collectWatchedPublicChatChannels() {
             let combined = hidden.global.union(hidden.perChannel[channel] ?? [])
             if !combined.isEmpty {
                 result[channel] = combined.sorted()
@@ -1515,7 +1515,7 @@ final class PushNotificationManager: ObservableObject {
     /// pushes for it while the app is closed. Nil when no wallet is loaded.
     private func collectKaPostsPubkey() -> String? {
         // Child Mode: no KaPosts identity registered with the push service - same auto
-        // re-registration path as collectWatchedBroadcastChannels above.
+        // re-registration path as collectWatchedPublicChatChannels above.
         guard !AppSettings.load().childModeEnabled else { return nil }
         return try? KaPostsAPIClient.shared.requesterPubkey()
     }
@@ -2205,8 +2205,8 @@ struct PushRegistrationRequest: Codable {
     let platform: String
     let watchedAddresses: [String]
     let watchedGroupIds: [String]
-    let watchedBroadcastChannels: [String]
-    let hiddenBroadcastSenders: [String: [String]]
+    let watchedPublicChatChannels: [String]
+    let hiddenPublicChatSenders: [String: [String]]
     let kapostsPubkey: String?
     /// The reader's per-kind KaPosts switches, so the server can skip a push at the source
     /// (PUSH_EXTENSIONS.md §3). KaPosts pushes are plain alerts with no mutable-content, so the
@@ -2232,8 +2232,8 @@ struct PushRegistrationRequest: Codable {
         case platform
         case watchedAddresses = "watched_addresses"
         case watchedGroupIds = "watched_group_ids"
-        case watchedBroadcastChannels = "watched_broadcast_channels"
-        case hiddenBroadcastSenders = "hidden_broadcast_senders"
+        case watchedPublicChatChannels = "watched_broadcast_channels"
+        case hiddenPublicChatSenders = "hidden_broadcast_senders"
         case kapostsPubkey = "kaposts_pubkey"
         case kapostsNotifyLikes = "kaposts_notify_likes"
         case kapostsNotifyDislikes = "kaposts_notify_dislikes"
@@ -2252,8 +2252,8 @@ struct PushUpdateRequest: Codable {
     let deviceToken: String
     let watchedAddresses: [String]
     let watchedGroupIds: [String]
-    let watchedBroadcastChannels: [String]
-    let hiddenBroadcastSenders: [String: [String]]
+    let watchedPublicChatChannels: [String]
+    let hiddenPublicChatSenders: [String: [String]]
     let kapostsPubkey: String?
     /// See PushRegistrationRequest: the same five switches, kept current on every update.
     let kapostsNotifyLikes: Bool
@@ -2273,8 +2273,8 @@ struct PushUpdateRequest: Codable {
         case deviceToken = "device_token"
         case watchedAddresses = "watched_addresses"
         case watchedGroupIds = "watched_group_ids"
-        case watchedBroadcastChannels = "watched_broadcast_channels"
-        case hiddenBroadcastSenders = "hidden_broadcast_senders"
+        case watchedPublicChatChannels = "watched_broadcast_channels"
+        case hiddenPublicChatSenders = "hidden_broadcast_senders"
         case kapostsPubkey = "kaposts_pubkey"
         case kapostsNotifyLikes = "kaposts_notify_likes"
         case kapostsNotifyDislikes = "kaposts_notify_dislikes"

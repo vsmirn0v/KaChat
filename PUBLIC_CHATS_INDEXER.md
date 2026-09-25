@@ -1,15 +1,17 @@
 # KaChat Public Chats Indexer — Handoff & Build Guide
 
-> Naming: the feature is **Public Chats** in the app. The code and the API keep their original
-> `broadcast` names for compatibility (`BroadcastService`, `/get-broadcasts`,
-> `watched_broadcast_channels`, `hidden_broadcast_senders`, thread-id `broadcast:<channel>`,
-> the on-chain `bcast` subtype) - those are identifiers, not the product name.
+> Naming: the feature is **Public Chats** in the app and in the Swift code (`PublicChatService`,
+> `PublicChatStore`, ...). Everything that travels or is stored keeps its original `broadcast`
+> name for compatibility: the API (`/get-broadcasts`, `watched_broadcast_channels`,
+> `hidden_broadcast_senders`), thread-id `broadcast:<channel>`, the `kachat://broadcast/` and
+> `/broadcast/` links, the on-chain `bcast` subtype, the Core Data entity names, and the stored
+> settings keys - those are identifiers, not the product name.
 
 **Audience:** the AI/engineer on the server box. This doc specifies a small, self-contained
 indexer that tracks KaChat **public chat** messages for the curated channels (originally two: — `#kaspa` and
 `#kachat-bugs`; the language rooms and `chess-arena` since) — and serves their history over REST. The iOS app (branch `KaChat4.0i`) is
 already wired to consume it: Settings → Connection Settings → **Public Chats Indexer** takes the
-base URL, and `BroadcastIndexerClient` in `KaChat/Services/BroadcastService.swift` defines the
+base URL, and `PublicChatIndexerClient` in `KaChat/Services/PublicChatService.swift` defines the
 exact API contract (that client is the source of truth — build the server to satisfy it).
 
 ## 1. Why this exists
@@ -52,7 +54,7 @@ kchat:1:bcast:<channel>:<content>
   a fixed 3 days (the in-app retention setting is hidden for them). Serve at least 3 days of
   history; keeping more server-side is fine (clients just won't show it).
 
-## 3. REST API (compatibility bar — matches `BroadcastIndexerClient`)
+## 3. REST API (compatibility bar — matches `PublicChatIndexerClient`)
 
 ### `GET /get-broadcasts?channel=<name>&limit=<n>[&before=<blockTimeMs>]`
 
@@ -192,7 +194,7 @@ in-app bell toggle. The plumbing on the app side is DONE:
 
 ## 6. How the app consumes it (context)
 
-- Setting: `AppSettings.broadcastIndexerURL` (empty = feature off; app then behaves exactly as
+- Setting: `AppSettings.publicChatIndexerURL` (empty = feature off; app then behaves exactly as
   before, live scanning only).
 - On opening a channel screen the app calls `/get-broadcasts` once per channel per session,
   inserts rows into its local Core Data store (dedupe by txId; hidden-sender filter and local
@@ -205,10 +207,10 @@ in-app bell toggle. The plumbing on the app side is DONE:
   intercept them - they never show as messages.
 - While the app is on screen, every joined indexed room with its bell on that is NOT open is
   also swept: one `/get-broadcasts?limit=40` per room every 20 s, sequential
-  (`BroadcastService.sweepClosedRooms`). The block scan misses blocks around reconnects and
+  (`PublicChatService.sweepClosedRooms`). The block scan misses blocks around reconnects and
   is off for indexed rooms on cellular, and the push that covers them is dropped in the
   foreground - without the sweep a message in #kaspa showed up only once the room was opened.
   Budget accordingly: a phone with N bell-on rooms makes N small requests every 20 s.
 - The two tracked channels match the app's curated "Popular" list
-  (`BroadcastService.featuredChannels = ["kaspa", "kachat-bugs"]`). If more channels get
+  (`PublicChatService.featuredChannels = ["kaspa", "kachat-bugs"]`). If more channels get
   curated later, the allowlist is the only thing to extend.

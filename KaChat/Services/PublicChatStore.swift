@@ -2,9 +2,9 @@ import Foundation
 import CoreData
 import CryptoKit
 
-/// Plain, in-memory representation of a joined broadcast channel (mirrors Android's
-/// `BroadcastChannelEntity`).
-struct BroadcastChannel: Identifiable, Equatable {
+/// Plain, in-memory representation of a joined public chat channel (mirrors Android's
+/// `PublicChatChannelEntity`).
+struct PublicChatChannel: Identifiable, Equatable {
     var id: String { channelName }
     let channelName: String
     var alwaysListen: Bool
@@ -13,10 +13,10 @@ struct BroadcastChannel: Identifiable, Equatable {
     var joinedAt: Date?
 }
 
-/// Plain, in-memory representation of a broadcast message (mirrors Android's
-/// `BroadcastMessageEntity`). `id` is the real Kaspa txId once confirmed, or a
+/// Plain, in-memory representation of a public chat message (mirrors Android's
+/// `PublicChatMessageEntity`). `id` is the real Kaspa txId once confirmed, or a
 /// synthetic `pending_<uuid>` while the send is in flight.
-struct BroadcastMessage: Identifiable, Equatable {
+struct PublicChatMessage: Identifiable, Equatable {
     enum DeliveryStatus: String {
         case sent
         case pending
@@ -31,20 +31,20 @@ struct BroadcastMessage: Identifiable, Equatable {
     let deliveryStatus: DeliveryStatus
 
     /// The same row with `content` replaced - how an edit is shown without touching the row.
-    func replacingContent(_ newContent: String) -> BroadcastMessage {
-        BroadcastMessage(id: id, channelName: channelName, senderAddress: senderAddress, content: newContent, blockTime: blockTime, deliveryStatus: deliveryStatus)
+    func replacingContent(_ newContent: String) -> PublicChatMessage {
+        PublicChatMessage(id: id, channelName: channelName, senderAddress: senderAddress, content: newContent, blockTime: blockTime, deliveryStatus: deliveryStatus)
     }
 }
 
-/// Local-only, per-wallet store for KaChat 2.0 Broadcast channel data.
-/// Never part of the Nextcloud archive either: broadcast channels are public, on-chain,
+/// Local-only, per-wallet store for KaChat 2.0 Public Chat channel data.
+/// Never part of the Nextcloud archive either: public chat channels are public, on-chain,
 /// and ephemeral (retention-pruned locally), matching the Android client's local-only Room
 /// tables for the same feature.
-final class BroadcastStore {
-    static let shared = BroadcastStore()
+final class PublicChatStore {
+    static let shared = PublicChatStore()
 
     /// Hard cap on how long any channel's messages are retained locally, regardless
-    /// of the per-channel setting - matches Android's `BroadcastRetention.MAX_MILLIS`.
+    /// of the per-channel setting - matches Android's `PublicChatRetention.MAX_MILLIS`.
     static let maxRetentionMillis: Int64 = 3 * 24 * 60 * 60 * 1000
 
     /// Retention for the FEATURED, indexer-tracked rooms (#kaspa / #kachat-bugs): the KaChat
@@ -73,7 +73,7 @@ final class BroadcastStore {
             .appendingPathComponent("KaChatBroadcasts-\(hashPrefix).sqlite")
     }
 
-    /// Switch to a different wallet's broadcast store (own SQLite file per wallet,
+    /// Switch to a different wallet's public chat store (own SQLite file per wallet,
     /// following `MessageStore`'s per-wallet file-naming convention).
     func setCurrentWallet(_ walletAddress: String?) {
         guard walletAddress != currentWalletAddress else { return }
@@ -97,16 +97,16 @@ final class BroadcastStore {
         CoreDataIndexBuilder.buildIndexesIfNeeded(
             storeURL: storeURL(forWallet: walletAddress),
             specs: [
-                .init(entityName: CDBroadcastMessage.entityName, attributes: ["channelName", "blockTime"]),
-                .init(entityName: CDBroadcastMessage.entityName, attributes: ["id"]),
-                .init(entityName: CDBroadcastReaction.entityName, attributes: ["channelName"]),
-                .init(entityName: CDBroadcastReaction.entityName, attributes: ["targetTxId"]),
+                .init(entityName: CDPublicChatMessage.entityName, attributes: ["channelName", "blockTime"]),
+                .init(entityName: CDPublicChatMessage.entityName, attributes: ["id"]),
+                .init(entityName: CDPublicChatReaction.entityName, attributes: ["channelName"]),
+                .init(entityName: CDPublicChatReaction.entityName, attributes: ["targetTxId"]),
             ]
         )
         container.loadPersistentStores { [weak self] _, error in
             guard let self else { return }
             if let error {
-                AppLog.log("[BroadcastStore] Failed to load store: %@", error.localizedDescription)
+                AppLog.log("[PublicChatStore] Failed to load store: %@", error.localizedDescription)
                 return
             }
             self.isLoaded = true
@@ -121,13 +121,13 @@ final class BroadcastStore {
 
     @discardableResult
     func joinChannel(_ rawName: String) -> Bool {
-        let name = BroadcastChannelName.normalize(rawName)
-        guard BroadcastChannelName.isValid(name), isLoaded else { return false }
+        let name = PublicChatChannelName.normalize(rawName)
+        guard PublicChatChannelName.isValid(name), isLoaded else { return false }
         let context = viewContext
         var joined = false
         context.performAndWait {
             if fetchChannel(name: name, in: context) == nil {
-                let channel = CDBroadcastChannel(context: context)
+                let channel = CDPublicChatChannel(context: context)
                 channel.channelName = name
                 channel.alwaysListen = false
                 channel.notifyEnabled = false
@@ -141,7 +141,7 @@ final class BroadcastStore {
     }
 
     func leaveChannel(_ name: String) {
-        let normalized = BroadcastChannelName.normalize(name)
+        let normalized = PublicChatChannelName.normalize(name)
         let context = viewContext
         context.performAndWait {
             guard let channel = fetchChannel(name: normalized, in: context) else { return }
@@ -169,8 +169,8 @@ final class BroadcastStore {
         updateChannel(name) { $0.retentionMillis = capped }
     }
 
-    private func updateChannel(_ name: String, _ mutate: (CDBroadcastChannel) -> Void) {
-        let normalized = BroadcastChannelName.normalize(name)
+    private func updateChannel(_ name: String, _ mutate: (CDPublicChatChannel) -> Void) {
+        let normalized = PublicChatChannelName.normalize(name)
         let context = viewContext
         context.performAndWait {
             guard let channel = fetchChannel(name: normalized, in: context) else { return }
@@ -179,16 +179,16 @@ final class BroadcastStore {
         }
     }
 
-    func joinedChannels() -> [BroadcastChannel] {
+    func joinedChannels() -> [PublicChatChannel] {
         guard isLoaded else { return [] }
-        var result: [BroadcastChannel] = []
+        var result: [PublicChatChannel] = []
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastChannel>(entityName: CDBroadcastChannel.entityName)
+            let request = NSFetchRequest<CDPublicChatChannel>(entityName: CDPublicChatChannel.entityName)
             request.sortDescriptors = [NSSortDescriptor(key: "joinedAt", ascending: true)]
             let rows = (try? context.fetch(request)) ?? []
             result = rows.map { row in
-                BroadcastChannel(
+                PublicChatChannel(
                     channelName: row.channelName,
                     alwaysListen: row.alwaysListen,
                     notifyEnabled: row.notifyEnabled,
@@ -201,7 +201,7 @@ final class BroadcastStore {
     }
 
     func isJoined(_ name: String) -> Bool {
-        let normalized = BroadcastChannelName.normalize(name)
+        let normalized = PublicChatChannelName.normalize(name)
         var found = false
         let context = viewContext
         context.performAndWait {
@@ -210,8 +210,8 @@ final class BroadcastStore {
         return found
     }
 
-    private func fetchChannel(name: String, in context: NSManagedObjectContext) -> CDBroadcastChannel? {
-        let request = NSFetchRequest<CDBroadcastChannel>(entityName: CDBroadcastChannel.entityName)
+    private func fetchChannel(name: String, in context: NSManagedObjectContext) -> CDPublicChatChannel? {
+        let request = NSFetchRequest<CDPublicChatChannel>(entityName: CDPublicChatChannel.entityName)
         request.predicate = NSPredicate(format: "channelName == %@", name)
         request.fetchLimit = 1
         return (try? context.fetch(request))?.first
@@ -232,18 +232,18 @@ final class BroadcastStore {
             container.performBackgroundTask { context in
                 var inserted = 0
                 for message in messages {
-                    let normalized = BroadcastChannelName.normalize(message.channel)
-                    let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+                    let normalized = PublicChatChannelName.normalize(message.channel)
+                    let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
                     request.predicate = NSPredicate(format: "id == %@", message.id)
                     request.fetchLimit = 1
                     guard (try? context.fetch(request))?.first == nil else { continue }
-                    let row = CDBroadcastMessage(context: context)
+                    let row = CDPublicChatMessage(context: context)
                     row.id = message.id
                     row.channelName = normalized
                     row.senderAddress = message.senderAddress
                     row.content = message.content
                     row.blockTime = message.blockTime
-                    row.deliveryStatus = BroadcastMessage.DeliveryStatus.sent.rawValue
+                    row.deliveryStatus = PublicChatMessage.DeliveryStatus.sent.rawValue
                     inserted += 1
                 }
                 if context.hasChanges {
@@ -262,19 +262,19 @@ final class BroadcastStore {
         senderAddress: String,
         content: String,
         blockTime: Int64,
-        deliveryStatus: BroadcastMessage.DeliveryStatus
+        deliveryStatus: PublicChatMessage.DeliveryStatus
     ) -> Bool {
         guard isLoaded else { return false }
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         let context = viewContext
         var inserted = false
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+            let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
             request.predicate = NSPredicate(format: "id == %@", id)
             request.fetchLimit = 1
             guard (try? context.fetch(request))?.first == nil else { return }
 
-            let message = CDBroadcastMessage(context: context)
+            let message = CDPublicChatMessage(context: context)
             message.id = id
             message.channelName = normalized
             message.senderAddress = senderAddress
@@ -291,13 +291,13 @@ final class BroadcastStore {
     func resolvePendingMessage(pendingId: String, realId: String, blockTime: Int64) {
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+            let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
             request.predicate = NSPredicate(format: "id == %@", pendingId)
             request.fetchLimit = 1
             guard let message = (try? context.fetch(request))?.first else { return }
             message.id = realId
             message.blockTime = blockTime
-            message.deliveryStatus = BroadcastMessage.DeliveryStatus.sent.rawValue
+            message.deliveryStatus = PublicChatMessage.DeliveryStatus.sent.rawValue
             save(context)
         }
     }
@@ -317,22 +317,22 @@ final class BroadcastStore {
         let context = viewContext
         var changed = false
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+            let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
             request.predicate = NSPredicate(format: "id == %@", id)
             request.fetchLimit = 1
             guard let message = (try? context.fetch(request))?.first, message.blockTime != blockTime else { return }
             message.blockTime = blockTime
-            message.deliveryStatus = BroadcastMessage.DeliveryStatus.sent.rawValue
+            message.deliveryStatus = PublicChatMessage.DeliveryStatus.sent.rawValue
             save(context)
             changed = true
         }
         return changed
     }
 
-    func updateMessageStatus(id: String, status: BroadcastMessage.DeliveryStatus) {
+    func updateMessageStatus(id: String, status: PublicChatMessage.DeliveryStatus) {
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+            let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
             request.predicate = NSPredicate(format: "id == %@", id)
             request.fetchLimit = 1
             guard let message = (try? context.fetch(request))?.first else { return }
@@ -342,38 +342,38 @@ final class BroadcastStore {
     }
 
     /// Messages for a channel, oldest first, with hidden senders already filtered out.
-    func messages(forChannel channel: String) -> [BroadcastMessage] {
+    func messages(forChannel channel: String) -> [PublicChatMessage] {
         guard isLoaded else { return [] }
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         let hidden = hiddenSenderAddresses(forChannel: normalized)
-        var result: [BroadcastMessage] = []
+        var result: [PublicChatMessage] = []
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+            let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
             request.predicate = NSPredicate(format: "channelName == %@", normalized)
             request.sortDescriptors = [NSSortDescriptor(key: "blockTime", ascending: true)]
             let rows = (try? context.fetch(request)) ?? []
             result = rows
                 .filter { !hidden.contains($0.senderAddress) }
                 .map { row in
-                    BroadcastMessage(
+                    PublicChatMessage(
                         id: row.id,
                         channelName: row.channelName,
                         senderAddress: row.senderAddress,
                         content: row.content ?? "",
                         blockTime: row.blockTime,
-                        deliveryStatus: BroadcastMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "") ?? .sent
+                        deliveryStatus: PublicChatMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "") ?? .sent
                     )
                 }
         }
         return result
     }
 
-    // MARK: - Reactions (CDBroadcastReaction)
+    // MARK: - Reactions (CDPublicChatReaction)
     //
     // One row per (targetTxId, reactorAddress), mirroring `GroupStore`'s reaction persistence -
-    // with one broadcast-specific twist: a REMOVE is kept as a tombstone row (`emoji == nil`,
-    // real `blockTime`) instead of deleting the row outright. The broadcast indexer re-serves
+    // with one public chat-specific twist: a REMOVE is kept as a tombstone row (`emoji == nil`,
+    // real `blockTime`) instead of deleting the row outright. The public chat indexer re-serves
     // the channel's FULL history on every poll, so without a tombstone an already-processed
     // "add" arriving again (after its later "remove" was applied) would silently resurrect the
     // reaction. Newest-blockTime-wins per (target, reactor) makes replaying history idempotent.
@@ -392,11 +392,11 @@ final class BroadcastStore {
         failedAction: String? = nil
     ) {
         guard isLoaded else { return }
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         let context = viewContext
         context.performAndWait {
             let reaction = fetchReactionRow(targetTxId: targetTxId, reactorAddress: reactorAddress, in: context)
-                ?? CDBroadcastReaction(context: context)
+                ?? CDPublicChatReaction(context: context)
             reaction.targetTxId = targetTxId
             reaction.channelName = normalized
             reaction.reactorAddress = reactorAddress
@@ -423,7 +423,7 @@ final class BroadcastStore {
         blockTime: Int64
     ) -> Bool {
         guard isLoaded else { return false }
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         let context = viewContext
         var changed = false
         context.performAndWait {
@@ -432,7 +432,7 @@ final class BroadcastStore {
                 // Already applied this exact reaction tx, or a newer change supersedes it.
                 guard existing.reactionTxId != reactionTxId, existing.blockTime <= blockTime else { return }
             }
-            let reaction = existing ?? CDBroadcastReaction(context: context)
+            let reaction = existing ?? CDPublicChatReaction(context: context)
             reaction.targetTxId = targetTxId
             reaction.channelName = normalized
             reaction.reactorAddress = reactorAddress
@@ -447,7 +447,7 @@ final class BroadcastStore {
         return changed
     }
 
-    // MARK: - Edits (CDBroadcastEdit)
+    // MARK: - Edits (CDPublicChatEdit)
 
     /// The sender of `txId` in `channel`, if the row is here - an edit counts only when its
     /// sender sent the message it names.
@@ -456,7 +456,7 @@ final class BroadcastStore {
         let context = viewContext
         var found: (String, String)?
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+            let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
             request.predicate = NSPredicate(format: "id == %@", txId)
             request.fetchLimit = 1
             if let row = (try? context.fetch(request))?.first {
@@ -472,18 +472,18 @@ final class BroadcastStore {
     @discardableResult
     func upsertEdit(targetTxId: String, channel: String, text: String, editTxId: String?, blockTime: Int64, deliveryStatus: String? = nil) -> Bool {
         guard isLoaded else { return false }
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         let context = viewContext
         var changed = false
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastEdit>(entityName: CDBroadcastEdit.entityName)
+            let request = NSFetchRequest<CDPublicChatEdit>(entityName: CDPublicChatEdit.entityName)
             request.predicate = NSPredicate(format: "targetTxId == %@", targetTxId)
             let existing = (try? context.fetch(request)) ?? []
             if let current = existing.first, current.deliveryStatus == nil || current.deliveryStatus == "sent" {
                 if current.editTxId == editTxId, current.text == text { return }
                 if current.blockTime > blockTime, current.editTxId != editTxId { return }
             }
-            let edit = existing.first ?? CDBroadcastEdit(context: context)
+            let edit = existing.first ?? CDPublicChatEdit(context: context)
             for duplicate in existing.dropFirst() {
                 context.delete(duplicate)
             }
@@ -502,11 +502,11 @@ final class BroadcastStore {
     /// All edits in `channel`, keyed by the message they change.
     func fetchEdits(forChannel channel: String) -> [String: MessageEditSnapshot] {
         guard isLoaded else { return [:] }
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         var edits: [String: MessageEditSnapshot] = [:]
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastEdit>(entityName: CDBroadcastEdit.entityName)
+            let request = NSFetchRequest<CDPublicChatEdit>(entityName: CDPublicChatEdit.entityName)
             request.predicate = NSPredicate(format: "channelName == %@", normalized)
             guard let results = try? context.fetch(request) else { return }
             for record in results {
@@ -523,8 +523,8 @@ final class BroadcastStore {
         return edits
     }
 
-    private func fetchReactionRow(targetTxId: String, reactorAddress: String, in context: NSManagedObjectContext) -> CDBroadcastReaction? {
-        let request = NSFetchRequest<CDBroadcastReaction>(entityName: CDBroadcastReaction.entityName)
+    private func fetchReactionRow(targetTxId: String, reactorAddress: String, in context: NSManagedObjectContext) -> CDPublicChatReaction? {
+        let request = NSFetchRequest<CDPublicChatReaction>(entityName: CDPublicChatReaction.entityName)
         request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
         let rows = (try? context.fetch(request)) ?? []
         // One reaction per (message, reactor) - fold any stray duplicates.
@@ -539,11 +539,11 @@ final class BroadcastStore {
     /// reaction UI (`ReactionPillView` + retry affordances) already speaks it.
     func fetchReactions(forChannel channel: String) -> [String: [GroupStore.ReactionSnapshot]] {
         guard isLoaded else { return [:] }
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         var grouped: [String: [GroupStore.ReactionSnapshot]] = [:]
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDBroadcastReaction>(entityName: CDBroadcastReaction.entityName)
+            let request = NSFetchRequest<CDPublicChatReaction>(entityName: CDPublicChatReaction.entityName)
             request.predicate = NSPredicate(format: "channelName == %@", normalized)
             guard let results = try? context.fetch(request) else { return }
             for record in results {
@@ -572,14 +572,14 @@ final class BroadcastStore {
 
     func hideSender(_ address: String, inChannel channel: String) {
         guard isLoaded else { return }
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDHiddenBroadcastSender>(entityName: CDHiddenBroadcastSender.entityName)
+            let request = NSFetchRequest<CDHiddenPublicChatSender>(entityName: CDHiddenPublicChatSender.entityName)
             request.predicate = NSPredicate(format: "senderAddress == %@ AND channelName == %@", address, normalized)
             request.fetchLimit = 1
             guard (try? context.fetch(request))?.first == nil else { return }
-            let entry = CDHiddenBroadcastSender(context: context)
+            let entry = CDHiddenPublicChatSender(context: context)
             entry.senderAddress = address
             entry.channelName = normalized
             entry.hiddenAt = Date()
@@ -590,10 +590,10 @@ final class BroadcastStore {
     /// Removes the room-scoped hide. A matching legacy global row ("" channel) is deleted too -
     /// otherwise unhiding from the room's list would appear to do nothing.
     func unhideSender(_ address: String, inChannel channel: String) {
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDHiddenBroadcastSender>(entityName: CDHiddenBroadcastSender.entityName)
+            let request = NSFetchRequest<CDHiddenPublicChatSender>(entityName: CDHiddenPublicChatSender.entityName)
             request.predicate = NSPredicate(
                 format: "senderAddress == %@ AND (channelName == %@ OR channelName == %@)",
                 address, normalized, ""
@@ -608,11 +608,11 @@ final class BroadcastStore {
     /// Senders hidden in this room: room-scoped rows plus legacy global ("" channel) rows.
     func hiddenSenderAddresses(forChannel channel: String) -> Set<String> {
         guard isLoaded else { return [] }
-        let normalized = BroadcastChannelName.normalize(channel)
+        let normalized = PublicChatChannelName.normalize(channel)
         var result: Set<String> = []
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDHiddenBroadcastSender>(entityName: CDHiddenBroadcastSender.entityName)
+            let request = NSFetchRequest<CDHiddenPublicChatSender>(entityName: CDHiddenPublicChatSender.entityName)
             request.predicate = NSPredicate(format: "channelName == %@ OR channelName == %@", normalized, "")
             let rows = (try? context.fetch(request)) ?? []
             result = Set(rows.map { $0.senderAddress })
@@ -628,7 +628,7 @@ final class BroadcastStore {
         var perChannel: [String: Set<String>] = [:]
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDHiddenBroadcastSender>(entityName: CDHiddenBroadcastSender.entityName)
+            let request = NSFetchRequest<CDHiddenPublicChatSender>(entityName: CDHiddenPublicChatSender.entityName)
             let rows = (try? context.fetch(request)) ?? []
             for row in rows {
                 if row.channelName.isEmpty {
@@ -654,7 +654,7 @@ final class BroadcastStore {
         let context = viewContext
         var didDelete = false
         context.performAndWait {
-            let channelRequest = NSFetchRequest<CDBroadcastChannel>(entityName: CDBroadcastChannel.entityName)
+            let channelRequest = NSFetchRequest<CDPublicChatChannel>(entityName: CDPublicChatChannel.entityName)
             let channels = (try? context.fetch(channelRequest)) ?? []
             for channel in channels {
                 // Indexer-tracked channels keep the indexer's FULL 30-day window (the gear is
@@ -664,8 +664,8 @@ final class BroadcastStore {
                 // whatever the indexer's 30-day window holds. With the short default here, a
                 // phone forgot yesterday's rooms overnight and offered a room number the
                 // others had moved past.
-                let retention = BroadcastService.indexedChannels.contains(channel.channelName)
-                        || BroadcastService.serviceChannels.contains(channel.channelName)
+                let retention = PublicChatService.indexedChannels.contains(channel.channelName)
+                        || PublicChatService.serviceChannels.contains(channel.channelName)
                     ? Self.indexerRetentionMillis
                     : min(channel.retentionMillis, Self.maxRetentionMillis)
                 let cutoff = nowMillis - retention
@@ -673,10 +673,10 @@ final class BroadcastStore {
                 // message a reaction targets is pruned there's nothing to render it on, and the
                 // tombstones' replay-idempotency job (see the Reactions section) only matters
                 // while the indexer still serves the corresponding history window.
-                let reactionRequest = NSFetchRequest<NSFetchRequestResult>(entityName: CDBroadcastReaction.entityName)
+                let reactionRequest = NSFetchRequest<NSFetchRequestResult>(entityName: CDPublicChatReaction.entityName)
                 reactionRequest.predicate = NSPredicate(format: "channelName == %@ AND blockTime < %lld", channel.channelName, cutoff)
                 _ = try? context.execute(NSBatchDeleteRequest(fetchRequest: reactionRequest))
-                let request = NSFetchRequest<NSFetchRequestResult>(entityName: CDBroadcastMessage.entityName)
+                let request = NSFetchRequest<NSFetchRequestResult>(entityName: CDPublicChatMessage.entityName)
                 request.predicate = NSPredicate(format: "channelName == %@ AND blockTime < %lld", channel.channelName, cutoff)
                 let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
                 deleteRequest.resultType = .resultTypeObjectIDs
@@ -697,12 +697,12 @@ final class BroadcastStore {
         return didDelete
     }
 
-    /// Clear all local broadcast data for the current wallet (e.g. on wallet reset).
+    /// Clear all local public chat data for the current wallet (e.g. on wallet reset).
     func clearAll() {
         guard isLoaded else { return }
         let context = viewContext
         context.performAndWait {
-            for entityName in [CDBroadcastMessage.entityName, CDBroadcastChannel.entityName, CDHiddenBroadcastSender.entityName, CDBroadcastReaction.entityName] {
+            for entityName in [CDPublicChatMessage.entityName, CDPublicChatChannel.entityName, CDHiddenPublicChatSender.entityName, CDPublicChatReaction.entityName] {
                 let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
                 let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
                 _ = try? context.execute(deleteRequest)
@@ -716,7 +716,7 @@ final class BroadcastStore {
         do {
             try context.save()
         } catch {
-            AppLog.log("[BroadcastStore] Save failed: %@", error.localizedDescription)
+            AppLog.log("[PublicChatStore] Save failed: %@", error.localizedDescription)
         }
     }
 
@@ -738,19 +738,19 @@ final class BroadcastStore {
         let model = NSManagedObjectModel()
 
         let channelEntity = NSEntityDescription()
-        channelEntity.name = CDBroadcastChannel.entityName
-        channelEntity.managedObjectClassName = NSStringFromClass(CDBroadcastChannel.self)
+        channelEntity.name = CDPublicChatChannel.entityName
+        channelEntity.managedObjectClassName = NSStringFromClass(CDPublicChatChannel.self)
         channelEntity.properties = [
             makeAttribute(name: "channelName", type: .stringAttributeType, optional: false, defaultValue: ""),
             makeAttribute(name: "alwaysListen", type: .booleanAttributeType, optional: false, defaultValue: false),
             makeAttribute(name: "notifyEnabled", type: .booleanAttributeType, optional: false, defaultValue: false),
-            makeAttribute(name: "retentionMillis", type: .integer64AttributeType, optional: false, defaultValue: BroadcastStore.defaultRetentionMillis),
+            makeAttribute(name: "retentionMillis", type: .integer64AttributeType, optional: false, defaultValue: PublicChatStore.defaultRetentionMillis),
             makeAttribute(name: "joinedAt", type: .dateAttributeType, optional: true)
         ]
 
         let messageEntity = NSEntityDescription()
-        messageEntity.name = CDBroadcastMessage.entityName
-        messageEntity.managedObjectClassName = NSStringFromClass(CDBroadcastMessage.self)
+        messageEntity.name = CDPublicChatMessage.entityName
+        messageEntity.managedObjectClassName = NSStringFromClass(CDPublicChatMessage.self)
         messageEntity.properties = [
             makeAttribute(name: "id", type: .stringAttributeType, optional: false, defaultValue: ""),
             makeAttribute(name: "channelName", type: .stringAttributeType, optional: false, defaultValue: ""),
@@ -761,8 +761,8 @@ final class BroadcastStore {
         ]
 
         let hiddenSenderEntity = NSEntityDescription()
-        hiddenSenderEntity.name = CDHiddenBroadcastSender.entityName
-        hiddenSenderEntity.managedObjectClassName = NSStringFromClass(CDHiddenBroadcastSender.self)
+        hiddenSenderEntity.name = CDHiddenPublicChatSender.entityName
+        hiddenSenderEntity.managedObjectClassName = NSStringFromClass(CDHiddenPublicChatSender.self)
         hiddenSenderEntity.properties = [
             makeAttribute(name: "senderAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
             // Room the hide applies to. "" = legacy row from the global-hide era, treated as
@@ -772,8 +772,8 @@ final class BroadcastStore {
         ]
 
         let reactionEntity = NSEntityDescription()
-        reactionEntity.name = CDBroadcastReaction.entityName
-        reactionEntity.managedObjectClassName = NSStringFromClass(CDBroadcastReaction.self)
+        reactionEntity.name = CDPublicChatReaction.entityName
+        reactionEntity.managedObjectClassName = NSStringFromClass(CDPublicChatReaction.self)
         reactionEntity.properties = [
             makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
             makeAttribute(name: "channelName", type: .stringAttributeType, optional: false, defaultValue: ""),
@@ -803,11 +803,11 @@ final class BroadcastStore {
             makeIndex(name: "byChannel", on: hiddenSenderEntity, attributes: ["channelName"])
         ]
 
-        // CDBroadcastEdit: the newest edit per target message in a room (plaintext, like the
-        // rows themselves). New entity → lightweight migration, like CDBroadcastReaction.
+        // CDPublicChatEdit: the newest edit per target message in a room (plaintext, like the
+        // rows themselves). New entity → lightweight migration, like CDPublicChatReaction.
         let editEntity = NSEntityDescription()
-        editEntity.name = CDBroadcastEdit.entityName
-        editEntity.managedObjectClassName = NSStringFromClass(CDBroadcastEdit.self)
+        editEntity.name = CDPublicChatEdit.entityName
+        editEntity.managedObjectClassName = NSStringFromClass(CDPublicChatEdit.self)
         editEntity.properties = [
             makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
             makeAttribute(name: "channelName", type: .stringAttributeType, optional: false, defaultValue: ""),
@@ -836,12 +836,14 @@ final class BroadcastStore {
     }
 }
 
-// BroadcastStore only touches Core Data via context.performAndWait on its own contexts;
+// PublicChatStore only touches Core Data via context.performAndWait on its own contexts;
 // treat as Sendable for structured concurrency usage (matches MessageStore's convention).
-extension BroadcastStore: @unchecked Sendable {}
+extension PublicChatStore: @unchecked Sendable {}
 
+// The Objective-C names and `entityName`s stay `CDBroadcast*`: they are what every existing
+// store was written with. Only the Swift names say public chat.
 @objc(CDBroadcastChannel)
-final class CDBroadcastChannel: NSManagedObject {
+final class CDPublicChatChannel: NSManagedObject {
     static let entityName = "CDBroadcastChannel"
 
     @NSManaged var channelName: String
@@ -852,7 +854,7 @@ final class CDBroadcastChannel: NSManagedObject {
 }
 
 @objc(CDBroadcastMessage)
-final class CDBroadcastMessage: NSManagedObject {
+final class CDPublicChatMessage: NSManagedObject {
     static let entityName = "CDBroadcastMessage"
 
     @NSManaged var id: String
@@ -864,7 +866,7 @@ final class CDBroadcastMessage: NSManagedObject {
 }
 
 @objc(CDHiddenBroadcastSender)
-final class CDHiddenBroadcastSender: NSManagedObject {
+final class CDHiddenPublicChatSender: NSManagedObject {
     static let entityName = "CDHiddenBroadcastSender"
 
     @NSManaged var senderAddress: String
@@ -872,11 +874,11 @@ final class CDHiddenBroadcastSender: NSManagedObject {
     @NSManaged var hiddenAt: Date?
 }
 
-/// A reaction (tapback) sent or received on a broadcast message - see `MessageReactionContent`.
+/// A reaction (tapback) sent or received on a public chat message - see `MessageReactionContent`.
 /// `emoji == nil` is a remove-tombstone (kept, not deleted, so replaying indexer history stays
 /// idempotent - see the Reactions section's doc comment above).
 @objc(CDBroadcastEdit)
-final class CDBroadcastEdit: NSManagedObject {
+final class CDPublicChatEdit: NSManagedObject {
     static let entityName = "CDBroadcastEdit"
 
     @NSManaged var targetTxId: String
@@ -888,7 +890,7 @@ final class CDBroadcastEdit: NSManagedObject {
 }
 
 @objc(CDBroadcastReaction)
-final class CDBroadcastReaction: NSManagedObject {
+final class CDPublicChatReaction: NSManagedObject {
     static let entityName = "CDBroadcastReaction"
 
     @NSManaged var targetTxId: String

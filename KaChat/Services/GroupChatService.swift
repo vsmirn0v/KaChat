@@ -9,7 +9,7 @@ import UserNotifications
 /// Orchestrates KaChat's group chat feature: group lifecycle (create/add/remove member, epoch
 /// rotation) and sending/receiving `gcomm` group messages.
 ///
-/// Architecturally self-contained, like `BroadcastService`: owns its own block-scan discovery
+/// Architecturally self-contained, like `PublicChatService`: owns its own block-scan discovery
 /// (`NodePoolService.shared.subscribeBlockAdded(client:)`) rather than threading group state through
 /// `ChatService`'s 1:1 contact/conversation machinery, so this feature can't regress existing
 /// 1:1 messaging. Reuses `ChatService`'s UTXO reservation coordination
@@ -37,7 +37,7 @@ final class GroupChatService: ObservableObject {
 
     @Published private(set) var groups: [GroupChat] = []
     @Published var groupMessages: [String: [GroupMessage]] = [:]
-    /// Mirrors `ChatService.replyingTo`/`BroadcastService.replyingTo` - set via a message's
+    /// Mirrors `ChatService.replyingTo`/`PublicChatService.replyingTo` - set via a message's
     /// "Reply" action, consumed (wrapped into the outgoing payload, then cleared) by
     /// `sendGroupMessage`.
     @Published var replyingTo: GroupMessage?
@@ -102,7 +102,7 @@ final class GroupChatService: ObservableObject {
     private let groupLastReadAtKey = "kachat_group_last_read_at"
 
     /// Per-group set of hidden member addresses (their messages are filtered out of the thread,
-    /// same idea as `BroadcastService`'s hidden senders, but scoped per-group rather than
+    /// same idea as `PublicChatService`'s hidden senders, but scoped per-group rather than
     /// globally - a member hidden in one group shouldn't affect how they show up in another),
     /// persisted the same way as `groupCatchUpCursors`/`groupLastReadAt`.
     @Published private(set) var groupHiddenMembers: [String: Set<String>] = [:]
@@ -807,7 +807,7 @@ final class GroupChatService: ObservableObject {
     }
 
     /// Clears all local group data for the current wallet (Core Data + Keychain bags).
-    /// Call from the same wallet-reset paths that call `MessageStore`/`BroadcastStore` clearAll.
+    /// Call from the same wallet-reset paths that call `MessageStore`/`PublicChatStore` clearAll.
     func clearAllLocalData() {
         for group in groups {
             try? keychain.deleteGroupBag(groupId: group.id)
@@ -1093,7 +1093,7 @@ final class GroupChatService: ObservableObject {
         }
     }
 
-    /// Re-broadcast the CURRENT root to every member (admin) — retries invites that failed to
+    /// Re-public chat the CURRENT root to every member (admin) — retries invites that failed to
     /// send, without rotating the epoch. Throws if any member still can't be reached.
     func resendInvites(_ groupId: String) async throws {
         guard let group = store.group(id: groupId), group.isAdmin else {
@@ -1115,7 +1115,7 @@ final class GroupChatService: ObservableObject {
         }
     }
 
-    /// Re-broadcast the current root to ONE member (admin) — a targeted retry of a single invite.
+    /// Re-public chat the current root to ONE member (admin) — a targeted retry of a single invite.
     func resendInvite(to address: String, groupId: String) async throws {
         guard let group = store.group(id: groupId), group.isAdmin else {
             throw KasiaError.networkError("Only the group admin can resend invites.")
@@ -1156,7 +1156,7 @@ final class GroupChatService: ObservableObject {
     }
 
     /// Deletes a group locally: its message history, Keychain-held secrets (root/seed/blinding
-    /// key), and roster. Local-only, like leaving/deleting a broadcast channel - there's no
+    /// key), and roster. Local-only, like leaving/deleting a public chat channel - there's no
     /// server-side group record to delete, and other members aren't notified (the trust model
     /// is single-admin push, not a shared membership ledger, so this device simply stops
     /// tracking the group and can no longer decrypt or send to it).
@@ -1405,7 +1405,7 @@ final class GroupChatService: ObservableObject {
 
     /// Live "fee: N KAS" preview while composing a group text message - builds the exact real
     /// `gcomm` payload (same crypto as an actual send) rather than a size heuristic, matching
-    /// `BroadcastService.estimateBroadcastFee(channel:content:)`. Read-only: doesn't touch
+    /// `PublicChatService.estimatePublicChatFee(channel:content:)`. Read-only: doesn't touch
     /// `msgCounter` (a throwaway counter value is fine for sizing, since msg_id is a fixed 24
     /// bytes regardless of the counter's value).
     func estimateGroupMessageFee(_ text: String, for groupId: String, feeOverride: UInt64? = nil) async throws -> UInt64 {
@@ -1452,7 +1452,7 @@ final class GroupChatService: ObservableObject {
             blindedGroupId: blindedGroupId, epoch: bag.currentEpoch, senderId: senderId, senderPubKey: senderXOnlyPub,
             msgId: msgId, ciphertext: ciphertext, signature: signature
         )
-        return KasiaTransactionBuilder.estimateBroadcastFee(
+        return KasiaTransactionBuilder.estimatePublicChatFee(
             payload: Data(payloadString.utf8), inputCount: 1, senderScriptPubKey: senderScriptPubKey
         )
     }
@@ -1478,7 +1478,7 @@ final class GroupChatService: ObservableObject {
             return nil
         }
         let dummyPayload = Data(count: estimatedGroupWirePayloadSize(rawBytes: rawBytes))
-        return KasiaTransactionBuilder.estimateBroadcastFee(
+        return KasiaTransactionBuilder.estimatePublicChatFee(
             payload: dummyPayload, inputCount: 1, senderScriptPubKey: senderScriptPubKey
         )
     }
@@ -1501,7 +1501,7 @@ final class GroupChatService: ObservableObject {
         let senderId = GroupCipher.deriveSenderId(senderAddress: wallet.publicAddress)
 
         // If replying, wrap the content in the shared reply envelope (matches
-        // ChatService.sendMessage/BroadcastService.sendBroadcast) so the quote survives even if
+        // ChatService.sendMessage/PublicChatService.sendPublicChat) so the quote survives even if
         // the original message is later pruned.
         let payload: String
         if let reply = replyingTo {
@@ -1654,7 +1654,7 @@ final class GroupChatService: ObservableObject {
     /// Reacts to `targetTxId` with `emoji` ("add"), or removes this wallet's existing reaction on
     /// it ("remove"). Unlike `sendGroupMessage`, this never creates a visible pending bubble - the
     /// reaction is applied to the local reactions store immediately (optimistic UI) and the
-    /// actual send reuses the exact same single self-stash broadcast `sendGroupMessage` uses,
+    /// actual send reuses the exact same single self-stash public chat `sendGroupMessage` uses,
     /// which already reaches every member via the shared group root key - no per-member fan-out
     /// needed.
     func sendGroupReaction(targetTxId: String, groupId: String, emoji: String, action: String) async throws {
@@ -1783,9 +1783,9 @@ final class GroupChatService: ObservableObject {
     }
 
     /// Shared self-stash send primitive for gcomm/gctl payloads - mirrors
-    /// `BroadcastService.sendBroadcastInternal`'s UTXO fetch/reserve/submit sequence exactly,
+    /// `PublicChatService.sendPublicChatInternal`'s UTXO fetch/reserve/submit sequence exactly,
     /// reusing `ChatService`'s shared UTXO reservation state so group sends can't race with
-    /// 1:1/broadcast sends for the same UTXOs.
+    /// 1:1/public chat sends for the same UTXOs.
     private func sendSelfStashPayload(_ payloadString: String, from address: String, privateKey: Data, feeOverride: UInt64? = nil) async throws -> String {
         let chatService = ChatService.shared
         let freshUtxos = try await NodePoolService.shared.getUtxosByAddresses([address])

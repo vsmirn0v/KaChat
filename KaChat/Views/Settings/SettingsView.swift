@@ -1167,7 +1167,7 @@ struct NotificationsHubPage: View {
         Form {
             // The master switch, at the top of the screen it governs. It used to live inside
             // Chats, which read as a chats-only setting - it is not: push carries wallet
-            // activity, group mentions, broadcasts and KaPosts too, so it belongs above the
+            // activity, group mentions, public chats and KaPosts too, so it belongs above the
             // per-feature pages rather than inside one of them.
             //
             // A toggle rather than the old Mode picker of two cases, and the registration
@@ -1871,7 +1871,7 @@ struct ConnectionSettingsView: View {
     @State private var indexerURL: String = ""
     @State private var kaPostIndexerURL: String = ""
     @State private var translationServiceURL: String = ""
-    @State private var broadcastIndexerURL: String = ""
+    @State private var publicChatIndexerURL: String = ""
     @State private var pushIndexerURL: String = ""
     @State private var kaspaRestAPIURL: String = ""
     @State private var trustedNodeValidationError: String?
@@ -1973,20 +1973,20 @@ struct ConnectionSettingsView: View {
 
             Section {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Broadcast Indexer URL")
+                    Text("Public Chats Indexer URL")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextField(AppSettings.defaultBroadcastIndexerURL, text: $broadcastIndexerURL)
+                    TextField(AppSettings.defaultPublicChatIndexerURL, text: $publicChatIndexerURL)
                         .font(.system(.body, design: .monospaced))
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
-                    httpsInlineError(for: broadcastIndexerURL)
+                    httpsInlineError(for: publicChatIndexerURL)
                 }
             } header: {
                 Text("Public Chats Indexer")
             } footer: {
-                Text("KaChat broadcast history indexer for #kaspa and #kachat-bugs")
+                Text("KaChat public chat history indexer for #kaspa and #kachat-bugs")
             }
 
             Section {
@@ -2224,7 +2224,7 @@ struct ConnectionSettingsView: View {
         indexerURL = settingsViewModel.settings.indexerURL
         kaPostIndexerURL = settingsViewModel.settings.kaPostIndexerURL
         translationServiceURL = settingsViewModel.settings.translationServiceURL
-        broadcastIndexerURL = settingsViewModel.settings.broadcastIndexerURL
+        publicChatIndexerURL = settingsViewModel.settings.publicChatIndexerURL
         pushIndexerURL = settingsViewModel.settings.pushIndexerURL
         kaspaRestAPIURL = settingsViewModel.settings.kaspaRestAPIURL
     }
@@ -2241,7 +2241,7 @@ struct ConnectionSettingsView: View {
     /// https:// (Decision 3A).
     @discardableResult
     private func saveSettings() -> Bool {
-        let allFields = [indexerURL, kaPostIndexerURL, translationServiceURL, broadcastIndexerURL, pushIndexerURL, kaspaRestAPIURL]
+        let allFields = [indexerURL, kaPostIndexerURL, translationServiceURL, publicChatIndexerURL, pushIndexerURL, kaspaRestAPIURL]
         guard !allFields.contains(where: isCleartextHTTP) else {
             showToast(Self.httpsRequiredError, style: .error)
             return false
@@ -2257,7 +2257,7 @@ struct ConnectionSettingsView: View {
         // builds a request that fails as "unsupported URL" and reads as the server being down,
         // which is exactly how the KNS field broke.
         settingsViewModel.settings.translationServiceURL = normalizedOrDefault(translationServiceURL, AppSettings.defaultTranslationServiceURL)
-        settingsViewModel.settings.broadcastIndexerURL = normalizedOrDefault(broadcastIndexerURL, AppSettings.defaultBroadcastIndexerURL)
+        settingsViewModel.settings.publicChatIndexerURL = normalizedOrDefault(publicChatIndexerURL, AppSettings.defaultPublicChatIndexerURL)
         settingsViewModel.settings.pushIndexerURL = normalizedOrDefault(pushIndexerURL, AppSettings.defaultPushIndexerURL)
         settingsViewModel.settings.kaspaRestAPIURL = normalizedOrDefault(
             kaspaRestAPIURL,
@@ -2475,7 +2475,7 @@ struct ConnectionStatusIndicator: View {
 }
 
 /// Kaspa-logo chatting-address balance for navigation bars - shared by the main pages
-/// (KaPosts, Broadcasts, Cold Storage, Portfolio, Swap) so the centered header reads
+/// (KaPosts, Public Chats, Cold Storage, Portfolio, Swap) so the centered header reads
 /// identically across tabs. Chats keeps its own tap-to-copy variant.
 struct BalanceToolbarLabel: View {
     @EnvironmentObject var walletManager: WalletManager
@@ -3748,7 +3748,7 @@ struct ChatRestoreProgressModal: View {
         return text
     }
 
-    /// Same glass card treatment the app's other overlays use (see BroadcastChannelView).
+    /// Same glass card treatment the app's other overlays use (see PublicChatChannelView).
     private func glassBackground(cornerRadius: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.regularMaterial)
@@ -4000,7 +4000,7 @@ struct IncomingResyncProgressModal: View {
         }
     }
 
-    /// Same glass card treatment the app's other overlays use (see BroadcastChannelView).
+    /// Same glass card treatment the app's other overlays use (see PublicChatChannelView).
     private func glassBackground(cornerRadius: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.regularMaterial)
