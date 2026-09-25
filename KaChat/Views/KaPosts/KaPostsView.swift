@@ -3475,9 +3475,18 @@ struct KaPostsView: View {
         // present from inside it - so the old branch set a target that presented nothing, which is
         // why tapping a comment or an ancestor inside a profile thread did nothing at all.
         if profileDetailTarget != nil {
-            if profileThreadStack.last != post.id { profileThreadStack.append(post.id) }
+            if profileThreadStack.last != post.id {
+                // The level beneath the new one, for the slide (and for backing out of it).
+                KaPostsSlideSnapshot.capture()
+                profileThreadStack.append(post.id)
+                KaPostsSlideHandle.topmost?.slideIn()
+            }
         } else if detailTarget != nil {
-            if threadStack.last != post.id { threadStack.append(post.id) }
+            if threadStack.last != post.id {
+                KaPostsSlideSnapshot.capture()
+                threadStack.append(post.id)
+                KaPostsSlideHandle.topmost?.slideIn()
+            }
         } else {
             threadStack = [post.id]
             kaPostsPresent { detailTarget = PostDetailTarget(id: post.id) }
@@ -8675,12 +8684,29 @@ final class KaPostsSlideHandle {
     weak var driver: KaPostsSlideDriverView?
     var onBack: () -> Void = {}
 
+    /// The cover on top right now - the one a thread opened from within it lives in.
+    private static var attached: [KaPostsSlideHandle] = []
+    static var topmost: KaPostsSlideHandle? { attached.last }
+    static func didAttach(_ handle: KaPostsSlideHandle) {
+        attached.removeAll { $0 === handle }
+        attached.append(handle)
+    }
+    static func didDetach(_ handle: KaPostsSlideHandle) {
+        attached.removeAll { $0 === handle }
+    }
+
     func back() {
         if let driver {
             driver.slideOutThenBack()
         } else {
-            kaPostsPresent { self.onBack() }
+            kaPostsDismiss { self.onBack() }
         }
+    }
+
+    /// Content swapped in place for a deeper level (a comment opened from its thread): slide
+    /// the new content in from the right over the picture of the level beneath.
+    func slideIn() {
+        driver?.slideInFromRight()
     }
 }
 
@@ -8700,7 +8726,11 @@ func kaPostsPresent(_ body: () -> Void) {
 /// image instead; the cover itself stays opaque. Captured at 1x: it is only ever seen dimmed
 /// and moving.
 enum KaPostsSlideSnapshot {
-    static var image: UIImage?
+    /// One picture per level on screen: the feed under the first cover, that cover under the
+    /// next, a thread under the comment opened from it. The slide (and the drag) reveals the
+    /// level right beneath, so backing out of a comment shows its thread, not the feed.
+    private static var stack: [UIImage] = []
+    static var image: UIImage? { stack.last }
 
     static func capture() {
         guard let window = UIApplication.shared.connectedScenes
@@ -8708,10 +8738,25 @@ enum KaPostsSlideSnapshot {
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         let renderer = UIGraphicsImageRenderer(bounds: window.bounds, format: format)
-        image = renderer.image { _ in
+        stack.append(renderer.image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
-        }
+        })
+        if stack.count > 8 { stack.removeFirst(stack.count - 8) }
     }
+
+    static func pop() {
+        if !stack.isEmpty { stack.removeLast() }
+    }
+}
+
+/// Dismisses a KaPosts cover, or pops a thread one level in place, with the cover's own
+/// animation off - the driver has already drawn the slide - and drops the picture of the level
+/// that is going away.
+func kaPostsDismiss(_ body: () -> Void) {
+    KaPostsSlideSnapshot.pop()
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction, body)
 }
 
 private struct KaPostsSlideCover: ViewModifier {
@@ -8743,6 +8788,7 @@ private struct KaPostsSlideDriver: UIViewRepresentable {
 
     func makeUIView(context: Context) -> KaPostsSlideDriverView {
         let view = KaPostsSlideDriverView(onBack: onBack)
+        view.handle = handle
         handle.driver = view
         handle.onBack = onBack
         return view
@@ -8757,6 +8803,7 @@ private struct KaPostsSlideDriver: UIViewRepresentable {
 
 final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
     var onBack: () -> Void
+    weak var handle: KaPostsSlideHandle?
     private weak var host: UIViewController?
     private weak var dim: UIView?
     private weak var beneath: UIImageView?
@@ -8773,7 +8820,11 @@ final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window == nil, let handle {
+            KaPostsSlideHandle.didDetach(handle)
+        }
         guard window != nil, !attached else { return }
+        if let handle { KaPostsSlideHandle.didAttach(handle) }
         // The nearest view controller up the responder chain is the cover's own host.
         var responder: UIResponder? = self
         var found: UIViewController?
@@ -8825,6 +8876,23 @@ final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
         view.addGestureRecognizer(pan)
     }
 
+    /// A deeper level drawn into this same view (see KaPostsSlideHandle.slideIn): the picture
+    /// of the level beneath goes under, the view starts off to the right and slides in.
+    func slideInFromRight() {
+        guard let controller = host, let view = controller.view, let container = view.superview else { return }
+        let width = max(container.bounds.width, 1)
+        removeBeneath()
+        insertBeneath(in: container, below: view)
+        dim?.alpha = 0
+        view.transform = CGAffineTransform(translationX: width, y: 0)
+        UIView.animate(withDuration: 0.26, delay: 0, options: [.curveEaseOut]) {
+            view.transform = .identity
+            self.dim?.alpha = 0.3
+        } completion: { _ in
+            self.removeBeneath()
+        }
+    }
+
     /// The back chevron in the chrome: the same leaving as a completed swipe.
     func slideOutThenBack() {
         guard let controller = host, let view = controller.view, let container = view.superview else {
@@ -8840,18 +8908,15 @@ final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
             view.transform = CGAffineTransform(translationX: width, y: 0)
             self.dim?.alpha = 0
         } completion: { _ in
-            kaPostsPresent { self.onBack() }
-            // A thread popping one level swaps its content in place rather than closing:
-            // the parent is drawn into this same view, so bring it back.
+            kaPostsDismiss { self.onBack() }
+            // A thread popping one level swaps its content in place rather than closing: the
+            // parent is drawn into this same view, and the picture that was showing beneath
+            // the slide IS that parent - so it simply takes the view's place, no animation.
             DispatchQueue.main.async {
                 guard view.window != nil, controller.presentingViewController != nil,
                       controller.isBeingDismissed == false else { return }
-                UIView.animate(withDuration: 0.2) {
-                    view.transform = .identity
-                    self.dim?.alpha = 0.3
-                } completion: { _ in
-                    self.removeBeneath()
-                }
+                view.transform = .identity
+                self.removeBeneath()
             }
         }
     }
