@@ -141,7 +141,6 @@ final class BroadcastService: ObservableObject {
         liveViewRefCounts = [:]
         loadReadState()
         refreshChannels()
-        applyFeaturedNotifyDefaultIfNeeded()
         updateScanningStateIfNeeded()
         sweptChannels = []
         if UIApplication.shared.applicationState == .active { startForegroundSweep() }
@@ -370,19 +369,8 @@ final class BroadcastService: ObservableObject {
 
     /// #kaspa and #kachat-bugs notify by default. Applied once per wallet, so a bell the user
     /// later switches off stays off.
-    private func applyFeaturedNotifyDefaultIfNeeded() {
-        guard let walletAddress else { return }
-        let key = "kachat_broadcast_featured_notify_default_\(walletAddress)"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        let joined = Set(channels.map(\.channelName))
-        guard Self.featuredChannels.allSatisfy(joined.contains) else { return }
-        for name in Self.featuredChannels where !hiddenCuratedChannels.contains(name) {
-            store.setNotifyEnabled(true, forChannel: name)
-        }
-        UserDefaults.standard.set(true, forKey: key)
-        refreshChannels()
-        Task { await PushNotificationManager.shared.updateWatchedAddresses() }
-    }
+    // Rooms join with notifications OFF and stay off until the user turns a bell on - the
+    // curated rooms included. (They used to be switched on once per wallet here.)
 
     // MARK: - Channel membership
 
@@ -402,7 +390,6 @@ final class BroadcastService: ObservableObject {
             _ = store.joinChannel(name)
         }
         refreshChannels()
-        applyFeaturedNotifyDefaultIfNeeded()
     }
 
     @discardableResult
