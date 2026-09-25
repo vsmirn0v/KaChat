@@ -521,6 +521,8 @@ private struct AddPortfolioAddressSheet: View {
                             .textInputAutocapitalization(.never)
                             .onChange(of: addressText) { handleInputChange($0) }
 
+                            AddressResolutionCard(input: addressText)
+
                         validationStatus
 
                         HStack {

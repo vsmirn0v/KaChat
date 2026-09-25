@@ -3503,13 +3503,8 @@ private struct AddGroupMembersView: View {
                         else { selectedAddresses.insert(typedAddress) }
                     } label: {
                         HStack(spacing: 12) {
-                            KNSAvatarView(avatarURLString: nil, fallbackText: Contact.generateDefaultAlias(from: typedAddress), size: 32, contactAddress: typedAddress)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Add this address").foregroundColor(.primary).lineLimit(1)
-                                Text(Contact.generateDefaultAlias(from: typedAddress))
-                                    .font(.caption).foregroundColor(.secondary).lineLimit(1)
-                            }
-                            Spacer()
+                            // Who this is - avatar and KNS domain - the same card as create-chat.
+                            AddressResolutionCard(input: typedAddress)
                             Image(systemName: selectedAddresses.contains(typedAddress) ? "checkmark.circle.fill" : "circle")
                                 .foregroundColor(selectedAddresses.contains(typedAddress) ? .accentColor : .secondary)
                         }

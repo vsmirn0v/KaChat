@@ -3328,6 +3328,8 @@ struct KNSDomainSendView: View {
                         .autocorrectionDisabled()
                         .onChange(of: addressInput) { handleInputChange($0) }
 
+                        AddressResolutionCard(input: addressInput)
+
                     if !addressInput.isEmpty {
                         if isResolvingKNS {
                             HStack {
@@ -4588,6 +4590,8 @@ struct WithdrawKaspaView: View {
                             .autocapitalization(.none)
                             .autocorrectionDisabled()
                             .onChange(of: addressInput) { handleInputChange($0) }
+
+                            AddressResolutionCard(input: addressInput)
 
                         if !addressInput.isEmpty {
                             if isResolvingKNS {

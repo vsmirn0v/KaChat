@@ -1585,6 +1585,8 @@ struct SpendingAddressWithdrawView: View {
                             .autocorrectionDisabled()
                             .onChange(of: addressInput) { handleInputChange($0) }
 
+                            AddressResolutionCard(input: addressInput)
+
                         if !addressInput.isEmpty {
                             if isResolvingKNS {
                                 HStack {
