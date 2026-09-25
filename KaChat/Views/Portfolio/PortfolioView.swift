@@ -1252,26 +1252,35 @@ struct PickaxeIcon: View {
 
     var body: some View {
         PickaxeShape()
-            .stroke(style: StrokeStyle(lineWidth: size * (2.0 / 24), lineCap: .round, lineJoin: .round))
+            .fill(style: FillStyle(eoFill: false, antialiased: true))
             .frame(width: size, height: size)
     }
 }
 
+/// A filled pickaxe on a 24x24 grid: a bowed, double-pointed head over a tapered handle with a
+/// rounded grip, the whole thing turned 45° so the handle runs bottom-left to top-right - the
+/// tilt is what makes a reader see a pick rather than an anchor. Takes the foreground style.
 private struct PickaxeShape: Shape {
     func path(in rect: CGRect) -> Path {
-        // Laid out on the same 24x24 grid the desktop SVG uses, scaled to whatever we are handed.
         let unit = min(rect.width, rect.height) / 24
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: rect.minX + x * unit, y: rect.minY + y * unit)
-        }
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * unit, y: y * unit) }
         var path = Path()
-        // The head, arcing up and to the right, then the handle running down through it. Both are
-        // drawn on the diagonal: upright, a curved head over a straight shaft is an anchor, and it
-        // is the tilt that makes a reader see a pick.
-        path.move(to: point(6.37, 17.9))
-        path.addCurve(to: point(18.78, 7.48), control1: point(1.86, 11.11), control2: point(12.89, 1.86))
-        path.move(to: point(8.3, 7.59))
-        path.addLine(to: point(17.21, 18.2))
-        return path
+        // Head: outer arc up and over, inner arc back, meeting at the two tips.
+        path.move(to: p(1.2, 9.6))
+        path.addCurve(to: p(22.8, 9.6), control1: p(6.0, 1.0), control2: p(18.0, 1.0))
+        path.addCurve(to: p(1.2, 9.6), control1: p(18.0, 6.6), control2: p(6.0, 6.6))
+        path.closeSubpath()
+        // Handle: from under the head down to a rounded grip, tapering slightly.
+        path.move(to: p(10.5, 5.4))
+        path.addLine(to: p(13.5, 5.4))
+        path.addLine(to: p(13.1, 21.4))
+        path.addArc(center: p(12, 21.4), radius: 1.1 * unit, startAngle: .zero, endAngle: .degrees(180), clockwise: false)
+        path.addLine(to: p(10.9, 21.4))
+        path.closeSubpath()
+        // Turn about the centre of the grid, then place it in the rect.
+        let transform = CGAffineTransform(translationX: rect.midX, y: rect.midY)
+            .rotated(by: .pi / 4)
+            .translatedBy(x: -12 * unit, y: -12 * unit)
+        return path.applying(transform)
     }
 }
