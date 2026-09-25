@@ -8667,7 +8667,12 @@ private struct KaPostsSlideCover: ViewModifier {
     let onBack: () -> Void
 
     func body(content: Content) -> some View {
-        content.background(KaPostsSlideDriver(onBack: onBack))
+        content
+            // Opaque from the SwiftUI side, whatever UIKit does to the hosting view's own
+            // background (coming back from Safari reset it once, and the slide driver's
+            // snapshot of the screen beneath showed through the whole cover).
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .background(KaPostsSlideDriver(onBack: onBack))
     }
 }
 
@@ -8748,6 +8753,10 @@ final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
         UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseOut]) {
             view.transform = .identity
             shade.alpha = 0.3
+        } completion: { _ in
+            // The picture beneath is only for the slide; nothing sits under the cover once
+            // it is in place (a drag puts it back for as long as the finger is down).
+            self.removeBeneath()
         }
 
         let pan = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
@@ -8756,11 +8765,37 @@ final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
         view.addGestureRecognizer(pan)
     }
 
+    private func removeBeneath() {
+        beneath?.removeFromSuperview()
+        dim?.removeFromSuperview()
+        beneath = nil
+        dim = nil
+    }
+
+    private func insertBeneath(in container: UIView, below view: UIView) {
+        guard beneath == nil else { return }
+        let picture = UIImageView(image: KaPostsSlideSnapshot.image)
+        picture.frame = container.bounds
+        picture.contentMode = .scaleAspectFill
+        picture.backgroundColor = .systemBackground
+        picture.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        let shade = UIView(frame: container.bounds)
+        shade.backgroundColor = .black
+        shade.alpha = 0.3
+        shade.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.insertSubview(picture, belowSubview: view)
+        container.insertSubview(shade, aboveSubview: picture)
+        beneath = picture
+        dim = shade
+    }
+
     @objc private func handlePan(_ pan: UIScreenEdgePanGestureRecognizer) {
         guard let controller = host, let view = controller.view, let container = view.superview else { return }
         let width = max(container.bounds.width, 1)
         let translation = max(0, pan.translation(in: container).x)
         switch pan.state {
+        case .began:
+            insertBeneath(in: container, below: view)
         case .changed:
             view.transform = CGAffineTransform(translationX: translation, y: 0)
             dim?.alpha = 0.3 * (1 - translation / width)
@@ -8781,6 +8816,8 @@ final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
                         UIView.animate(withDuration: 0.2) {
                             view.transform = .identity
                             self.dim?.alpha = 0.3
+                        } completion: { _ in
+                            self.removeBeneath()
                         }
                     }
                 }
@@ -8788,6 +8825,8 @@ final class KaPostsSlideDriverView: UIView, UIGestureRecognizerDelegate {
                 UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut]) {
                     view.transform = .identity
                     self.dim?.alpha = 0.3
+                } completion: { _ in
+                    self.removeBeneath()
                 }
             }
         default:
