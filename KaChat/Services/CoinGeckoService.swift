@@ -128,11 +128,24 @@ final class CoinGeckoService: Sendable {
     /// USDT; the older points are scaled into the chosen currency by the ratio at the seam
     /// (CoinGecko's first point over Gate's close of that day), which is exact for USD and a
     /// constant-rate approximation for any other currency. Daily granularity throughout.
+    /// In bitcoin the older part is KAS/USDT over BTC/USDT for the same day - a constant
+    /// ratio would be wrong across years in which bitcoin itself moved several times over.
     private func fetchAllTimeHistory(currency: AppCurrency) async -> [PricePoint] {
         async let recentTask = getPriceHistory(days: 365, currency: currency)
-        let gate = await fetchGateDailyCloses()
+        async let bitcoinTask = fetchGateDailyCloses(pair: currency == .bitcoin ? "BTC_USDT" : nil)
+        let gate = await fetchGateDailyCloses(pair: "KAS_USDT")
         let recent = await recentTask
+        let bitcoin = await bitcoinTask
         guard !gate.isEmpty else { return recent }
+        if currency == .bitcoin {
+            let bitcoinByDay = Dictionary(bitcoin.map { ($0.timestamp, $0.value) }, uniquingKeysWith: { first, _ in first })
+            let inBitcoin = gate.compactMap { point -> PricePoint? in
+                guard let bitcoinPrice = bitcoinByDay[point.timestamp], bitcoinPrice > 0 else { return nil }
+                return PricePoint(timestamp: point.timestamp, value: point.value / bitcoinPrice)
+            }
+            guard let firstRecent = recent.first else { return inBitcoin }
+            return inBitcoin.filter { $0.timestamp < firstRecent.timestamp } + recent
+        }
         guard let firstRecent = recent.first else {
             return currency == .usDollar ? gate : []
         }
@@ -144,15 +157,17 @@ final class CoinGeckoService: Sendable {
         return older + recent
     }
 
-    /// Gate.io daily closes for KAS_USDT, oldest first, paged backwards 1000 days at a time
+    /// Gate.io daily closes for a pair, oldest first, paged backwards 1000 days at a time
     /// until the listing. Row shape: [time, quote volume, close, high, low, open, ...].
-    private func fetchGateDailyCloses() async -> [PricePoint] {
+    /// No pair: nothing (so a caller can ask conditionally in one `async let`).
+    private func fetchGateDailyCloses(pair: String?) async -> [PricePoint] {
+        guard let pair else { return [] }
         var closes: [Int64: Double] = [:]
         var to = Int64(Date().timeIntervalSince1970)
         for _ in 0..<6 {
             guard var components = URLComponents(string: "https://api.gateio.ws/api/v4/spot/candlesticks") else { break }
             components.queryItems = [
-                URLQueryItem(name: "currency_pair", value: "KAS_USDT"),
+                URLQueryItem(name: "currency_pair", value: pair),
                 URLQueryItem(name: "interval", value: "1d"),
                 URLQueryItem(name: "limit", value: "1000"),
                 URLQueryItem(name: "to", value: String(to))

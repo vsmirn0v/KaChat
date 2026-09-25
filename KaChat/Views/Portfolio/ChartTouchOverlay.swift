@@ -88,3 +88,77 @@ struct ChartTouchOverlay: UIViewRepresentable {
         }
     }
 }
+
+// MARK: - Swipe-back off while a chart is up
+
+extension View {
+    /// The navigation stack's swipe-back is off while this screen is on top. A finger scrubbing
+    /// along a chart from near the left edge was being taken for a swipe out of the page, and
+    /// the two fought over every drag. The back button still works; the gesture returns the
+    /// moment the screen goes away.
+    func swipeBackDisabled() -> some View {
+        background(SwipeBackDisabler())
+    }
+}
+
+private struct SwipeBackDisabler: UIViewRepresentable {
+    func makeUIView(context: Context) -> Probe {
+        let view = Probe()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: Probe, context: Context) {}
+
+    static func dismantleUIView(_ uiView: Probe, coordinator: ()) {
+        uiView.restore()
+    }
+
+    final class Probe: UIView {
+        private var disabled: [UIGestureRecognizer] = []
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil {
+                restore()
+            } else {
+                // The view controller chain is complete a beat after the view lands.
+                DispatchQueue.main.async { [weak self] in self?.disableSwipeBack() }
+            }
+        }
+
+        private func disableSwipeBack() {
+            guard window != nil, disabled.isEmpty else { return }
+            var responder: UIResponder? = self
+            var navigation: UINavigationController?
+            while let current = responder, navigation == nil {
+                if let found = current as? UINavigationController {
+                    navigation = found
+                } else if let controller = current as? UIViewController {
+                    navigation = controller.navigationController
+                }
+                responder = current.next
+            }
+            guard let navigation else { return }
+            var recognizers: [UIGestureRecognizer] = []
+            if let pop = navigation.interactivePopGestureRecognizer { recognizers.append(pop) }
+            // The full-width swipe back some builds add beside the edge one.
+            for recognizer in navigation.view.gestureRecognizers ?? [] where recognizer !== navigation.interactivePopGestureRecognizer {
+                let name = String(describing: type(of: recognizer))
+                if name.contains("ParallaxTransitionPan") || name.contains("PopGesture") {
+                    recognizers.append(recognizer)
+                }
+            }
+            for recognizer in recognizers where recognizer.isEnabled {
+                recognizer.isEnabled = false
+                disabled.append(recognizer)
+            }
+        }
+
+        func restore() {
+            for recognizer in disabled { recognizer.isEnabled = true }
+            disabled = []
+        }
+    }
+}

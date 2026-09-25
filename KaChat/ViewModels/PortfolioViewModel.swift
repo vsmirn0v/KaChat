@@ -100,8 +100,12 @@ final class PortfolioViewModel: ObservableObject {
         Self.computeSummary(transactions: scopedTransactions, currentPriceUsd: currentPriceUsd ?? 0)
     }
 
-    var valueHistory: [PricePoint] {
-        let series = Self.computeValueHistory(transactions: scopedTransactions, priceHistory: priceHistory)
+    var valueHistory: [PricePoint] { valueHistory(from: priceHistory) }
+
+    /// Holdings over time priced by the given series - the app-currency one, or bitcoin's
+    /// when a chart is flipped to it.
+    private func valueHistory(from priceSeries: [PricePoint]) -> [PricePoint] {
+        let series = Self.computeValueHistory(transactions: scopedTransactions, priceHistory: priceSeries)
         // All: from the first transaction to today. The price history reaches back to 2023,
         // and before anything was bought the value is a flat zero - not the portfolio's story.
         guard priceRangeDays == 0, let firstTransaction = scopedTransactions.map(\.timestamp).min() else { return series }
@@ -138,6 +142,99 @@ final class PortfolioViewModel: ObservableObject {
     /// CoinGecko's `priceChange24h`, so the number and the line can never disagree.
     var priceRangeChange: (amount: Double, percent: Double)? {
         Self.computeRangeChange(priceHistory)
+    }
+
+    // MARK: - Charts against bitcoin
+
+    /// Tap the big number on either chart and the chart, its readout and its change figure
+    /// switch to bitcoin (or, when the app already counts in bitcoin, to US dollars). The
+    /// series is fetched in that currency for the selected range, so the percent is the move
+    /// against bitcoin across that range, not a fiat figure re-labelled. Nothing else on the
+    /// portfolio moves - the cards, the stats and the converter stay in the app currency.
+    @Published private(set) var chartAlternateCurrency: AppCurrency?
+    @Published private(set) var alternatePrice: Double?
+    @Published private(set) var alternatePriceHistory: [PricePoint] = []
+    private var alternateHistoryCache: [Int: [PricePoint]] = [:]
+    private var alternateTask: Task<Void, Never>?
+    private var alternatePriceFetchedAt: Date?
+
+    var chartCurrency: AppCurrency { chartAlternateCurrency ?? currentCurrency }
+    var chartPriceHistory: [PricePoint] { chartAlternateCurrency == nil ? priceHistory : alternatePriceHistory }
+    var chartCurrentPrice: Double? { chartAlternateCurrency == nil ? currentPriceUsd : alternatePrice }
+    var chartPriceRangeChange: (amount: Double, percent: Double)? { Self.computeRangeChange(chartPriceHistory) }
+    var chartValueHistory: [PricePoint] { valueHistory(from: chartPriceHistory) }
+    var chartValueRangeChange: (amount: Double, percent: Double)? { Self.computeRangeChange(chartValueHistory) }
+    /// Nil while the other currency's price is still on its way.
+    var chartCurrentValue: Double? {
+        guard chartAlternateCurrency != nil else { return summary.currentValue }
+        return alternatePrice.map { summary.holdingsKas * $0 }
+    }
+
+    func toggleChartCurrency() {
+        if chartAlternateCurrency != nil {
+            chartAlternateCurrency = nil
+            alternateTask?.cancel()
+            alternateTask = nil
+            return
+        }
+        chartAlternateCurrency = currentCurrency == .bitcoin ? .usDollar : .bitcoin
+        loadAlternateChart()
+    }
+
+    /// Same stale-while-refresh as the app-currency chart: whatever is on hand for the range
+    /// paints at once, a fetch runs behind it unless the copy is fresh, and it retries on a
+    /// growing pause while the range and the flip are still what is on screen.
+    private func loadAlternateChart(force: Bool = false) {
+        guard let alternate = chartAlternateCurrency else { return }
+        let days = priceRangeDays
+        if let cached = alternateHistoryCache[days] {
+            alternatePriceHistory = cached
+        } else if let persisted = readPersistedHistory(days: days, currency: alternate) {
+            alternatePriceHistory = Self.downsample(persisted.points)
+            if Date().timeIntervalSince(persisted.fetchedAt) < Self.historyCacheTTL {
+                alternateHistoryCache[days] = alternatePriceHistory
+            }
+        } else {
+            alternatePriceHistory = []
+        }
+        let needsHistory = force || alternateHistoryCache[days] == nil
+        let priceAge = alternatePriceFetchedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+        let needsPrice = force || alternatePrice == nil || priceAge > 5 * 60
+        guard needsHistory || needsPrice else { return }
+        alternateTask?.cancel()
+        alternateTask = Task { [weak self] in
+            guard let self else { return }
+            let coinGecko = self.coinGecko
+            if needsPrice, let result = await coinGecko.getCurrentPrice(currency: alternate) {
+                guard !Task.isCancelled else { return }
+                self.alternatePrice = result.price
+                self.alternatePriceFetchedAt = Date()
+            }
+            guard needsHistory else { return }
+            var history: [PricePoint] = []
+            for delaySeconds in [0.0, 4.0, 12.0, 30.0] {
+                if delaySeconds > 0 { try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000)) }
+                guard !Task.isCancelled, self.chartAlternateCurrency == alternate, self.priceRangeDays == days else { return }
+                history = await Self.fetchHistoryDownsampled(coinGecko, days: days, currency: alternate)
+                if !history.isEmpty { break }
+            }
+            guard !Task.isCancelled, !history.isEmpty else { return }
+            self.persistHistory(history, days: days, currency: alternate)
+            self.alternateHistoryCache[days] = history
+            if self.chartAlternateCurrency == alternate, self.priceRangeDays == days {
+                self.alternatePriceHistory = history
+            }
+        }
+    }
+
+    private func resetAlternateChart() {
+        alternateTask?.cancel()
+        alternateTask = nil
+        chartAlternateCurrency = nil
+        alternatePrice = nil
+        alternatePriceFetchedAt = nil
+        alternatePriceHistory = []
+        alternateHistoryCache.removeAll()
     }
 
     /// Year to date, as a day count: days since 1 January (at least two, so a chart has a
@@ -300,6 +397,7 @@ final class PortfolioViewModel: ObservableObject {
         let newCurrency = SettingsViewModel.loadSettings().currency
         guard newCurrency != currentCurrency else { return }
         currentCurrency = newCurrency
+        resetAlternateChart()
         priceRetryTask?.cancel()
         priceRetryTask = nil
         currentPriceUsd = nil
@@ -363,6 +461,8 @@ final class PortfolioViewModel: ObservableObject {
         priceHistoryCache.removeAll()
         fetchPriceHistory(days: priceRangeDays, force: true)
         fetchSevenDayPriceHistoryForCards()
+        alternateHistoryCache.removeAll()
+        loadAlternateChart(force: true)
     }
 
     /// Abandons every in-flight range fetch (explicit-refresh paths only - a mere range
@@ -425,6 +525,8 @@ final class PortfolioViewModel: ObservableObject {
         cancelPriceHistoryTasks()
         priceHistoryCache.removeAll()
         fetchSevenDayPriceHistoryForCards(force: true)
+        alternateHistoryCache.removeAll()
+        loadAlternateChart(force: true)
         let currency = currentCurrency
         let coinGecko = self.coinGecko
         // Capture the range this refresh is fetching - a range tap mid-refresh must not
@@ -545,6 +647,7 @@ final class PortfolioViewModel: ObservableObject {
         }
         priceRangeDays = days
         fetchPriceHistory(days: days)
+        loadAlternateChart()
     }
 
     func cyclePriceRange() {

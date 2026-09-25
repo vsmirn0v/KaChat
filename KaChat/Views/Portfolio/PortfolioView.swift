@@ -252,6 +252,8 @@ private struct KasPriceChartScreen: View {
     @State private var range: ChartRangeSelection?
 
     private var currency: AppCurrency { settingsViewModel.settings.currency }
+    /// What the chart and its readout count in - bitcoin once the price is tapped.
+    private var chartCurrency: AppCurrency { viewModel.chartCurrency }
 
     var body: some View {
         ScrollView {
@@ -267,6 +269,15 @@ private struct KasPriceChartScreen: View {
         .refreshable { await viewModel.refreshPriceAsync() }
         .navigationTitle("KAS Price")
         .navigationBarTitleDisplayMode(.inline)
+        // A finger scrubbing along the line from near the left edge is not a swipe out.
+        .swipeBackDisabled()
+    }
+
+    private func toggleCurrency() {
+        Haptics.impact(.light)
+        scrubbed = nil
+        range = nil
+        viewModel.toggleChartCurrency()
     }
 
     /// Where Kaspa sits against every other coin, and what the whole supply is worth at the
@@ -313,19 +324,26 @@ private struct KasPriceChartScreen: View {
                     .font(.subheadline).foregroundColor(.secondary)
             }
             if let range {
-                ChartRangeSummary(range: range, valueText: { PortfolioFormat.price($0, currency: currency) })
+                ChartRangeSummary(range: range, valueText: { PortfolioFormat.price($0, currency: chartCurrency) })
             }
             // The change sits UNDER the price rather than beside it. A long price and a long
             // change figure on one line had no room left at larger text sizes or in a currency
             // with a wordy symbol, and something had to shrink or clip. Stacked, neither
-            // constrains the other whatever they say.
-            Text((scrubbed?.value ?? viewModel.currentPriceUsd).map { PortfolioFormat.price($0, currency: currency) } ?? "—")
-                .font(.system(size: 34, weight: .bold))
+            // constrains the other whatever they say. Tap the price: the same chart in bitcoin.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text((scrubbed?.value ?? viewModel.chartCurrentPrice).map { PortfolioFormat.price($0, currency: chartCurrency) } ?? "—")
+                    .font(.system(size: 34, weight: .bold))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                ChartCurrencyChip(viewModel: viewModel)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { toggleCurrency() }
             // Read off the series the chart is drawing, so the number and the line can never
             // disagree - and so it answers whichever range button is selected. Percent only:
             // the move in currency is the price above minus itself a moment ago, which the chart
             // already draws, and a per-KAS amount at four decimal places says very little.
-            if scrubbed == nil, range == nil, let change = viewModel.priceRangeChange {
+            if scrubbed == nil, range == nil, let change = viewModel.chartPriceRangeChange {
                 HStack(spacing: 3) {
                     Image(systemName: change.amount >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
                     Text("\(String(format: "%.2f", abs(change.percent)))%")
@@ -342,8 +360,8 @@ private struct KasPriceChartScreen: View {
 
     @ViewBuilder
     private var chart: some View {
-        if viewModel.priceHistory.count >= 2 {
-            PortfolioAreaChart(points: viewModel.priceHistory, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
+        if viewModel.chartPriceHistory.count >= 2 {
+            PortfolioAreaChart(points: viewModel.chartPriceHistory, preciseAxis: chartCurrency == .bitcoin, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
                 .frame(height: 260)
         } else {
             ProgressView()
@@ -363,23 +381,42 @@ private struct PortfolioValueChartScreen: View {
     @State private var range: ChartRangeSelection?
 
     private var currency: AppCurrency { settingsViewModel.settings.currency }
+    /// What the chart and the big number count in - bitcoin once the value is tapped. The
+    /// stats card below stays in the app currency: buys were recorded in it.
+    private var chartCurrency: AppCurrency { viewModel.chartCurrency }
 
     /// Every amount on this screen goes through here, so the eye button masks all of them.
     private func money(_ value: Double) -> String {
         viewModel.valuesHidden ? PortfolioFormat.masked : PortfolioFormat.currency(value, currency)
     }
 
+    private func chartMoney(_ value: Double) -> String {
+        viewModel.valuesHidden ? PortfolioFormat.masked : PortfolioFormat.currency(value, chartCurrency)
+    }
+
+    private func toggleCurrency() {
+        Haptics.impact(.light)
+        scrubbed = nil
+        range = nil
+        viewModel.toggleChartCurrency()
+    }
+
     var body: some View {
         let summary = viewModel.summary
-        let history = viewModel.valueHistory
+        let history = viewModel.chartValueHistory
 
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                header(currentValue: summary.currentValue)
+                header(currentValue: viewModel.chartCurrentValue)
 
                 if history.count >= 2 {
-                    PortfolioAreaChart(points: history, hideValues: viewModel.valuesHidden, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
+                    PortfolioAreaChart(points: history, hideValues: viewModel.valuesHidden, preciseAxis: chartCurrency == .bitcoin, onScrub: { scrubbed = $0 }, onRange: { range = $0 })
                         .frame(height: 240)
+                } else if viewModel.chartAlternateCurrency != nil, viewModel.valueHistory.count >= 2 {
+                    // The bitcoin series for this range is still on its way.
+                    ProgressView()
+                        .frame(height: 240)
+                        .frame(maxWidth: .infinity)
                 } else {
                     Text("Not enough history yet - check back after a few days of activity.")
                         .font(.subheadline).foregroundColor(.secondary)
@@ -396,12 +433,14 @@ private struct PortfolioValueChartScreen: View {
         .refreshable { await viewModel.refreshPriceAsync() }
         .navigationTitle("Value Over Time")
         .navigationBarTitleDisplayMode(.inline)
+        // A finger scrubbing along the line from near the left edge is not a swipe out.
+        .swipeBackDisabled()
     }
 
-    private func header(currentValue: Double) -> some View {
+    private func header(currentValue: Double?) -> some View {
         // The move across the SELECTED range, so pressing 1W answers "how did this do this week"
         // rather than repeating the 24h figure under every button.
-        let rangeChange = viewModel.valueRangeChange
+        let rangeChange = viewModel.chartValueRangeChange
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("Portfolio Value").font(.title3).fontWeight(.semibold)
@@ -412,12 +451,20 @@ private struct PortfolioValueChartScreen: View {
                     .font(.subheadline).foregroundColor(.secondary)
             }
             if let range {
-                ChartRangeSummary(range: range, valueText: money)
+                ChartRangeSummary(range: range, valueText: chartMoney)
             }
             // The change sits UNDER the value rather than beside it - see the note on the price
             // header. A six-figure portfolio and its change had nowhere to go on one line.
-            Text(money(scrubbed?.value ?? currentValue))
-                .font(.system(size: 34, weight: .bold))
+            // Tap the value: the same chart in bitcoin.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text((scrubbed?.value ?? currentValue).map(chartMoney) ?? "—")
+                    .font(.system(size: 34, weight: .bold))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                ChartCurrencyChip(viewModel: viewModel)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { toggleCurrency() }
             // Hidden while scrubbing: the big number is then a past value, and a change figure
             // for the range sitting under it would read as that point's own move.
             if scrubbed == nil, range == nil, let rangeChange {
@@ -427,7 +474,7 @@ private struct PortfolioValueChartScreen: View {
                         .font(.caption.weight(.bold))
                     Text(viewModel.valuesHidden
                          ? "\(String(format: "%.2f", abs(rangeChange.percent)))%"
-                         : "\(PortfolioFormat.currency(abs(rangeChange.amount), currency)) (\(String(format: "%.2f", abs(rangeChange.percent)))%)")
+                         : "\(PortfolioFormat.currency(abs(rangeChange.amount), chartCurrency)) (\(String(format: "%.2f", abs(rangeChange.percent)))%)")
                         .font(.subheadline.weight(.semibold))
                     Text(viewModel.priceRangeLabel)
                         .font(.caption.weight(.semibold))
@@ -471,6 +518,28 @@ private struct PortfolioValueChartScreen: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+}
+
+// MARK: - Chart currency chip
+
+/// Beside the big number on a chart: which currency it and the chart count in, and that a tap
+/// flips it. Lit up while flipped away from the app currency.
+private struct ChartCurrencyChip: View {
+    @ObservedObject var viewModel: PortfolioViewModel
+
+    var body: some View {
+        let flipped = viewModel.chartAlternateCurrency != nil
+        HStack(spacing: 4) {
+            Text(viewModel.chartCurrency.code)
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.caption2.weight(.bold))
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundColor(flipped ? .orange : .secondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill((flipped ? Color.orange : Color.secondary).opacity(0.14)))
     }
 }
 
@@ -529,11 +598,26 @@ enum PortfolioFormat {
     }
 
     static func price(_ value: Double, currency: AppCurrency) -> String {
+        if currency == .bitcoin { return bitcoin(value) }
         let decimals = value < 1 ? 5 : 2
         return currencySymbol(for: currency) + String(format: "%.\(decimals)f", value)
     }
 
+    /// A bitcoin amount in full: eight decimals at the least (a satoshi is the smallest unit),
+    /// and more for a figure as small as one KAS in bitcoin, so at least four digits of it
+    /// show rather than a row of zeros. Rounded to two places it read ₿0.00 for everything.
+    static func bitcoin(_ value: Double) -> String {
+        let sign = value < 0 ? "-" : ""
+        let magnitude = abs(value)
+        var decimals = 8
+        if magnitude > 0, magnitude < 0.0001 {
+            decimals = min(12, max(8, Int(ceil(-log10(magnitude))) + 3))
+        }
+        return sign + "₿" + String(format: "%.\(decimals)f", magnitude)
+    }
+
     static func currency(_ value: Double, _ currency: AppCurrency) -> String {
+        if currency == .bitcoin { return bitcoin(value) }
         let sign = value < 0 ? "-" : ""
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -639,6 +723,9 @@ private struct PortfolioAreaChart: View {
     let points: [PricePoint]
     /// The eye button: no value labels down the axis either.
     var hideValues = false
+    /// Bitcoin-scale numbers: the default axis label rounds every tick to "0.000001", so
+    /// label by significant digits instead.
+    var preciseAxis = false
     var onScrub: ((PricePoint?) -> Void)?
     /// Two fingers down: the range between them, live; nil once they lift.
     var onRange: ((ChartRangeSelection?) -> Void)?
@@ -725,7 +812,11 @@ private struct PortfolioAreaChart: View {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
                 AxisGridLine()
                 if !hideValues {
-                    AxisValueLabel()
+                    if preciseAxis {
+                        AxisValueLabel(format: FloatingPointFormatStyle<Double>.number.precision(.significantDigits(3)))
+                    } else {
+                        AxisValueLabel()
+                    }
                 }
             }
         }
@@ -999,6 +1090,7 @@ private struct HashrateChartScreen: View {
         }
         .refreshable { await networkStats.refreshIfNeeded(force: true) }
         .navigationTitle("Network Hashrate")
+        .swipeBackDisabled()
         .navigationBarTitleDisplayMode(.inline)
         .task { await networkStats.refreshIfNeeded() }
     }
