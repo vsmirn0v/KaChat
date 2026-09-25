@@ -72,6 +72,42 @@ struct PortfolioTransaction: Identifiable, Codable, Equatable {
 /// "Long Term" — all still tracking the same on-chain wallet/address. Only the manually-entered
 /// transaction ledger and its derived P&L are separated per portfolio; nothing about the wallet
 /// itself (balance, address, keys) changes based on which portfolio is active.
+/// Reads a number the way a person pasted or typed it: "1,234.56" (grouping commas),
+/// "1.234,56" or "1,5" (decimal-comma locales), "$ 9.60", " 12 " - all the shapes a copied
+/// amount arrives in. `Double("1,234.56")` is nil, which made a pasted amount silently refuse
+/// to add.
+enum PortfolioNumber {
+    static func parse(_ text: String) -> Double? {
+        var cleaned = text.filter { $0.isNumber || $0 == "," || $0 == "." || $0 == "-" }
+        guard !cleaned.isEmpty else { return nil }
+        let commas = cleaned.filter { $0 == "," }.count
+        let dots = cleaned.filter { $0 == "." }.count
+        if commas > 0 && dots > 0 {
+            // Both present: whichever comes last is the decimal mark, the other is grouping.
+            let lastComma = cleaned.lastIndex(of: ",")!
+            let lastDot = cleaned.lastIndex(of: ".")!
+            if lastComma > lastDot {
+                cleaned = cleaned.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: ",", with: ".")
+            } else {
+                cleaned = cleaned.replacingOccurrences(of: ",", with: "")
+            }
+        } else if commas > 0 {
+            // Commas only: one comma followed by anything but exactly three digits is a
+            // decimal comma ("1,5"); otherwise they are thousands separators ("1,234,567").
+            let parts = cleaned.split(separator: ",", omittingEmptySubsequences: false)
+            if commas == 1, parts.count == 2, parts[1].count != 3 {
+                cleaned = cleaned.replacingOccurrences(of: ",", with: ".")
+            } else {
+                cleaned = cleaned.replacingOccurrences(of: ",", with: "")
+            }
+        } else if dots > 1 {
+            // "1.234.567" - dots as grouping.
+            cleaned = cleaned.replacingOccurrences(of: ".", with: "")
+        }
+        return Double(cleaned)
+    }
+}
+
 struct Portfolio: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String

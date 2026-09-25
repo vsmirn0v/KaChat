@@ -714,9 +714,10 @@ private struct PortfolioTransactionEditor: View {
         }
     }
 
-    private var quantity: Double? { Double(quantityText) }
-    private var pricePerCoin: Double? { Double(priceText) }
-    private var fee: Double { Double(feeText) ?? 0 }
+    // Pasted amounts keep their commas and symbols - see PortfolioNumber.
+    private var quantity: Double? { PortfolioNumber.parse(quantityText) }
+    private var pricePerCoin: Double? { PortfolioNumber.parse(priceText) }
+    private var fee: Double { PortfolioNumber.parse(feeText) ?? 0 }
 
     private var total: Double? {
         guard let quantity, let pricePerCoin else { return nil }

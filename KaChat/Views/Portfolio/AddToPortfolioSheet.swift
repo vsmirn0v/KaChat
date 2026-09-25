@@ -290,9 +290,7 @@ struct AddToPortfolioSheet: View {
     /// Accepts either separator: a decimal keypad emits the device locale's, and reading "1,5" as
     /// an integer would multiply the amount by ten.
     private static func number(from text: String) -> Double? {
-        let normalized = text.replacingOccurrences(of: ",", with: ".")
-        guard !normalized.isEmpty else { return nil }
-        return Double(normalized)
+        PortfolioNumber.parse(text)
     }
 
     private static func trimmed(_ value: Double, maxDecimals: Int = 8) -> String {
