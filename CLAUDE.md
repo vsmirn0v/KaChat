@@ -133,10 +133,12 @@ conversation level, so overlap is harmless:
    `verifyPrimarySubscription()` right after foreground reconnect), then posts
    `.rpcSubscriptionsRestored` so `ChatService` runs a catch-up sync for the dead window.
 2. **Open-chat poll** (`startActiveChatPoll`, ~2s) for the conversation on screen only.
-3. **Foreground contact sweep** (`startForegroundContactSweep`, 5s between sequential sweeps,
-   120ms between contacts, cap 40 prioritised by `lastMessageAt`, backs off to 60s on indexer
-   errors). Starts on app-active / wallet load, stops on background / wallet switch / logout.
-   Desktop polls at 5s and Android at 2s; this is the iOS equivalent.
+3. **Foreground contact sweep** (`startForegroundContactSweep`): runs only while the UTXO
+   subscription is down or not verified alive within 45s (`isUtxoSubscriptionHealthy`), 30s
+   between sequential sweeps (60s on cellular, backs off to 120s on indexer errors), 120ms
+   between contacts, a window of 12 per pass: the 4 most recent contacts every pass plus a
+   rotating slice of the rest. Starts on app-active / wallet load, stops on background /
+   wallet switch / logout. Its loop also carries the group catch-up ride-along.
 4. **Remote push** (`PushNotificationManager`) and the **60s fallback poll**
    (`startFallbackPolling`), which runs only when the subscription is down and push is off.
 

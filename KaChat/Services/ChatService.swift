@@ -315,23 +315,34 @@ final class ChatService: ObservableObject {
     var activeChatPollTask: Task<Void, Never>?
     /// Foreground defense-in-depth indexer sweep over ALL active contacts (desktop polls every
     /// 5s, Android every 2s; iOS otherwise trusts the utxosChanged push alone for closed chats).
-    /// Serial per-contact `fetchContextualMessagesFromContact` calls, ~5s between sweeps, backs
-    /// off on indexer failure. Runs only while the app is active; cancelled on background,
-    /// wallet switch/teardown and logout. Owned by `startForegroundContactSweep()`.
+    /// Serial per-contact `fetchContextualMessagesFromContact` calls, ~30s between sweeps, backs
+    /// off on indexer failure. Runs only while the app is active AND the UTXO subscription is
+    /// down or unverified (see `isUtxoSubscriptionHealthy`); cancelled on background, wallet
+    /// switch/teardown and logout. Owned by `startForegroundContactSweep()`.
+    ///
+    /// It used to walk up to 40 contacts every 5 s whether or not the subscription was fine -
+    /// 250-480 indexer requests a minute on a busy wallet, more traffic than the subscription
+    /// it was backing up, and load on the indexer that grew with every user.
     var foregroundSweepTask: Task<Void, Never>?
-    /// Interval between full foreground sweeps; doubled (up to 60s) after a failed sweep so an
-    /// unreachable indexer is never hammered in a tight loop, reset to 5s on the next success.
-    let foregroundSweepBaseInterval: TimeInterval = 5.0
-    /// Sweep base interval on expensive (cellular/metered) paths - the sweep is defense in
-    /// depth behind the utxosChanged push and the open-chat poll, so cellular can afford a
-    /// slower walk. Resolved fresh each loop iteration, so a WiFi/cellular flip takes effect
-    /// on the next sweep.
-    let foregroundSweepExpensiveInterval: TimeInterval = 15.0
-    let foregroundSweepMaxInterval: TimeInterval = 60.0
-    /// Per-sweep contact cap: the most recently active contacts (by `Contact.lastMessageAt`)
-    /// that already have an incoming alias. Beyond this the push + catch-up sync still cover
-    /// everyone; the sweep is a fast path, not the only path.
-    let foregroundSweepMaxContacts = 40
+    /// Interval between sweeps while the subscription is down; doubled (up to the max) after a
+    /// failed sweep so an unreachable indexer is never hammered in a tight loop, reset on the
+    /// next success.
+    let foregroundSweepBaseInterval: TimeInterval = 30.0
+    /// Sweep base interval on expensive (cellular/metered) paths. Resolved fresh each loop
+    /// iteration, so a WiFi/cellular flip takes effect on the next sweep.
+    let foregroundSweepExpensiveInterval: TimeInterval = 60.0
+    let foregroundSweepMaxInterval: TimeInterval = 120.0
+    /// Per-sweep contact cap. The few most recently active contacts are in every pass
+    /// (`foregroundSweepPinnedContacts`); the rest of the window rotates through everyone
+    /// else, so with many contacts each one is reached within a few passes rather than the
+    /// long tail never being reached at all.
+    let foregroundSweepMaxContacts = 12
+    let foregroundSweepPinnedContacts = 4
+    /// Where the rotating part of the sweep window resumes on the next pass.
+    var foregroundSweepRotationOffset = 0
+    /// How recently the primary subscription must have been verified alive for the sweep to
+    /// stand down: three keepalive periods, so one missed ping does not wake it.
+    let utxoSubscriptionFreshness: TimeInterval = 45.0
     /// Group-chat backstop riding on the sweep loop. Live group delivery is the blockAdded
     /// block-scan (GroupChatService), whose only recovery is a catch-up on scenePhase .active -
     /// while the app SITS open, a block missed during a brief stream gap stayed missing until

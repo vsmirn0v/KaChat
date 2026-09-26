@@ -20,6 +20,10 @@ final class UtxoSubscriptionManager: ObservableObject {
     @Published private(set) var primaryEndpoint: Endpoint?
     @Published private(set) var standbyEndpoint: Endpoint?
     @Published private(set) var lastNotificationAt: Date?
+    /// The last moment the primary subscription was verified alive: a successful subscribe, or
+    /// a keepalive ping answered. Consumers that back the subscription up (the foreground
+    /// contact sweep) stand down while this is recent and step in when it goes stale.
+    @Published private(set) var lastHealthyAt: Date?
 
     // MARK: - Dependencies
 
@@ -151,6 +155,7 @@ final class UtxoSubscriptionManager: ObservableObject {
 
                 try await subscribeOn(endpoint: endpoint, isPrimary: true)
                 state = .subscribed
+        lastHealthyAt = Date()
                 primaryFailures = 0
 
                 // Start health monitoring
@@ -492,6 +497,7 @@ final class UtxoSubscriptionManager: ObservableObject {
 
             // Connection is alive
             primaryFailures = 0
+            lastHealthyAt = Date()
 
             // Feed the success into the registry: the subscription is the app's primary
             // long-lived connection, but its pings previously left no trace there, so the
@@ -613,6 +619,7 @@ final class UtxoSubscriptionManager: ObservableObject {
                 await resyncUtxoState()
 
                 state = .subscribed
+        lastHealthyAt = Date()
                 primaryFailures = 0
                 failoverAttempts = 0
                 isFailingOver = false
@@ -635,6 +642,7 @@ final class UtxoSubscriptionManager: ObservableObject {
                 await resyncUtxoState()
 
                 state = .subscribed
+        lastHealthyAt = Date()
                 primaryFailures = 0
                 failoverAttempts = 0
                 isFailingOver = false

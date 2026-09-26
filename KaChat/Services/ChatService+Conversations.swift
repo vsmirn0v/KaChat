@@ -292,6 +292,9 @@ extension ChatService {
               let privateKey = WalletManager.shared.getPrivateKey() else {
             return .skipped
         }
+        // The subscription delivers everything this sweep would find, within a second or two,
+        // for as long as it is verified alive. The sweep is for when it is not.
+        guard !isUtxoSubscriptionHealthy else { return .skipped }
         let myAddress = wallet.publicAddress
 
         // Incoming handshakes first, and BEFORE the empty-targets guard below, because neither
@@ -304,7 +307,7 @@ extension ChatService {
         }
         if Task.isCancelled { return .skipped }
 
-        let targets = foregroundSweepTargets(excluding: activeConversationAddress)
+        let targets = nextForegroundSweepWindow(excluding: activeConversationAddress)
         guard !targets.isEmpty else { return .succeeded }
 
         for address in targets {
@@ -366,13 +369,42 @@ extension ChatService {
         return true
     }
 
+    /// Whether the UTXO subscription is up and was verified alive recently enough to trust:
+    /// subscribed on a primary whose last successful subscribe or keepalive ping is within
+    /// `utxoSubscriptionFreshness`.
+    var isUtxoSubscriptionHealthy: Bool {
+        guard isUtxoSubscribed else { return false }
+        let manager = UtxoSubscriptionManager.shared
+        guard manager.state == .subscribed, let healthyAt = manager.lastHealthyAt else { return false }
+        return Date().timeIntervalSince(healthyAt) < utxoSubscriptionFreshness
+    }
+
+    /// This pass's window: the `foregroundSweepPinnedContacts` most recently active contacts
+    /// every time, then the next slice of everyone else, resuming where the last pass stopped.
+    private func nextForegroundSweepWindow(excluding openAddress: String?) -> [String] {
+        let ordered = foregroundSweepTargets(excluding: openAddress)
+        guard ordered.count > foregroundSweepMaxContacts else {
+            foregroundSweepRotationOffset = 0
+            return ordered
+        }
+        let pinned = Array(ordered.prefix(foregroundSweepPinnedContacts))
+        let rest = Array(ordered.dropFirst(foregroundSweepPinnedContacts))
+        let sliceSize = foregroundSweepMaxContacts - pinned.count
+        var slice: [String] = []
+        var index = foregroundSweepRotationOffset % rest.count
+        for _ in 0..<min(sliceSize, rest.count) {
+            slice.append(rest[index])
+            index = (index + 1) % rest.count
+        }
+        foregroundSweepRotationOffset = index
+        return pinned + slice
+    }
+
     /// Sweep target rule: active contacts that already have an incoming alias (no alias = no
     /// handshake yet = nothing to fetch, and `fetchContextualMessagesFromContact` would return
     /// early anyway), minus the currently-open chat, ordered by most recent activity
-    /// (`Contact.lastMessageAt` desc, then newest-added first), capped at
-    /// `foregroundSweepMaxContacts`. With hundreds of contacts the long tail is still served by
-    /// the push, the app-active catch-up sync and the fallback poll - the sweep just keeps the
-    /// conversations you actually use fresh.
+    /// (`Contact.lastMessageAt` desc, then newest-added first). `nextForegroundSweepWindow`
+    /// cuts a pass's window out of this.
     private func foregroundSweepTargets(excluding openAddress: String?) -> [String] {
         let candidates = contactsManager.activeContacts.filter { contact in
             contact.address != openAddress && !incomingAliases(for: contact.address).isEmpty
@@ -385,7 +417,7 @@ extension ChatService {
             default: return a.addedAt > b.addedAt
             }
         }
-        return ordered.prefix(foregroundSweepMaxContacts).map { $0.address }
+        return ordered.map { $0.address }
     }
 
     /// Fetch only handshakes (lightweight, needed to establish encryption keys)
