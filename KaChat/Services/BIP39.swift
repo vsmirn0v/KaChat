@@ -20,7 +20,10 @@ final class BIP39 {
 
     private func loadWordList() {
         guard let bundled = loadBundledWordList(), bundled.count == 2048 else {
-            preconditionFailure("BIP39 english.txt missing or invalid (expected exactly 2048 words).")
+            // Not a trap: a missing resource makes wallet creation fail with a message, not
+            // close the app. Every entry point checks `isFullWordListLoaded` and tries again.
+            AppLog.log("%@", "[BIP39] english.txt missing or invalid (expected exactly 2048 words)")
+            return
         }
         wordList = bundled
         wordIndex = Dictionary(uniqueKeysWithValues: bundled.enumerated().map { ($0.element, $0.offset) })
@@ -30,7 +33,7 @@ final class BIP39 {
 
     /// Ensure word list is loaded (async)
     func ensureWordListLoaded() async {
-        precondition(wordList.count == 2048, "BIP39 word list is not loaded.")
+        if !isFullWordListLoaded { loadWordList() }
     }
 
     /// Generate a new mnemonic with proper entropy and checksum (async version)
@@ -41,7 +44,8 @@ final class BIP39 {
 
     /// Generate a new mnemonic with proper entropy and checksum
     func generateMnemonic(wordCount: Int = 24) -> SeedPhrase? {
-        precondition(wordList.count == 2048, "BIP39 word list is not loaded.")
+        if !isFullWordListLoaded { loadWordList() }
+        guard isFullWordListLoaded else { return nil }
 
         guard wordCount == 12 || wordCount == 24 else { return nil }
 
@@ -106,7 +110,8 @@ final class BIP39 {
             return false
         }
 
-        precondition(wordList.count == 2048, "BIP39 word list is not loaded.")
+        if !isFullWordListLoaded { loadWordList() }
+        guard isFullWordListLoaded else { return false }
 
         // Convert words to indices via the O(1) index (this also validates membership).
         var indices: [Int] = []

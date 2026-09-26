@@ -14,6 +14,15 @@ final class GroupStore {
     private let container: NSPersistentContainer
     private(set) var currentWalletAddress: String?
     private var isLoaded = false
+    /// See `MessageStore.loadGeneration`.
+    private var loadGeneration = 0
+
+    private static let indexSpecs: [CoreDataIndexBuilder.Spec] = [
+        .init(entityName: CDGroupMessage.entityName, attributes: ["groupId", "blockTime"]),
+        .init(entityName: CDGroupMessage.entityName, attributes: ["txId"]),
+        .init(entityName: CDGroupReaction.entityName, attributes: ["groupId"]),
+        .init(entityName: CDGroupReaction.entityName, attributes: ["targetTxId"]),
+    ]
 
     private init() {
         container = NSPersistentContainer(name: "KaChatGroups", managedObjectModel: Self.makeModel())
@@ -27,8 +36,14 @@ final class GroupStore {
             .appendingPathComponent("KaChatGroups-\(hashPrefix).sqlite")
     }
 
-    func setCurrentWallet(_ walletAddress: String?) {
-        guard walletAddress != currentWalletAddress else { return }
+    /// The store opens off the main thread; `completion` runs on the main thread once it is
+    /// usable (or has failed), which is when the caller may read from it. Not rebuilt on an
+    /// unusable file the way the public chat cache is: the groups themselves live here.
+    func setCurrentWallet(_ walletAddress: String?, completion: (() -> Void)? = nil) {
+        guard walletAddress != currentWalletAddress else {
+            completion?()
+            return
+        }
 
         let coordinator = container.persistentStoreCoordinator
         for store in coordinator.persistentStores {
@@ -37,33 +52,34 @@ final class GroupStore {
 
         currentWalletAddress = walletAddress
         isLoaded = false
+        loadGeneration += 1
+        let generation = loadGeneration
 
-        guard let walletAddress else { return }
+        guard let walletAddress else {
+            completion?()
+            return
+        }
 
         let description = NSPersistentStoreDescription(url: storeURL(forWallet: walletAddress))
-        description.shouldMigrateStoreAutomatically = true
-        description.shouldInferMappingModelAutomatically = true
-        container.persistentStoreDescriptions = [description]
-        // Before the store is added, while nothing else has the file open. See
-        // `CoreDataIndexBuilder` for why these are created in SQLite rather than in the model.
-        CoreDataIndexBuilder.buildIndexesIfNeeded(
-            storeURL: storeURL(forWallet: walletAddress),
-            specs: [
-                .init(entityName: CDGroupMessage.entityName, attributes: ["groupId", "blockTime"]),
-                .init(entityName: CDGroupMessage.entityName, attributes: ["txId"]),
-                .init(entityName: CDGroupReaction.entityName, attributes: ["groupId"]),
-                .init(entityName: CDGroupReaction.entityName, attributes: ["targetTxId"]),
-            ]
-        )
-        container.loadPersistentStores { [weak self] _, error in
-            guard let self else { return }
+        CoreDataStoreLoader.load(container: container, description: description, indexSpecs: Self.indexSpecs) { [weak self] error in
+            guard let self else {
+                completion?()
+                return
+            }
+            guard generation == self.loadGeneration else {
+                CoreDataStoreLoader.detachStore(at: description.url, from: self.container)
+                completion?()
+                return
+            }
             if let error {
-                AppLog.log("[GroupStore] Failed to load store: %@", error.localizedDescription)
+                CoreDataStoreLoader.reportFailure(store: "GroupStore", error: error)
+                completion?()
                 return
             }
             self.isLoaded = true
             self.container.viewContext.automaticallyMergesChangesFromParent = true
             self.container.viewContext.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+            completion?()
         }
     }
 

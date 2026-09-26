@@ -775,35 +775,44 @@ final class GroupChatService: ObservableObject {
         loadGroupMentionsOnlyNotifications()
         loadGroupPhotos()
         loadGroupPhotoUpdatedAt()
-        store.setCurrentWallet(walletAddress)
-        groups = walletAddress == nil ? [] : store.allGroups()
+        groups = []
         groupMessages.removeAll()
         unreadCache.removeAll()
         replyingTo = nil
-        // Load every group's history off the main actor (see loadMessages), one group per run-loop
-        // tick, so a wallet with group history doesn't freeze the UI on login/launch. This used to
-        // be a synchronous decrypt storm (3 HKDF + ChaChaPoly per message, every group, inline).
-        let targetWallet = walletAddress
-        Task { [weak self] in
-            guard let self else { return }
-            for group in self.groups {
-                guard self.currentWalletAddress == targetWallet else { return }
-                // The same window the 1:1 side trims to. Every group used to be loaded in full
-                // here and stay resident for the process lifetime - ten busy groups was hundreds
-                // of MB. The chat list needs only the newest messages from a group that is not
-                // open; opening one loads its whole history.
-                self.loadMessages(for: group.id, newestLimit: ChatService.inMemoryConversationWindowSize)
-                // Reactions too: the chat list's reaction preview and the incoming-reaction
-                // replay check both need every group's index warm, not just opened groups'.
-                self.loadGroupReactions(for: group.id)
-                await Task.yield()
-            }
-            // Every group's history is now in memory - refresh the extension's own-txId list so
-            // reactions to this wallet's messages are recognized as personal in the push path.
-            SharedDataManager.syncOwnGroupTxIdsForExtension()
-        }
         updateScanningStateIfNeeded()
-        ChatService.shared.scheduleBadgeUpdate()
+        // The store opens off the main thread now; the groups are read once it says so.
+        let targetWallet = walletAddress
+        store.setCurrentWallet(walletAddress) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.currentWalletAddress == targetWallet else { return }
+                self.groups = targetWallet == nil ? [] : self.store.allGroups()
+                // Load every group's history off the main actor (see loadMessages), one group per
+                // run-loop tick, so a wallet with group history doesn't freeze the UI on
+                // login/launch. This used to be a synchronous decrypt storm (3 HKDF + ChaChaPoly
+                // per message, every group, inline).
+                Task { [weak self] in
+                    guard let self else { return }
+                    for group in self.groups {
+                        guard self.currentWalletAddress == targetWallet else { return }
+                        // The same window the 1:1 side trims to. Every group used to be loaded in
+                        // full here and stay resident for the process lifetime - ten busy groups
+                        // was hundreds of MB. The chat list needs only the newest messages from a
+                        // group that is not open; opening one loads its whole history.
+                        self.loadMessages(for: group.id, newestLimit: ChatService.inMemoryConversationWindowSize)
+                        // Reactions too: the chat list's reaction preview and the incoming-reaction
+                        // replay check both need every group's index warm, not just opened groups'.
+                        self.loadGroupReactions(for: group.id)
+                        await Task.yield()
+                    }
+                    // Every group's history is now in memory - refresh the extension's own-txId
+                    // list so reactions to this wallet's messages are recognized as personal in
+                    // the push path.
+                    SharedDataManager.syncOwnGroupTxIdsForExtension()
+                }
+                self.updateScanningStateIfNeeded()
+                ChatService.shared.scheduleBadgeUpdate()
+            }
+        }
     }
 
     /// Clears all local group data for the current wallet (Core Data + Keychain bags).

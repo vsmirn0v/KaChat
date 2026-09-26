@@ -60,6 +60,15 @@ final class PublicChatStore {
     private let container: NSPersistentContainer
     private(set) var currentWalletAddress: String?
     private var isLoaded = false
+    /// See `MessageStore.loadGeneration`.
+    private var loadGeneration = 0
+
+    private static let indexSpecs: [CoreDataIndexBuilder.Spec] = [
+        .init(entityName: CDPublicChatMessage.entityName, attributes: ["channelName", "blockTime"]),
+        .init(entityName: CDPublicChatMessage.entityName, attributes: ["id"]),
+        .init(entityName: CDPublicChatReaction.entityName, attributes: ["channelName"]),
+        .init(entityName: CDPublicChatReaction.entityName, attributes: ["targetTxId"]),
+    ]
 
     private init() {
         container = NSPersistentContainer(name: "KaChatBroadcasts", managedObjectModel: Self.makeModel())
@@ -74,9 +83,14 @@ final class PublicChatStore {
     }
 
     /// Switch to a different wallet's public chat store (own SQLite file per wallet,
-    /// following `MessageStore`'s per-wallet file-naming convention).
-    func setCurrentWallet(_ walletAddress: String?) {
-        guard walletAddress != currentWalletAddress else { return }
+    /// following `MessageStore`'s per-wallet file-naming convention). The store opens off the
+    /// main thread; `completion` runs on the main thread once it is usable (or has failed),
+    /// which is when the caller may read from it.
+    func setCurrentWallet(_ walletAddress: String?, completion: (() -> Void)? = nil) {
+        guard walletAddress != currentWalletAddress else {
+            completion?()
+            return
+        }
 
         let coordinator = container.persistentStoreCoordinator
         for store in coordinator.persistentStores {
@@ -85,33 +99,44 @@ final class PublicChatStore {
 
         currentWalletAddress = walletAddress
         isLoaded = false
+        loadGeneration += 1
 
-        guard let walletAddress else { return }
+        guard let walletAddress else {
+            completion?()
+            return
+        }
 
-        let description = NSPersistentStoreDescription(url: storeURL(forWallet: walletAddress))
-        description.shouldMigrateStoreAutomatically = true
-        description.shouldInferMappingModelAutomatically = true
-        container.persistentStoreDescriptions = [description]
-        // Before the store is added, while nothing else has the file open. See
-        // `CoreDataIndexBuilder` for why these are created in SQLite rather than in the model.
-        CoreDataIndexBuilder.buildIndexesIfNeeded(
-            storeURL: storeURL(forWallet: walletAddress),
-            specs: [
-                .init(entityName: CDPublicChatMessage.entityName, attributes: ["channelName", "blockTime"]),
-                .init(entityName: CDPublicChatMessage.entityName, attributes: ["id"]),
-                .init(entityName: CDPublicChatReaction.entityName, attributes: ["channelName"]),
-                .init(entityName: CDPublicChatReaction.entityName, attributes: ["targetTxId"]),
-            ]
-        )
-        container.loadPersistentStores { [weak self] _, error in
-            guard let self else { return }
+        load(NSPersistentStoreDescription(url: storeURL(forWallet: walletAddress)), generation: loadGeneration, isRetry: false, completion: completion)
+    }
+
+    private func load(_ description: NSPersistentStoreDescription, generation: Int, isRetry: Bool, completion: (() -> Void)?) {
+        CoreDataStoreLoader.load(container: container, description: description, indexSpecs: Self.indexSpecs) { [weak self] error in
+            guard let self else {
+                completion?()
+                return
+            }
+            guard generation == self.loadGeneration else {
+                CoreDataStoreLoader.detachStore(at: description.url, from: self.container)
+                completion?()
+                return
+            }
             if let error {
-                AppLog.log("[PublicChatStore] Failed to load store: %@", error.localizedDescription)
+                // This store is a cache of on-chain rows the indexer and the block scan refill.
+                // A file the model cannot open is rebuilt once rather than left dead.
+                if !isRetry, CoreDataStoreLoader.isUnusableStore(error), let url = description.url {
+                    AppLog.log("%@", "[PublicChatStore] Store unusable (\(error.localizedDescription)); rebuilding the cache")
+                    CoreDataStoreLoader.destroyStore(at: url, in: self.container)
+                    self.load(NSPersistentStoreDescription(url: url), generation: generation, isRetry: true, completion: completion)
+                    return
+                }
+                CoreDataStoreLoader.reportFailure(store: "PublicChatStore", error: error)
+                completion?()
                 return
             }
             self.isLoaded = true
             self.container.viewContext.automaticallyMergesChangesFromParent = true
             self.container.viewContext.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+            completion?()
         }
     }
 

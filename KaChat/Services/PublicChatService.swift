@@ -134,16 +134,22 @@ final class PublicChatService: ObservableObject {
     /// Switch to a different wallet's public chat store. Call alongside
     /// `MessageStore.shared.setCurrentWallet` at every wallet-lifecycle transition.
     func setCurrentWallet(_ walletAddress: String?) {
-        store.setCurrentWallet(walletAddress)
         self.walletAddress = walletAddress?.lowercased()
         messagesByChannel = [:]
         reactionsByChannel = [:]
         liveViewRefCounts = [:]
         loadReadState()
-        refreshChannels()
-        updateScanningStateIfNeeded()
         sweptChannels = []
-        if UIApplication.shared.applicationState == .active { startForegroundSweep() }
+        // The store opens off the main thread now; the rooms are read once it says so.
+        let targetWallet = walletAddress?.lowercased()
+        store.setCurrentWallet(walletAddress) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.walletAddress == targetWallet else { return }
+                self.refreshChannels()
+                self.updateScanningStateIfNeeded()
+                if UIApplication.shared.applicationState == .active { self.startForegroundSweep() }
+            }
+        }
     }
 
     // MARK: - Foreground sweep of closed rooms

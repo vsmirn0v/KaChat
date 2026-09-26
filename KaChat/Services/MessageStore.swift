@@ -37,6 +37,9 @@ final class MessageStore {
     private var isLoaded = false
     private var didLogMissingStore = false
     private let inMemoryMode: Bool
+    /// Bumped on every load. A load that finishes after a later one began belongs to a wallet
+    /// the store has moved past; its file is detached instead of joining the new one.
+    private var loadGeneration = 0
 
     /// Current wallet address. Each wallet has its own SQLite store.
     /// Call `setCurrentWallet()` to switch wallets - this reloads the persistent store.
@@ -1741,8 +1744,8 @@ final class MessageStore {
         ]
         description.setOption(pragmas as NSDictionary, forKey: NSSQLitePragmasOption)
 
-        // Store configuration for reliability
-        description.shouldAddStoreAsynchronously = false
+        // Store configuration for reliability. The add itself runs off the main thread - see
+        // `CoreDataStoreLoader`.
         description.shouldMigrateStoreAutomatically = true
         description.shouldInferMappingModelAutomatically = true
     }
@@ -1760,11 +1763,9 @@ final class MessageStore {
     ]
 
     private func loadPersistentStores(primaryDescription: NSPersistentStoreDescription, completion: (() -> Void)? = nil) {
-        // Before the store is added, while nothing else has the file open.
-        if let url = primaryDescription.url {
-            CoreDataIndexBuilder.buildIndexesIfNeeded(storeURL: url, specs: Self.sqliteIndexSpecs)
-        }
-        container.loadPersistentStores { [weak self] _, error in
+        loadGeneration += 1
+        let generation = loadGeneration
+        CoreDataStoreLoader.load(container: container, description: primaryDescription, indexSpecs: Self.sqliteIndexSpecs) { [weak self] error in
             // `completion` backs `setCurrentWallet(_:) async`'s `withCheckedContinuation` - every
             // exit path below MUST call it, even on failure, or that continuation hangs forever
             // with no timeout and no way to recover (previously the two failure branches here
@@ -1774,8 +1775,15 @@ final class MessageStore {
                 completion?()
                 return
             }
+            guard generation == self.loadGeneration else {
+                // A later switch overtook this load: its file must not sit beside the new one.
+                CoreDataStoreLoader.detachStore(at: primaryDescription.url, from: self.container)
+                completion?()
+                return
+            }
             if let error {
-                self.logInfo("[MessageStore] Failed to load store: \(error)")
+                // Never rebuilt here: this is the user's history, not a cache.
+                CoreDataStoreLoader.reportFailure(store: "MessageStore", error: error)
                 completion?()
                 return
             }
