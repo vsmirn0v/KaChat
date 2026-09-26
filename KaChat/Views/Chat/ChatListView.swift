@@ -1419,24 +1419,15 @@ struct ConversationRow: View {
                 HStack {
                     if let lastMessage {
                         if lastMessage.isOutgoing || lastMessage.deliveryStatus == .warning {
-                            switch lastMessage.deliveryStatus {
-                            case .sent:
-                                Image(systemName: "checkmark")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            case .pending:
-                                Image(systemName: "clock")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            case .failed:
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            case .warning:
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .font(.caption2)
-                                    .foregroundColor(.orange)
-                            }
+                            let status: DeliveryStatusLabel.Status = {
+                                switch lastMessage.deliveryStatus {
+                                case .sent: return .sent
+                                case .pending: return .pending
+                                case .failed: return .failed
+                                case .warning: return .warning
+                                }
+                            }()
+                            DeliveryStatusLabel(status: status, compact: true)
                         }
 
                         Text(reactionPreviewText ?? formatPreview(lastMessage.content))

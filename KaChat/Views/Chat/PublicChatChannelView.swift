@@ -1943,25 +1943,16 @@ private struct PublicChatMessageRow: View {
     }
 
     private var deliveryBadge: some View {
-        ZStack {
-            Circle()
-                .fill(Color.black)
-                .frame(width: 14, height: 14)
-            switch message.deliveryStatus {
-            case .failed:
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.scaled(size: 11))
-                    .foregroundColor(.red)
-            case .pending:
-                Image(systemName: "clock.fill")
-                    .font(.scaled(size: 10))
-                    .foregroundColor(.gray)
-            case .sent:
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.scaled(size: 11))
-                    .foregroundColor(.green)
-            }
+        let status: DeliveryStatusLabel.Status
+        switch message.deliveryStatus {
+        case .failed: status = .failed
+        case .pending: status = .pending
+        case .sent: status = .sent
         }
+        return DeliveryStatusLabel(status: status, retry: message.deliveryStatus == .failed ? onRetry : nil)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.black.opacity(0.75)))
     }
 }
 

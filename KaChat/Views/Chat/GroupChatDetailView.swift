@@ -2782,26 +2782,15 @@ private struct GroupMessageBubbleRow: View {
         .buttonStyle(.plain)
     }
 
-    @ViewBuilder
     private var statusIcon: some View {
+        let status: DeliveryStatusLabel.Status
         switch message.deliveryStatus {
-        case .sent:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.caption2)
-                .foregroundColor(.green)
-        case .pending:
-            Image(systemName: "clock")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        case .failed:
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.caption2)
-                .foregroundColor(.red)
-        case .warning:
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.caption2)
-                .foregroundColor(.orange)
+        case .sent: status = .sent
+        case .pending: status = .pending
+        case .failed: status = .failed
+        case .warning: status = .warning
         }
+        return DeliveryStatusLabel(status: status, retry: message.deliveryStatus == .failed ? onRetry : nil)
     }
 }
 

@@ -810,3 +810,75 @@ extension Font {
         .system(size: UIFontMetrics.default.scaledValue(for: size), weight: weight, design: design)
     }
 }
+
+// MARK: - Delivery status
+
+/// The state of an outgoing message, said in words next to its glyph: "Sending", "Sent",
+/// "Failed · Tap to retry". The glyph alone was a colour-coded dot that VoiceOver read as
+/// nothing and a colour-blind reader could not tell apart. `retry` makes the failed state a
+/// button.
+struct DeliveryStatusLabel: View {
+    enum Status {
+        case pending, sent, failed, warning
+    }
+
+    let status: Status
+    var retry: (() -> Void)? = nil
+    /// The chat list's smaller, secondary rendering.
+    var compact: Bool = false
+
+    var body: some View {
+        if status == .failed, let retry {
+            Button(action: retry) { content }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Failed to send. Tap to retry.")
+        } else {
+            content.accessibilityLabel(accessibilityText)
+        }
+    }
+
+    private var content: some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+            Text(text)
+        }
+        .font(.caption2)
+        .foregroundColor(color)
+    }
+
+    private var icon: String {
+        switch status {
+        case .sent: return compact ? "checkmark" : "checkmark.circle.fill"
+        case .pending: return "clock"
+        case .failed: return "exclamationmark.circle.fill"
+        case .warning: return "exclamationmark.circle.fill"
+        }
+    }
+
+    private var text: String {
+        switch status {
+        case .sent: return "Sent"
+        case .pending: return "Sending"
+        case .failed: return retry == nil ? "Failed" : "Failed · Tap to retry"
+        case .warning: return "Needs attention"
+        }
+    }
+
+    private var color: Color {
+        switch status {
+        case .sent: return compact ? .secondary : .green
+        case .pending: return .secondary
+        case .failed: return .red
+        case .warning: return .orange
+        }
+    }
+
+    private var accessibilityText: String {
+        switch status {
+        case .sent: return "Sent"
+        case .pending: return "Sending"
+        case .failed: return "Failed to send"
+        case .warning: return "Needs attention"
+        }
+    }
+}
