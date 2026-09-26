@@ -32,6 +32,8 @@
 	<string>KaChat uses Contacts to import Kaspa addresses and link names from your address book.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>KaChat uses the microphone for voice and video calls and to record audio messages.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>KaChat connects to a Kaspa node or a Nextcloud server on your local network only if you configure one, and to other phones on it during calls.</string>
 	<key>NSSiriUsageDescription</key>
 	<string>Lets you start a KaChat call by asking Siri.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
