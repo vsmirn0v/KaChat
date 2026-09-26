@@ -133,8 +133,6 @@
 		F5A71C3C1061AA2FFE3F837F /* KaChatTransactionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */; };
 		FEESHIM0001000100000002 /* FeeShimmerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */; };
 		GEOIP00012F90000100000002 /* geoip-lite.json in Resources */ = {isa = PBXBuildFile; fileRef = GEOIP00012F90000100000001 /* geoip-lite.json */; };
-		GIFT00010001000100000001 /* GiftService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000001 /* GiftService.swift */; };
-		GIFT00010001000100000002 /* GiftClaimView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000002 /* GiftClaimView.swift */; };
 		GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = GN0001A0000000000000001 /* GlobalNotificationCenter.swift */; };
 		GRCP00010001000100000001 /* GroupCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRCP00010001000000000001 /* GroupCipher.swift */; };
 		GRCS00010001000100000001 /* GroupChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRCS00010001000000000001 /* GroupChatService.swift */; };
@@ -398,8 +396,6 @@
 		FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatTransactionBuilder.swift; sourceTree = "<group>"; };
 		FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeeShimmerOverlay.swift; sourceTree = "<group>"; };
 		GEOIP00012F90000100000001 /* geoip-lite.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "geoip-lite.json"; sourceTree = "<group>"; };
-		GIFT00010001000000000001 /* GiftService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftService.swift; sourceTree = "<group>"; };
-		GIFT00010001000000000002 /* GiftClaimView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftClaimView.swift; sourceTree = "<group>"; };
 		GN0001A0000000000000001 /* GlobalNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalNotificationCenter.swift; sourceTree = "<group>"; };
 		GRCP00010001000000000001 /* GroupCipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCipher.swift; sourceTree = "<group>"; };
 		GRCS00010001000000000001 /* GroupChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatService.swift; sourceTree = "<group>"; };
@@ -721,7 +717,6 @@
 				PUSH00010001000000000002 /* SharedDataManager.swift */,
 				SHSH00010001000000000001 /* SharedOutboundShare.swift */,
 				RDSS00010001000000000001 /* ReadStatusSyncManager.swift */,
-				GIFT00010001000000000001 /* GiftService.swift */,
 				ADDRACT0001000100000001 /* AddressActivityService.swift */,
 				CACHEMGR00010001000000000001 /* CacheManager.swift */,
 				BCST00010001000000000001 /* PublicChatStore.swift */,
@@ -837,7 +832,6 @@
 				WRV0001A000000000000001 /* WalletRecoveryView.swift */,
 				E810FA112D4C00010000000B /* PassphraseOptionView.swift */,
 				E810FB112D4C00010000000B /* SeedPhraseKeyboardView.swift */,
-				GIFT00010001000000000002 /* GiftClaimView.swift */,
 				WLCM0000000000000002 /* WelcomeGuideView.swift */,
 				CHAD00010001000000000001 /* ChattingAddressPickerView.swift */,
 				IMSW00010001000000000001 /* ImportSourceWalletView.swift */,
@@ -1451,10 +1445,8 @@
 				SECV00010001000100000001 /* SecureView.swift in Sources */,
 				SHRT00010001000100000001 /* KaChatContactEntity.swift in Sources */,
 				SHRT00010001000100000002 /* KaChatShortcuts.swift in Sources */,
-				GIFT00010001000100000001 /* GiftService.swift in Sources */,
 				ADDRACT0001000100000002 /* AddressActivityService.swift in Sources */,
 				CACHEMGR00010001000100000001 /* CacheManager.swift in Sources */,
-				GIFT00010001000100000002 /* GiftClaimView.swift in Sources */,
 				BCST00010001000100000001 /* PublicChatStore.swift in Sources */,
 				GRST00010001000100000001 /* GroupStore.swift in Sources */,
 				GRCS00010001000100000001 /* GroupChatService.swift in Sources */,

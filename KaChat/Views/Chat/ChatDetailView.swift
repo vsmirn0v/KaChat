@@ -248,8 +248,6 @@ struct ChatDetailView: View {
     /// drops Send Photo / Send Audio in favor of "Send from Nextcloud", and the message bar
     /// grows camera + mic buttons whose captures ride the Nextcloud auto-upload send path.
     @ObservedObject private var nextcloudService = NextcloudService.shared
-    /// Zero-balance gate: the Claim Gift button reflects live claim state (hidden once claimed).
-    @ObservedObject private var giftService = GiftService.shared
     @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
     /// The exact bytes the pending photo was attached from (picker/camera/paste/drop), kept so
@@ -2470,11 +2468,6 @@ struct ChatDetailView: View {
             do {
                 try await chatService.sendMessage(to: contact, content: text, feeOverride: feeOverride)
             } catch {
-                if shouldPromptGiftClaim(for: error) {
-                    await MainActor.run {
-                        NotificationCenter.default.post(name: .showGiftClaim, object: nil)
-                    }
-                }
                 let errorMsg = error.localizedDescription
                 AppLog.log("[ChatDetailView] Send message failed: %@", errorMsg)
                 await MainActor.run {
@@ -2871,7 +2864,7 @@ struct ChatDetailView: View {
     // MARK: - Zero-Balance Chat Gate
 
     /// Shown above the (disabled) composer when the chatting address holds a confirmed 0 KAS -
-    /// offers the gift-claim flow, plus the address itself (QR + copy) so the user can fund it
+    /// shows the address itself (QR + copy) so the user can fund it
     /// from anywhere. Disappears automatically once `balanceSompi` goes positive (reactive via
     /// `walletManager.currentWallet`). The card body lives in the shared
     /// `ZeroBalanceFundingCardView` (bottom of this file), reused by group chats, public chat
@@ -4009,11 +4002,6 @@ struct ChatDetailView: View {
                 } catch {
                     // The chain send itself failed — an on-chain image envelope would fail the
                     // same way, so surface the error instead of falling back.
-                    if shouldPromptGiftClaim(for: error) {
-                        await MainActor.run {
-                            NotificationCenter.default.post(name: .showGiftClaim, object: nil)
-                        }
-                    }
                     await MainActor.run {
                         self.error = displayErrorMessage(error)
                     }
@@ -4041,11 +4029,6 @@ struct ChatDetailView: View {
                 isEstimatingFee = false
             }
         } catch {
-            if shouldPromptGiftClaim(for: error) {
-                await MainActor.run {
-                    NotificationCenter.default.post(name: .showGiftClaim, object: nil)
-                }
-            }
             await MainActor.run {
                 self.error = displayErrorMessage(error)
             }
@@ -4554,9 +4537,6 @@ struct ChatDetailView: View {
                     } catch {
                         // The chain send itself failed — an on-chain audio envelope would fail
                         // the same way, so surface the error instead of falling back.
-                        if shouldPromptGiftClaim(for: error) {
-                            NotificationCenter.default.post(name: .showGiftClaim, object: nil)
-                        }
                         self.error = displayErrorMessage(error)
                     }
                     isSending = false
@@ -4594,11 +4574,6 @@ struct ChatDetailView: View {
                         switchMode(.message)
                     }
                 } catch {
-                    if shouldPromptGiftClaim(for: error) {
-                        await MainActor.run {
-                            NotificationCenter.default.post(name: .showGiftClaim, object: nil)
-                        }
-                    }
                     await MainActor.run {
                         self.error = displayErrorMessage(error)
                     }
@@ -4689,15 +4664,6 @@ struct ChatDetailView: View {
             searchStart = range.upperBound
         }
         return false
-    }
-
-    private func shouldPromptGiftClaim(for error: Error) -> Bool {
-        if case let KasiaError.networkError(message) = error {
-            let lowered = message.lowercased()
-            return lowered.contains("zero balance") || lowered.contains("available balance 0 kas")
-        }
-        let lowered = error.localizedDescription.lowercased()
-        return lowered.contains("zero balance") || lowered.contains("available balance 0 kas")
     }
 
 }
@@ -5208,8 +5174,8 @@ private final class AudioRecorderDelegate: NSObject, AVAudioRecorderDelegate {
 
 // MARK: - Shared Zero-Balance Funding Card
 
-/// The zero-balance funding card - "fund your chatting address" title, gift-state-aware Claim
-/// Gift, QR of the chatting address, and the address itself with a copy affordance. Shared by
+/// The zero-balance funding card - "fund your chatting address" title, QR of the chatting
+/// address, and the address itself with a copy affordance. Shared by
 /// the 1:1 chat gate (this file), `GroupChatDetailView`, `PublicChatChannelView`, and KaPosts'
 /// compose/reply interception (`ZeroBalanceFundingSheetView` below). Lives in this file rather
 /// than its own to avoid pbxproj churn - see the repo's dangling-reference history.
@@ -5218,13 +5184,7 @@ struct ZeroBalanceFundingCardView: View {
     /// Called after the address hits the pasteboard so the host can show its own toast; when
     /// nil (sheet contexts without a toast helper) the copy icon flips to a checkmark instead.
     var onCopied: ((String) -> Void)? = nil
-    /// Overrides the Claim Gift action. Default (nil) posts `.showGiftClaim`, which
-    /// `MainTabView` turns into the existing `GiftClaimView` sheet - the right mechanism when
-    /// the card is inline. Sheet hosts pass their own handler since MainTabView can't present
-    /// while another sheet is already up.
-    var onClaimGift: (() -> Void)? = nil
 
-    @ObservedObject private var giftService = GiftService.shared
     @State private var qrImage: UIImage?
     @State private var showCopiedCheckmark = false
 
@@ -5234,36 +5194,6 @@ struct ZeroBalanceFundingCardView: View {
                 .font(.subheadline.weight(.semibold))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-
-            // Claim Gift only while it's actually claimable — GiftService remembers a past
-            // claim (persisted flag + live claimState), so a claimed/ineligible gift shows
-            // an inert note instead of a button that would dead-end.
-            switch giftService.claimState {
-            case .claimed, .alreadyClaimed:
-                Label("Gift already requested", systemImage: "gift")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            default:
-                Button {
-                    Haptics.impact(.light)
-                    if let onClaimGift {
-                        onClaimGift()
-                    } else {
-                        // Re-triggers the existing gift-claim flow - MainTabView listens for
-                        // this (same mechanism as `shouldPromptGiftClaim`-driven posts in
-                        // ChatDetailView).
-                        NotificationCenter.default.post(name: .showGiftClaim, object: nil)
-                    }
-                } label: {
-                    Label("Claim Gift", systemImage: "gift.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Capsule().fill(Color.accentColor))
-                }
-                .buttonStyle(.plain)
-            }
 
             if let qrImage {
                 Image(uiImage: qrImage)
@@ -5346,29 +5276,20 @@ struct ZeroBalanceFundingCardView: View {
 
 /// Sheet host for the funding card - used where the zero-balance gate intercepts an action
 /// (KaPosts' new-post and reply entry points) instead of locking an always-visible composer.
-/// Presents `GiftClaimView` in a nested sheet (MainTabView's `.showGiftClaim` listener can't
-/// present its sheet while this one is up), and auto-dismisses the moment the chatting
-/// balance turns positive.
+/// Auto-dismisses the moment the chatting balance turns positive.
 struct ZeroBalanceFundingSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var walletManager = WalletManager.shared
-    @State private var showGiftClaimSheet = false
 
     var body: some View {
         ScrollView {
-            ZeroBalanceFundingCardView(
-                address: walletManager.currentWallet?.publicAddress,
-                onClaimGift: { showGiftClaimSheet = true }
-            )
+            ZeroBalanceFundingCardView(address: walletManager.currentWallet?.publicAddress)
             .padding(.horizontal)
             .padding(.top, 20)
             .padding(.bottom, 16)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .sheet(isPresented: $showGiftClaimSheet) {
-            GiftClaimView()
-        }
         .onChange(of: walletManager.currentWallet?.balanceSompi) { balance in
             if let balance, balance > 0 { dismiss() }
         }

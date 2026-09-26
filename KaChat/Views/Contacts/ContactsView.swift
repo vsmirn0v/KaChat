@@ -14,7 +14,6 @@ struct ProfileView: View {
     // whole Profile scroll recompute on ChatService's high-frequency sync churn (per-message
     // `conversations` mutations, per-RPC node-latency updates) for the first ~15s after login,
     // which was the scroll jank. The connection dot is its own small view with its own observation.
-    @EnvironmentObject var giftService: GiftService
     // Same reasoning for ContactsManager: its only use here is one call inside `donate()`, via
     // ContactsManager.shared, so observing it made every contact mutation (KNS sweeps, system
     // contact imports, alias edits) rebuild this whole scroll for nothing.
@@ -26,7 +25,6 @@ struct ProfileView: View {
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
-    @State private var giftAlreadyClaimedTapCount = 0
     @State private var isLoadingKNS = false
     @State private var knsDomains: [KNSDomain] = []
     @State private var knsPrimaryDomain: String?
@@ -76,14 +74,6 @@ struct ProfileView: View {
                         yourDomainsSection
                         settingsSection
                         helpSection
-                        // Only while there is something to claim. Once it is claimed the row was
-                        // a permanent "Gift already requested" line on the main profile screen -
-                        // an answer to a question nobody is still asking. It keeps its own
-                        // section in Settings, where the state (and the reset gesture) stays
-                        // reachable forever.
-                        if !isGiftSettled {
-                            claimGiftSection
-                        }
                         logOutSection
                         aboutSection(wallet)
                     } else {
@@ -393,11 +383,6 @@ struct ProfileView: View {
                     self.qrImage = image
                 }
             }
-            .onChange(of: giftService.claimState) { newValue in
-                if newValue != .alreadyClaimed {
-                    giftAlreadyClaimedTapCount = 0
-                }
-            }
         }
     }
 
@@ -536,16 +521,6 @@ struct ProfileView: View {
         }
         .buttonStyle(.plain)
         .background(glassBackground(cornerRadius: 18))
-    }
-
-    /// True once the gift is done with for this wallet, either way - nothing left for the
-    /// profile screen to offer.
-    private var isGiftSettled: Bool {
-        // `.claimed` carries the tx id, so this pattern-matches rather than compares.
-        switch giftService.claimState {
-        case .claimed, .alreadyClaimed: return true
-        default: return false
-        }
     }
 
     /// Entry to the Help screen: every guide in one place.
@@ -1312,70 +1287,6 @@ struct ProfileView: View {
                     .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
             )
             .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-    }
-
-    /// Single row above Log Out instead of a whole card section that used to disappear once
-    /// claimed/unavailable (or entirely once balance was non-zero) - always visible now, matching
-    /// the Welcome Guide funding step's version of this same `GiftService.shared` state machine:
-    /// tappable while `.eligible`, grayed out with a relabel otherwise. The `.alreadyClaimed`
-    /// case keeps the hidden 10-tap reset gesture the old card had (support/debug tool) - the
-    /// button itself is never `.disabled()` so that gesture keeps registering even when the
-    /// primary claim action is a no-op.
-    private var claimGiftSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button {
-                switch giftService.claimState {
-                case .eligible:
-                    guard let address = walletManager.currentWallet?.publicAddress else { return }
-                    Task { await giftService.claimGift(walletAddress: address) }
-                default:
-                    break
-                }
-            } label: {
-                HStack {
-                    Text(giftRowTitle)
-                        .foregroundColor(isGiftClaimable ? .primary : .secondary)
-                    Spacer()
-                    if giftService.claimState == .claiming {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: isGiftClaimable ? "gift.fill" : "gift")
-                            .foregroundColor(isGiftClaimable ? .accentColor : .secondary)
-                    }
-                }
-                .padding(16)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(glassBackground(cornerRadius: 18))
-
-            if case .unavailable(let reason) = giftService.claimState {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundColor(.red)
-                    .padding(.horizontal, 16)
-            }
-        }
-    }
-
-    private var isGiftClaimable: Bool {
-        giftService.claimState == .eligible
-    }
-
-    private var giftRowTitle: String {
-        switch giftService.claimState {
-        case .checking, .eligible:
-            return "Claim Gift"
-        case .claiming:
-            return "Claiming gift..."
-        case .claimed:
-            return "Gift claimed"
-        case .alreadyClaimed:
-            return "Gift already requested"
-        case .unavailable:
-            return "Gift unavailable"
-        }
     }
 
     /// Bottom-most section on Profile - merges what used to be a separate "Info" section
@@ -5368,7 +5279,6 @@ struct SystemContactLinkPickerSheet: View {
         .environmentObject(WalletManager.shared)
         .environmentObject(ContactsManager.shared)
         .environmentObject(ChatService.shared)
-        .environmentObject(GiftService.shared)
 }
 
 

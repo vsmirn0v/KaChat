@@ -12,7 +12,6 @@ struct KaChatApp: App {
     @StateObject private var chatService = ChatService.shared
     @StateObject private var settingsViewModel = SettingsViewModel()
     @StateObject private var pushManager = PushNotificationManager.shared
-    @StateObject private var giftService = GiftService.shared
     @StateObject private var publicChatService = PublicChatService.shared
     @StateObject private var groupChatService = GroupChatService.shared
     @State private var pendingOutboundShareId: String?
@@ -56,7 +55,6 @@ struct KaChatApp: App {
                 .environmentObject(chatService)
                 .environmentObject(settingsViewModel)
                 .environmentObject(pushManager)
-                .environmentObject(giftService)
                 .environmentObject(publicChatService)
                 .environmentObject(groupChatService)
                 .overlay {
@@ -1149,7 +1147,6 @@ extension Notification.Name {
     /// the TabView, where nothing it does to the dock can dismiss it.
     static let openCustomizeDock = Notification.Name("openCustomizeDock")
     static let openGroup = Notification.Name("openGroup")
-    static let showGiftClaim = Notification.Name("showGiftClaim")
 }
 
 /// What the App Switcher and a system prompt see instead of the app's contents.

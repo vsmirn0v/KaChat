@@ -4817,9 +4817,8 @@ struct KaPostsView: View {
                         .padding(.bottom, 70)
                 }
                 .sheet(isPresented: $showReplyFundingSheet) {
-                    // Nested sheet on the thread sheet's own content - MainTabView's gift
-                    // listener can't present while this detail sheet is up, so the funding
-                    // card (and its Claim Gift flow) presents from in here instead.
+                    // Nested sheet on the thread sheet's own content, so the funding card
+                    // presents from in here rather than from MainTabView.
                     ZeroBalanceFundingSheetView()
                 }
                 .sheet(item: $threadEngagementTarget) { target in

@@ -74,7 +74,6 @@ struct WelcomeGuideView: View {
 
     @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
-    @EnvironmentObject private var giftService: GiftService
 
     private enum Step: Int, CaseIterable {
         case welcome
@@ -752,8 +751,7 @@ struct WelcomeGuideView: View {
                     // funded chatting balance - at a nonzero derivation index. Pushes the
                     // scanner INSIDE the wizard's NavigationStack; after a switch it pops back
                     // here and this step re-renders with the new address automatically
-                    // (chattingAddress reads the live currentWallet, and the gift claim
-                    // resolves the address at tap time).
+                    // (chattingAddress reads the live currentWallet).
                     if isOnboardingRun, walletManager.justImportedWallet {
                         NavigationLink {
                             ChattingAddressPickerView()
@@ -763,82 +761,10 @@ struct WelcomeGuideView: View {
                         }
                     }
 
-                    giftClaimSection
                 }
             },
             action: { step = .nodeConnection }
         )
-    }
-
-    /// Same `GiftService.shared` state machine already surfaced in Settings/Profile
-    /// (`ContactsView.swift`'s `giftSection`) - offered here too since a brand-new account with a
-    /// zero balance is exactly the moment this is most useful, right where the guide is already
-    /// asking the user to fund their chatting address. Unlike the Profile card's version, this one
-    /// stays visible in every state rather than disappearing once claimed/unavailable - it just
-    /// grays out and relabels itself, so the guide never has a step that silently loses a whole
-    /// row of content depending on gift state.
-    private var giftClaimSection: some View {
-        VStack(spacing: 6) {
-            Button {
-                guard giftService.claimState == .eligible,
-                      let address = walletManager.currentWallet?.publicAddress else { return }
-                Task { await giftService.claimGift(walletAddress: address) }
-            } label: {
-                HStack(spacing: 8) {
-                    if giftService.claimState == .claiming {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Image(systemName: giftButtonIcon)
-                    }
-                    Text(giftButtonTitle)
-                }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(isGiftClaimable ? Color.accentColor : Color(.systemGray4))
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .disabled(!isGiftClaimable)
-
-            if case .unavailable(let reason) = giftService.claimState {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    private var isGiftClaimable: Bool {
-        giftService.claimState == .eligible
-    }
-
-    private var giftButtonIcon: String {
-        switch giftService.claimState {
-        case .claimed:
-            return "checkmark.circle.fill"
-        default:
-            return "gift.fill"
-        }
-    }
-
-    private var giftButtonTitle: String {
-        switch giftService.claimState {
-        case .checking, .eligible:
-            return "Claim a Gift of 2 Kaspa to Get Started"
-        case .claiming:
-            return "Claiming gift..."
-        case .claimed:
-            return "Gift claimed"
-        case .alreadyClaimed:
-            return "Gift already requested"
-        case .unavailable:
-            return "Gift unavailable"
-        }
     }
 
     // MARK: - Node connection step

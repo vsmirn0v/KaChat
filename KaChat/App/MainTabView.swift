@@ -26,7 +26,6 @@ struct MainTabView: View {
     @State private var showCustomizeDock = false
     /// Debounces the off-chat-tab discovery pause/resume so rapid tab-flipping can't thrash it.
     @State private var tabWorkTask: Task<Void, Never>?
-    @State private var showGiftSheet = false
     @State private var showWelcomeGuide = false
     /// The guide is being re-presented because a first run was interrupted (app killed) before
     /// the Adult/Child step was answered - jump straight back to that step.
@@ -43,7 +42,6 @@ struct MainTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
-    @EnvironmentObject var giftService: GiftService
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     // Red dot on the Profile tab while the bell (which lives on the Profile screen)
     // holds unread notifications.
@@ -146,9 +144,6 @@ struct MainTabView: View {
                 chatService.releaseSyncForOnboarding()
             }
         }
-        .sheet(isPresented: $showGiftSheet) {
-            GiftClaimView()
-        }
         .fullScreenCover(isPresented: $showInitialSyncProgress) {
             InitialSyncProgressModal(onDismiss: { showInitialSyncProgress = false })
         }
@@ -228,9 +223,6 @@ struct MainTabView: View {
                         }
                     }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showGiftClaim)) { _ in
-            presentGiftSheetIfEligibleForZeroBalance()
         }
         .onReceive(NotificationCenter.default.publisher(for: .localStoreLoadFailed)) { note in
             storeLoadFailure = Self.storeFailureMessage(from: note)
@@ -420,32 +412,6 @@ struct MainTabView: View {
         ProfileView.preloadQRCode(for: address)
     }
 
-    /// Only reached reactively now, via `.showGiftClaim` (posted from `ChatDetailView` when a
-    /// send fails for insufficient funds) - the unprompted auto-popup this used to also fire from
-    /// on every launch/balance-zero/claim-state change was removed since the Welcome Guide's
-    /// funding step now offers the same claim inline for new accounts, the moment they'd actually
-    /// need it.
-    private func presentGiftSheetIfEligibleForZeroBalance() {
-        guard walletManager.currentWallet?.balanceSompi == 0 else { return }
-
-        switch giftService.claimState {
-        case .eligible:
-            if !showGiftSheet {
-                showGiftSheet = true
-            }
-        case .checking:
-            Task { @MainActor in
-                await giftService.checkEligibility()
-                guard walletManager.currentWallet?.balanceSompi == 0 else { return }
-                guard giftService.claimState == .eligible else { return }
-                if !showGiftSheet {
-                    showGiftSheet = true
-                }
-            }
-        default:
-            break
-        }
-    }
 }
 
 #Preview {
@@ -454,7 +420,6 @@ struct MainTabView: View {
         .environmentObject(ContactsManager.shared)
         .environmentObject(ChatService.shared)
         .environmentObject(SettingsViewModel())
-        .environmentObject(GiftService.shared)
         .environmentObject(PublicChatService.shared)
 }
 
