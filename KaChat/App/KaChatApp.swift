@@ -201,6 +201,7 @@ struct KaChatApp: App {
             // No indexer sweeping while backgrounded - the push / background fetch paths own that.
             ChatService.shared.stopForegroundContactSweep()
             ChatService.shared.stopActiveChatPollForBackground()
+            GroupChatService.shared.stopLivePolling()
             // Schedule background fetch when app goes to background
             if settingsViewModel.settings.backgroundFetchEnabled {
                 BackgroundTaskManager.shared.scheduleBackgroundFetch()
@@ -238,6 +239,8 @@ struct KaChatApp: App {
             ChatService.shared.startForegroundContactSweep()
             // And the 2s open-chat poll, if a conversation was open when we went to background.
             ChatService.shared.resumeActiveChatPollIfNeeded()
+            // Group traffic from the indexer while the app is open (block stream as fallback).
+            GroupChatService.shared.startLivePolling()
 
             // Keep the Share Extension's data sources fresh on activation too - previously
             // contacts synced only on .background, so a fresh install that had never

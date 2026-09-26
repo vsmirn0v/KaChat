@@ -391,6 +391,66 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         }
     }
 
+    struct GroupMessagesSinceResponse: Decodable {
+        let messages: [GroupMessageResponse]
+        let latestBlockTime: UInt64?
+    }
+
+    struct GroupControlSinceResponse: Decodable {
+        let controls: [GroupControlResponse]
+        let latestBlockTime: UInt64?
+    }
+
+    private struct GroupMessagesSinceBody: Encodable {
+        let blindedGroupIds: [String]
+        let sinceBlockTime: UInt64
+        let limit: Int
+    }
+
+    private struct GroupControlSinceBody: Encodable {
+        let senders: [String]
+        let recipient: String
+        let sinceBlockTime: UInt64
+        let limit: Int
+    }
+
+    /// Remembered for the session once the server says it has no `since` reads.
+    private var groupSinceUnsupported = false
+
+    /// Everything newer than `sinceBlockTime` across the given blinded ids, oldest first
+    /// (`POST /group-messages/since`, GROUP_MESSAGES_INDEXER.md §2). Nil when the indexer does
+    /// not serve it; the group service then keeps the block stream for live delivery.
+    func getGroupMessagesSince(blindedGroupIds: [String], sinceBlockTime: UInt64, limit: Int = 200) async throws -> GroupMessagesSinceResponse? {
+        let unsupported = sessionLock.withLock { groupSinceUnsupported }
+        guard !unsupported, !blindedGroupIds.isEmpty else { return nil }
+        do {
+            return try await postJSON(
+                endpoint: "/group-messages/since",
+                body: GroupMessagesSinceBody(blindedGroupIds: blindedGroupIds, sinceBlockTime: sinceBlockTime, limit: limit)
+            )
+        } catch KasiaAPIClientError.endpointUnsupported {
+            sessionLock.withLock { groupSinceUnsupported = true }
+            AppLog.log("%@", "[KasiaAPI] Indexer has no group 'since' reads; groups stay on the block stream")
+            return nil
+        }
+    }
+
+    /// Control newer than `sinceBlockTime` from the given admins or addressed to `recipient`
+    /// (`POST /group-control/since`). Nil when the indexer does not serve it.
+    func getGroupControlSince(senders: [String], recipient: String, sinceBlockTime: UInt64, limit: Int = 200) async throws -> GroupControlSinceResponse? {
+        let unsupported = sessionLock.withLock { groupSinceUnsupported }
+        guard !unsupported else { return nil }
+        do {
+            return try await postJSON(
+                endpoint: "/group-control/since",
+                body: GroupControlSinceBody(senders: senders, recipient: recipient, sinceBlockTime: sinceBlockTime, limit: limit)
+            )
+        } catch KasiaAPIClientError.endpointUnsupported {
+            sessionLock.withLock { groupSinceUnsupported = true }
+            return nil
+        }
+    }
+
     /// A JSON POST against the indexer, on the same session and queue as `get`. Deliberately
     /// without `get`'s HTTP/1.1 and fallback-session dance: the one caller is best-effort and
     /// falls back to `get` itself.

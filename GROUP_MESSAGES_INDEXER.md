@@ -77,20 +77,32 @@ POST /group-messages/since
 ```
 
 Response: `{ "messages": [ ...rows... ], "latestBlockTime": 1790000012345 }` - every row across
-the given ids with `blockTime > sinceBlockTime`, oldest first, capped at `limit`; the client
-pages by feeding `latestBlockTime` back. Up to 256 ids per request.
+the given ids with `blockTime > sinceBlockTime`, oldest first, capped at `limit` (row shape as
+in section 1); `latestBlockTime` is the newest `blockTime` in the answer, or `sinceBlockTime`
+when there is none. Up to 256 ids per request; reject more with 400.
 
-And the same for control:
+And the same for control - rows from any of `senders` (admins, self-stash `gctl`) OR addressed
+to `recipient`, the union, oldest first:
 
 ```
 POST /group-control/since
-{ "senders": ["kaspa:...", ...], "recipient": "kaspa:...", "sinceBlockTime": ..., "limit": 200 }
+{ "senders": ["kaspa:...", ...], "recipient": "kaspa:...", "sinceBlockTime": 1790000000000, "limit": 200 }
 ```
 
-With those two the app polls open groups every 5 s and all groups every 30 s, the way rooms
-poll `/get-broadcasts` today, and never registers for blocks. Indexing latency of a few
-seconds is fine: the block stream's only advantage was immediacy, and the push server already
-covers the closed-app case.
+Response: `{ "controls": [ ...control rows... ], "latestBlockTime": ... }` with the same row shape
+as `GET /group-control/by-sender`.
+
+Status 200 on success; **404, 405 and 501** mean "not served here" and the app stops asking
+for the session and keeps the block stream.
+
+**Client behaviour, already shipped (`GroupChatService.startLivePolling`):** while the app is
+open and the wallet has groups, the open group's ids are asked every 5 s (15 s on cellular) and
+every group's ids plus control every 30 s (60 s on cellular). Each pass starts 10 s before its
+cursor for reorg and clock skew; rows dedupe by txId. A full page (`limit` rows) is followed
+straight away from its `latestBlockTime`. From the first 200 answer on, the app **does not
+register for `blockAdded`** for groups any more; a 404 puts the stream back. The push server
+covers the closed-app case as before, and the cursor-based catch-up still runs every three
+minutes as the safety net.
 
 ## Notes for the implementer
 

@@ -70,9 +70,126 @@ final class GroupChatService: ObservableObject {
 
     private var blockNotificationHandlerId: UUID?
     private var isScanningActive = false
-    /// Whether group messages are arriving live from the block stream right now. The catch-up
-    /// ride-along on the foreground sweep runs less often while this is true.
-    var isBlockStreamLive: Bool { isScanningActive }
+    /// Whether group traffic is arriving live right now - from the indexer poll, or from the
+    /// block stream where the indexer has no `since` reads. The catch-up ride-along on the
+    /// foreground sweep runs less often while this is true.
+    var isLiveDeliveryActive: Bool { isScanningActive || (livePollTask != nil && indexerLiveDeliveryAvailable) }
+
+    // MARK: - Live delivery from the indexer
+
+    /// The foreground poll behind `startLivePolling`: the open group every few seconds, every
+    /// group plus control every half minute. While the indexer answers, the block stream is
+    /// not registered for groups at all (`updateScanningStateIfNeeded`) - the stream was tens
+    /// of megabytes an hour and the largest battery cost in the app, for a few seconds'
+    /// immediacy that a poll against the indexer gives up nothing anyone notices.
+    private var livePollTask: Task<Void, Never>?
+    /// The indexer answered a `since` read this session. Flips the block-stream gate.
+    private var indexerLiveDeliveryAvailable = false {
+        didSet { if oldValue != indexerLiveDeliveryAvailable { updateScanningStateIfNeeded() } }
+    }
+    /// Two cursors: the open group's fast poll must not move the one the all-groups pass
+    /// reads from, or messages in other groups between the two would be skipped.
+    private var openGroupSinceBlockTime: UInt64 = 0
+    private var allGroupsSinceBlockTime: UInt64 = 0
+    private static let livePollOpenGroupSeconds: Double = 5
+    private static let livePollAllGroupsSeconds: Double = 30
+    /// A pass starts a little before its cursor: the indexer's clock and a reorg both move.
+    private static let livePollRewindMs: UInt64 = 10_000
+    private static let livePollStartLookbackMs: UInt64 = 2 * 60 * 1000
+
+    func startLivePolling() {
+        guard livePollTask == nil, hasActiveWallet else { return }
+        livePollTask = Task { @MainActor [weak self] in
+            var lastFullPass = Date.distantPast
+            while !Task.isCancelled {
+                guard let self else { return }
+                let expensive = NetworkEpochMonitor.shared.isExpensivePath
+                let fullEvery = Self.livePollAllGroupsSeconds * (expensive ? 2 : 1)
+                if UIApplication.shared.applicationState == .active, !self.groups.isEmpty {
+                    let full = Date().timeIntervalSince(lastFullPass) >= fullEvery
+                    if full {
+                        lastFullPass = Date()
+                        await self.pollIndexerForLiveGroupTraffic(groups: self.groups, includeControl: true, cursor: \.allGroupsSinceBlockTime)
+                    } else if let open = self.activeGroupId, let group = self.groups.first(where: { $0.id == open }) {
+                        await self.pollIndexerForLiveGroupTraffic(groups: [group], includeControl: false, cursor: \.openGroupSinceBlockTime)
+                    }
+                    if Task.isCancelled { return }
+                }
+                try? await Task.sleep(nanoseconds: UInt64(Self.livePollOpenGroupSeconds * (expensive ? 3 : 1) * 1_000_000_000))
+            }
+        }
+    }
+
+    func stopLivePolling() {
+        livePollTask?.cancel()
+        livePollTask = nil
+    }
+
+    /// One pass: the given groups' messages since the cursor, and control since it when asked.
+    /// Rows go through the same ingest as the catch-up sync and the block scan, which dedupe
+    /// by txId, so the deliberate overlap between passes is harmless.
+    private func pollIndexerForLiveGroupTraffic(
+        groups: [GroupChat],
+        includeControl: Bool,
+        cursor: ReferenceWritableKeyPath<GroupChatService, UInt64>
+    ) async {
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+        let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
+        if self[keyPath: cursor] == 0 { self[keyPath: cursor] = nowMs - Self.livePollStartLookbackMs }
+        let since = self[keyPath: cursor] > Self.livePollRewindMs ? self[keyPath: cursor] - Self.livePollRewindMs : 0
+
+        var blindedIds: [String] = []
+        for group in groups {
+            guard let bag = try? keychain.loadGroupBag(groupId: group.id),
+                  let blindingKey = Data(hexString: bag.blindingKey) else { continue }
+            for member in group.members {
+                guard let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { continue }
+                blindedIds.append(GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey).hexString)
+            }
+        }
+        guard !blindedIds.isEmpty else { return }
+
+        var newest = self[keyPath: cursor]
+        do {
+            // Messages, paged: a full page means more may be waiting past it.
+            var page = since
+            for _ in 0..<10 {
+                guard let response = try await KasiaAPIClient.shared.getGroupMessagesSince(blindedGroupIds: Array(blindedIds.prefix(256)), sinceBlockTime: page, limit: 200) else {
+                    indexerLiveDeliveryAvailable = false
+                    stopLivePolling()
+                    return
+                }
+                if !indexerLiveDeliveryAvailable {
+                    AppLog.log("%@", "[GroupChatService] Indexer serves group 'since' reads; live delivery moves off the block stream")
+                    indexerLiveDeliveryAvailable = true
+                }
+                for msg in response.messages {
+                    guard let payloadString = Self.reconstructPayloadString(prefix: Self.gcommPrefix, messagePayloadHex: msg.messagePayload),
+                          let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else { continue }
+                    handleIncomingGroupMessage(parsed, txId: msg.txId, blockTime: Int64(msg.blockTime))
+                    newest = max(newest, msg.blockTime)
+                }
+                let latest = response.latestBlockTime ?? response.messages.map(\.blockTime).max() ?? page
+                newest = max(newest, latest)
+                guard response.messages.count >= 200, latest > page else { break }
+                page = latest
+            }
+            if includeControl {
+                let senders = Array(Set(groups.map(\.adminAddress).filter { !$0.isEmpty }))
+                if let response = try await KasiaAPIClient.shared.getGroupControlSince(senders: senders, recipient: wallet.publicAddress, sinceBlockTime: since, limit: 200) {
+                    for msg in response.controls {
+                        guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
+                        handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
+                        newest = max(newest, msg.blockTime)
+                    }
+                }
+            }
+            self[keyPath: cursor] = newest
+        } catch {
+            // The next tick tries again; the cursor stays where it was.
+            AppLog.log("[GroupChatService] Live indexer poll failed: %@", error.localizedDescription)
+        }
+    }
     /// Read from the (nonisolated) block-notification callback as a cheap pre-parse gate; written
     /// only alongside isScanningActive on the main actor. Benign bool race by design.
     private nonisolated(unsafe) var isScanningActiveMirror = false
@@ -778,6 +895,9 @@ final class GroupChatService: ObservableObject {
         loadGroupMentionsOnlyNotifications()
         loadGroupPhotos()
         loadGroupPhotoUpdatedAt()
+        stopLivePolling()
+        openGroupSinceBlockTime = 0
+        allGroupsSinceBlockTime = 0
         groups = []
         groupMessages.removeAll()
         unreadCache.removeAll()
@@ -816,6 +936,7 @@ final class GroupChatService: ObservableObject {
                     SharedDataManager.syncOwnGroupTxIdsForExtension()
                 }
                 self.updateScanningStateIfNeeded()
+                if UIApplication.shared.applicationState == .active { self.startLivePolling() }
                 ChatService.shared.scheduleBadgeUpdate()
             }
         }
@@ -2087,10 +2208,13 @@ final class GroupChatService: ObservableObject {
         // real contention that visibly delayed the app connecting to any nodes at all (found via
         // the same issue on Android's mirrored GroupScanningService). Waiting for at least one
         // active node means this only starts once there's already a healthy connection to piggyback on.
+        // And never while the indexer delivers live (see `startLivePolling`): the stream is
+        // the fallback for an indexer without the `since` reads, not the primary path.
         let shouldScan = hasActiveWallet
             && !groups.isEmpty
             && !NetworkEpochMonitor.shared.isExpensivePath
             && NodePoolService.shared.activeNodeCount > 0
+            && !indexerLiveDeliveryAvailable
         guard shouldScan != isScanningActive else { return }
         isScanningActive = shouldScan
         isScanningActiveMirror = shouldScan
