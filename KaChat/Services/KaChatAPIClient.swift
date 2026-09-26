@@ -4,6 +4,8 @@ import Security
 
 enum KasiaAPIClientError: Error {
     case dpiPaginationExhausted(endpoint: String)
+    /// The server answered 404/405/501: it does not serve this endpoint (an older indexer).
+    case endpointUnsupported(endpoint: String)
 }
 
 /// Gate for the per-request [KasiaAPI] log lines. The unified logging system rate-limits (and
@@ -346,6 +348,68 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             startCursor: cursor,
             getCursor: { $0.cursor }
         )
+    }
+
+    /// One lane of a batched group-message request: a member's blinded group id, where its
+    /// cursor stands, and how many rows to return. See GROUP_MESSAGES_INDEXER.md.
+    struct GroupMessagesBatchQuery: Encodable {
+        let blindedGroupId: String
+        let cursor: String?
+        let limit: Int
+    }
+
+    private struct GroupMessagesBatchResult: Decodable {
+        let blindedGroupId: String
+        let messages: [GroupMessageResponse]
+    }
+
+    private struct GroupMessagesBatchResponse: Decodable {
+        let results: [GroupMessagesBatchResult]
+    }
+
+    /// Remembered for the session once the server says it has no batched endpoint, so the
+    /// per-member path is used without a wasted request per group per pass.
+    private var groupMessagesBatchUnsupported = false
+
+    /// Every member's page in ONE request (`POST /group-messages/by-blinded-group-ids`), keyed
+    /// by blinded group id in the result. Nil when the indexer does not serve the endpoint;
+    /// the caller then falls back to `getGroupMessages` per member, which is what every pass
+    /// used to do: 1 + admins + members requests per group, every minute.
+    func getGroupMessagesBatch(_ queries: [GroupMessagesBatchQuery]) async throws -> [String: [GroupMessageResponse]]? {
+        sessionLock.lock(); let unsupported = groupMessagesBatchUnsupported; sessionLock.unlock()
+        guard !unsupported, !queries.isEmpty else { return nil }
+        do {
+            let response: GroupMessagesBatchResponse = try await postJSON(
+                endpoint: "/group-messages/by-blinded-group-ids",
+                body: ["queries": queries]
+            )
+            return Dictionary(response.results.map { ($0.blindedGroupId, $0.messages) }, uniquingKeysWith: { first, _ in first })
+        } catch KasiaAPIClientError.endpointUnsupported {
+            sessionLock.lock(); groupMessagesBatchUnsupported = true; sessionLock.unlock()
+            AppLog.log("%@", "[KasiaAPI] Indexer has no batched group-messages endpoint; using one request per member")
+            return nil
+        }
+    }
+
+    /// A JSON POST against the indexer, on the same session and queue as `get`. Deliberately
+    /// without `get`'s HTTP/1.1 and fallback-session dance: the one caller is best-effort and
+    /// falls back to `get` itself.
+    private func postJSON<Body: Encodable, T: Decodable & Sendable>(endpoint: String, body: Body) async throws -> T {
+        guard let url = URL(string: baseURL + endpoint) else {
+            throw KasiaError.networkError("Invalid URL")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+        return try await requestQueue.enqueue { [self] in
+            let (data, response) = try await session.data(for: request)
+            if let http = response as? HTTPURLResponse, [404, 405, 501].contains(http.statusCode) {
+                throw KasiaAPIClientError.endpointUnsupported(endpoint: endpoint)
+            }
+            return try processResponse(data: data, response: response, url: url)
+        }
     }
 
     // MARK: - Group Control

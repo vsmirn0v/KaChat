@@ -350,7 +350,11 @@ final class ChatService: ObservableObject {
     /// `GroupChatService.performCatchUpSync()` at most once per this interval as the group
     /// equivalent of the 1:1 contact sweep.
     var lastForegroundGroupCatchUpAt: Date?
-    let foregroundGroupCatchUpInterval: TimeInterval = 60.0
+    /// Every three minutes while the block stream is delivering group messages live (the
+    /// catch-up then only covers stream gaps), every minute while it is not.
+    var foregroundGroupCatchUpInterval: TimeInterval {
+        GroupChatService.shared.isBlockStreamLive ? 180.0 : 60.0
+    }
     /// The one-shot 4-phase initial sync started by `startPolling`. Tracked so wallet transitions
     /// (import/switch/logout) can cancel it - otherwise the previous wallet's historical sync keeps
     /// running past the switch and writes its messages into the *new* wallet's store, leaking one

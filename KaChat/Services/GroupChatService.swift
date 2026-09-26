@@ -70,6 +70,9 @@ final class GroupChatService: ObservableObject {
 
     private var blockNotificationHandlerId: UUID?
     private var isScanningActive = false
+    /// Whether group messages are arriving live from the block stream right now. The catch-up
+    /// ride-along on the foreground sweep runs less often while this is true.
+    var isBlockStreamLive: Bool { isScanningActive }
     /// Read from the (nonisolated) block-notification callback as a cheap pre-parse gate; written
     /// only alongside isScanningActive on the main actor. Benign bool race by design.
     private nonisolated(unsafe) var isScanningActiveMirror = false
@@ -2573,10 +2576,15 @@ final class GroupChatService: ObservableObject {
             guard let bag = try? keychain.loadGroupBag(groupId: group.id),
                   let blindingKey = Data(hexString: bag.blindingKey) else { continue }
 
-            for member in group.members {
-                guard let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { continue }
-                let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey)
-                await catchUpGroupMessages(groupId: group.id, blindedGroupIdHex: blindedGroupId.hexString)
+            let blindedIds: [String] = group.members.compactMap { member in
+                guard let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { return nil }
+                return GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey).hexString
+            }
+            // Every member in one request where the indexer serves the batched endpoint
+            // (GROUP_MESSAGES_INDEXER.md); one request per member where it does not.
+            if await catchUpGroupMessagesBatched(groupId: group.id, blindedIds: blindedIds) { continue }
+            for blindedId in blindedIds {
+                await catchUpGroupMessages(groupId: group.id, blindedGroupIdHex: blindedId)
             }
         }
 
@@ -2768,6 +2776,70 @@ final class GroupChatService: ObservableObject {
         // makes that resume happen. Without this, a stream longer than 2000 items restarted from
         // nothing on every launch and could never reach its own newest end.
         markDeepBackfilled(syncKey)
+    }
+
+    /// The batched form of `catchUpGroupMessages`: every member's lane advances in the same
+    /// request, each with its own cursor and deep-backfill state, until every lane has reached
+    /// its end or spent its page budget. Returns false only when the indexer has no batched
+    /// endpoint, so the caller runs the per-member path instead; a request that fails for any
+    /// other reason is logged and counts as handled (the per-member path would fail the same
+    /// way, at member count times the cost).
+    private func catchUpGroupMessagesBatched(groupId: String, blindedIds: [String]) async -> Bool {
+        guard !blindedIds.isEmpty else { return true }
+        struct Lane {
+            var cursor: String?
+            var pagesLeft = 40
+            var done = false
+        }
+        var lanes: [String: Lane] = [:]
+        for blindedId in blindedIds {
+            let syncKey = "gcomm|\(groupId)|\(blindedId)"
+            let isDeepBackfill = !groupDeepBackfilled.contains(syncKey)
+            lanes[blindedId] = Lane(cursor: isDeepBackfill ? nil : groupCatchUpCursors[syncKey])
+        }
+        while true {
+            let active = lanes.filter { !$0.value.done && $0.value.pagesLeft > 0 }
+            guard !active.isEmpty else { break }
+            let queries = active.map { KasiaAPIClient.GroupMessagesBatchQuery(blindedGroupId: $0.key, cursor: $0.value.cursor, limit: 50) }
+            let results: [String: [GroupMessageResponse]]
+            do {
+                guard let batch = try await KasiaAPIClient.shared.getGroupMessagesBatch(queries) else { return false }
+                results = batch
+            } catch {
+                AppLog.log("[GroupChatService] Batched catch-up fetch failed for group %@: %@",
+                           String(groupId.prefix(12)), error.localizedDescription)
+                return true
+            }
+            for (blindedId, _) in active {
+                let syncKey = "gcomm|\(groupId)|\(blindedId)"
+                let messages = results[blindedId] ?? []
+                if messages.isEmpty {
+                    markDeepBackfilled(syncKey)
+                    lanes[blindedId]?.done = true
+                    continue
+                }
+                for msg in messages {
+                    guard let payloadString = Self.reconstructPayloadString(prefix: Self.gcommPrefix, messagePayloadHex: msg.messagePayload),
+                          let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else { continue }
+                    handleIncomingGroupMessage(parsed, txId: msg.txId, blockTime: Int64(msg.blockTime))
+                }
+                // Cursor AFTER the page is ingested, never before - see catchUpGroupMessages.
+                let cursor = messages.last?.cursor
+                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
+                lanes[blindedId]?.cursor = cursor
+                lanes[blindedId]?.pagesLeft -= 1
+                if messages.count < 50 {
+                    markDeepBackfilled(syncKey)
+                    lanes[blindedId]?.done = true
+                }
+            }
+        }
+        // Page budget spent mid-stream on some lane: the walk was contiguous, so resuming from
+        // its cursor next run loses nothing - see catchUpGroupMessages.
+        for (blindedId, lane) in lanes where !lane.done {
+            markDeepBackfilled("gcomm|\(groupId)|\(blindedId)")
+        }
+        return true
     }
 
     /// Paged for the same reason as `catchUpGroupMessages`, and it matters more here: control
