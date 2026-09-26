@@ -16,6 +16,9 @@ struct KaChatApp: App {
     @StateObject private var publicChatService = PublicChatService.shared
     @StateObject private var groupChatService = GroupChatService.shared
     @State private var pendingOutboundShareId: String?
+    /// The blur over the app in the App Switcher and behind system prompts: balances, chats
+    /// and the seed screen used to sit in iOS's snapshot of the app in plain view.
+    @State private var showPrivacyCover = false
     @State private var isProcessingOutboundShare = false
     @State private var lastActiveResyncAt: Date?
     @State private var hasCompletedFirstActiveTransition = false
@@ -56,6 +59,13 @@ struct KaChatApp: App {
                 .environmentObject(giftService)
                 .environmentObject(publicChatService)
                 .environmentObject(groupChatService)
+                .overlay {
+                    if showPrivacyCover {
+                        PrivacyCoverView()
+                            .transition(.opacity)
+                    }
+                }
+                .animation(.easeOut(duration: 0.15), value: showPrivacyCover)
                 .onAppear {
                     ChatService.shared.settingsViewModel = settingsViewModel
                     applyWindowAppearanceOverride()
@@ -180,6 +190,9 @@ struct KaChatApp: App {
     }
 
     private func handleScenePhaseChange(to newPhase: ScenePhase) {
+        // Covered the moment the app stops being the thing in front (the switcher, a system
+        // prompt, a call), uncovered when it is again.
+        showPrivacyCover = newPhase != .active
         switch newPhase {
         case .background:
             // Persist any debounced message draft immediately so it survives termination.
@@ -1134,4 +1147,19 @@ extension Notification.Name {
     static let openCustomizeDock = Notification.Name("openCustomizeDock")
     static let openGroup = Notification.Name("openGroup")
     static let showGiftClaim = Notification.Name("showGiftClaim")
+}
+
+/// What the App Switcher and a system prompt see instead of the app's contents.
+private struct PrivacyCoverView: View {
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            Image("KaspaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 72, height: 72)
+                .opacity(0.9)
+        }
+        .ignoresSafeArea()
+    }
 }
