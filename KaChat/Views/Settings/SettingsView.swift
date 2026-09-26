@@ -615,7 +615,7 @@ fileprivate func settingsCategoryRow<Destination: View>(
 // (see AppSettingsView) can host the SAME views without a wallet loaded. The in-account
 // SettingsView embeds them unchanged, so there's exactly one source of truth per page.
 
-/// Security page: biometric toggles + Child Mode. All fields live in the global AppSettings
+/// Security page: biometric toggles + Simple Mode. All fields live in the global AppSettings
 /// blob / device Keychain - nothing here needs an active account, which is exactly why Child
 /// Mode is reachable from the accounts list (a parent can manage it without unlocking anything).
 struct SecuritySettingsPage: View {
@@ -681,10 +681,10 @@ struct SecuritySettingsPage: View {
                 } label: {
                     HStack {
                         Label {
-                            Text("Child Mode")
+                            Text("Simple Mode")
                                 .foregroundColor(.primary)
                         } icon: {
-                            Image(systemName: "figure.and.child.holdinghands")
+                            Image(systemName: "lock.shield")
                                 .foregroundColor(.accentColor)
                         }
                         Spacer()
@@ -1028,7 +1028,7 @@ struct DiagnosticsSettingsPage: View {
 
 /// The app-wide settings tier, reachable from the accounts list's gear button when no account
 /// is active. Contains ONLY settings that apply to the entire install: Customization
-/// (Appearance/Language/Currency - not the per-account dock), Security (including Child Mode -
+/// (Appearance/Language/Currency - not the per-account dock), Security (including Simple Mode -
 /// deliberately manageable without unlocking any account), Connection endpoints, and
 /// Diagnostics. Everything account-specific (dock, chats, contacts, storage, chat history,
 /// notifications, danger zone) intentionally lives only in the in-account SettingsView.
@@ -1311,7 +1311,7 @@ struct WalletNotificationSettingsView: View {
 
 /// Settings > Notifications > KaPosts: per-event-type gates for KaPosts pings, mapped from
 /// the K notifications API's action kinds (see AppSettings.shouldNotifyKaPostsAction).
-/// Disabled types are silently skipped - never queued for later. Orthogonal to Child Mode,
+/// Disabled types are silently skipped - never queued for later. Orthogonal to Simple Mode,
 /// which suppresses all KaPosts pings regardless of these.
 struct KaPostsNotificationSettingsView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel

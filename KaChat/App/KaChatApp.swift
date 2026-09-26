@@ -700,7 +700,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             let activeAddress = ChatService.shared.activeConversationAddress
             let threadId = notification.request.content.threadIdentifier
             let settings = AppSettings.load()
-            // Child Mode: never display KaPosts/public chat notifications. Registration already
+            // Simple Mode: never display KaPosts/public chat notifications. Registration already
             // drops the public chat channels + KaPosts pubkey (see PushNotificationManager), but a
             // push can still race the re-registration - suppress it client-side too.
             if settings.childModeEnabled, threadId == "kaposts" || threadId.hasPrefix("broadcast:") {
@@ -892,7 +892,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // "group:<groupId>" for a group chat notification.
         let threadIdentifier = response.notification.request.content.threadIdentifier
 
-        // Child Mode: a stray KaPosts/public chat notification tap (e.g. one delivered before the
+        // Simple Mode: a stray KaPosts/public chat notification tap (e.g. one delivered before the
         // mode was switched on, or a remote push that raced the re-registration) must not route
         // into the hidden features - land on the main Chats screen instead.
         if AppSettings.load().childModeEnabled,
@@ -1087,7 +1087,7 @@ enum KaChatLinkRouter {
 
     @MainActor
     private static func openKaPost(txId: String) {
-        // Child Mode: KaPosts links (universal https://.../post/<txid> and kachat://kapost/...)
+        // Simple Mode: KaPosts links (universal https://.../post/<txid> and kachat://kapost/...)
         // no-op to the main screen instead of opening the hidden feature.
         guard !AppSettings.load().childModeEnabled else {
             NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
@@ -1102,7 +1102,7 @@ enum KaChatLinkRouter {
 
     @MainActor
     private static func openPublicChatRoom(channel: String) {
-        // Child Mode removes Public Chats entirely (see AppTab.isEnabled) - same no-op to the main
+        // Simple Mode removes Public Chats entirely (see AppTab.isEnabled) - same no-op to the main
         // screen KaPosts links get, rather than opening a hidden feature by link.
         guard !AppSettings.load().childModeEnabled else {
             NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])

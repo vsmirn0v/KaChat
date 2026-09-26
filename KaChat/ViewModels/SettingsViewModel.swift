@@ -71,9 +71,9 @@ extension AppSettings {
     }
 
     func dockOverlay() -> DockOverlay {
-        // Raw hide flags, NOT AppTab.isEnabled: isEnabled also applies the Child Mode mask
+        // Raw hide flags, NOT AppTab.isEnabled: isEnabled also applies the Simple Mode mask
         // (Swap/KaPosts/Public Chats forced off), and baking that mask into the persisted
-        // per-account overlay would leave those tabs hidden even after Child Mode is turned
+        // per-account overlay would leave those tabs hidden even after Simple Mode is turned
         // back off. The overlay must only ever record the user's own dock choices.
         var hidden: [String] = []
         if hidePortfolioTab { hidden.append(AppTab.portfolio.rawValue) }
@@ -293,7 +293,7 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func resetToDefaults() {
-        // Child Mode survives a settings reset (Danger Zone account wipe) - its password record
+        // Simple Mode survives a settings reset (Danger Zone account wipe) - its password record
         // lives in the Keychain and outlives UserDefaults, so the flag must not silently drop
         // back to off without the password ever being entered.
         let childModeEnabled = settings.childModeEnabled

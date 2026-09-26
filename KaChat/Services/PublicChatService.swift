@@ -1528,7 +1528,7 @@ final class PublicChatService: ObservableObject {
         guard !store.hiddenSenderAddresses(forChannel: channel).contains(senderAddress) else { return }
         let settings = AppSettings.load()
         guard settings.notificationsEnabled else { return }
-        // Child Mode removes Public Chats entirely - no local banners for them either.
+        // Simple Mode removes Public Chats entirely - no local banners for them either.
         // The remote push is the only banner source - see `ChatService.localBannersEnabled`.
         guard ChatService.localBannersEnabled else { return }
         guard !settings.childModeEnabled else { return }

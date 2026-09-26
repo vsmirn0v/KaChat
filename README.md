@@ -46,7 +46,7 @@ Current deployment target is iOS 16.0 (widgets require iOS 17.0). The current re
 - In-app swap via ChangeNow
 - Cold storage accounts with air-gapped signing (KSPT QR flow, KasSigner companion)
 - Gift claim onboarding flow
-- Child Mode (parent-set password gate for sensitive actions)
+- Simple Mode (parent-set password gate for sensitive actions)
 - Chat history backup and cross-device sync: encrypted Nextcloud backup/auto-sync
 - Home screen widgets, share extension, and App Shortcuts
 - Configurable network endpoints (Kaspa REST API, Indexer, KNS API)

@@ -1251,7 +1251,7 @@ final class KaPostsNotificationService {
         let settings = AppSettings.load()
         guard WalletManager.shared.currentWallet != nil,
               let key = lastSeenKey else { return }
-        // Child Mode removes KaPosts entirely - no notification pings for it either.
+        // Simple Mode removes KaPosts entirely - no notification pings for it either.
         guard !settings.childModeEnabled else { return }
         do {
             let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 50).notifications

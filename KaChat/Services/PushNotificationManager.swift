@@ -1486,7 +1486,7 @@ final class PushNotificationManager: ObservableObject {
     /// service sends public chat-room pushes for these while the app is closed. Bell off =
     /// channel excluded = no push.
     private func collectWatchedPublicChatChannels() -> [String] {
-        // Child Mode: no public chat channels registered with the push service at all. Toggling
+        // Simple Mode: no public chat channels registered with the push service at all. Toggling
         // the mode posts .settingsDidChange -> refreshRegistrationIfNeeded -> updateWatchedAddresses,
         // whose fingerprint includes this list, so the re-registration happens automatically.
         guard !AppSettings.load().childModeEnabled else { return [] }
@@ -1514,7 +1514,7 @@ final class PushNotificationManager: ObservableObject {
     /// The wallet's K (KaPosts) identity - the push service sends "actions on your content"
     /// pushes for it while the app is closed. Nil when no wallet is loaded.
     private func collectKaPostsPubkey() -> String? {
-        // Child Mode: no KaPosts identity registered with the push service - same auto
+        // Simple Mode: no KaPosts identity registered with the push service - same auto
         // re-registration path as collectWatchedPublicChatChannels above.
         guard !AppSettings.load().childModeEnabled else { return nil }
         return try? KaPostsAPIClient.shared.requesterPubkey()

@@ -79,7 +79,7 @@ struct WelcomeGuideView: View {
     private enum Step: Int, CaseIterable {
         case welcome
         /// "Who will use KaChat?" - Adult continues as normal, Child sets a password and turns
-        /// Child Mode on from first launch. Deliberately placed BEFORE the language step.
+        /// Simple Mode on from first launch. Deliberately placed BEFORE the language step.
         case userType
         case language
         case currency
@@ -123,7 +123,7 @@ struct WelcomeGuideView: View {
     }
 
     /// One step back. The Adult/Child step is skipped on the way back — its choice
-    /// (including turning Child Mode on) applies the moment it's made.
+    /// (including turning Simple Mode on) applies the moment it's made.
     private func goBack() {
         let target: Step?
         switch step {
@@ -326,33 +326,33 @@ struct WelcomeGuideView: View {
         .padding(.bottom, 24)
     }
 
-    // MARK: - Who-will-use step (Child Mode)
+    // MARK: - Who-will-use step (Simple Mode)
 
     /// Adult continues untouched; Child sets a free-form password (stored salted-hashed in the
-    /// Keychain, see ChildModeService) and Child Mode turns ON immediately - persisted via
+    /// Keychain, see ChildModeService) and Simple Mode turns ON immediately - persisted via
     /// saveSettings() right here at the step, not deferred to the end of the guide, so the
     /// choice survives no matter what the rest of the wizard writes (or whether it finishes).
-    /// When the guide is REPLAYED (Profile > Help) with Child Mode already on, the step is
+    /// When the guide is REPLAYED (Profile > Help) with Simple Mode already on, the step is
     /// informational only - offering "Adult" there would be a password-free way out.
     private var userTypeStep: some View {
         VStack(spacing: 16) {
             Spacer()
-            Image(systemName: "figure.and.child.holdinghands")
+            Image(systemName: "lock.shield")
                 .font(.scaled(size: 56))
                 .foregroundColor(.accentColor)
-            Text("Who will use KaChat?")
+            Text("How do you want KaChat?")
                 .font(.title2.weight(.bold))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 
             if settingsViewModel.settings.childModeEnabled {
-                Text("Child Mode is on. Chats, Group Chats, Portfolio and Cold Storage are available; Swaps, KaPosts and Public Chats are hidden. Manage this in Settings > Security > Child Mode.")
+                Text("Simple Mode is on. Chats, Group Chats, Portfolio and Cold Storage are available; Swaps, KaPosts and Public Chats are hidden. Manage this in Settings > Security > Simple Mode.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
             } else {
-                Text("A child gets a simpler, safer KaChat: just Chats, Group Chats, Portfolio and Cold Storage. Swaps, KaPosts and Public Chats stay hidden until an adult unlocks them.")
+                Text("Simple Mode is a smaller KaChat: just Chats, Group Chats, Portfolio and Cold Storage. Swaps, KaPosts and Public Chats stay hidden until the password unlocks them.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -363,14 +363,14 @@ struct WelcomeGuideView: View {
                         userTypeRow(
                             choice: .adult,
                             icon: "person.fill",
-                            title: "Adult",
+                            title: "Full",
                             subtitle: "The full app, everything available."
                         )
                         userTypeRow(
                             choice: .child,
-                            icon: "figure.child",
-                            title: "Child",
-                            subtitle: "Chats, Portfolio and Cold Storage only. An adult sets a password to unlock the rest later."
+                            icon: "square.grid.2x2",
+                            title: "Simple",
+                            subtitle: "Chats, Portfolio and Cold Storage only. A password unlocks the rest later."
                         )
 
                         if userTypeChoice == .child {
@@ -383,7 +383,7 @@ struct WelcomeGuideView: View {
                                     .padding(10)
                                     .background(Color(.systemGray6))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                                Text("4 digits, 8 digits, or anything you like - just don't forget it. It's needed to turn Child Mode off.")
+                                Text("4 digits, 8 digits, or anything you like - just don't forget it. It's needed to turn Simple Mode off.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -445,8 +445,8 @@ struct WelcomeGuideView: View {
     }
 
     private func applyUserTypeChoice() {
-        // Replay with Child Mode already on: purely informational, just continue. Still counts
-        // as answered - Child Mode being on IS the standing choice.
+        // Replay with Simple Mode already on: purely informational, just continue. Still counts
+        // as answered - Simple Mode being on IS the standing choice.
         if settingsViewModel.settings.childModeEnabled {
             markUserTypeAnswered()
             step = .language

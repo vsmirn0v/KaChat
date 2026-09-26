@@ -195,7 +195,7 @@ final class KeychainService {
         return hash.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
-    // MARK: - Child Mode password record (device-specific, SE-wrapped)
+    // MARK: - Simple Mode password record (device-specific, SE-wrapped)
     //
     // Opaque blob owned by ChildModeService: a JSON {salt, SHA-256(salt || password)} record -
     // never the plaintext password. Device-scoped + Secure Enclave-wrapped like the seed phrase,

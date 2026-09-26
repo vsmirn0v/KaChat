@@ -10,7 +10,7 @@ import SwiftUI
 /// password-manager banner out of the way, matching how the app's password fields were already
 /// configured.
 ///
-/// Used by every Child Mode password field (wizard step, setup/change/turn-off/clear flows)
+/// Used by every Simple Mode password field (wizard step, setup/change/turn-off/clear flows)
 /// and the Nextcloud app-password field. Bring your own outer styling - this is just the
 /// field + eye, so it drops into a Form row or a padded/rounded wizard box equally.
 struct RevealableSecureField: View {

@@ -273,7 +273,7 @@ struct GlobalNotificationListView: View {
         let childMode = AppSettings.load().childModeEnabled
         switch entry.source {
         case .kaposts:
-            // Child Mode hides KaPosts entirely - a row left over from before it was switched
+            // Simple Mode hides KaPosts entirely - a row left over from before it was switched
             // on must not open it (mirrors the notification-tap guard in KaChatApp).
             guard !childMode, !target.isEmpty else { return }
             KaPostsDeepLink.pendingPostTxId = target

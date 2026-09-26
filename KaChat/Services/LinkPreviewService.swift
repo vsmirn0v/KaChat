@@ -271,7 +271,7 @@ final class KaPostLinkPreviewCache: ObservableObject {
     func load(postId: String) async {
         guard !postId.isEmpty, entries[postId] == nil,
               !inFlight.contains(postId), !unresolvable.contains(postId) else { return }
-        // Child Mode hides KaPosts entirely, and the router no-ops these links - so there is
+        // Simple Mode hides KaPosts entirely, and the router no-ops these links - so there is
         // nothing to preview, and no reason to spend a request finding out.
         guard !AppSettings.load().childModeEnabled else { return }
         inFlight.insert(postId)

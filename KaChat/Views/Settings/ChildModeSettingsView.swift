@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Settings > Security > Child Mode.
+/// Settings > Security > Simple Mode.
 ///
-/// - No password yet: set one (enter + confirm) and Child Mode turns on in the same stroke.
+/// - No password yet: set one (enter + confirm) and Simple Mode turns on in the same stroke.
 /// - Password set: the ON/OFF toggle lives here. Turning OFF demands the password (wrong
 ///   password = stays on); turning back ON needs nothing. Plus a traditional change-password
 ///   flow (current -> new -> confirm; wrong current = error, nothing changes).
@@ -50,7 +50,7 @@ struct ChildModeSettingsView: View {
             }
             aboutSection
         }
-        .navigationTitle("Child Mode")
+        .navigationTitle("Simple Mode")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             hasPassword = ChildModeService.shared.hasPassword
@@ -73,7 +73,7 @@ struct ChildModeSettingsView: View {
 
     private var toggleSection: some View {
         Section {
-            Toggle("Child Mode", isOn: Binding(
+            Toggle("Simple Mode", isOn: Binding(
                 get: { isEnabled },
                 set: { newValue in
                     if newValue {
@@ -92,12 +92,12 @@ struct ChildModeSettingsView: View {
             .tint(.accentColor)
         } footer: {
             Text(isEnabled
-                 ? "Child Mode is on. Turning it off requires the password."
-                 : "A password is already set - turning Child Mode on doesn't ask for it.")
+                 ? "Simple Mode is on. Turning it off requires the password."
+                 : "A password is already set - turning Simple Mode on doesn't ask for it.")
         }
     }
 
-    /// Manual password entry sheet for switching Child Mode off. Wrong password = error, the
+    /// Manual password entry sheet for switching Simple Mode off. Wrong password = error, the
     /// toggle stays on. Never biometrics.
     private var turnOffSheet: some View {
         NavigationStack {
@@ -106,13 +106,13 @@ struct ChildModeSettingsView: View {
                     RevealableSecureField("Password", text: $turnOffPassword)
                         .onChange(of: turnOffPassword) { _ in turnOffError = nil }
                 } header: {
-                    Text("Turn Off Child Mode")
+                    Text("Turn Off Simple Mode")
                 } footer: {
                     if let turnOffError {
                         Text(turnOffError)
                             .foregroundColor(.red)
                     } else {
-                        Text("Enter the Child Mode password to turn it off.")
+                        Text("Enter the Simple Mode password to turn it off.")
                     }
                 }
 
@@ -127,7 +127,7 @@ struct ChildModeSettingsView: View {
                     .disabled(turnOffPassword.isEmpty)
                 }
             }
-            .navigationTitle("Child Mode")
+            .navigationTitle("Simple Mode")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -140,8 +140,13 @@ struct ChildModeSettingsView: View {
     }
 
     private func attemptTurnOff() {
+        if let seconds = ChildModeService.shared.lockoutRemainingSeconds {
+            turnOffError = "Too many wrong passwords. Try again in \(seconds)s."
+            Haptics.error()
+            return
+        }
         guard ChildModeService.shared.verifyPassword(turnOffPassword) else {
-            turnOffError = "Wrong password. Child Mode stays on."
+            turnOffError = "Wrong password. Simple Mode stays on."
             Haptics.error()
             turnOffPassword = ""
             return
@@ -176,7 +181,7 @@ struct ChildModeSettingsView: View {
                 Text(setupError)
                     .foregroundColor(.red)
             } else {
-                Text("4 digits, 8 digits, or anything you like - just don't forget it. It's needed to turn Child Mode off later.")
+                Text("4 digits, 8 digits, or anything you like - just don't forget it. It's needed to turn Simple Mode off later.")
             }
         }
     }
@@ -244,6 +249,11 @@ struct ChildModeSettingsView: View {
             Haptics.error()
             return
         }
+        if let seconds = ChildModeService.shared.lockoutRemainingSeconds {
+            changeError = "Too many wrong passwords. Try again in \(seconds)s."
+            Haptics.error()
+            return
+        }
         let changed: Bool
         do {
             changed = try ChildModeService.shared.changePassword(current: currentPassword, to: newPassword)
@@ -280,7 +290,7 @@ struct ChildModeSettingsView: View {
                     .fontWeight(.semibold)
             }
         } footer: {
-            Text("Deletes the Child Mode password and turns Child Mode off, returning it to a never-set-up state. Requires the current password.")
+            Text("Deletes the Simple Mode password and turns Simple Mode off, returning it to a never-set-up state. Requires the current password.")
         }
     }
 
@@ -299,7 +309,7 @@ struct ChildModeSettingsView: View {
                         Text(clearError)
                             .foregroundColor(.red)
                     } else {
-                        Text("Enter the Child Mode password to delete it and turn Child Mode off.")
+                        Text("Enter the Simple Mode password to delete it and turn Simple Mode off.")
                     }
                 }
 
@@ -314,7 +324,7 @@ struct ChildModeSettingsView: View {
                     .disabled(clearPassword.isEmpty)
                 }
             }
-            .navigationTitle("Child Mode")
+            .navigationTitle("Simple Mode")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -327,6 +337,11 @@ struct ChildModeSettingsView: View {
     }
 
     private func attemptClear() {
+        if let seconds = ChildModeService.shared.lockoutRemainingSeconds {
+            clearError = "Too many wrong passwords. Try again in \(seconds)s."
+            Haptics.error()
+            return
+        }
         let cleared: Bool
         do {
             cleared = try ChildModeService.shared.clearConfiguration(current: clearPassword)
@@ -369,7 +384,7 @@ struct ChildModeSettingsView: View {
         } header: {
             Text("What stays available")
         } footer: {
-            Text("While Child Mode is on, Swaps, KaPosts and Public Chats are removed everywhere - the dock, the Chats-tab cycle, links and notifications. Face ID never unlocks Child Mode; only the password does.")
+            Text("While Simple Mode is on, Swaps, KaPosts and Public Chats are removed everywhere - the dock, the Chats-tab cycle, links and notifications. Face ID never unlocks Simple Mode; only the password does.")
         }
     }
 }

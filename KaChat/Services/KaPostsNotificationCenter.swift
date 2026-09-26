@@ -31,7 +31,7 @@ final class KaPostsNotificationCenter: ObservableObject {
 
     /// Adds newly-arrived activity to the count. Called from the same ingest pass that used to
     /// write KaPosts rows into the global center, so it inherits its filtering: the wallet's own
-    /// actions, hidden actors and Child Mode are all already excluded by the caller.
+    /// actions, hidden actors and Simple Mode are all already excluded by the caller.
     func recordArrivals(_ count: Int) {
         guard count > 0 else { return }
         unseenCount += count

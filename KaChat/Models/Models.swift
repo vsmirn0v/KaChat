@@ -1906,7 +1906,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
 
     /// True when this tab is enabled (not hidden) in settings, independent of dock capacity.
     ///
-    /// Child Mode (Settings > Security) hard-hides Swaps, KaPosts and Public Chats here - this is
+    /// Simple Mode (Settings > Security) hard-hides Swaps, KaPosts and Public Chats here - this is
     /// the single choke point every dock consumer flows through (`visible`, `ecosystemSections`),
     /// so while it's on those tabs can't render in the dock NOR appear inside Ecosystem,
     /// regardless of dock settings.
@@ -2054,13 +2054,13 @@ struct AppSettings: Codable {
     /// any of the wallet's own NON-chatting addresses - spending-chain (Manage Addresses) or
     /// watch-only cold storage - receives Kaspa from an external source. Gates both the live
     /// UTXO-subscription path and the foreground catch-up diff (see AddressActivityNotifier).
-    /// Deliberately not gated by Child Mode - these are wallet notifications, and Portfolio /
+    /// Deliberately not gated by Simple Mode - these are wallet notifications, and Portfolio /
     /// Cold Storage remain available there.
     var addressActivityNotificationsEnabled: Bool
     /// Settings > Notifications > KaPosts: per-event-type gates for KaPosts notification
     /// pings (all default ON). Mapped from the K notifications API's `contentType` /
     /// `voteType` fields via `shouldNotifyKaPostsAction` - a disabled type is silently
-    /// skipped, never queued. Orthogonal to Child Mode (which suppresses ALL KaPosts pings).
+    /// skipped, never queued. Orthogonal to Simple Mode (which suppresses ALL KaPosts pings).
     var kaPostsNotifyLikes: Bool
     var kaPostsNotifyReposts: Bool
     var kaPostsNotifyFollows: Bool
@@ -2115,7 +2115,7 @@ struct AppSettings: Codable {
     var hubTabs: [String]
 
     // Security
-    /// Child Mode (Settings > Security): while on, the app is strictly Chats, Group Chats,
+    /// Simple Mode (Settings > Security): while on, the app is strictly Chats, Group Chats,
     /// Portfolio and Cold Storage - Swaps, KaPosts and Public Chats are removed from every access
     /// point (dock, Ecosystem, deep links, notifications, push registration). Turning it
     /// OFF is validated against the salted password hash in the Keychain (see ChildModeService) -

@@ -28,7 +28,7 @@ import UserNotifications
 /// importing a wallet) never blasts notifications for historical funds.
 ///
 /// Gated by Settings > Notifications > "Address Activity" (default ON) plus the master
-/// notification mode. Deliberately NOT gated by Child Mode - Portfolio, Manage Addresses and
+/// notification mode. Deliberately NOT gated by Simple Mode - Portfolio, Manage Addresses and
 /// Cold Storage all remain available there, and these are wallet notifications, not social.
 ///
 /// Addresses currently reserved-and-offered as fresh payment-pool receive addresses are
@@ -423,7 +423,7 @@ final class AddressActivityNotifier: ObservableObject {
     // MARK: - Gating
 
     /// Settings > Notifications > "Address Activity" plus the master notification mode.
-    /// Child Mode intentionally not consulted - wallet notifications are allowed there.
+    /// Simple Mode intentionally not consulted - wallet notifications are allowed there.
     private var featureEnabled: Bool {
         let settings = AppSettings.load()
         return settings.addressActivityNotificationsEnabled && settings.notificationMode != .disabled
