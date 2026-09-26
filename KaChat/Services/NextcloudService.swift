@@ -396,6 +396,48 @@ final class NextcloudService: ObservableObject {
         refreshTalkAvailability()
     }
 
+    /// Revokes the app password KaChat created on the user's Nextcloud (Login Flow v2 mints
+    /// one per connect), so disconnecting or deleting the wallet leaves nothing that can still
+    /// log in. Best effort: the local copy is deleted whatever the server says.
+    func revokeAppPassword() async {
+        guard let account, let server = account.serverURL else { return }
+        var request = URLRequest(url: server.appendingPathComponent("ocs/v2.php/core/apppassword"))
+        request.httpMethod = "DELETE"
+        request.setValue("true", forHTTPHeaderField: "OCS-APIRequest")
+        applyAuth(&request, account: account)
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            AppLog.log("%@", "[Nextcloud] App password revoke answered HTTP \(status)")
+        } catch {
+            AppLog.log("%@", "[Nextcloud] App password revoke failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Deletes the encrypted archive from the user's Nextcloud. Only ever on the user's say-so
+    /// (the Delete Account option that names it): the archive is what carries history to their
+    /// other devices.
+    func deleteRemoteBackup() async throws {
+        guard let account, let server = account.serverURL else { throw NextcloudError.badCredentials }
+        var url = server.appendingPathComponent("remote.php/dav/files/\(account.username)")
+        for part in backupFolderPath.split(separator: "/") {
+            url.appendPathComponent(String(part))
+        }
+        url.appendPathComponent(Self.backupFileName)
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request, account: account)
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw NextcloudError.malformedResponse }
+        if http.statusCode == 401 { throw NextcloudError.badCredentials }
+        // 404: nothing there, which is the state asked for.
+        guard (200..<300).contains(http.statusCode) || http.statusCode == 404 else {
+            throw NextcloudError.httpError(http.statusCode)
+        }
+        if let wallet = currentWalletAddress { setLastKnownBackupETag(nil, walletAddress: wallet) }
+        AppLog.log("%@", "[Nextcloud] Remote archive deleted")
+    }
+
     /// Deletes a wallet's stored Nextcloud login and settings outright - used when that account
     /// is removed from this device entirely (WalletManager account deletion flows). Storage
     /// only; the in-memory state is cleared by the setCurrentWallet(nil) that always follows.
@@ -1052,6 +1094,11 @@ final class NextcloudService: ObservableObject {
     }
 
     func disconnect() {
+        // Revoke first, while the credentials still exist to authenticate the request.
+        let revoking = account != nil
+        if revoking {
+            Task { await self.revokeAppPassword() }
+        }
         syncDebounceTask?.cancel()
         syncDebounceTask = nil
         stopChangeWatcher()

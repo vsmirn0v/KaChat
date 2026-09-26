@@ -453,12 +453,23 @@ final class WalletManager: ObservableObject {
         return try await importWallet(from: seedPhrase, alias: alias, family: family)
     }
 
-    func deleteWallet(preserveOutgoingMessages: Bool = false) async throws {
+    /// - Parameter removeRemoteBackup: also delete the encrypted archive on the user's
+    ///   Nextcloud. Off unless the user picked the option that names it.
+    func deleteWallet(preserveOutgoingMessages: Bool = false, removeRemoteBackup: Bool = false) async throws {
         walletNeedingKeyRecovery = nil
         let walletAddressToDelete = currentWallet?.publicAddress
 
         // Unregister from push notifications before clearing wallet
         await PushNotificationManager.shared.unregister()
+
+        // The user's Nextcloud: optionally the archive, always the app password KaChat made -
+        // both while the credentials still exist to authenticate with.
+        if NextcloudService.shared.isConnected {
+            if removeRemoteBackup {
+                try await NextcloudService.shared.deleteRemoteBackup()
+            }
+            await NextcloudService.shared.revokeAppPassword()
+        }
 
         // Clear shared data (App Group)
         SharedDataManager.clearAllSharedData()
@@ -469,6 +480,11 @@ final class WalletManager: ObservableObject {
             MessageStore.shared.clearIncomingMessages()
         } else {
             MessageStore.shared.clearAll()
+            // The rows are gone; the file itself stayed until the next store switch.
+            await MessageStore.shared.destroyLocalStoreFiles()
+        }
+        if let walletAddressToDelete {
+            KaPostsDraftStore.shared.deleteDrafts(forWalletAddress: walletAddressToDelete)
         }
 
         try keychainService.clearAll()

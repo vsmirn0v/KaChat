@@ -52,6 +52,15 @@ final class KaPostsDraftStore: ObservableObject {
         return "\(baseKey)_\(address.replacingOccurrences(of: ":", with: "_"))"
     }
 
+    /// A deleted wallet's drafts go with it.
+    func deleteDrafts(forWalletAddress address: String) {
+        UserDefaults.standard.removeObject(forKey: "\(baseKey)_\(address.replacingOccurrences(of: ":", with: "_"))")
+        if loadedWallet == address {
+            drafts = []
+            loadedWallet = nil
+        }
+    }
+
     /// Re-reads for whichever wallet is active now. Cheap and idempotent, so callers can just
     /// call it when a drafts surface appears rather than tracking wallet changes themselves.
     func reloadForCurrentWallet() {

@@ -177,19 +177,18 @@ struct SettingsView: View {
                 titleVisibility: .visible
             ) {
                 Button("Delete", role: .destructive) {
-                    Task {
-                        do {
-                            try await walletManager.deleteWallet()
-                        } catch {
-                            toastStyle = .error
-                            toastToken = UUID()
-                            toastMessage = "Couldn't delete the account: \(UserFacingError.message(for: error))"
-                        }
+                    deleteAccount(removeRemoteBackup: false)
+                }
+                if NextcloudService.shared.isConnected {
+                    Button("Delete and Remove Nextcloud Backup", role: .destructive) {
+                        deleteAccount(removeRemoteBackup: true)
                     }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This will permanently delete your account from this device. Make sure you have backed up your seed phrase.")
+                Text(NextcloudService.shared.isConnected
+                     ? "This deletes the account, its messages and its drafts from this iPhone, removes its push registration from KaChat's server, and revokes the login KaChat created on your Nextcloud. Your encrypted Nextcloud backup stays unless you choose to remove it. Messages and posts on the Kaspa blockchain cannot be deleted. Make sure you have your recovery phrase."
+                     : "This deletes the account, its messages and its drafts from this iPhone and removes its push registration from KaChat's server. Messages and posts on the Kaspa blockchain cannot be deleted. Make sure you have your recovery phrase.")
             }
         }
         .onAppear {
@@ -3571,6 +3570,18 @@ struct NextcloudSettingsView: View {
         .task {
             guard service.isConnected else { return }
             backupInfo = await NextcloudService.shared.fetchBackupInfo()
+        }
+    }
+
+    private func deleteAccount(removeRemoteBackup: Bool) {
+        Task {
+            do {
+                try await walletManager.deleteWallet(removeRemoteBackup: removeRemoteBackup)
+            } catch {
+                toastStyle = .error
+                toastToken = UUID()
+                toastMessage = "Couldn't delete the account: \(UserFacingError.message(for: error))"
+            }
         }
     }
 

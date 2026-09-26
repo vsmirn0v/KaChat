@@ -604,6 +604,13 @@ final class SharedDataManager {
     static func clearAllSharedData() {
         sharedDefaults?.removeObject(forKey: Keys.contacts)
         sharedDefaults?.removeObject(forKey: Keys.contactsWallet)
+        // These outlived a deleted wallet: the Intents extension kept offering "call with
+        // KaChat" for its contacts, and its groups and KNS name stayed readable.
+        sharedDefaults?.removeObject(forKey: Keys.callContacts)
+        sharedDefaults?.removeObject(forKey: Keys.groups)
+        sharedDefaults?.removeObject(forKey: Keys.groupOwnTxIds)
+        sharedDefaults?.removeObject(forKey: Keys.ownPrimaryKNSDomain)
+        sharedDefaults?.removeObject(forKey: Keys.walletAddress)
         sharedDefaults?.removeObject(forKey: Keys.sharedSecrets)
         sharedDefaults?.removeObject(forKey: Keys.pendingMessages)
         sharedDefaults?.removeObject(forKey: Keys.storedMessages)
