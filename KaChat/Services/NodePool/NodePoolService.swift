@@ -819,6 +819,16 @@ final class NodePoolService: ObservableObject {
         subscriptionManager?.addNotificationHandler(handler) ?? UUID()
     }
 
+    /// Blocks, parsed once on the stream (see `ScannedBlock`). Called off the main actor;
+    /// the scanners take the block to their own serial queues.
+    func addBlockHandler(_ handler: @escaping BlockScanRegistry.Handler) -> UUID {
+        BlockScanRegistry.shared.add(handler)
+    }
+
+    func removeBlockHandler(_ id: UUID) {
+        BlockScanRegistry.shared.remove(id)
+    }
+
     /// Remove notification handler
     func removeNotificationHandler(_ id: UUID) {
         subscriptionManager?.removeNotificationHandler(id)

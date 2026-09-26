@@ -2090,20 +2090,18 @@ final class GroupChatService: ObservableObject {
         isScanningActiveMirror = shouldScan
         if shouldScan {
             if blockNotificationHandlerId == nil {
-                blockNotificationHandlerId = NodePoolService.shared.addNotificationHandler { [weak self] type, data in
-                    guard type == .blockAdded else { return }
+                blockNotificationHandlerId = NodePoolService.shared.addBlockHandler { [weak self] block in
                     // Cheap gate FIRST: unsubscribeBlockAdded only flips a wanted-flag - blocks
-                    // keep arriving forever once anyone subscribed - so without this the full
-                    // parse below would run ~10x/sec even with scanning off.
+                    // keep arriving forever once anyone subscribed - so without this the scan
+                    // below would run ~10x/sec even with scanning off.
                     guard self?.isScanningActiveMirror == true else { return }
-                    // Blocks arrive ~10x/sec continuously. Deserializing the ENTIRE block and
-                    // prefix-scanning every tx payload used to run on the main actor per block -
-                    // a permanent main-thread tax (jank, worst under screen recording). A single
-                    // SERIAL utility queue (not one detached Task per block) parses off-main so
-                    // slow blocks can't stack into unbounded concurrency; the MainActor is only
-                    // touched for the rare block that actually carries group traffic.
+                    // Blocks arrive ~10x/sec continuously. The stream parses each once into a
+                    // `ScannedBlock`; this is a prefix scan over its payloads on a single SERIAL
+                    // utility queue (not one detached Task per block) so slow blocks can't stack
+                    // into unbounded concurrency; the MainActor is only touched for the rare
+                    // block that actually carries group traffic.
                     Self.blockScanQueue.async {
-                        let hits = Self.extractBlockScanHits(from: data)
+                        let hits = Self.extractBlockScanHits(from: block)
                         guard !hits.isEmpty else { return }
                         Task { @MainActor in
                             self?.ingestBlockScanHits(hits)
@@ -2126,13 +2124,12 @@ final class GroupChatService: ObservableObject {
     /// One serial lane for all block parsing - bounds concurrency to a single off-main worker.
     private nonisolated static let blockScanQueue = DispatchQueue(label: "com.kachat.groupBlockScan", qos: .utility)
 
-    /// Runs off-main (pure parsing: protobuf deserialize, prefix filter, hex/UTF-8 decode, gcomm
-    /// parse, gctl sender-address derivation - no actor state touched). See the handler above.
-    private nonisolated static func extractBlockScanHits(from data: Data) -> [BlockScanHit] {
-        guard let notification = try? Protowire_BlockAddedNotificationMessage(serializedBytes: data) else { return [] }
+    /// Runs off-main (pure parsing: prefix filter, hex/UTF-8 decode, gcomm parse, gctl
+    /// sender-address derivation - no actor state touched). See the handler above.
+    private nonisolated static func extractBlockScanHits(from block: ScannedBlock) -> [BlockScanHit] {
         var hits: [BlockScanHit] = []
-        for tx in notification.block.transactions {
-            let payloadHex = tx.payload
+        for tx in block.transactions {
+            let payloadHex = tx.payloadHex
             // Dual-read: new `kchat:` hex root and legacy `ciph_msg:` hex root.
             let matchesGcomm = payloadHex.hasPrefix(Self.gcommPrefixHex) || payloadHex.hasPrefix(Self.legacyGcommPrefixHex)
             let matchesGctl = payloadHex.hasPrefix(Self.gctlPrefixHex) || payloadHex.hasPrefix(Self.legacyGctlPrefixHex)
@@ -2140,9 +2137,8 @@ final class GroupChatService: ObservableObject {
             guard let payloadData = CryptoUtils.hexToData(payloadHex),
                   let payloadString = String(data: payloadData, encoding: .utf8) else { continue }
 
-            let txId = tx.verboseData.transactionID
-            guard !txId.isEmpty else { continue }
-            let blockTime = Int64(tx.verboseData.blockTime)
+            let txId = tx.txId
+            let blockTime = tx.blockTime
 
             if matchesGcomm {
                 guard let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else {
@@ -2155,8 +2151,7 @@ final class GroupChatService: ObservableObject {
                 // did ~20 contended cross-thread refcount ops 10x/sec against strings the main
                 // thread also touches.
                 let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
-                guard let firstOutput = tx.outputs.first,
-                      let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
+                guard let scriptData = CryptoUtils.hexToData(tx.firstOutputScriptHex),
                       let senderAddress = KaspaAddress.address(fromScriptPublicKey: scriptData, hrp: hrp) else { continue }
                 hits.append(.gctl(payload: Self.normalizeControlPayload(payloadString), senderAddress: senderAddress, blockTime: blockTime))
             }

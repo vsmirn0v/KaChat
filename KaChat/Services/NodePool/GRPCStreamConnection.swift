@@ -129,6 +129,65 @@ struct CircuitBreaker {
 
 /// Actor that manages a single gRPC stream connection to a Kaspa node
 /// Handles request/response matching, timeouts, and circuit breaker pattern
+/// A block as the scanners need it: only the transactions that carry a payload, and of each
+/// only what a KaChat payload scan reads. Built ONCE per block on the stream, in place of the
+/// old path that re-serialized the decoded protobuf into bytes and had every scanner decode
+/// the whole block again - three protobuf passes per block, ten blocks a second, for as long
+/// as any group or room wanted the stream. The single biggest CPU cost in the app.
+struct ScannedBlock: Sendable {
+    struct Transaction: Sendable {
+        let txId: String
+        let blockTime: Int64
+        /// Hex, as the node sends it.
+        let payloadHex: String
+        /// Hex of the first output's script public key - the sender's address for payloads
+        /// that carry none (public chats, group control).
+        let firstOutputScriptHex: String
+    }
+    let transactions: [Transaction]
+
+    init(_ notification: Protowire_BlockAddedNotificationMessage) {
+        var kept: [Transaction] = []
+        for tx in notification.block.transactions where !tx.payload.isEmpty {
+            let txId = tx.verboseData.transactionID
+            guard !txId.isEmpty else { continue }
+            kept.append(Transaction(
+                txId: txId,
+                blockTime: Int64(tx.verboseData.blockTime),
+                payloadHex: tx.payload,
+                firstOutputScriptHex: tx.outputs.first?.scriptPublicKey.scriptPublicKey ?? ""
+            ))
+        }
+        transactions = kept
+    }
+}
+
+/// Where the scanners register for blocks. Lock-protected rather than actor-isolated so the
+/// stream can hand a block over without an actor hop, and the scanners can take it straight
+/// to their own serial queues, as they already do.
+final class BlockScanRegistry: @unchecked Sendable {
+    static let shared = BlockScanRegistry()
+
+    typealias Handler = @Sendable (ScannedBlock) -> Void
+    private let lock = NSLock()
+    private var handlers: [UUID: Handler] = [:]
+
+    func add(_ handler: @escaping Handler) -> UUID {
+        let id = UUID()
+        lock.lock(); handlers[id] = handler; lock.unlock()
+        return id
+    }
+
+    func remove(_ id: UUID) {
+        lock.lock(); handlers.removeValue(forKey: id); lock.unlock()
+    }
+
+    fileprivate func dispatch(_ block: ScannedBlock) {
+        lock.lock(); let current = Array(handlers.values); lock.unlock()
+        for handler in current { handler(block) }
+    }
+}
+
 actor GRPCStreamConnection {
     // MARK: - Types
 
@@ -599,7 +658,10 @@ actor GRPCStreamConnection {
                 return
 
             case .blockAddedNotification(let notification):
-                handleNotification(.blockAdded, notification)
+                // Scanners get the slim record; the notification path gets an empty payload
+                // so the subscription manager's staleness clock still sees the block.
+                BlockScanRegistry.shared.dispatch(ScannedBlock(notification))
+                handleNotification(.blockAdded, nil)
                 return
 
             // All other notification types
@@ -802,8 +864,14 @@ actor GRPCStreamConnection {
     // MARK: - Notifications
 
     /// Handle a notification message
-    private func handleNotification(_ type: KaspaRPCNotification, _ message: SwiftProtobuf.Message) {
-        guard let data = try? message.serializedData() else { return }
+    private func handleNotification(_ type: KaspaRPCNotification, _ message: SwiftProtobuf.Message?) {
+        let data: Data
+        if let message {
+            guard let serialized = try? message.serializedData() else { return }
+            data = serialized
+        } else {
+            data = Data()
+        }
 
         for handler in notificationHandlers.values {
             handler(type, data)

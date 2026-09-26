@@ -1352,30 +1352,25 @@ final class PublicChatService: ObservableObject {
         let blockTime: Int64
     }
 
-    /// OFF-MAIN block parsing: protobuf-decoding every ~1s block (and reconnect BURSTS of
-    /// them) on the main actor was hard main-thread work - the app-freeze-on-reconnect class
-    /// of bug (GroupChatService got the identical treatment). Pure extraction, no state:
-    /// wanted/hidden filtering happens on the main hop, which only fires for actual hits
-    /// (almost every block has zero).
-    private nonisolated static func extractPublicChatHits(_ data: Data, hrp: String) -> [BlockScanHit] {
-        guard let notification = try? Protowire_BlockAddedNotificationMessage(serializedBytes: data) else { return [] }
+    /// OFF-MAIN block scan over the stream's once-parsed `ScannedBlock` (the old path decoded
+    /// the whole protobuf block again here, and again in GroupChatService). Pure extraction,
+    /// no state: wanted/hidden filtering happens on the main hop, which only fires for actual
+    /// hits (almost every block has zero).
+    private nonisolated static func extractPublicChatHits(_ block: ScannedBlock, hrp: String) -> [BlockScanHit] {
         var hits: [BlockScanHit] = []
-        for tx in notification.block.transactions {
-            guard tx.payload.hasPrefix(bcastPrefixHex) || tx.payload.hasPrefix(legacyBcastPrefixHex) else { continue }
-            guard let payloadData = CryptoUtils.hexToData(tx.payload),
+        for tx in block.transactions {
+            guard tx.payloadHex.hasPrefix(bcastPrefixHex) || tx.payloadHex.hasPrefix(legacyBcastPrefixHex) else { continue }
+            guard let payloadData = CryptoUtils.hexToData(tx.payloadHex),
                   let payloadString = String(data: payloadData, encoding: .utf8),
                   let parsed = KasiaTransactionBuilder.parsePublicChatPayload(payloadString) else { continue }
-            guard let firstOutput = tx.outputs.first,
-                  let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
+            guard let scriptData = CryptoUtils.hexToData(tx.firstOutputScriptHex),
                   let senderAddress = KaspaAddress.address(fromScriptPublicKey: scriptData, hrp: hrp) else { continue }
-            let txId = tx.verboseData.transactionID
-            guard !txId.isEmpty else { continue }
             hits.append(BlockScanHit(
                 channel: PublicChatChannelName.normalize(parsed.channel),
-                txId: txId,
+                txId: tx.txId,
                 senderAddress: senderAddress,
                 content: parsed.content,
-                blockTime: Int64(tx.verboseData.blockTime)
+                blockTime: tx.blockTime
             ))
         }
         return hits
@@ -1383,11 +1378,10 @@ final class PublicChatService: ObservableObject {
 
     private func startScanning() {
         if blockNotificationHandlerId == nil {
-            blockNotificationHandlerId = NodePoolService.shared.addNotificationHandler { [weak self] type, data in
-                guard type == .blockAdded else { return }
+            blockNotificationHandlerId = NodePoolService.shared.addBlockHandler { [weak self] block in
                 Self.blockScanQueue.async {
                     let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
-                    let hits = Self.extractPublicChatHits(data, hrp: hrp)
+                    let hits = Self.extractPublicChatHits(block, hrp: hrp)
                     guard !hits.isEmpty else { return }
                     Task { @MainActor in
                         self?.processPublicChatHits(hits)
