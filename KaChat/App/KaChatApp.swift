@@ -543,6 +543,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        Task.detached(priority: .utility) { CacheManager.sweepStaleTempFiles() }
         // Set notification delegate to handle foreground notifications
         UNUserNotificationCenter.current().delegate = self
         registerNotificationCategories()

@@ -2588,6 +2588,10 @@ private struct AudioShareSheet: UIViewControllerRepresentable {
             activityItems: [tempURL],
             applicationActivities: nil
         )
+        // The copy is for the share sheet only; it used to stay in tmp until iOS purged it.
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            try? FileManager.default.removeItem(at: tempURL)
+        }
         return controller
     }
 

@@ -172,6 +172,27 @@ final class CacheManager: ObservableObject {
         }.value
     }
 
+    /// Audio the app wrote to tmp for playback, encoding or sharing and could not clean up
+    /// (killed mid-way, a share sheet that never completed). Anything of ours older than a day
+    /// is nobody's any more. Runs once per launch, off the main thread.
+    static func sweepStaleTempFiles() {
+        let prefixes = ["kasia-audio", "kachat-voice", "kachat-broadcast-voice", "broadcast_rec_", "broadcast_voice_"]
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        let directory = FileManager.default.temporaryDirectory
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]
+        ) else { return }
+        var removed = 0
+        for url in items where prefixes.contains(where: { url.lastPathComponent.hasPrefix($0) }) {
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            guard modified < cutoff else { continue }
+            if (try? FileManager.default.removeItem(at: url)) != nil { removed += 1 }
+        }
+        if removed > 0 {
+            AppLog.log("%@", "[CacheManager] Removed \(removed) stale temp audio file(s)")
+        }
+    }
+
     static func formatted(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useKB, .useMB, .useGB]
