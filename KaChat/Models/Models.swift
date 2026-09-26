@@ -492,6 +492,22 @@ struct Conversation: Identifiable, Equatable {
     /// before: the maximum-timestamp non-placeholder, first among equals.
     private(set) var lastMessage: ChatMessage?
 
+    /// What the chat list can tell apart, and nothing more. The synthesized version compared
+    /// every message in every conversation's loaded window on each `onChange`, once per
+    /// incoming message; the list only ever shows the preview, the status of the newest
+    /// message and the unread count, and those are what this reads.
+    static func == (lhs: Conversation, rhs: Conversation) -> Bool {
+        lhs.id == rhs.id
+            && lhs.unreadCount == rhs.unreadCount
+            && lhs.messages.count == rhs.messages.count
+            && lhs.messages.last?.id == rhs.messages.last?.id
+            && lhs.messages.last?.deliveryStatus == rhs.messages.last?.deliveryStatus
+            && lhs.lastMessage?.id == rhs.lastMessage?.id
+            && lhs.lastMessage?.content == rhs.lastMessage?.content
+            && lhs.lastMessage?.deliveryStatus == rhs.lastMessage?.deliveryStatus
+            && lhs.contact == rhs.contact
+    }
+
     /// Cross-device placeholders are hidden everywhere (see ChatMessage.isSentPlaceholder), so
     /// the chat-list preview shows the newest REAL message. A conversation whose only messages
     /// are placeholders reports nil, exactly like a conversation with no messages, so the row
