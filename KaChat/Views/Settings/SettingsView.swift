@@ -925,7 +925,8 @@ struct DiagnosticsSettingsPage: View {
         )
 
         let deviceInfo = DiagnosticsArchive.DeviceInfo(
-            name: UIDevice.current.name,
+            // The model, not the person's own name for the phone: this file gets mailed to support.
+            name: UIDevice.current.model,
             model: UIDevice.current.model,
             systemName: UIDevice.current.systemName,
             systemVersion: UIDevice.current.systemVersion

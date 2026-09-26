@@ -927,7 +927,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return (normalizedDomain, inscriptionId?.isEmpty == false ? inscriptionId : nil, false)
         } catch {
-            AppLog.log("[KNS] Primary name fetch error for %@: %@", address, error.localizedDescription)
+            AppLog.log("[KNS] Primary name fetch error for …%@: %@", String(address.suffix(8)), error.localizedDescription)
             return (nil, nil, true)
         }
     }
@@ -984,7 +984,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 }
             return (domains, false)
         } catch {
-            AppLog.log("[KNS] Assets fetch error for %@: %@", address, error.localizedDescription)
+            AppLog.log("[KNS] Assets fetch error for …%@: %@", String(address.suffix(8)), error.localizedDescription)
             return ([], true)
         }
     }

@@ -385,8 +385,8 @@ struct KasiaTransactionBuilder {
 
         #if DEBUG
         AppLog.log("[TxBuilder] Building payment transaction:")
-        AppLog.log("[TxBuilder]   from: %@", senderAddress)
-        AppLog.log("[TxBuilder]   to: %@", recipientAddress)
+        AppLog.log("[TxBuilder]   from: …%@", String(senderAddress.suffix(8)))
+        AppLog.log("[TxBuilder]   to: …%@", String(recipientAddress.suffix(8)))
         AppLog.log("[TxBuilder]   amount: %llu sompi", amount)
         #endif
 

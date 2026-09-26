@@ -571,7 +571,7 @@ extension ChatService {
                     extractedAlias = decrypted.alias  // may be nil for deterministic handshakes
                     extractedConversationId = decrypted.conversationId
                     if let alias = decrypted.alias {
-                        AppLog.log("%@", "[ChatService] Extracted alias '\(alias)' from handshake by \(contactAddress)")
+                        AppLog.log("%@", "[ChatService] Extracted alias from handshake by …\(contactAddress.suffix(8))")
                     } else {
                         AppLog.log("%@", "[ChatService] Received alias-less (deterministic) handshake from \(contactAddress)")
                     }
@@ -1839,7 +1839,7 @@ extension ChatService {
             if !messages.isEmpty {
                 markChatFetchLoading(contactAddress)
             }
-            AppLog.log("%@", "[ChatService] Got \(messages.count) incoming contextual messages from \(contactAddress)")
+            AppLog.log("%@", "[ChatService] Got \(messages.count) incoming contextual messages from …\(contactAddress.suffix(8))")
 
             for contextMsg in messages {
                 var content = "[Encrypted message]"
@@ -1962,7 +1962,7 @@ extension ChatService {
                 return lhsTime < rhsTime
             }
 
-            AppLog.log("%@", "[ChatService] Got \(sortedMessages.count) outgoing contextual messages to \(contactAddress)")
+            AppLog.log("%@", "[ChatService] Got \(sortedMessages.count) outgoing contextual messages to …\(contactAddress.suffix(8))")
 
             for contextMsg in sortedMessages {
                 // A reaction's own transaction never gets a CDMessage row - the device that
