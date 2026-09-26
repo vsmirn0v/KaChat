@@ -1087,8 +1087,10 @@ struct ProfileView: View {
                 ReceiveAddressWarmCache.address = resolved
                 resolving = false
                 guard let resolved else { return }
-                let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([resolved])) ?? []
-                balanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+                // A failed lookup leaves the balance unknown (nothing shown) rather than 0 KAS.
+                if let utxos = try? await NodePoolService.shared.getUtxosByAddresses([resolved]) {
+                    balanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+                }
             }
         }
     }
@@ -1278,8 +1280,12 @@ struct ProfileView: View {
             return
         }
         isLoadingSpendingBalance = true
-        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
-        spendingAddressBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        // A failed lookup keeps the last known figure (or the dash) rather than printing 0 KAS.
+        if let utxos = try? await NodePoolService.shared.getUtxosByAddresses([address]) {
+            spendingAddressBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        } else {
+            AppLog.log("%@", "[Contacts] Spending balance refresh failed; keeping the last known figure")
+        }
         isLoadingSpendingBalance = false
 
         // The whole set, in ONE call - a per-address loop would be dozens of requests on a wallet
@@ -3682,6 +3688,8 @@ struct ChattingAddressManageView: View {
     @State private var isLoading = false
     @State private var utxos: [UTXO] = []
     @State private var isLoadingUtxos = false
+    /// See `CoinControlView.loadError`.
+    @State private var utxoLoadError: String?
     @State private var showReceiveSheet = false
     @State private var showSendSheet = false
     @State private var showCompoundSheet = false
@@ -4006,8 +4014,14 @@ struct ChattingAddressManageView: View {
                     Spacer()
                 }
             } else if utxos.isEmpty {
-                Text("No UTXOs.")
-                    .foregroundColor(.secondary)
+                if let utxoLoadError {
+                    UtxoLoadFailureRow(detail: utxoLoadError) {
+                        Task { await loadUtxos() }
+                    }
+                } else {
+                    Text("No UTXOs.")
+                        .foregroundColor(.secondary)
+                }
             } else {
                 ForEach(Array(utxos.enumerated()), id: \.offset) { _, utxo in
                     utxoRow(utxo)
@@ -4064,7 +4078,13 @@ struct ChattingAddressManageView: View {
 
     private func loadUtxos() async {
         isLoadingUtxos = true
-        utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
+        do {
+            utxos = try await NodePoolService.shared.getUtxosByAddresses([address])
+            utxoLoadError = nil
+        } catch {
+            // The list keeps what it had; an outage is not an empty address.
+            utxoLoadError = error.localizedDescription
+        }
         isLoadingUtxos = false
     }
 

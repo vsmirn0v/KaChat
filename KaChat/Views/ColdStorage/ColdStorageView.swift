@@ -1995,7 +1995,21 @@ struct CoinControlView: View {
     @State private var utxos: [UTXO] = []
     @State private var selectedKeys: Set<String> = []
     @State private var isLoading = false
+    /// The node could not be asked. Shown in place of "no coins": an outage must never read as
+    /// an empty address when the coins here are about to be spent.
+    @State private var loadError: String?
     @State private var utxoLabels: [String: String] = [:]
+
+    private func loadUtxos() async {
+        isLoading = true
+        do {
+            utxos = try await NodePoolService.shared.getUtxosByAddresses([fromAddress])
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+        isLoading = false
+    }
 
     private func key(_ utxo: UTXO) -> String {
         "\(utxo.outpoint.transactionId):\(utxo.outpoint.index)"
@@ -2015,8 +2029,14 @@ struct CoinControlView: View {
                         Spacer()
                     }
                 } else if utxos.isEmpty {
-                    Text("No UTXOs found at this address.")
-                        .foregroundColor(.secondary)
+                    if let loadError {
+                        UtxoLoadFailureRow(detail: loadError) {
+                            Task { await loadUtxos() }
+                        }
+                    } else {
+                        Text("No UTXOs found at this address.")
+                            .foregroundColor(.secondary)
+                    }
                 } else {
                     Section {
                         ForEach(Array(utxos.enumerated()), id: \.offset) { _, utxo in
@@ -2093,12 +2113,10 @@ struct CoinControlView: View {
             }
             .task {
                 utxoLabels = ColdStorageManager.shared.loadUtxoLabels(address: fromAddress)
-                isLoading = true
-                utxos = (try? await NodePoolService.shared.getUtxosByAddresses([fromAddress])) ?? []
+                await loadUtxos()
                 if let initialSelection {
                     selectedKeys = Set(initialSelection.map(key))
                 }
-                isLoading = false
             }
         }
     }
@@ -2138,6 +2156,8 @@ private struct ColdStorageAddressTransactionHistoryView: View {
     @State private var isLoading = false
     @State private var utxos: [UTXO] = []
     @State private var isLoadingUtxos = false
+    /// See `CoinControlView.loadError`.
+    @State private var utxoLoadError: String?
     @State private var knsDomains: [KNSDomain] = []
     @State private var isLoadingDomains = false
     @State private var domainsLoadFailed = false
@@ -2429,8 +2449,14 @@ private struct ColdStorageAddressTransactionHistoryView: View {
                     Spacer()
                 }
             } else if utxos.isEmpty {
-                Text("No UTXOs.")
-                    .foregroundColor(.secondary)
+                if let utxoLoadError {
+                    UtxoLoadFailureRow(detail: utxoLoadError) {
+                        Task { await loadUtxos() }
+                    }
+                } else {
+                    Text("No UTXOs.")
+                        .foregroundColor(.secondary)
+                }
             } else {
                 ForEach(Array(utxos.enumerated()), id: \.offset) { _, utxo in
                     utxoRow(utxo)
@@ -2548,7 +2574,13 @@ private struct ColdStorageAddressTransactionHistoryView: View {
 
     private func loadUtxos() async {
         isLoadingUtxos = true
-        utxos = (try? await NodePoolService.shared.getUtxosByAddresses([entry.address])) ?? []
+        do {
+            utxos = try await NodePoolService.shared.getUtxosByAddresses([entry.address])
+            utxoLoadError = nil
+        } catch {
+            // The list keeps what it had; an outage is not an empty address.
+            utxoLoadError = error.localizedDescription
+        }
         isLoadingUtxos = false
     }
 

@@ -178,7 +178,13 @@ struct SettingsView: View {
             ) {
                 Button("Delete", role: .destructive) {
                     Task {
-                        try? await walletManager.deleteWallet()
+                        do {
+                            try await walletManager.deleteWallet()
+                        } catch {
+                            toastStyle = .error
+                            toastToken = UUID()
+                            toastMessage = "Couldn't delete the account: \(error.localizedDescription)"
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) {}

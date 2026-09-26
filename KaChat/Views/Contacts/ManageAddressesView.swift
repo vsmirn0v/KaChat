@@ -1167,11 +1167,17 @@ struct ManageAddressesView: View {
             }
             let activeIndex = walletManager.currentSpendingAddressIndex
             var sentTxIds: [String] = []
+            // One address failing must not hide the others' success - but if nothing went out
+            // and something threw, that error is the answer, not a sheet that just closes.
+            var lastError: Error?
             for entry in entries where entry.index != activeIndex && entry.balanceSompi > 0 {
-                if let maxSendable = try? await chatService.estimateMaxSpendingAddressAmount(index: entry.index, toAddress: primaryAddress, extraFeeSompi: extraFeeSompi),
-                   maxSendable > 0,
-                   let txId = try? await chatService.sendFromSpendingAddress(index: entry.index, toAddress: primaryAddress, amountSompi: maxSendable, extraFeeSompi: extraFeeSompi) {
+                do {
+                    let maxSendable = try await chatService.estimateMaxSpendingAddressAmount(index: entry.index, toAddress: primaryAddress, extraFeeSompi: extraFeeSompi)
+                    guard maxSendable > 0 else { continue }
+                    let txId = try await chatService.sendFromSpendingAddress(index: entry.index, toAddress: primaryAddress, amountSompi: maxSendable, extraFeeSompi: extraFeeSompi)
                     sentTxIds.append(txId)
+                } catch {
+                    lastError = error
                 }
             }
             await loadEntries()
@@ -1179,6 +1185,8 @@ struct ManageAddressesView: View {
             if !sentTxIds.isEmpty {
                 consolidateSentTxIds = sentTxIds
                 showConsolidateSuccess = true
+            } else if let lastError {
+                errorMessage = lastError.localizedDescription
             }
         }
     }

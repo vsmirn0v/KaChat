@@ -3089,8 +3089,10 @@ struct ChatDetailView: View {
             spendingBalanceSompi = nil
             return
         }
-        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
-        spendingBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        // A failed lookup keeps the last known figure rather than printing 0 available.
+        if let utxos = try? await NodePoolService.shared.getUtxosByAddresses([address]) {
+            spendingBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        }
     }
 
     /// Post-send backstop for the Available pill: a private-mode payment rotates the primary to

@@ -774,3 +774,27 @@ extension View {
         modifier(MessageActionsModifier(title: title, preview: preview, actions: actions))
     }
 }
+
+// MARK: - Coin list failure
+
+/// In place of an empty coin list when the node could not be asked. An outage used to render
+/// as "no coins", which on a cold storage address is the wrong thing to believe.
+struct UtxoLoadFailureRow: View {
+    let detail: String
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Couldn't load the coins at this address", systemImage: "exclamationmark.triangle")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.red)
+            Text(detail)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Button("Try Again", action: retry)
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 4)
+    }
+}
