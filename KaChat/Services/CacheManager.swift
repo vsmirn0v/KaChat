@@ -175,7 +175,7 @@ final class CacheManager: ObservableObject {
     /// Audio the app wrote to tmp for playback, encoding or sharing and could not clean up
     /// (killed mid-way, a share sheet that never completed). Anything of ours older than a day
     /// is nobody's any more. Runs once per launch, off the main thread.
-    static func sweepStaleTempFiles() {
+    nonisolated static func sweepStaleTempFiles() {
         let prefixes = ["kasia-audio", "kachat-voice", "kachat-broadcast-voice", "broadcast_rec_", "broadcast_voice_"]
         let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
         let directory = FileManager.default.temporaryDirectory

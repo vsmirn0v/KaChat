@@ -5,6 +5,23 @@ struct MainTabView: View {
     @State private var selectedTab = 1
     /// A local Core Data store failed to open (see `CoreDataStoreLoader.reportFailure`).
     @State private var storeLoadFailure: String?
+
+    private var storeLoadFailureShown: Binding<Bool> {
+        Binding(get: { storeLoadFailure != nil }, set: { if !$0 { storeLoadFailure = nil } })
+    }
+
+    private static func storeFailureMessage(from note: Notification) -> String {
+        let store = note.userInfo?["store"] as? String ?? "store"
+        let detail = note.userInfo?["message"] as? String ?? ""
+        let what: String
+        switch store {
+        case "MessageStore": what = "your message history"
+        case "GroupStore": what = "your group chats"
+        case "PublicChatStore": what = "public chat history"
+        default: what = "local data"
+        }
+        return "KaChat couldn't open \(what) on this device. Messages will not be saved until it can. Restarting the app usually fixes this; if it keeps happening, export diagnostics from Settings and contact support.\n\n\(detail)"
+    }
     /// Customize Dock, hosted here rather than pushed inside a tab - see the notification's note.
     @State private var showCustomizeDock = false
     /// Debounces the off-chat-tab discovery pause/resume so rapid tab-flipping can't thrash it.
@@ -216,18 +233,9 @@ struct MainTabView: View {
             presentGiftSheetIfEligibleForZeroBalance()
         }
         .onReceive(NotificationCenter.default.publisher(for: .localStoreLoadFailed)) { note in
-            let store = note.userInfo?["store"] as? String ?? "store"
-            let message = note.userInfo?["message"] as? String ?? ""
-            let what: String
-            switch store {
-            case "MessageStore": what = "your message history"
-            case "GroupStore": what = "your group chats"
-            case "PublicChatStore": what = "public chat history"
-            default: what = "local data"
-            }
-            storeLoadFailure = "KaChat couldn't open \(what) on this device. Messages will not be saved until it can. Restarting the app usually fixes this; if it keeps happening, export diagnostics from Settings and contact support.\n\n\(message)"
+            storeLoadFailure = Self.storeFailureMessage(from: note)
         }
-        .alert("Storage problem", isPresented: Binding(get: { storeLoadFailure != nil }, set: { if !$0 { storeLoadFailure = nil } })) {
+        .alert("Storage problem", isPresented: storeLoadFailureShown) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(storeLoadFailure ?? "")

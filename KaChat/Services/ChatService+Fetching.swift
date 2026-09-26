@@ -571,7 +571,7 @@ extension ChatService {
                     extractedAlias = decrypted.alias  // may be nil for deterministic handshakes
                     extractedConversationId = decrypted.conversationId
                     if let alias = decrypted.alias {
-                        AppLog.log("%@", "[ChatService] Extracted alias from handshake by …\(contactAddress.suffix(8))")
+                        AppLog.log("%@", "[ChatService] Extracted alias \(alias.prefix(6))… from handshake by …\(contactAddress.suffix(8))")
                     } else {
                         AppLog.log("%@", "[ChatService] Received alias-less (deterministic) handshake from \(contactAddress)")
                     }

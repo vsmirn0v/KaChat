@@ -376,7 +376,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
     /// the caller then falls back to `getGroupMessages` per member, which is what every pass
     /// used to do: 1 + admins + members requests per group, every minute.
     func getGroupMessagesBatch(_ queries: [GroupMessagesBatchQuery]) async throws -> [String: [GroupMessageResponse]]? {
-        sessionLock.lock(); let unsupported = groupMessagesBatchUnsupported; sessionLock.unlock()
+        let unsupported = sessionLock.withLock { groupMessagesBatchUnsupported }
         guard !unsupported, !queries.isEmpty else { return nil }
         do {
             let response: GroupMessagesBatchResponse = try await postJSON(
@@ -385,7 +385,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             )
             return Dictionary(response.results.map { ($0.blindedGroupId, $0.messages) }, uniquingKeysWith: { first, _ in first })
         } catch KasiaAPIClientError.endpointUnsupported {
-            sessionLock.lock(); groupMessagesBatchUnsupported = true; sessionLock.unlock()
+            sessionLock.withLock { groupMessagesBatchUnsupported = true }
             AppLog.log("%@", "[KasiaAPI] Indexer has no batched group-messages endpoint; using one request per member")
             return nil
         }

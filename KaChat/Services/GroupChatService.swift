@@ -787,7 +787,9 @@ final class GroupChatService: ObservableObject {
         let targetWallet = walletAddress
         store.setCurrentWallet(walletAddress) { [weak self] in
             guard let self else { return }
-            Task { @MainActor in
+            // The store calls back on the main thread (CoreDataStoreLoader); this is the
+            // service's own actor, so no hop is needed.
+            MainActor.assumeIsolated {
                 guard self.currentWalletAddress == targetWallet else { return }
                 self.groups = targetWallet == nil ? [] : self.store.allGroups()
                 // Load every group's history off the main actor (see loadMessages), one group per

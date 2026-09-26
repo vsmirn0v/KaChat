@@ -144,7 +144,9 @@ final class PublicChatService: ObservableObject {
         let targetWallet = walletAddress?.lowercased()
         store.setCurrentWallet(walletAddress) { [weak self] in
             guard let self else { return }
-            Task { @MainActor in
+            // The store calls back on the main thread (CoreDataStoreLoader); this is the
+            // service's own actor, so no hop is needed.
+            MainActor.assumeIsolated {
                 guard self.walletAddress == targetWallet else { return }
                 self.refreshChannels()
                 self.updateScanningStateIfNeeded()
