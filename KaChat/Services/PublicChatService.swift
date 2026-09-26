@@ -847,7 +847,8 @@ final class PublicChatService: ObservableObject {
     /// room, on every merge, prune and open.
     private func loadMessages(for channel: String) {
         Task { @MainActor [weak self] in
-            await self?.reloadMessages(for: channel)
+            guard let self else { return }
+            await self.reloadMessages(for: channel)
         }
     }
 

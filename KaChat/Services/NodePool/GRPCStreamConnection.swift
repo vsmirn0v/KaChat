@@ -168,7 +168,7 @@ struct ScannedBlock: Sendable {
 final class BlockScanRegistry: @unchecked Sendable {
     static let shared = BlockScanRegistry()
 
-    typealias Handler = @Sendable (ScannedBlock) -> Void
+    typealias Handler = (ScannedBlock) -> Void
     private let lock = NSLock()
     private var handlers: [UUID: Handler] = [:]
 
