@@ -786,8 +786,9 @@ final class GroupChatService: ObservableObject {
         // The store opens off the main thread now; the groups are read once it says so.
         let targetWallet = walletAddress
         store.setCurrentWallet(walletAddress) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.currentWalletAddress == targetWallet else { return }
+            guard let self else { return }
+            Task { @MainActor in
+                guard self.currentWalletAddress == targetWallet else { return }
                 self.groups = targetWallet == nil ? [] : self.store.allGroups()
                 // Load every group's history off the main actor (see loadMessages), one group per
                 // run-loop tick, so a wallet with group history doesn't freeze the UI on

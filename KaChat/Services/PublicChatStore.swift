@@ -721,7 +721,7 @@ final class PublicChatStore {
         guard isLoaded else { return false }
         let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
         // Read on the caller's side: these are the service's main-actor sets.
-        let fullWindowChannels = PublicChatService.indexedChannels.union(PublicChatService.serviceChannels)
+        let fullWindowChannels = Set(PublicChatService.indexedChannels).union(PublicChatService.serviceChannels)
         let viewContext = self.viewContext
         // Off the main thread: two batch deletes per channel every prune, and it used to run
         // every 30 s while a room was open and after every merge, all on main.

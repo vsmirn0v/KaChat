@@ -143,8 +143,9 @@ final class PublicChatService: ObservableObject {
         // The store opens off the main thread now; the rooms are read once it says so.
         let targetWallet = walletAddress?.lowercased()
         store.setCurrentWallet(walletAddress) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.walletAddress == targetWallet else { return }
+            guard let self else { return }
+            Task { @MainActor in
+                guard self.walletAddress == targetWallet else { return }
                 self.refreshChannels()
                 self.updateScanningStateIfNeeded()
                 if UIApplication.shared.applicationState == .active { self.startForegroundSweep() }
