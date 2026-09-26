@@ -450,6 +450,18 @@ struct SettingsView: View {
         }
     }
 
+    private func deleteAccount(removeRemoteBackup: Bool) {
+        Task {
+            do {
+                try await walletManager.deleteWallet(removeRemoteBackup: removeRemoteBackup)
+            } catch {
+                toastStyle = .error
+                toastToken = UUID()
+                toastMessage = "Couldn't delete the account: \(UserFacingError.message(for: error))"
+            }
+        }
+    }
+
     private func refreshMessageStoreSize() {
         let bytes = MessageStore.shared.currentStoreSizeBytes()
         let formatter = ByteCountFormatter()
@@ -3570,18 +3582,6 @@ struct NextcloudSettingsView: View {
         .task {
             guard service.isConnected else { return }
             backupInfo = await NextcloudService.shared.fetchBackupInfo()
-        }
-    }
-
-    private func deleteAccount(removeRemoteBackup: Bool) {
-        Task {
-            do {
-                try await walletManager.deleteWallet(removeRemoteBackup: removeRemoteBackup)
-            } catch {
-                toastStyle = .error
-                toastToken = UUID()
-                toastMessage = "Couldn't delete the account: \(UserFacingError.message(for: error))"
-            }
         }
     }
 
