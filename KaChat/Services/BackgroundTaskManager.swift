@@ -21,8 +21,12 @@ final class BackgroundTaskManager {
             forTaskWithIdentifier: Self.backgroundFetchTaskIdentifier,
             using: nil
         ) { task in
+            guard let refresh = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
             Task { @MainActor in
-                await self.handleBackgroundFetch(task: task as! BGAppRefreshTask)
+                await self.handleBackgroundFetch(task: refresh)
             }
         }
         AppLog.log("%@", "[BackgroundTaskManager] Registered background fetch task")
@@ -47,33 +51,62 @@ final class BackgroundTaskManager {
         AppLog.log("%@", "[BackgroundTaskManager] Cancelled background fetch")
     }
 
-    /// Handle the background fetch task
+    /// Handle the background fetch task.
+    ///
+    /// The work runs in its own `Task` so the expiration handler can cancel it: iOS grants a
+    /// short window, and an app still working after that window closes is what gets it fewer
+    /// windows later. The task is completed exactly once, whichever side gets there first.
     private func handleBackgroundFetch(task: BGAppRefreshTask) async {
         AppLog.log("%@", "[BackgroundTaskManager] Background fetch started")
 
         // Schedule the next fetch before doing work
         scheduleBackgroundFetch()
 
-        // Set up expiration handler
+        let completion = OnceCompletion(task: task)
+        let work = Task { @MainActor in
+            // A scheduled post only this phone holds goes out here if its time has come,
+            // whatever the fetch setting says - it is the author's own post, not a fetch.
+            await KaPostsScheduledStore.shared.sendDueLocally()
+            guard !Task.isCancelled else { return false }
+
+            // Check if background fetch is enabled in settings
+            guard ChatService.shared.settingsViewModel?.settings.backgroundFetchEnabled == true else {
+                AppLog.log("%@", "[BackgroundTaskManager] Background fetch disabled, skipping fetch")
+                return true
+            }
+
+            await ChatService.shared.fetchNewMessages()
+            guard !Task.isCancelled else { return false }
+            AppLog.log("%@", "[BackgroundTaskManager] Background fetch completed successfully")
+            return true
+        }
+
         task.expirationHandler = {
-            AppLog.log("%@", "[BackgroundTaskManager] Background fetch expired")
-            task.setTaskCompleted(success: false)
+            AppLog.log("%@", "[BackgroundTaskManager] Background fetch expired; stopping")
+            work.cancel()
+            completion.complete(success: false)
         }
 
-        // A scheduled post only this phone holds goes out here if its time has come, whatever
-        // the fetch setting says - it is the author's own post, not a fetch.
-        await KaPostsScheduledStore.shared.sendDueLocally()
+        let success = await work.value
+        completion.complete(success: success)
+    }
 
-        // Check if background fetch is enabled in settings
-        guard ChatService.shared.settingsViewModel?.settings.backgroundFetchEnabled == true else {
-            AppLog.log("%@", "[BackgroundTaskManager] Background fetch disabled, skipping fetch")
-            task.setTaskCompleted(success: true)
-            return
+    /// `BGTask.setTaskCompleted` may be called once; the expiration handler and the finished
+    /// work can race for it, from different threads.
+    private final class OnceCompletion: @unchecked Sendable {
+        private let task: BGAppRefreshTask
+        private let lock = NSLock()
+        private var done = false
+
+        init(task: BGAppRefreshTask) { self.task = task }
+
+        func complete(success: Bool) {
+            lock.lock()
+            let already = done
+            done = true
+            lock.unlock()
+            guard !already else { return }
+            task.setTaskCompleted(success: success)
         }
-
-        // Fetch new messages
-        await ChatService.shared.fetchNewMessages()
-        AppLog.log("%@", "[BackgroundTaskManager] Background fetch completed successfully")
-        task.setTaskCompleted(success: true)
     }
 }
