@@ -315,9 +315,18 @@ struct ChessTournamentGameView: View {
                     .foregroundColor(.secondary)
                 Image(systemName: "timer")
                     .font(.caption)
-                Text(clockText(remaining))
-                    .font(.system(.callout, design: .monospaced).weight(isActive ? .bold : .semibold))
-                    .monospacedDigit()
+                if isActive && remaining < 10_000 {
+                    // Tenths in the last ten seconds, drawn by a local timeline: the model
+                    // publishes `now` once a second, and a 5 Hz publish re-rendered the whole
+                    // board for a digit only this chip shows.
+                    let anchor = Date()
+                    TimelineView(.periodic(from: anchor, by: 0.1)) { timeline in
+                        let elapsed = Int64(timeline.date.timeIntervalSince(anchor) * 1000)
+                        clockLabel(max(0, remaining - elapsed), isActive: isActive)
+                    }
+                } else {
+                    clockLabel(remaining, isActive: isActive)
+                }
             }
             .foregroundColor(isLow ? .red : (isActive ? .primary : .secondary))
             .padding(.horizontal, 12)
@@ -329,6 +338,12 @@ struct ChessTournamentGameView: View {
                     .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
             )
         }
+    }
+
+    private func clockLabel(_ ms: Int64, isActive: Bool) -> some View {
+        Text(clockText(ms))
+            .font(.system(.callout, design: .monospaced).weight(isActive ? .bold : .semibold))
+            .monospacedDigit()
     }
 
     private func clockText(_ ms: Int64) -> String {

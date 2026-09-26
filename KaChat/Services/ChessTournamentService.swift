@@ -67,9 +67,11 @@ final class ChessTournamentService: ObservableObject {
             self?.historyReady = true
         }
         clockTask?.cancel()
+        // Once a second: every chess screen re-renders on this. The board's clock chip draws
+        // its own tenths in the last ten seconds from a local timeline (see `clockChip`).
         clockTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 200_000_000)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard let self else { return }
                 self.now = Int64(Date().timeIntervalSince1970 * 1000)
                 self.claimTimeoutsIfDue()
