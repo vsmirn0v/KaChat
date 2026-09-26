@@ -124,7 +124,7 @@ private struct NextcloudFolderListView: View {
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: iconName(for: file))
-                                .font(.system(size: 22))
+                                .font(.scaled(size: 22))
                                 .foregroundColor(.accentColor)
                                 .frame(width: 28)
                             VStack(alignment: .leading, spacing: 2) {
@@ -232,7 +232,7 @@ private struct NextcloudThumbnailCell: View {
             .overlay {
                 if file.isVideo {
                     Image(systemName: "play.circle.fill")
-                        .font(.system(size: 24))
+                        .font(.scaled(size: 24))
                         .foregroundStyle(.white, .black.opacity(0.45))
                         .shadow(color: .black.opacity(0.3), radius: 3)
                 }

@@ -512,7 +512,7 @@ struct ChatListView: View {
             showAddContact = true
         } label: {
             Image(systemName: "person.badge.plus")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.scaled(size: 22, weight: .semibold))
                 .foregroundColor(.accentColor)
                 .frame(width: 56, height: 56)
                 .background(
@@ -529,7 +529,7 @@ struct ChatListView: View {
     private var emptyStateView: some View {
         VStack(spacing: 20) {
             Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 60))
+                .font(.scaled(size: 60))
                 .foregroundColor(.secondary)
 
             Text("No Conversations Yet")
@@ -548,7 +548,7 @@ struct ChatListView: View {
     private var splitEmptyDetailView: some View {
         VStack(spacing: 12) {
             Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 44))
+                .font(.scaled(size: 44))
                 .foregroundColor(.secondary)
 
             Text("Select a chat")
@@ -745,7 +745,7 @@ struct ChatListView: View {
     private var groupsEmptyStateView: some View {
         VStack(spacing: 20) {
             Image(systemName: "person.3")
-                .font(.system(size: 60))
+                .font(.scaled(size: 60))
                 .foregroundColor(.secondary)
 
             Text("No Group Chats Yet")
@@ -908,7 +908,7 @@ struct ChatListView: View {
                     .disabled(selectedGroupIDs.isEmpty)
                 }
             }
-            .font(.system(size: 18))
+            .font(.scaled(size: 18))
             .buttonStyle(.bordered)
             .padding(.horizontal)
             .padding(.vertical, 10)
@@ -1762,7 +1762,7 @@ struct GroupChatRow: View {
                     .frame(width: 50, height: 50)
                     .overlay(
                         Image(systemName: "person.3.fill")
-                            .font(.system(size: 18))
+                            .font(.scaled(size: 18))
                             .foregroundColor(.accentColor)
                     )
             }

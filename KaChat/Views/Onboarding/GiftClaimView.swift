@@ -48,7 +48,7 @@ struct GiftClaimView: View {
     private var eligibleView: some View {
         VStack(spacing: 20) {
             Image(systemName: "gift.fill")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.accentColor)
 
             Text("Welcome to KaChat!")
@@ -93,7 +93,7 @@ struct GiftClaimView: View {
     private func claimedView(txId: String) -> some View {
         VStack(spacing: 20) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.green)
 
             Text("Gift sent to your wallet!")
@@ -117,7 +117,7 @@ struct GiftClaimView: View {
     private var alreadyClaimedView: some View {
         VStack(spacing: 20) {
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.secondary)
 
             Text("Gift already requested")
@@ -139,7 +139,7 @@ struct GiftClaimView: View {
     private func unavailableView(reason: String) -> some View {
         VStack(spacing: 20) {
             Image(systemName: "xmark.circle")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.secondary)
 
             Text("Gift unavailable")

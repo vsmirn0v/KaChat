@@ -169,7 +169,7 @@ struct MultiFrameQRScannerView: View {
                 } else if showPermissionDenied {
                     VStack(spacing: 20) {
                         Image(systemName: "camera.fill")
-                            .font(.system(size: 60))
+                            .font(.scaled(size: 60))
                             .foregroundColor(.secondary)
                         Text("Camera Access Required")
                             .font(.title2)

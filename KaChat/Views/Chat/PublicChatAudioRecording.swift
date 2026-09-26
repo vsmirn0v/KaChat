@@ -228,7 +228,7 @@ struct PublicChatAudioBubble: View {
                 player.toggle()
             } label: {
                 Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 26))
+                    .font(.scaled(size: 26))
             }
             .disabled(!player.isReady)
 

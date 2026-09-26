@@ -175,7 +175,7 @@ struct ChatInfoView: View {
                                     isEditing = true
                                 } label: {
                                     Image(systemName: "pencil")
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(.scaled(size: 13, weight: .semibold))
                                         .foregroundColor(.accentColor)
                                         .frame(width: 26, height: 26)
                                         .contentShape(Rectangle())
@@ -750,7 +750,7 @@ struct ChatInfoView: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.scaled(size: 16, weight: .semibold))
                     .foregroundColor(.accentColor)
                     .frame(width: 26)
                 Text(title)

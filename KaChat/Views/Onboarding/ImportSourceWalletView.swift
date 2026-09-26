@@ -45,7 +45,7 @@ struct ImportSourceWalletView: View {
         VStack(spacing: 12) {
             VStack(spacing: 8) {
                 Image(systemName: "wallet.pass.fill")
-                    .font(.system(size: 44))
+                    .font(.scaled(size: 44))
                     .foregroundColor(.accentColor)
                 Text("Where is this seed phrase from?")
                     .font(.title3.weight(.bold))

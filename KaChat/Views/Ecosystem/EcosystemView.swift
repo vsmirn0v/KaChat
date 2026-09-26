@@ -178,7 +178,7 @@ struct EcosystemView: View {
                                 ChessTabIcon.view(side: 26)
                             } else {
                                 Image(systemName: tab.icon)
-                                    .font(.system(size: 26, weight: .medium))
+                                    .font(.scaled(size: 26, weight: .medium))
                                     .foregroundStyle(Color.accentColor)
                             }
                         }
@@ -199,7 +199,7 @@ struct EcosystemView: View {
                     let count = AppTabBadge.unreadCount(for: tab)
                     if count > 0 {
                         Text(AppTabBadge.label(count))
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.scaled(size: 11, weight: .bold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 5)
                             .frame(minWidth: 20, minHeight: 20)

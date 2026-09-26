@@ -378,7 +378,7 @@ struct ManageAddressesView: View {
     private var chatPrivacyEmptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "lock.shield")
-                .font(.system(size: 40))
+                .font(.scaled(size: 40))
                 .foregroundColor(.secondary)
             Text("No Chat Privacy Addresses")
                 .font(.headline)
@@ -451,7 +451,7 @@ struct ManageAddressesView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "creditcard")
-                .font(.system(size: 40))
+                .font(.scaled(size: 40))
                 .foregroundColor(.secondary)
             Text("No Spending Addresses")
                 .font(.headline)
@@ -522,7 +522,7 @@ struct ManageAddressesView: View {
                         addressActionsTarget = entry
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.scaled(size: 18, weight: .bold))
                             .rotationEffect(.degrees(90))
                             .foregroundColor(.secondary)
                             .frame(width: 24, height: 24)
@@ -1432,7 +1432,7 @@ private struct ConsolidateSuccessCard: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 44))
+                .font(.scaled(size: 44))
                 .foregroundColor(.green)
 
             Text("Sent")
@@ -2924,7 +2924,7 @@ private struct SpendingAddressVisibilityView: View {
         let locked = isPrimary || ((funded || isReserved) && visible)
         return HStack(spacing: 10) {
             Image(systemName: visible ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 20))
+                .font(.scaled(size: 20))
                 .foregroundColor(visible ? .accentColor : .secondary)
                 .opacity(locked ? 0.45 : 1)
             VStack(alignment: .leading, spacing: 1) {

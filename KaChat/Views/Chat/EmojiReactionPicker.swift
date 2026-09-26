@@ -124,7 +124,7 @@ struct EmojiReactionPicker: View {
                         dismiss()
                     } label: {
                         Text(emoji)
-                            .font(.system(size: 28))
+                            .font(.scaled(size: 28))
                             .frame(maxWidth: .infinity, minHeight: 40)
                             .contentShape(Rectangle())
                     }

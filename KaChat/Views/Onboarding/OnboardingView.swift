@@ -293,7 +293,7 @@ struct OnboardingView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundColor(.primary)
                         Text(account.formattedPublicAddress)
-                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .font(.scaled(size: 11, weight: .regular, design: .monospaced))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -313,7 +313,7 @@ struct OnboardingView: View {
                 accountActionsTarget = account
             } label: {
                 Image(systemName: "pencil")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.scaled(size: 15, weight: .semibold))
                     .foregroundColor(.accentColor)
                     .frame(width: 32, height: 32)
                     .contentShape(Rectangle())

@@ -1095,7 +1095,7 @@ struct QuickReactionEmojisSettingsView: View {
                             editingSlotIndex = index
                         } label: {
                             Text(emojis[index])
-                                .font(.system(size: 30))
+                                .font(.scaled(size: 30))
                                 .frame(width: 44, height: 44)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -3666,7 +3666,7 @@ struct ChatRestoreProgressModal: View {
     @ViewBuilder
     private var runningContent: some View {
         Image(systemName: "arrow.down.doc")
-            .font(.system(size: 38, weight: .medium))
+            .font(.scaled(size: 38, weight: .medium))
             .foregroundColor(.accentColor)
 
         Text("Restoring Backup")
@@ -3700,7 +3700,7 @@ struct ChatRestoreProgressModal: View {
     @ViewBuilder
     private func successContent(conversations: Int, messages: Int, filledSent: Int) -> some View {
         Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 44))
+            .font(.scaled(size: 44))
             .foregroundColor(.green)
 
         Text("Restore Complete")
@@ -3725,7 +3725,7 @@ struct ChatRestoreProgressModal: View {
     @ViewBuilder
     private func failureContent(message: String) -> some View {
         Image(systemName: "exclamationmark.triangle.fill")
-            .font(.system(size: 44))
+            .font(.scaled(size: 44))
             .foregroundColor(.orange)
 
         Text("Restore Failed")
@@ -3926,7 +3926,7 @@ struct IncomingResyncProgressModal: View {
     @ViewBuilder
     private var runningContent: some View {
         Image(systemName: "arrow.triangle.2.circlepath")
-            .font(.system(size: 38, weight: .medium))
+            .font(.scaled(size: 38, weight: .medium))
             .foregroundColor(.accentColor)
 
         Text("Re-syncing Messages")
@@ -3960,7 +3960,7 @@ struct IncomingResyncProgressModal: View {
     @ViewBuilder
     private func successContent(chats: Int, messages: Int) -> some View {
         Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 44))
+            .font(.scaled(size: 44))
             .foregroundColor(.green)
 
         Text("Re-sync Complete")
@@ -3985,7 +3985,7 @@ struct IncomingResyncProgressModal: View {
     @ViewBuilder
     private func failureContent(message: String) -> some View {
         Image(systemName: "exclamationmark.triangle.fill")
-            .font(.system(size: 44))
+            .font(.scaled(size: 44))
             .foregroundColor(.orange)
 
         Text("Re-sync Failed")
@@ -4263,7 +4263,7 @@ struct CacheSettingsPage: View {
                     } label: {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: category.systemImage)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.scaled(size: 16, weight: .semibold))
                                 .foregroundColor(.accentColor)
                                 .frame(width: 26)
                             VStack(alignment: .leading, spacing: 2) {

@@ -43,7 +43,7 @@ struct DesktopEmojiPickerView: View {
                     searchText = ""
                 } label: {
                     Image(systemName: category.icon)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.scaled(size: 14, weight: .medium))
                         .foregroundStyle(selectedCategory == category ? Color.accentColor : Color.secondary)
                         .frame(width: 30, height: 30)
                         .background(
@@ -98,7 +98,7 @@ struct DesktopEmojiPickerView: View {
                             onSelect(item.emoji)
                         } label: {
                             Text(item.emoji)
-                                .font(.system(size: 26))
+                                .font(.scaled(size: 26))
                                 .frame(width: 38, height: 38)
                                 .contentShape(Rectangle())
                         }

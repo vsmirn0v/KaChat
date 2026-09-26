@@ -138,7 +138,7 @@ struct SeedPhraseKeyboardView: View {
             press(ch)
         } label: {
             Text(String(ch))
-                .font(.system(size: 20, weight: .medium))
+                .font(.scaled(size: 20, weight: .medium))
                 .frame(maxWidth: .infinity, minHeight: 46)
                 .background(enabled ? Color(.systemGray5) : Color(.systemGray6).opacity(0.5))
                 .foregroundColor(enabled ? .primary : Color(.systemGray3))
@@ -152,7 +152,7 @@ struct SeedPhraseKeyboardView: View {
             backspace()
         } label: {
             Image(systemName: "delete.left")
-                .font(.system(size: 18, weight: .medium))
+                .font(.scaled(size: 18, weight: .medium))
                 .frame(width: 54, height: 46)
                 .background(Color(.systemGray4))
                 .foregroundColor(.primary)

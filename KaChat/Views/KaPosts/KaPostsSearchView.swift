@@ -117,7 +117,7 @@ struct KaPostsSearchView: View {
         VStack(spacing: 10) {
             Spacer()
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 40))
+                .font(.scaled(size: 40))
                 .foregroundColor(.secondary)
             Text("Search KaPosts")
                 .font(.headline)

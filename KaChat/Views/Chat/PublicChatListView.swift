@@ -147,7 +147,7 @@ struct PublicChatListView: View {
             if let name = channelToLeave {
                 VStack(spacing: 14) {
                     Image(systemName: "trash")
-                        .font(.system(size: 30))
+                        .font(.scaled(size: 30))
                         .foregroundColor(.red)
                         .padding(.top, 26)
                     Text("Delete #\(name)?")
@@ -249,7 +249,7 @@ struct PublicChatListView: View {
                         Circle()
                             .fill(Color.accentColor.opacity(0.2))
                             .frame(width: 50, height: 50)
-                            .overlay(Image(systemName: "globe").font(.system(size: 20)).foregroundColor(.accentColor))
+                            .overlay(Image(systemName: "globe").font(.scaled(size: 20)).foregroundColor(.accentColor))
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Other Languages").font(.headline)
                             Text("\(unjoinedLanguageChannels.count) rooms").font(.subheadline).foregroundColor(.secondary)
@@ -298,7 +298,7 @@ struct PublicChatListView: View {
                 showJoinAlert = true
             } label: {
                 Image(systemName: "plus.bubble")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.scaled(size: 22, weight: .semibold))
                     .foregroundColor(.accentColor)
                     .frame(width: 56, height: 56)
                     .background(
@@ -601,7 +601,7 @@ struct PublicChatRow: View {
                 .frame(width: 50, height: 50)
                 .overlay(
                     Text("#")
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .font(.scaled(size: 24, weight: .bold, design: .rounded))
                         .foregroundColor(.accentColor)
                 )
 

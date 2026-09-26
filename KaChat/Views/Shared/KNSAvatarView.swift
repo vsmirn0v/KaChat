@@ -114,7 +114,7 @@ struct KNSAvatarView: View {
             .fill(Color.accentColor.opacity(0.2))
             .overlay(
                 Image(systemName: "person.fill")
-                    .font(.system(size: max(12, size * 0.42), weight: .medium))
+                    .font(.scaled(size: max(12, size * 0.42), weight: .medium))
                     .foregroundColor(.accentColor)
             )
     }

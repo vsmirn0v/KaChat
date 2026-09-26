@@ -143,7 +143,7 @@ struct PortfolioView: View {
                         .font(.subheadline).fontWeight(.semibold)
                         .foregroundColor(.secondary)
                     Text(networkStats.currentHashrate.map(HashrateFormat.display) ?? "—")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.scaled(size: 20, weight: .bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
@@ -179,7 +179,7 @@ struct PortfolioView: View {
             }
             Spacer(minLength: 0)
             Text(viewModel.currentPriceUsd.map { PortfolioFormat.price($0, currency: currency) } ?? "—")
-                .font(.system(size: 22, weight: .bold))
+                .font(.scaled(size: 22, weight: .bold))
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
             if let change = viewModel.priceChange24h {
@@ -209,7 +209,7 @@ struct PortfolioView: View {
             }
             Spacer(minLength: 0)
             Text(viewModel.valuesHidden ? PortfolioFormat.masked : PortfolioFormat.currency(summary.currentValue, currency))
-                .font(.system(size: 22, weight: .bold))
+                .font(.scaled(size: 22, weight: .bold))
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
             // The last 24 hours, not all-time P&L. A card showing a number that only ever grows
@@ -339,7 +339,7 @@ private struct KasPriceChartScreen: View {
             // constrains the other whatever they say. Tap the price: the same chart in the pair.
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text((scrubbed?.value ?? viewModel.chartCurrentPrice).map { PortfolioFormat.price($0, unit: chartUnit) } ?? "—")
-                    .font(.system(size: 34, weight: .bold))
+                    .font(.scaled(size: 34, weight: .bold))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
                 ChartCurrencyChip(viewModel: viewModel)
@@ -472,7 +472,7 @@ private struct PortfolioValueChartScreen: View {
             // Tap the value: the same chart in the pair.
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text((scrubbed?.value ?? currentValue).map(chartMoney) ?? "—")
-                    .font(.system(size: 34, weight: .bold))
+                    .font(.scaled(size: 34, weight: .bold))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
                 ChartCurrencyChip(viewModel: viewModel)
@@ -1078,7 +1078,7 @@ private struct KasConverterCard: View {
                 .keyboardType(.decimalPad)
                 .numericKeyboardDoneButton()
                 .multilineTextAlignment(.trailing)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.scaled(size: 20, weight: .semibold))
                 .focused($focused, equals: field)
                 .onChange(of: text.wrappedValue) { newValue in
                     // Only the focused field drives; without this the derived write would bounce
@@ -1243,7 +1243,7 @@ private struct HashrateChartScreen: View {
                 ChartRangeSummary(range: range, valueText: HashrateFormat.display)
             }
             Text((scrubbed?.value ?? networkStats.currentHashrate).map(HashrateFormat.display) ?? "—")
-                .font(.system(size: 34, weight: .bold))
+                .font(.scaled(size: 34, weight: .bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
@@ -1398,7 +1398,7 @@ private struct MiningEstimateCard: View {
                         let grouped = DecimalInputFormat.grouped(newValue)
                         if grouped != amountText { amountText = grouped }
                     }
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.scaled(size: 20, weight: .semibold))
                     .padding(.vertical, 8)
                     .padding(.horizontal, 12)
                     .background(

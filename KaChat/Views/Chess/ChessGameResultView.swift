@@ -37,7 +37,7 @@ struct ChessGameEndOverlay: View {
                     let angle = Double(i) / 18 * 2 * .pi
                     let distance: CGFloat = burst ? 150 : 0
                     Text(["✨", "🎉", "⭐", "🎊", "💫"][i % 5])
-                        .font(.system(size: i.isMultiple(of: 3) ? 26 : 18))
+                        .font(.scaled(size: i.isMultiple(of: 3) ? 26 : 18))
                         .offset(x: cos(angle) * distance, y: sin(angle) * distance)
                         .opacity(burst ? 0 : 1)
                         .animation(.easeOut(duration: 1.1).delay(0.15), value: burst)
@@ -45,11 +45,11 @@ struct ChessGameEndOverlay: View {
             }
             VStack(spacing: 8) {
                 Image(systemName: iWon == true ? "trophy.fill" : (iWon == false ? "flag.fill" : "checkmark.seal.fill"))
-                    .font(.system(size: 54))
+                    .font(.scaled(size: 54))
                     .foregroundColor(iWon == true ? .yellow : .white)
                     .shadow(color: iWon == true ? .yellow.opacity(0.8) : .clear, radius: 18)
                 Text(headline)
-                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+                    .font(.scaled(size: 34, weight: .heavy, design: .rounded))
                     .foregroundColor(.white)
                 Text(detail)
                     .font(.subheadline.weight(.semibold))
@@ -105,7 +105,7 @@ struct ChessGameResultView: View {
                 VStack(spacing: 24) {
                     VStack(spacing: 6) {
                         Image(systemName: iWon ? "trophy.fill" : "flag.fill")
-                            .font(.system(size: 44))
+                            .font(.scaled(size: 44))
                             .foregroundColor(iWon ? .yellow : .secondary)
                         Text(iWon ? "Victory" : "Defeat")
                             .font(.largeTitle.weight(.heavy))
@@ -170,7 +170,7 @@ struct ChessGameResultView: View {
     private func stat(_ label: String, value: Int, delta: Int, color: Color) -> some View {
         VStack(spacing: 2) {
             Text("\(value)")
-                .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
+                .font(.scaled(size: 40, weight: .bold, design: .rounded).monospacedDigit())
                 .foregroundColor(color)
                 .contentTransition(.numericText())
             Text(label).font(.caption).foregroundColor(.secondary)
@@ -187,7 +187,7 @@ struct ChessGameResultView: View {
         let text = w + l == 0 ? "-" : String(format: "%.0f%%", Double(w) / Double(w + l) * 100)
         return VStack(spacing: 2) {
             Text(text)
-                .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(.scaled(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
                 .contentTransition(.numericText())
             Text("Win rate").font(.caption).foregroundColor(.secondary)
         }

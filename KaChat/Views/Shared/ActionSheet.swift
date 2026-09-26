@@ -41,7 +41,7 @@ struct ActionSheetRow: View {
                             .frame(width: 22, height: 22)
                     } else {
                         Image(systemName: systemImage)
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.scaled(size: 18, weight: .semibold))
                             .foregroundColor(tint)
                     }
                 }
@@ -540,7 +540,7 @@ struct SentConfirmationSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 52))
+                .font(.scaled(size: 52))
                 .foregroundColor(.green)
                 .padding(.top, 28)
 
@@ -796,5 +796,17 @@ struct UtxoLoadFailureRow: View {
                 .buttonStyle(.borderless)
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Type that follows the user's text size
+
+extension Font {
+    /// A fixed point size, scaled by the user's Dynamic Type setting the way the system text
+    /// styles are. 173 places in the views set a point size directly and stayed that size
+    /// however large the person set their text; this keeps the design's proportions and
+    /// grows with the setting.
+    static func scaled(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        .system(size: UIFontMetrics.default.scaledValue(for: size), weight: weight, design: design)
     }
 }

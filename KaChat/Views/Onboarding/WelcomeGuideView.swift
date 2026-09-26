@@ -270,7 +270,7 @@ struct WelcomeGuideView: View {
             centeringScroll {
                 VStack(spacing: 20) {
                     Image(systemName: icon)
-                        .font(.system(size: 56))
+                        .font(.scaled(size: 56))
                         .foregroundColor(.accentColor)
                     Text(LocalizedStringKey(title))
                         .font(.title2.weight(.bold))
@@ -338,7 +338,7 @@ struct WelcomeGuideView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "figure.and.child.holdinghands")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.accentColor)
             Text("Who will use KaChat?")
                 .font(.title2.weight(.bold))
@@ -504,7 +504,7 @@ struct WelcomeGuideView: View {
             centeringScroll {
                 VStack(spacing: 16) {
                     Image(systemName: "eye.slash.circle")
-                        .font(.system(size: 56))
+                        .font(.scaled(size: 56))
                         .foregroundColor(.accentColor)
                     Text("Chat Payment Privacy")
                         .font(.title2.weight(.bold))
@@ -600,7 +600,7 @@ struct WelcomeGuideView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "globe")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.accentColor)
             Text("Choose Your Language")
                 .font(.title2.weight(.bold))
@@ -660,7 +660,7 @@ struct WelcomeGuideView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "dollarsign.circle")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.accentColor)
             Text("Choose Your Currency")
                 .font(.title2.weight(.bold))
@@ -848,7 +848,7 @@ struct WelcomeGuideView: View {
             centeringScroll {
                 VStack(spacing: 16) {
                     Image(systemName: "server.rack")
-                        .font(.system(size: 56))
+                        .font(.scaled(size: 56))
                         .foregroundColor(.accentColor)
                     Text("Connect to a Node")
                         .font(.title2.weight(.bold))

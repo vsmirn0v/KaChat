@@ -34,7 +34,7 @@ struct ChessWaitingRoomView: View {
                     seats
                     VStack(spacing: 6) {
                         Text("\(matchFoundSecondsLeft)")
-                            .font(.system(size: 56, weight: .bold, design: .rounded).monospacedDigit())
+                            .font(.scaled(size: 56, weight: .bold, design: .rounded).monospacedDigit())
                             .contentTransition(.numericText())
                             .animation(.easeInOut(duration: 0.2), value: matchFoundSecondsLeft)
                         Text(tournament.isDuel ? "Taking both of you to the board" : "Taking everyone to their boards")
@@ -95,7 +95,7 @@ struct ChessWaitingRoomView: View {
     private var leaveSheet: some View {
         VStack(spacing: 16) {
             Image(systemName: "figure.walk.departure")
-                .font(.system(size: 34))
+                .font(.scaled(size: 34))
                 .foregroundColor(.red)
                 .padding(.top, 28)
             Text("Leave the queue?")
@@ -211,7 +211,7 @@ struct ChessWaitingRoomView: View {
                 .frame(width: 64, height: 64)
                 .overlay(
                     Text("?")
-                        .font(.system(size: 28, weight: .semibold, design: .rounded))
+                        .font(.scaled(size: 28, weight: .semibold, design: .rounded))
                         .foregroundColor(.secondary)
                 )
             Text("Waiting")
@@ -246,7 +246,7 @@ struct ChessWaitingRoomView: View {
         let left = max(0, Int((expiry - service.now) / 1000))
         return VStack(spacing: 4) {
             Text(String(format: "%d:%02d", left / 60, left % 60))
-                .font(.system(size: 44, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(.scaled(size: 44, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundColor(left < 30 ? .red : .primary)
             Text("Your seat is held this long. If no one joins in time, you leave the queue.")
                 .font(.caption)

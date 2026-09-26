@@ -631,7 +631,7 @@ struct SwapView: View {
                                 pendingDeleteSwap = swap
                             } label: {
                                 Image(systemName: "trash")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.scaled(size: 16, weight: .semibold))
                                     .foregroundColor(.red)
                                     .frame(width: 32, height: 32)
                             }
@@ -1121,7 +1121,7 @@ func swapCoinIcon(_ coin: SwapCoin) -> some View {
             .clipShape(Circle())
     } else {
         Text(coin.ticker.uppercased())
-            .font(.system(size: 8, weight: .bold))
+            .font(.scaled(size: 8, weight: .bold))
             .lineLimit(1)
             .minimumScaleFactor(0.5)
             .frame(width: 20, height: 20)

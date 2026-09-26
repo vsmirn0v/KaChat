@@ -218,7 +218,7 @@ struct ChessTournamentGameView: View {
             : "\(opponent) goes through and you are out of the tournament. It counts as a loss on the leaderboard. Resigning is one transaction."
         return VStack(spacing: 16) {
             Image(systemName: leaving ? "rectangle.portrait.and.arrow.right" : "flag.fill")
-                .font(.system(size: 34))
+                .font(.scaled(size: 34))
                 .foregroundColor(.red)
                 .padding(.top, 28)
             Text(leaving ? "Leave the game?" : "Resign this game?")

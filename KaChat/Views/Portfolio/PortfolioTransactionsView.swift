@@ -216,7 +216,7 @@ struct PortfolioTransactionsView<Header: View>: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 44))
+                .font(.scaled(size: 44))
                 .foregroundColor(.secondary)
             Text("No Transactions Yet")
                 .font(.title3)
@@ -305,7 +305,7 @@ struct PortfolioTransactionsView<Header: View>: View {
             toggleSelectAll()
         } label: {
             Image(systemName: selectedIDs.count == viewModel.transactionsDescending.count ? "checkmark.circle.fill" : "checkmark.circle")
-                .font(.system(size: 22))
+                .font(.scaled(size: 22))
                 .foregroundColor(.accentColor)
         }
         .buttonStyle(.plain)
@@ -322,7 +322,7 @@ struct PortfolioTransactionsView<Header: View>: View {
                     Text("\(selectedIDs.count)").font(.subheadline.weight(.semibold))
                 }
             }
-            .font(.system(size: 18))
+            .font(.scaled(size: 18))
             .foregroundColor(selectedIDs.isEmpty ? .secondary : .red)
         }
         .buttonStyle(.plain)
@@ -336,7 +336,7 @@ struct PortfolioTransactionsView<Header: View>: View {
             showAddChooser = true
         } label: {
             Image(systemName: "plus.circle.fill")
-                .font(.system(size: 22))
+                .font(.scaled(size: 22))
                 .foregroundColor(.accentColor)
         }
         .buttonStyle(.plain)
@@ -382,7 +382,7 @@ struct PortfolioTransactionsView<Header: View>: View {
             showImportExport = true
         } label: {
             Image(systemName: "square.and.arrow.up.on.square")
-                .font(.system(size: 17, weight: .semibold))
+                .font(.scaled(size: 17, weight: .semibold))
                 .foregroundColor(.accentColor)
         }
         .buttonStyle(.plain)

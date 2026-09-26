@@ -742,10 +742,10 @@ struct AddContactView: View {
                         } else {
                             VStack(spacing: 2) {
                                 Image(systemName: "camera")
-                                    .font(.system(size: 16))
+                                    .font(.scaled(size: 16))
                                     .foregroundColor(.secondary)
                                 Text("Add\nPhoto")
-                                    .font(.system(size: 9))
+                                    .font(.scaled(size: 9))
                                     .multilineTextAlignment(.center)
                                     .foregroundColor(.secondary)
                             }

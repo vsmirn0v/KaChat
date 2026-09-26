@@ -183,7 +183,7 @@ struct MessageBubbleView: View {
 
         ZStack(alignment: .trailing) {
             Text(timeText)
-                .font(.system(size: 11))
+                .font(.scaled(size: 11))
                 .foregroundColor(.secondary)
                 .padding(.trailing, 12)
                 .opacity(revealProgress)
@@ -1289,7 +1289,7 @@ struct KaChatInternalLinkCardView: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color.accentColor.opacity(0.18))
                     Image(systemName: iconName)
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.scaled(size: 18, weight: .semibold))
                         .foregroundColor(.accentColor)
                 }
                 .frame(width: 40, height: 40)
@@ -1834,7 +1834,7 @@ struct LazyImageBubble: View {
     private var hiddenBubble: some View {
         VStack(spacing: 8) {
             Image(systemName: "eye.slash")
-                .font(.system(size: 24, weight: .regular))
+                .font(.scaled(size: 24, weight: .regular))
                 .foregroundColor(.secondary)
             Text("\(senderDisplayName) sent a photo")
                 .font(.caption)
@@ -1932,7 +1932,7 @@ struct LazyImageBubble: View {
 
     private var placeholder: some View {
         Image(systemName: "photo")
-            .font(.system(size: 28, weight: .regular))
+            .font(.scaled(size: 28, weight: .regular))
             .foregroundColor(.secondary)
             .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
     }
@@ -2478,7 +2478,7 @@ private struct AudioBubble: View {
                         .frame(width: 32, height: 32)
                 } else {
                     Image(systemName: helper.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 32))
+                        .font(.scaled(size: 32))
                 }
             }
             .disabled(helper.isLoading)
@@ -3399,7 +3399,7 @@ struct ChessPieceGlyphView: View {
 
     private var glyphText: some View {
         Text(piece.glyph)
-            .font(.system(size: fontSize))
+            .font(.scaled(size: fontSize))
             .minimumScaleFactor(0.5)
     }
 
@@ -3502,7 +3502,7 @@ struct NextcloudAudioBubble: View {
                 HStack(spacing: 10) {
                     if failed {
                         Image(systemName: "exclamationmark.circle")
-                            .font(.system(size: 32))
+                            .font(.scaled(size: 32))
                     } else {
                         ProgressView()
                             .frame(width: 32, height: 32)

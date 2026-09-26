@@ -190,7 +190,7 @@ struct ChessTournamentView: View {
                         }
                         Spacer()
                         Text("\(Int((left + 999) / 1000))")
-                            .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                            .font(.scaled(size: 34, weight: .bold, design: .rounded).monospacedDigit())
                             .foregroundColor(.accentColor)
                             .contentTransition(.numericText())
                             .animation(.easeInOut(duration: 0.2), value: Int((left + 999) / 1000))

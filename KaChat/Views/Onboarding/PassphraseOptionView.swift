@@ -84,7 +84,7 @@ struct PassphraseOptionView: View {
             Spacer(minLength: 0)
 
             Image(systemName: "lock.shield.fill")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.accentColor)
 
             Text(questionTitle)

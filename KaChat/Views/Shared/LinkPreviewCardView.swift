@@ -213,7 +213,7 @@ struct LinkPreviewCardView: View {
             )
             if kind == .video {
                 Image(systemName: "play.circle.fill")
-                    .font(.system(size: 44))
+                    .font(.scaled(size: 44))
                     .foregroundStyle(.white, .black.opacity(0.45))
                     .shadow(color: .black.opacity(0.3), radius: 4)
             }
@@ -232,7 +232,7 @@ struct LinkPreviewCardView: View {
                 default: return "doc.fill"
                 }
             }())
-            .font(.system(size: 34))
+            .font(.scaled(size: 34))
             .foregroundColor(.accentColor)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -287,7 +287,7 @@ struct LinkPreviewCardView: View {
 
                         if isVideoLink || data.nextcloudMedia == .video {
                             Image(systemName: "play.circle.fill")
-                                .font(.system(size: 40))
+                                .font(.scaled(size: 40))
                                 .foregroundStyle(.white, .black.opacity(0.45))
                                 .shadow(color: .black.opacity(0.3), radius: 4)
                         }
@@ -351,7 +351,7 @@ struct LinkPreviewCardView: View {
     private var tapToLoadCard: some View {
         HStack(spacing: 10) {
             Image(systemName: "link")
-                .font(.system(size: 20))
+                .font(.scaled(size: 20))
                 .foregroundColor(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Tap to load preview")
@@ -526,7 +526,7 @@ private struct NextcloudMediaViewerView: View {
                     } else if loadFailed {
                         VStack(spacing: 12) {
                             Image(systemName: "exclamationmark.triangle")
-                                .font(.system(size: 32))
+                                .font(.scaled(size: 32))
                                 .foregroundColor(.secondary)
                             // No "Open in Nextcloud" escape hatch. A file that fails to load
                             // here has almost always lost its share, and that link opened a
@@ -549,7 +549,7 @@ private struct NextcloudMediaViewerView: View {
                     } else if loadFailed {
                         VStack(spacing: 12) {
                             Image(systemName: "exclamationmark.triangle")
-                                .font(.system(size: 32))
+                                .font(.scaled(size: 32))
                                 .foregroundColor(.secondary)
                             // No "Open in Nextcloud" escape hatch. A file that fails to load
                             // here has almost always lost its share, and that link opened a

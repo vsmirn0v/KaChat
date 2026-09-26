@@ -47,7 +47,7 @@ struct CallView: View {
                     callService.minimize()
                 } label: {
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.scaled(size: 17, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(width: 40, height: 40)
                         .background(Circle().fill(Color.white.opacity(0.18)))
@@ -121,7 +121,7 @@ struct CallView: View {
                 )
                 .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
                 Text(contactsManager.displayName(for: call.contact))
-                    .font(.system(size: 30, weight: .semibold))
+                    .font(.scaled(size: 30, weight: .semibold))
                     .foregroundColor(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -244,7 +244,7 @@ struct CallView: View {
                         )
                     } else {
                         Image(systemName: "video.slash.fill")
-                            .font(.system(size: 34, weight: .semibold))
+                            .font(.scaled(size: 34, weight: .semibold))
                             .foregroundColor(.white.opacity(0.5))
                     }
                     Text(placeholder)
@@ -291,7 +291,7 @@ struct CallView: View {
                 callService.hangUp()
             } label: {
                 Image(systemName: "phone.down.fill")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.scaled(size: 24, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 60, height: 60)
                     .background(Circle().fill(Color.red))
@@ -333,7 +333,7 @@ struct CallView: View {
         VStack(spacing: 10) {
             Button(action: action) {
                 Image(systemName: systemName)
-                    .font(.system(size: size * 0.42, weight: .semibold))
+                    .font(.scaled(size: size * 0.42, weight: .semibold))
                     .foregroundColor(foreground)
                     .frame(width: size, height: size)
                     .background(Circle().fill(tint))
@@ -350,7 +350,7 @@ struct CallView: View {
     private func smallControl(systemName: String, active: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.scaled(size: 20, weight: .semibold))
                 .foregroundColor(active ? .black : .white)
                 .frame(width: 52, height: 52)
                 .background(Circle().fill(active ? Color.white : Color.white.opacity(0.22)))

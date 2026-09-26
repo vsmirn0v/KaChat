@@ -52,7 +52,7 @@ struct ChattingAddressPickerView: View {
             VStack(spacing: 16) {
                 VStack(spacing: 8) {
                     Image(systemName: "person.text.rectangle")
-                        .font(.system(size: 44))
+                        .font(.scaled(size: 44))
                         .foregroundColor(.accentColor)
                     Text("Choose Your Chatting Address")
                         .font(.title3.weight(.bold))

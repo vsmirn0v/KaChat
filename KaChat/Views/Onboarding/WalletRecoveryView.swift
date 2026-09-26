@@ -21,7 +21,7 @@ struct WalletRecoveryView: View {
             VStack(spacing: 24) {
                 Spacer()
                 Image(systemName: "key.slash")
-                    .font(.system(size: 52, weight: .semibold))
+                    .font(.scaled(size: 52, weight: .semibold))
                     .foregroundColor(.accentColor)
                 VStack(spacing: 10) {
                     Text("Recovery Phrase Needed")

@@ -267,7 +267,7 @@ struct ColdStorageListView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "lock.shield")
-                .font(.system(size: 40))
+                .font(.scaled(size: 40))
                 .foregroundColor(.secondary)
             Text("No Cold Storage Accounts")
                 .font(.headline)
@@ -301,7 +301,7 @@ struct ColdStorageListView: View {
                 accountActionsTarget = account
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.scaled(size: 16, weight: .bold))
                     .foregroundColor(.secondary)
                     .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
@@ -581,7 +581,7 @@ struct ColdStorageDetailView: View {
                     renamingAccount = true
                 } label: {
                     Image(systemName: "pencil")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.scaled(size: 14, weight: .semibold))
                         .foregroundColor(.accentColor)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
@@ -852,7 +852,7 @@ struct ColdStorageDetailView: View {
                     addressActionsTarget = entry
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.scaled(size: 18, weight: .bold))
                         .rotationEffect(.degrees(90))
                         .foregroundColor(.secondary)
                         .frame(width: 24, height: 24)
@@ -1713,7 +1713,7 @@ private struct ColdSendFlowView: View {
 
             VStack(spacing: 12) {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 48))
+                    .font(.scaled(size: 48))
                     .foregroundColor(.green)
                 Text("Sent")
                     .font(.title3)
@@ -1778,7 +1778,7 @@ private struct ColdSendFlowView: View {
     private func failedView(message: String) -> some View {
         VStack(spacing: 20) {
             Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.red)
             Text("Something Went Wrong")
                 .font(.title3)
@@ -2707,7 +2707,7 @@ private struct ColdStorageAddressVisibilityView: View {
         let visible = !entry.hidden
         return HStack(spacing: 10) {
             Image(systemName: visible ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 20))
+                .font(.scaled(size: 20))
                 .foregroundColor(visible ? .accentColor : .secondary)
                 .opacity(funded ? 0.45 : 1)
             VStack(alignment: .leading, spacing: 1) {

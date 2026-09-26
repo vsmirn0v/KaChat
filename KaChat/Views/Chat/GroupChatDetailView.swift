@@ -647,7 +647,7 @@ struct GroupChatDetailView: View {
                             .frame(width: 36, height: 36)
                             .overlay(
                                 Image(systemName: "chevron.down")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.scaled(size: 14, weight: .semibold))
                                     .foregroundColor(.primary)
                             )
                     }
@@ -1339,7 +1339,7 @@ struct GroupChatDetailView: View {
                     send()
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
+                        .font(.scaled(size: 30))
                         .foregroundColor(.accentColor)
                 }
             }
@@ -1566,7 +1566,7 @@ struct GroupChatDetailView: View {
                         .frame(width: 30, height: 30)
                 } else {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
+                        .font(.scaled(size: 30))
                         .foregroundColor(.accentColor)
                 }
             }
@@ -2125,7 +2125,7 @@ struct GroupChatDetailView: View {
                         ZStack {
                             Circle().fill(Color.accentColor.opacity(0.2))
                             Image(systemName: "person.3.fill")
-                                .font(.system(size: 18))
+                                .font(.scaled(size: 18))
                                 .foregroundColor(.accentColor)
                         }
                     }
@@ -2509,7 +2509,7 @@ private struct GroupMessageBubbleRow: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             Text(timeText)
-                .font(.system(size: 11))
+                .font(.scaled(size: 11))
                 .foregroundColor(.secondary)
                 .padding(.trailing, 12)
                 .opacity(revealProgress)
@@ -2850,7 +2850,7 @@ struct GroupChatInfoView: View {
                     ZStack {
                         Circle().fill(Color.accentColor.opacity(0.2))
                         Text(String(group.name.prefix(1)).uppercased())
-                            .font(.system(size: 32, weight: .semibold))
+                            .font(.scaled(size: 32, weight: .semibold))
                             .foregroundColor(.accentColor)
                     }
                 }
@@ -2859,7 +2859,7 @@ struct GroupChatInfoView: View {
             .clipShape(Circle())
             if group.isAdmin {
                 Image(systemName: "pencil.circle.fill")
-                    .font(.system(size: 22))
+                    .font(.scaled(size: 22))
                     .foregroundColor(.accentColor)
                     .background(Circle().fill(Color(.systemBackground)))
             }
@@ -3594,7 +3594,7 @@ private struct GroupRefreshProgressModal: View {
             VStack(spacing: 18) {
                 if case .finished(let recovered, let rejections) = groupChatService.refreshProgress?.phase {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 38, weight: .medium))
+                        .font(.scaled(size: 38, weight: .medium))
                         .foregroundColor(.green)
                     Text("Refresh complete")
                         .font(.headline)

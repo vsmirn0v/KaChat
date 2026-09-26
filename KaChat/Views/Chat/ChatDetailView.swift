@@ -690,13 +690,13 @@ struct ChatDetailView: View {
                                         .frame(width: 36, height: 36)
                                         .overlay(
                                             Image(systemName: "chevron.down")
-                                                .font(.system(size: 14, weight: .semibold))
+                                                .font(.scaled(size: 14, weight: .semibold))
                                                 .foregroundColor(.primary)
                                         )
 
                                     if newMessagesWhileScrolledUp > 0 {
                                         Text("\(min(newMessagesWhileScrolledUp, 99))")
-                                            .font(.system(size: 11, weight: .bold))
+                                            .font(.scaled(size: 11, weight: .bold))
                                             .foregroundColor(.white)
                                             .padding(.horizontal, 5)
                                             .padding(.vertical, 1)
@@ -2820,7 +2820,7 @@ struct ChatDetailView: View {
             // label the standalone pill carried.
             if paysToFreshPoolAddress {
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.scaled(size: 9, weight: .semibold))
                     .foregroundColor(.accentColor)
                     .accessibilityLabel(Text("Payment goes to a fresh address this contact shared, so it cannot be linked to their chat address on-chain"))
             }
@@ -5298,7 +5298,7 @@ struct ZeroBalanceFundingCardView: View {
                         }
                     } label: {
                         Image(systemName: showCopiedCheckmark ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.scaled(size: 14, weight: .semibold))
                             .foregroundColor(.accentColor)
                             .padding(6)
                             .background(cardGlassBackground(cornerRadius: 10))

@@ -165,7 +165,7 @@ struct ChessBracketView: View {
             HStack(spacing: 4) {
                 Circle().fill(Color.red).frame(width: 5, height: 5)
                 Text("LIVE " + clockText(game.remainingMs(game.sideToMove, at: now)))
-                    .font(.system(size: 9, weight: .bold).monospacedDigit())
+                    .font(.scaled(size: 9, weight: .bold).monospacedDigit())
             }
             .foregroundColor(.white)
             .padding(.horizontal, 6)
@@ -187,7 +187,7 @@ struct ChessBracketView: View {
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     Label("Champion", systemImage: "trophy.fill")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.scaled(size: 9, weight: .bold))
                         .foregroundColor(.yellow)
                     Text(ContactsManager.shared.displayName(for: champion))
                         .font(.caption.weight(.bold))

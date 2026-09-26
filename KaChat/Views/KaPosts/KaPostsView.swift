@@ -777,7 +777,7 @@ struct KaPostsView: View {
                     kaPostsPresent { menuSheet = item }
                 } label: {
                     Image(systemName: item.icon)
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.scaled(size: 20, weight: .semibold))
                         .foregroundColor(.primary)
                         // Eight icons have to fit the narrowest phones in one row.
                         .frame(width: 42, height: 42)
@@ -787,7 +787,7 @@ struct KaPostsView: View {
                         .overlay(alignment: .topTrailing) {
                             if item == .notifications, kaPostsNotifCenter.unseenCount > 0 {
                                 Text(kaPostsNotifCenter.badgeText)
-                                    .font(.system(size: 10, weight: .bold))
+                                    .font(.scaled(size: 10, weight: .bold))
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 5)
                                     .padding(.vertical, 2)
@@ -1266,7 +1266,7 @@ struct KaPostsView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: emptyStateIcon(for: tab))
-                .font(.system(size: 52))
+                .font(.scaled(size: 52))
                 .foregroundColor(.secondary)
             Text(emptyStateTitle(for: tab))
                 .font(.headline)
@@ -1321,7 +1321,7 @@ struct KaPostsView: View {
             }
         } label: {
             Image(systemName: "square.and.pencil")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.scaled(size: 22, weight: .semibold))
                 .foregroundColor(.accentColor)
                 .frame(width: 56, height: 56)
                 .background(
@@ -4106,7 +4106,7 @@ struct KaPostsView: View {
                 } else if items.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: emptyIcon)
-                            .font(.system(size: 40))
+                            .font(.scaled(size: 40))
                             .foregroundColor(.secondary)
                         Text(emptyTitle)
                             .font(.headline)
@@ -4242,7 +4242,7 @@ struct KaPostsView: View {
                 if addresses.isEmpty {
                     VStack(spacing: 14) {
                         Image(systemName: kind.emptyIcon)
-                            .font(.system(size: 44))
+                            .font(.scaled(size: 44))
                             .foregroundColor(.secondary)
                         Text("No \(kind.title.lowercased()) accounts")
                             .font(.headline)
@@ -4380,7 +4380,7 @@ struct KaPostsView: View {
                 if scheduledStore.entries.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "clock")
-                            .font(.system(size: 40))
+                            .font(.scaled(size: 40))
                             .foregroundColor(.secondary)
                         Text("No scheduled posts")
                             .font(.headline)
@@ -4480,7 +4480,7 @@ struct KaPostsView: View {
                 if draftStore.drafts.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 40))
+                            .font(.scaled(size: 40))
                             .foregroundColor(.secondary)
                         Text("No drafts")
                             .font(.headline)
@@ -4540,7 +4540,7 @@ struct KaPostsView: View {
                 if bookmarkedPosts.isEmpty {
                     VStack(spacing: 14) {
                         Image(systemName: "bookmark")
-                            .font(.system(size: 44))
+                            .font(.scaled(size: 44))
                             .foregroundColor(.secondary)
                         Text("No bookmarks yet")
                             .font(.headline)
@@ -4785,7 +4785,7 @@ struct KaPostsView: View {
                             scheduleReply(to: post, text: trimmed)
                         } label: {
                             Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 28))
+                                .font(.scaled(size: 28))
                                 .foregroundColor(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
                         }
                         .buttonStyle(.plain)
@@ -4847,7 +4847,7 @@ struct KaPostsView: View {
                 // this says something rather than nothing if one ever slips through.
                 VStack(spacing: 12) {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 40))
+                        .font(.scaled(size: 40))
                         .foregroundColor(.secondary)
                     Text("This post could not be loaded")
                         .font(.headline)
@@ -7698,7 +7698,7 @@ struct KaPostEngagementView: View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: "chart.bar")
-                .font(.system(size: 40))
+                .font(.scaled(size: 40))
                 .foregroundColor(.secondary)
             Text("Nothing here yet")
                 .font(.headline)
@@ -7981,7 +7981,7 @@ struct KaPostsFollowListView: View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: kind == .following ? "person.badge.plus" : "person.2")
-                .font(.system(size: 40))
+                .font(.scaled(size: 40))
                 .foregroundColor(.secondary)
             Text(kind == .following ? "Not following anyone yet" : "No followers yet")
                 .font(.headline)
@@ -8274,7 +8274,7 @@ struct KaPostsNotificationsView: View {
             )
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: item.kind.icon)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.scaled(size: 10, weight: .bold))
                     .foregroundColor(item.kind.tint)
                     .padding(3)
                     .background(Circle().fill(Color(uiColor: .systemBackground)))
@@ -8319,7 +8319,7 @@ struct KaPostsNotificationsView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "bell")
-                .font(.system(size: 40))
+                .font(.scaled(size: 40))
                 .foregroundColor(.secondary)
             Text("Nothing yet")
                 .font(.headline)

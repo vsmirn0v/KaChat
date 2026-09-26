@@ -29,7 +29,7 @@ struct QuickReactionBarView: View {
                     onMore()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.scaled(size: 15, weight: .bold))
                         .foregroundColor(.secondary)
                         .frame(width: 26, height: 26)
                         .background(Circle().fill(Color.primary.opacity(0.08)))
@@ -43,7 +43,7 @@ struct QuickReactionBarView: View {
                         onReact(emoji)
                     } label: {
                         Text(emoji)
-                            .font(.system(size: 26))
+                            .font(.scaled(size: 26))
                     }
                     .buttonStyle(.plain)
                 }
@@ -52,7 +52,7 @@ struct QuickReactionBarView: View {
                 Spacer()
                 Button(action: onReply) {
                     Image(systemName: "arrowshape.turn.up.left.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.scaled(size: 15, weight: .semibold))
                         .foregroundColor(.accentColor)
                         .frame(width: 30, height: 30)
                 }
@@ -108,15 +108,15 @@ struct ReactionPillView: View {
         HStack(spacing: 2) {
             if let statusIcon {
                 Image(systemName: statusIcon.name)
-                    .font(.system(size: 11))
+                    .font(.scaled(size: 11))
                     .foregroundColor(statusIcon.color)
             }
             ForEach(counts, id: \.emoji) { entry in
                 Text(entry.emoji)
-                    .font(.system(size: 12))
+                    .font(.scaled(size: 12))
                 if entry.count > 1 {
                     Text("\(entry.count)")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.scaled(size: 10, weight: .bold))
                         .foregroundColor(.secondary)
                 }
             }

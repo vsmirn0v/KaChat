@@ -92,7 +92,7 @@ struct ChessHomeView: View {
         } label: {
             HStack(spacing: 16) {
                 Image(systemName: icon)
-                    .font(.system(size: 28))
+                    .font(.scaled(size: 28))
                     .foregroundColor(.white)
                     .frame(width: 60, height: 60)
                     .background(RoundedRectangle(cornerRadius: 16).fill(Color.accentColor))

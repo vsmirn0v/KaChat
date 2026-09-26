@@ -285,7 +285,7 @@ struct KNSCreateProfileFlowView: View {
         VStack(spacing: 20) {
             Spacer()
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.accentColor)
             Text(localizedFormat("Please fund your chatting address with at least %@ Kaspa to continue.", Self.formatKas(Self.minimumFundingBalanceKas)))
                 .font(.title3.weight(.semibold))
@@ -387,7 +387,7 @@ struct KNSCreateProfileFlowView: View {
         VStack(spacing: 20) {
             Spacer()
             Image(systemName: "at.circle")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.accentColor)
             Text("Do you already have a domain?")
                 .font(.title2.weight(.bold))
@@ -449,7 +449,7 @@ struct KNSCreateProfileFlowView: View {
                 Spacer()
                 VStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 40))
+                        .font(.scaled(size: 40))
                         .foregroundColor(.secondary)
                     Text("No domains on this address yet")
                         .font(.headline)
@@ -587,7 +587,7 @@ struct KNSCreateProfileFlowView: View {
         VStack(spacing: 20) {
             Spacer()
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.green)
             Text(localizedFormat("You are now known as %@", domain))
                 .font(.title2.weight(.bold))
@@ -602,7 +602,7 @@ struct KNSCreateProfileFlowView: View {
         VStack(spacing: 20) {
             Spacer()
             Image(systemName: "party.popper.fill")
-                .font(.system(size: 56))
+                .font(.scaled(size: 56))
                 .foregroundColor(.accentColor)
             Text("You have now finished your KNS profile creation!")
                 .font(.title2.weight(.bold))
@@ -1003,7 +1003,7 @@ private struct KNSImageInscribeStepView: View {
     private var choosePhotoPlaceholder: some View {
         VStack(spacing: 8) {
             Image(systemName: "photo.badge.plus")
-                .font(.system(size: 32))
+                .font(.scaled(size: 32))
             Text("Choose Photo")
                 .font(.subheadline)
         }

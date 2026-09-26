@@ -229,7 +229,7 @@ struct MenuVisibilityView: View {
             tabIcon(tab, size: 22)
                 .frame(height: 24)
             Text(tab.label)
-                .font(.system(size: 10, weight: .medium))
+                .font(.scaled(size: 10, weight: .medium))
                 .foregroundColor(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -259,7 +259,7 @@ struct MenuVisibilityView: View {
             ChessTabIcon.view(side: size)
         } else {
             Image(systemName: tab.icon)
-                .font(.system(size: size, weight: .medium))
+                .font(.scaled(size: size, weight: .medium))
                 .foregroundStyle(Color.accentColor)
         }
     }

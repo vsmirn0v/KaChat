@@ -569,7 +569,7 @@ struct PublicChatChannelView: View {
                                     .frame(width: 36, height: 36)
                                     .overlay(
                                         Image(systemName: "chevron.down")
-                                            .font(.system(size: 14, weight: .semibold))
+                                            .font(.scaled(size: 14, weight: .semibold))
                                             .foregroundColor(.primary)
                                     )
                             }
@@ -768,7 +768,7 @@ struct PublicChatChannelView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 48))
+                .font(.scaled(size: 48))
                 .foregroundColor(.secondary)
             Text("No messages yet")
                 .font(.headline)
@@ -1446,7 +1446,7 @@ private struct PublicChatRoomTitleChip: View {
                 ZStack {
                     Circle().fill(Color.accentColor.opacity(0.2))
                     Image(systemName: "number")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.scaled(size: 18, weight: .semibold))
                         .foregroundColor(.accentColor)
                 }
                 .frame(width: 46, height: 46)
@@ -1585,7 +1585,7 @@ private struct PublicChatMessageRow: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             Text(timeText)
-                .font(.system(size: 11))
+                .font(.scaled(size: 11))
                 .foregroundColor(.secondary)
                 .padding(.trailing, 12)
                 .opacity(revealProgress)
@@ -1857,7 +1857,7 @@ private struct PublicChatMessageRow: View {
             .overlay(alignment: isOwnMessage ? .topLeading : .topTrailing) {
                 if isEdited {
                     Text("edited")
-                        .font(.system(size: 10))
+                        .font(.scaled(size: 10))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -1950,15 +1950,15 @@ private struct PublicChatMessageRow: View {
             switch message.deliveryStatus {
             case .failed:
                 Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 11))
+                    .font(.scaled(size: 11))
                     .foregroundColor(.red)
             case .pending:
                 Image(systemName: "clock.fill")
-                    .font(.system(size: 10))
+                    .font(.scaled(size: 10))
                     .foregroundColor(.gray)
             case .sent:
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 11))
+                    .font(.scaled(size: 11))
                     .foregroundColor(.green)
             }
         }
