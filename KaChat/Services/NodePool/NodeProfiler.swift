@@ -136,8 +136,6 @@ actor NodeProfiler {
     private var clientGeoContext: ClientGeoContext?
     private var lastClientGeoRefreshAttempt: Date = .distantPast
     private var telemetry = SearchTelemetry()
-    private let maxRemoteNodeGeoLookupsPerSession = 12
-    private var remoteNodeGeoLookups = 0
 
     /// Maximum concurrent probes
     private func getMaxConcurrentProbes() async -> Int {
@@ -848,100 +846,14 @@ actor NodeProfiler {
         }
         lastClientGeoRefreshAttempt = now
 
-        guard let ip = await fetchPublicIP() else {
-            if clientGeoContext == nil {
-                clientGeoContext = await inferClientGeoFromPoolHints()
-            }
-            return clientGeoContext
-        }
-
-        if let localLookup = await geoIPDatabase.lookup(ip: ip) {
-            let context = ClientGeoContext(
-                ip: ip,
-                latitude: localLookup.latitude,
-                longitude: localLookup.longitude,
-                asn: localLookup.asn,
-                countryCode: localLookup.countryCode,
-                resolvedAt: Date()
-            )
-            clientGeoContext = context
-            return context
-        }
-
-        if let remoteLookup = await fetchRemoteGeoLookup(for: ip) {
-            let context = ClientGeoContext(
-                ip: ip,
-                latitude: remoteLookup.latitude,
-                longitude: remoteLookup.longitude,
-                asn: remoteLookup.asn,
-                countryCode: remoteLookup.countryCode,
-                resolvedAt: Date()
-            )
-            clientGeoContext = context
-            return context
-        }
-
+        // The device's own place is inferred from the nearest nodes already in the pool. This
+        // used to ask ipify or ifconfig.me for the public IP and ipapi.co for its coordinates
+        // on every launch: three unrelated services told that this address runs KaChat, for a
+        // ranking hint that latency measurements settle on their own.
         if clientGeoContext == nil {
             clientGeoContext = await inferClientGeoFromPoolHints()
         }
         return clientGeoContext
-    }
-
-    private func fetchPublicIP() async -> String? {
-        let endpoints = [
-            "https://api64.ipify.org?format=json",
-            "https://ifconfig.me/ip"
-        ]
-
-        for endpoint in endpoints {
-            guard let url = URL(string: endpoint) else { continue }
-            do {
-                var request = URLRequest(url: url)
-                request.timeoutInterval = 1.5
-                let (data, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse,
-                      200..<300 ~= http.statusCode else { continue }
-
-                if endpoint.contains("ipify") {
-                    if let payload = try? JSONDecoder().decode(IPifyResponse.self, from: data),
-                       Self.isValidIPv4(payload.ip) {
-                        return payload.ip
-                    }
-                } else if let value = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                    Self.isValidIPv4(value) {
-                    return value
-                }
-            } catch {
-                continue
-            }
-        }
-
-        return nil
-    }
-
-    private func fetchRemoteGeoLookup(for ip: String, timeout: TimeInterval = 1.8) async -> GeoIPLookup? {
-        guard let url = URL(string: "https://ipapi.co/\(ip)/json/") else { return nil }
-        do {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = timeout
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  200..<300 ~= http.statusCode else { return nil }
-
-            let payload = try JSONDecoder().decode(IPApiCoResponse.self, from: data)
-            guard let latitude = payload.latitude,
-                  let longitude = payload.longitude else { return nil }
-            return GeoIPLookup(
-                latitude: latitude,
-                longitude: longitude,
-                countryCode: payload.countryCode,
-                asn: payload.asn,
-                source: "ipapi-co"
-            )
-        } catch {
-            return nil
-        }
     }
 
     private func inferClientGeoFromPoolHints() async -> ClientGeoContext? {
@@ -1651,13 +1563,8 @@ actor NodeProfiler {
             return
         }
 
-        var nodeLookup = await geoIPDatabase.lookup(ip: endpoint.host)
-        if nodeLookup == nil, remoteNodeGeoLookups < maxRemoteNodeGeoLookupsPerSession {
-            if let remote = await fetchRemoteGeoLookup(for: endpoint.host, timeout: 1.2) {
-                nodeLookup = remote
-                remoteNodeGeoLookups += 1
-            }
-        }
+        // Bundled database only; a node the database does not know keeps ranking by latency.
+        let nodeLookup = await geoIPDatabase.lookup(ip: endpoint.host)
         let clientGeo = await refreshClientGeoContextIfNeeded()
 
         let distanceKm: Double?
@@ -2503,23 +2410,7 @@ private final class ContinuationGate: @unchecked Sendable {
     }
 }
 
-private struct IPifyResponse: Decodable {
-    let ip: String
-}
 
-private struct IPApiCoResponse: Decodable {
-    let latitude: Double?
-    let longitude: Double?
-    let countryCode: String?
-    let asn: String?
-
-    enum CodingKeys: String, CodingKey {
-        case latitude
-        case longitude
-        case countryCode = "country_code"
-        case asn
-    }
-}
 
 private struct GeoIPLookup: Sendable {
     let latitude: Double
