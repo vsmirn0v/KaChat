@@ -26,6 +26,9 @@ final class KeychainService {
         case groupBag = "kachat_group_bag"
         case nextcloudCredentials = "kachat_nextcloud_credentials"
         case childModePassword = "kachat_child_mode_password"
+        /// A random stand-in for the Secure Enclave key hash on hardware that has no Secure
+        /// Enclave at all (see `deviceIdentifier()`).
+        case deviceIdFallback = "kachat_device_id_fallback"
     }
 
     private enum SecureEnclaveAlgorithm: UInt8 {
@@ -53,7 +56,26 @@ final class KeychainService {
             return cached
         }
 
-        let seKey = try secureEnclavePrivateKey()
+        let seKey: SecKey
+        do {
+            seKey = try secureEnclavePrivateKey()
+        } catch {
+            // Only when the hardware has no Secure Enclave at all. A transient failure on a
+            // phone that has one must still throw: a stand-in id here would make the real
+            // keys look missing and send the user to the recovery screen for nothing.
+            guard !SecureEnclave.isAvailable else { throw error }
+            AppLog.log("%@", "[Keychain] No Secure Enclave on this device; keys are stored without hardware wrapping")
+            if let stored = try load(forKey: .deviceIdFallback), let id = String(data: stored, encoding: .utf8), !id.isEmpty {
+                cachedDeviceId = id
+                return id
+            }
+            var bytes = [UInt8](repeating: 0, count: 8)
+            guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw error }
+            let id = bytes.map { String(format: "%02x", $0) }.joined()
+            _ = try save(data: Data(id.utf8), forKey: .deviceIdFallback)
+            cachedDeviceId = id
+            return id
+        }
         guard let publicKey = SecKeyCopyPublicKey(seKey) else {
             throw KasiaError.keychainError("Failed to get SE public key for device ID")
         }
@@ -239,6 +261,27 @@ final class KeychainService {
             return try loadPrivateKey() != nil
         } catch {
             return false
+        }
+    }
+
+    /// Whether this device holds signing material for the stored wallet. `missing` means both
+    /// the private key and the seed phrase were looked up and are not there - the state after
+    /// an iPhone restore, when the Secure Enclave key they were wrapped with did not come
+    /// along. `unavailable` means the lookup itself failed (keychain not accessible yet, for
+    /// instance) and says nothing about whether the keys exist.
+    enum KeyMaterialStatus {
+        case present
+        case missing
+        case unavailable(String)
+    }
+
+    func keyMaterialStatus() -> KeyMaterialStatus {
+        do {
+            if try loadPrivateKey() != nil { return .present }
+            if try loadSeedPhrase() != nil { return .present }
+            return .missing
+        } catch {
+            return .unavailable(error.localizedDescription)
         }
     }
 
@@ -841,7 +884,7 @@ final class KeychainService {
         }
 
         guard let privateKey = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
-            throw KasiaError.keychainError("Secure Enclave key creation failed")
+            throw KasiaError.keychainError("This iPhone couldn't create the secure key that protects your wallet. Restart it and try again.")
         }
 
         return privateKey

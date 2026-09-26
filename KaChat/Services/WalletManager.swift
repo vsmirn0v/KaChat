@@ -108,6 +108,10 @@ final class WalletManager: ObservableObject {
     @Published var error: KasiaError?
     @Published var isBalanceRefreshing = false
     @Published private(set) var hasStoredWallet = false
+    /// The stored wallet whose keys this device does not hold - see `WalletRecoveryView`. Set
+    /// only when both the private key and the seed were looked up and found absent, never on
+    /// a lookup that merely failed.
+    @Published private(set) var walletNeedingKeyRecovery: Wallet?
     @Published private(set) var isLoggedOut = false
     @Published private(set) var savedAccounts: [SavedAccountSummary] = []
     /// Set by `CreateWalletView` once the user has reviewed their seed phrase and checked "I have
@@ -216,6 +220,19 @@ final class WalletManager: ObservableObject {
 
                 UserDefaults.standard.removeObject(forKey: logoutFlagKey)
                 isLoggedOut = false
+                if case .missing = keychainService.keyMaterialStatus() {
+                    // The record survived but the keys did not (an iPhone restore, typically).
+                    // Opening the app with an address that cannot sign or decrypt looked like a
+                    // working wallet in which everything silently failed.
+                    AppLog.log("%@", "[WalletManager] Wallet record present but no key material on this device; asking for the recovery phrase")
+                    updateSavedAccounts(from: wallet)
+                    walletNeedingKeyRecovery = wallet
+                    currentWallet = nil
+                    isBalanceRefreshing = false
+                    SharedDataManager.setPrivateKeyAvailable(false)
+                    return
+                }
+                walletNeedingKeyRecovery = nil
                 let canonicalWallet = reconcileWalletWithLocalKeyMaterialIfNeeded(wallet)
                 updateSavedAccounts(from: canonicalWallet)
                 snapshotStoredWalletIfPossible()
@@ -437,6 +454,7 @@ final class WalletManager: ObservableObject {
     }
 
     func deleteWallet(preserveOutgoingMessages: Bool = false) async throws {
+        walletNeedingKeyRecovery = nil
         let walletAddressToDelete = currentWallet?.publicAddress
 
         // Unregister from push notifications before clearing wallet
@@ -548,9 +566,11 @@ final class WalletManager: ObservableObject {
                 alias: account.alias,
                 createdAt: accountAddedDate(for: account.publicAddress)
             )
-            try keychainService.saveWallet(wallet)
+            // Keys first, record last: a record with no keys behind it is the broken state the
+            // recovery screen exists for, so it is never written ahead of them.
             try keychainService.saveSeedPhrase(snapshot.seedPhrase)
             try keychainService.savePrivateKey(snapshot.privateKey)
+            try keychainService.saveWallet(wallet)
 
             resetInMemoryChatStateForAccountSwitch()
             await loadWallet(force: true)
@@ -1462,13 +1482,23 @@ final class WalletManager: ObservableObject {
 
     // MARK: - Storage
 
+    /// Keys first, the wallet record last. If key storage throws (a Secure Enclave that would
+    /// not make a key), nothing is left behind: a record with no keys is the state the
+    /// recovery screen exists for, and it used to be written before the keys were even tried.
     private func saveWallet(_ wallet: Wallet, seedPhrase: SeedPhrase, privateKey: Data) async throws {
-        try keychainService.saveWallet(wallet)
-        try keychainService.saveSeedPhrase(seedPhrase)
-        // Private key is derived once by the caller (deriveKeysFromSeed) and passed in, rather than
-        // re-deriving it here (a second full PBKDF2 + BIP32 pass on the main actor).
-        try keychainService.savePrivateKey(privateKey)
-        try keychainService.saveAccountSnapshot(wallet: wallet, seedPhrase: seedPhrase, privateKey: privateKey)
+        do {
+            try keychainService.saveSeedPhrase(seedPhrase)
+            // Private key is derived once by the caller (deriveKeysFromSeed) and passed in, rather
+            // than re-deriving it here (a second full PBKDF2 + BIP32 pass on the main actor).
+            try keychainService.savePrivateKey(privateKey)
+            try keychainService.saveAccountSnapshot(wallet: wallet, seedPhrase: seedPhrase, privateKey: privateKey)
+            try keychainService.saveWallet(wallet)
+        } catch {
+            try? keychainService.deleteSeedPhrase()
+            try? keychainService.deletePrivateKey()
+            try? keychainService.deleteAccountSnapshot(publicAddress: wallet.publicAddress)
+            throw error
+        }
     }
 
     func saveWalletOnly(_ wallet: Wallet) async throws {

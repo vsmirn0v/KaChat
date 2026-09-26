@@ -4,6 +4,8 @@ enum LaunchRoute: Equatable {
     case loading
     case mainApp
     case onboarding
+    /// A wallet record is on the device but its keys are not (see `WalletRecoveryView`).
+    case recovery
 }
 
 enum LaunchRouter {
@@ -16,11 +18,13 @@ enum LaunchRouter {
     static func route(
         isWalletMetadataLoading: Bool,
         hasCurrentWallet: Bool,
-        isPendingSeedPhraseConfirmation: Bool = false
+        isPendingSeedPhraseConfirmation: Bool = false,
+        needsKeyRecovery: Bool = false
     ) -> LaunchRoute {
         if hasCurrentWallet && !isPendingSeedPhraseConfirmation {
             return .mainApp
         }
-        return isWalletMetadataLoading ? .loading : .onboarding
+        if isWalletMetadataLoading { return .loading }
+        return needsKeyRecovery ? .recovery : .onboarding
     }
 }

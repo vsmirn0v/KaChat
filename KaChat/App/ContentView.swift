@@ -8,7 +8,8 @@ struct ContentView: View {
             switch LaunchRouter.route(
                 isWalletMetadataLoading: walletManager.isLoading,
                 hasCurrentWallet: walletManager.currentWallet != nil,
-                isPendingSeedPhraseConfirmation: walletManager.isAwaitingSeedPhraseConfirmation
+                isPendingSeedPhraseConfirmation: walletManager.isAwaitingSeedPhraseConfirmation,
+                needsKeyRecovery: walletManager.walletNeedingKeyRecovery != nil
             ) {
             case .loading:
                 LoadingView()
@@ -16,6 +17,12 @@ struct ContentView: View {
                 MainTabView()
             case .onboarding:
                 OnboardingView()
+            case .recovery:
+                if let wallet = walletManager.walletNeedingKeyRecovery {
+                    WalletRecoveryView(wallet: wallet)
+                } else {
+                    OnboardingView()
+                }
             }
         }
         .animation(
