@@ -248,14 +248,14 @@ final class PublicChatStore {
     /// whole page instead of a synchronous main-thread performAndWait per row - a resume-time
     /// poll of 200 rows was hard main-thread work exactly while WAL checkpointing
     /// contends for the store (the app-freeze-after-resume class of bug).
-    /// Returns how many rows were actually new.
+    /// Returns the ids that were actually new.
     func insertMessages(
         _ messages: [(id: String, channel: String, senderAddress: String, content: String, blockTime: Int64)]
-    ) async -> Int {
-        guard isLoaded, !messages.isEmpty else { return 0 }
+    ) async -> Set<String> {
+        guard isLoaded, !messages.isEmpty else { return [] }
         return await withCheckedContinuation { continuation in
             container.performBackgroundTask { context in
-                var inserted = 0
+                var inserted = Set<String>()
                 for message in messages {
                     let normalized = PublicChatChannelName.normalize(message.channel)
                     let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
@@ -269,7 +269,7 @@ final class PublicChatStore {
                     row.content = message.content
                     row.blockTime = message.blockTime
                     row.deliveryStatus = PublicChatMessage.DeliveryStatus.sent.rawValue
-                    inserted += 1
+                    inserted.insert(message.id)
                 }
                 if context.hasChanges {
                     try? context.save()
@@ -366,32 +366,76 @@ final class PublicChatStore {
         }
     }
 
-    /// Messages for a channel, oldest first, with hidden senders already filtered out.
-    func messages(forChannel channel: String) -> [PublicChatMessage] {
+    /// Messages for a channel, oldest first, hidden senders filtered out, read on a background
+    /// context. `newestLimit` cuts the window to the newest N (nil = everything, which the
+    /// chess arena needs: its reducer replays the whole room); `olderThan` shifts the window
+    /// back for "load earlier". Reading a 30-day room in full on the main thread, which is
+    /// what every refresh used to do, was thousands of rows deserialized per tick.
+    func messages(forChannel channel: String, newestLimit: Int?, olderThan: Int64? = nil) async -> [PublicChatMessage] {
         guard isLoaded else { return [] }
         let normalized = PublicChatChannelName.normalize(channel)
         let hidden = hiddenSenderAddresses(forChannel: normalized)
-        var result: [PublicChatMessage] = []
+        return await withCheckedContinuation { continuation in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
+                if let olderThan {
+                    request.predicate = NSPredicate(format: "channelName == %@ AND blockTime < %lld", normalized, olderThan)
+                } else {
+                    request.predicate = NSPredicate(format: "channelName == %@", normalized)
+                }
+                // Newest first so the limit keeps the newest; flipped back to oldest-first below.
+                request.sortDescriptors = [NSSortDescriptor(key: "blockTime", ascending: false)]
+                if let newestLimit { request.fetchLimit = newestLimit }
+                let rows = (try? context.fetch(request)) ?? []
+                let result = rows
+                    .filter { !hidden.contains($0.senderAddress) }
+                    .map { row in
+                        PublicChatMessage(
+                            id: row.id,
+                            channelName: row.channelName,
+                            senderAddress: row.senderAddress,
+                            content: row.content ?? "",
+                            blockTime: row.blockTime,
+                            deliveryStatus: PublicChatMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "") ?? .sent
+                        )
+                    }
+                    .reversed()
+                continuation.resume(returning: Array(result))
+            }
+        }
+    }
+
+    /// Just the ids a channel holds, for "which of these rows are new" checks - the sweep
+    /// used to read every full row of the room for this, every 20 seconds, on the main thread.
+    func messageIds(forChannel channel: String) async -> Set<String> {
+        guard isLoaded else { return [] }
+        let normalized = PublicChatChannelName.normalize(channel)
+        return await withCheckedContinuation { continuation in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<NSDictionary>(entityName: CDPublicChatMessage.entityName)
+                request.predicate = NSPredicate(format: "channelName == %@", normalized)
+                request.resultType = .dictionaryResultType
+                request.propertiesToFetch = ["id"]
+                let rows = (try? context.fetch(request)) ?? []
+                continuation.resume(returning: Set(rows.compactMap { $0["id"] as? String }))
+            }
+        }
+    }
+
+    /// One row's delivery status, for the send-retry check.
+    func deliveryStatus(ofMessage id: String) -> PublicChatMessage.DeliveryStatus? {
+        guard isLoaded else { return nil }
         let context = viewContext
+        var status: PublicChatMessage.DeliveryStatus?
         context.performAndWait {
             let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
-            request.predicate = NSPredicate(format: "channelName == %@", normalized)
-            request.sortDescriptors = [NSSortDescriptor(key: "blockTime", ascending: true)]
-            let rows = (try? context.fetch(request)) ?? []
-            result = rows
-                .filter { !hidden.contains($0.senderAddress) }
-                .map { row in
-                    PublicChatMessage(
-                        id: row.id,
-                        channelName: row.channelName,
-                        senderAddress: row.senderAddress,
-                        content: row.content ?? "",
-                        blockTime: row.blockTime,
-                        deliveryStatus: PublicChatMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "") ?? .sent
-                    )
-                }
+            request.predicate = NSPredicate(format: "id == %@", id)
+            request.fetchLimit = 1
+            if let row = (try? context.fetch(request))?.first {
+                status = PublicChatMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "")
+            }
         }
-        return result
+        return status
     }
 
     // MARK: - Reactions (CDPublicChatReaction)
@@ -673,12 +717,17 @@ final class PublicChatStore {
     /// Returns whether anything was actually deleted, so the once-a-second room poll can skip its
     /// follow-up message re-fetch/re-map when nothing expired (see `pruneNowAndRefresh`).
     @discardableResult
-    func pruneExpiredMessages() -> Bool {
+    func pruneExpiredMessages() async -> Bool {
         guard isLoaded else { return false }
         let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
-        let context = viewContext
-        var didDelete = false
-        context.performAndWait {
+        // Read on the caller's side: these are the service's main-actor sets.
+        let fullWindowChannels = PublicChatService.indexedChannels.union(PublicChatService.serviceChannels)
+        let viewContext = self.viewContext
+        // Off the main thread: two batch deletes per channel every prune, and it used to run
+        // every 30 s while a room was open and after every merge, all on main.
+        return await withCheckedContinuation { continuation in
+          container.performBackgroundTask { context in
+            var didDelete = false
             let channelRequest = NSFetchRequest<CDPublicChatChannel>(entityName: CDPublicChatChannel.entityName)
             let channels = (try? context.fetch(channelRequest)) ?? []
             for channel in channels {
@@ -689,8 +738,7 @@ final class PublicChatStore {
                 // whatever the indexer's 30-day window holds. With the short default here, a
                 // phone forgot yesterday's rooms overnight and offered a room number the
                 // others had moved past.
-                let retention = PublicChatService.indexedChannels.contains(channel.channelName)
-                        || PublicChatService.serviceChannels.contains(channel.channelName)
+                let retention = fullWindowChannels.contains(channel.channelName)
                     ? Self.indexerRetentionMillis
                     : min(channel.retentionMillis, Self.maxRetentionMillis)
                 let cutoff = nowMillis - retention
@@ -709,17 +757,18 @@ final class PublicChatStore {
                       let objectIds = result.result as? [NSManagedObjectID],
                       !objectIds.isEmpty else { continue }
                 didDelete = true
-                // NSBatchDeleteRequest deletes directly in the persistent store, bypassing this
-                // context's row cache - without this merge, already-faulted/cached rows for the
-                // deleted messages can keep showing up in later fetches on this same context.
+                // NSBatchDeleteRequest deletes directly in the persistent store, bypassing the
+                // contexts' row caches - without this merge, already-faulted/cached rows for the
+                // deleted messages can keep showing up in later fetches.
                 NSManagedObjectContext.mergeChanges(
                     fromRemoteContextSave: [NSDeletedObjectsKey: objectIds],
-                    into: [context]
+                    into: [context, viewContext]
                 )
             }
-            if didDelete { save(context) }
+            if didDelete, context.hasChanges { try? context.save() }
+            continuation.resume(returning: didDelete)
+          }
         }
-        return didDelete
     }
 
     /// Clear all local public chat data for the current wallet (e.g. on wallet reset).

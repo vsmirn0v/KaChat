@@ -235,7 +235,7 @@ final class PublicChatService: ObservableObject {
             let rows = page.messages
                 .filter { !hidden.contains($0.senderAddress) && MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
                 .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
-            let known = Set(store.messages(forChannel: channel).map(\.id))
+            let known = await store.messageIds(forChannel: channel)
             let fresh = rows.filter { !known.contains($0.id) }
             let firstPass = !sweptChannels.contains(channel)
             sweptChannels.insert(channel)
@@ -247,8 +247,8 @@ final class PublicChatService: ObservableObject {
             }
             guard !fresh.isEmpty else { return true }
             let inserted = await store.insertMessages(fresh)
-            guard inserted > 0 else { return true }
-            store.pruneExpiredMessages()
+            guard !inserted.isEmpty else { return true }
+            await store.pruneExpiredMessages()
             loadMessages(for: channel)
             guard !firstPass else { return true }
             let cutoff = Int64(Date().timeIntervalSince1970 * 1000) - Self.sweepBannerWindowMs
@@ -513,7 +513,7 @@ final class PublicChatService: ObservableObject {
         let normalized = PublicChatChannelName.normalize(name)
         ChatService.clearDeliveredNotifications(threadIdentifier: "broadcast:\(normalized)")
         liveViewRefCounts[normalized, default: 0] += 1
-        store.pruneExpiredMessages()
+        Task { await store.pruneExpiredMessages() }
         loadMessages(for: normalized)
         markChannelRead(normalized)
         loadReactions(for: normalized)
@@ -667,7 +667,7 @@ final class PublicChatService: ObservableObject {
             let rows = visible
                 .filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
                 .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
-            var insertedCount = await store.insertMessages(rows)
+            var insertedCount = await store.insertMessages(rows).count
             if Self.serviceChannels.contains(channel) {
                 // Rows this phone sent carry its own clock until the chain's time reaches us -
                 // see processPublicChatHits.
@@ -676,7 +676,7 @@ final class PublicChatService: ObservableObject {
                 }
             }
             if insertedCount > 0 {
-                store.pruneExpiredMessages()
+                await store.pruneExpiredMessages()
                 loadMessages(for: channel)
             }
             // Global notification center: live (session-gated) incoming channel messages. The
@@ -810,30 +810,70 @@ final class PublicChatService: ObservableObject {
         reactionsByChannel[channel] = fresh
     }
 
+    /// How many of a room's newest messages are in memory. Enough to scroll through a busy
+    /// day; "Load earlier messages" at the top of the room widens it. The chess arena has no
+    /// window: its reducer replays the whole room.
+    static let roomWindowSize = 400
+    private var windowSizeByChannel: [String: Int] = [:]
+    /// Rooms whose last read came back shorter than the window: nothing older to load.
+    private var windowExhausted: Set<String> = []
+    /// A read that finishes after a newer one began is dropped, not published.
+    private var messageLoadGeneration: [String: Int] = [:]
+
+    private func windowSize(for channel: String) -> Int? {
+        Self.serviceChannels.contains(channel) ? nil : (windowSizeByChannel[channel] ?? Self.roomWindowSize)
+    }
+
+    /// Whether the room may hold messages older than what is loaded.
+    func hasOlderMessages(forChannel name: String) -> Bool {
+        let channel = PublicChatChannelName.normalize(name)
+        guard windowSize(for: channel) != nil else { return false }
+        return !windowExhausted.contains(channel)
+    }
+
+    /// Widens the room's window by another `roomWindowSize` and reloads it.
+    func loadOlderMessages(forChannel name: String) async {
+        let channel = PublicChatChannelName.normalize(name)
+        guard let current = windowSize(for: channel), !windowExhausted.contains(channel) else { return }
+        windowSizeByChannel[channel] = current + Self.roomWindowSize
+        await reloadMessages(for: channel)
+    }
+
+    /// Reads the room's window on a background context and publishes it if it changed. Not
+    /// synchronous any more: the read used to be a main-thread `performAndWait` over the whole
+    /// room, on every merge, prune and open.
     private func loadMessages(for channel: String) {
+        Task { @MainActor [weak self] in
+            await self?.reloadMessages(for: channel)
+        }
+    }
+
+    private func reloadMessages(for channel: String) async {
+        let generation = (messageLoadGeneration[channel] ?? 0) + 1
+        messageLoadGeneration[channel] = generation
+        let limit = windowSize(for: channel)
+        let rows = await store.messages(forChannel: channel, newestLimit: limit)
+        guard messageLoadGeneration[channel] == generation else { return }
+        if let limit {
+            if rows.count < limit { windowExhausted.insert(channel) } else { windowExhausted.remove(channel) }
+        }
         // Reaction envelopes are never rendered as message rows - drop any that made it into
         // the message table (rows scanned by an app version that predates reactions).
-        let fresh = store.messages(forChannel: channel)
-            .filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
-        // Only actually publish when the content changed - this is polled once a second while a
-        // channel is open (for live retention pruning), and `@Published` fires on every
-        // assignment regardless of equality, so an unconditional assignment here was re-rendering
-        // the whole message list - including an open avatar menu - about once a second even when
-        // nothing had changed.
+        let fresh = rows.filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
+        // Only actually publish when the content changed: `@Published` fires on every
+        // assignment regardless of equality, and an unconditional assignment re-rendered the
+        // whole message list - including an open avatar menu - even when nothing had changed.
         guard messagesByChannel[channel] != fresh else { return }
         messagesByChannel[channel] = fresh
     }
 
     /// Prunes expired messages across all joined channels and refreshes the given channel's
-    /// visible list - called on a short timer while a channel screen is open so retention feels
-    /// live (a message actually disappears from the room a few seconds after it expires, rather
-    /// than only on next open or next incoming message).
-    func pruneNowAndRefresh(forChannel name: String) {
-        // Only re-fetch/re-map the channel's messages when a prune actually removed something -
-        // this is polled once a second while a room is open, and re-reading + re-mapping the whole
-        // message list on the main queue every second when nothing expired was pure waste.
-        if store.pruneExpiredMessages() {
-            loadMessages(for: PublicChatChannelName.normalize(name))
+    /// visible list - called on a timer while a channel screen is open so retention feels
+    /// live. Off the main thread now, so the timer is cheap; it still only re-reads the room
+    /// when something was actually removed.
+    func pruneNowAndRefresh(forChannel name: String) async {
+        if await store.pruneExpiredMessages() {
+            await reloadMessages(for: PublicChatChannelName.normalize(name))
         }
     }
 
@@ -1167,7 +1207,7 @@ final class PublicChatService: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
             guard let self else { return }
             self.scheduledSendRetries.remove(pendingId)
-            let currentStatus = self.store.messages(forChannel: channel).first { $0.id == pendingId }?.deliveryStatus
+            let currentStatus = self.store.deliveryStatus(ofMessage: pendingId)
             guard currentStatus == .pending else {
                 ChatService.shared.clearNoInputRetryState(for: pendingId)
                 return
@@ -1384,7 +1424,7 @@ final class PublicChatService: ObservableObject {
                     let hits = Self.extractPublicChatHits(block, hrp: hrp)
                     guard !hits.isEmpty else { return }
                     Task { @MainActor in
-                        self?.processPublicChatHits(hits)
+                        await self?.processPublicChatHits(hits)
                     }
                 }
             }
@@ -1403,14 +1443,17 @@ final class PublicChatService: ObservableObject {
     // MARK: - Block scanning
 
     /// Main-actor tail of the block scan: runs ONLY when a block actually contained public chat
-    /// payloads (rare). State filtering + store insert + UI refresh.
-    private func processPublicChatHits(_ hits: [BlockScanHit]) {
+    /// payloads (rare). State filtering + store insert + UI refresh. The message rows go in as
+    /// one background batch: a reconnect burst used to do one synchronous main-thread save per
+    /// row.
+    private func processPublicChatHits(_ hits: [BlockScanHit]) async {
         let wanted = wantedChannels
         guard !wanted.isEmpty else { return }
         let hidden = store.hiddenSendersByChannel()
         var touchedChannels = Set<String>()
         var reactionChannels = Set<String>()
         var editChannels = Set<String>()
+        var messageHits: [BlockScanHit] = []
 
         for hit in hits {
             guard wanted.contains(hit.channel) else { continue }
@@ -1438,23 +1481,24 @@ final class PublicChatService: ObservableObject {
                 if changed { reactionChannels.insert(hit.channel) }
                 continue
             }
-            let inserted = store.insertMessage(
-                id: hit.txId,
-                channel: hit.channel,
-                senderAddress: hit.senderAddress,
-                content: hit.content,
-                blockTime: hit.blockTime,
-                deliveryStatus: .sent
-            )
-            if inserted {
-                touchedChannels.insert(hit.channel)
-                notifyIfEnabled(channel: hit.channel, senderAddress: hit.senderAddress, content: hit.content, txId: hit.txId)
-            } else if Self.serviceChannels.contains(hit.channel),
-                      store.updateBlockTime(id: hit.txId, blockTime: hit.blockTime) {
-                // Our own arena row, stamped with this phone's clock when it was submitted: the
-                // block's time is what every other phone sees, so take it (the reducer orders
-                // joins and runs the clocks by it).
-                touchedChannels.insert(hit.channel)
+            messageHits.append(hit)
+        }
+
+        if !messageHits.isEmpty {
+            let inserted = await store.insertMessages(messageHits.map {
+                (id: $0.txId, channel: $0.channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime)
+            })
+            for hit in messageHits {
+                if inserted.contains(hit.txId) {
+                    touchedChannels.insert(hit.channel)
+                    notifyIfEnabled(channel: hit.channel, senderAddress: hit.senderAddress, content: hit.content, txId: hit.txId)
+                } else if Self.serviceChannels.contains(hit.channel),
+                          store.updateBlockTime(id: hit.txId, blockTime: hit.blockTime) {
+                    // Our own arena row, stamped with this phone's clock when it was submitted:
+                    // the block's time is what every other phone sees, so take it (the reducer
+                    // orders joins and runs the clocks by it).
+                    touchedChannels.insert(hit.channel)
+                }
             }
         }
 
@@ -1469,7 +1513,7 @@ final class PublicChatService: ObservableObject {
         for channel in touchedChannels {
             loadMessages(for: channel)
         }
-        store.pruneExpiredMessages()
+        await store.pruneExpiredMessages()
     }
 
     // MARK: - Local notifications

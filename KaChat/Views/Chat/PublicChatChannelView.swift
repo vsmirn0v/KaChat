@@ -30,6 +30,9 @@ struct PublicChatChannelView: View {
     }
 
     @State private var messageText = ""
+    @State private var isLoadingOlder = false
+    /// The first loaded message before "Load earlier messages", to stay put once older rows land.
+    @State private var keepInPlaceAfterOlderLoad: String?
     @State private var isMessageFocused = false
     @State private var showDesktopEmojiPicker = false
     @State private var emojiInsertionRequest: ComposerTextView.TextInsertionRequest?
@@ -139,19 +142,16 @@ struct PublicChatChannelView: View {
             // Keeps retention feeling "live" while this room is open - a message disappears
             // shortly after it expires rather than only on the next open or send.
             //
-            // Every 30s, not every second. A tick is not cheap: pruneExpiredMessages runs a
-            // SYNCHRONOUS main-queue performAndWait that fetches every channel and executes two
-            // batch deletes per channel, so at 1Hz an open room was doing dozens of main-thread
-            // SQLite round trips a second. Retention is measured in DAYS (3, or 30 for indexed
-            // rooms), so a second's precision bought nothing for that cost.
+            // Every five minutes. The prune runs off the main thread now, but it is still two
+            // batch deletes per channel, and retention is measured in DAYS (3, or 30 for
+            // indexed rooms), so minutes of precision cost nothing anyone can see.
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                try? await Task.sleep(nanoseconds: 300_000_000_000)
                 guard !Task.isCancelled else { return }
-                // Not while backgrounded: the view stays mounted, but those main-thread SQLite
-                // round trips buy nothing with nobody looking. The loop stays alive so the
-                // first tick after returning to the foreground prunes as before.
+                // Not while backgrounded: nobody is looking. The loop stays alive so the first
+                // tick after returning to the foreground prunes as before.
                 guard UIApplication.shared.applicationState == .active else { continue }
-                publicChatService.pruneNowAndRefresh(forChannel: channelName)
+                await publicChatService.pruneNowAndRefresh(forChannel: channelName)
             }
         }
         .task(id: myAddress) {
@@ -425,6 +425,28 @@ struct PublicChatChannelView: View {
                                 Color.clear
                                     .frame(height: 1)
                                     .id("top_anchor")
+                                // The room holds its newest window in memory; this widens it.
+                                if publicChatService.hasOlderMessages(forChannel: channelName) {
+                                    Button {
+                                        guard !isLoadingOlder else { return }
+                                        isLoadingOlder = true
+                                        keepInPlaceAfterOlderLoad = messages.first?.id
+                                        Task {
+                                            await publicChatService.loadOlderMessages(forChannel: channelName)
+                                            isLoadingOlder = false
+                                        }
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            if isLoadingOlder { ProgressView().controlSize(.small) }
+                                            Text(isLoadingOlder ? "Loading…" : "Load earlier messages")
+                                        }
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(.accentColor)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                                 ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                                     if shouldShowDateDivider(at: index, in: messages) {
                                         dateDivider(for: message.blockTime)
@@ -457,7 +479,14 @@ struct PublicChatChannelView: View {
                             .padding(.vertical, 8)
                         }
                         .onChange(of: messages.count) { _ in
-                            scrollToBottom(using: proxy, animated: true)
+                            // Older messages arriving at the top must not throw the reader to
+                            // the bottom: keep the message that was first in view where it was.
+                            if let anchor = keepInPlaceAfterOlderLoad {
+                                keepInPlaceAfterOlderLoad = nil
+                                proxy.scrollTo(anchor, anchor: .top)
+                            } else {
+                                scrollToBottom(using: proxy, animated: true)
+                            }
                         }
                         .onChange(of: pendingJumpToTxId) { id in
                             guard let id else { return }
