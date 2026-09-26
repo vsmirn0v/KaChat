@@ -343,6 +343,7 @@ final class PortfolioViewModel: ObservableObject {
 
     init(coinGecko: CoinGeckoService = .shared) {
         self.coinGecko = coinGecko
+        Self.purgeLegacyHistoryDefaults()
         // The last price this device saw paints at once - a dash is never the right first
         // frame when a number from a moment ago is on disk.
         restorePersistedPrice()
@@ -795,8 +796,31 @@ final class PortfolioViewModel: ObservableObject {
         readPersistedHistory(key: historyCacheKey(days: days, currency: currency))
     }
 
+    /// One file per series under Application Support, excluded from backup. These used to be
+    /// UserDefaults entries - up to 6000 points per range per currency per pair, in the one
+    /// plist that is rewritten whole on every write and read whole at launch.
+    private static let historyDirectory: URL = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("PriceHistory", isDirectory: true)
+    }()
+
+    private static let legacyHistoryMovedKey = "kachat_price_history_moved_to_files"
+
+    /// The old UserDefaults entries, removed once.
+    private static func purgeLegacyHistoryDefaults() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: legacyHistoryMovedKey) else { return }
+        for key in defaults.dictionaryRepresentation().keys
+            where key.hasPrefix("kachat_price_history_") || key.hasPrefix("kachat_pair_history_") {
+            defaults.removeObject(forKey: key)
+        }
+        defaults.set(true, forKey: legacyHistoryMovedKey)
+    }
+
     private func readPersistedHistory(key: String) -> CachedPriceHistory? {
-        guard let data = UserDefaults.standard.data(forKey: key),
+        let url = Self.historyDirectory.appendingPathComponent(key + ".json")
+        guard let data = try? Data(contentsOf: url),
               let cached = try? JSONDecoder().decode(CachedPriceHistory.self, from: data),
               !cached.points.isEmpty else { return nil }
         return cached
@@ -808,7 +832,14 @@ final class PortfolioViewModel: ObservableObject {
 
     private func persistHistory(_ points: [PricePoint], key: String) {
         guard let data = try? JSONEncoder().encode(CachedPriceHistory(fetchedAt: Date(), points: points)) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        var directory = Self.historyDirectory
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? directory.setResourceValues(values)
+        }
+        try? data.write(to: directory.appendingPathComponent(key + ".json"), options: .atomic)
     }
 
     /// Stale-while-refresh per range. On every tap the best data already on hand for the
