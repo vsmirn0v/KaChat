@@ -55,6 +55,7 @@ struct ProfileView: View {
     @State private var showNotifCenter = false
     @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
     @State private var isResolvingDonateAddress = false
+    @State private var showOpenSourceLicenses = false
     @State private var showLogoutConfirmation = false
     @State private var showWelcomeGuideReplay = false
     @State private var isEditingAccountName = false
@@ -1097,7 +1098,7 @@ struct ProfileView: View {
 
     private var qrCircleIcon: some View {
         Image(systemName: "qrcode")
-            .font(.system(size: 26, weight: .medium))
+            .font(.scaled(size: 26, weight: .medium))
             .foregroundColor(.black)
             .frame(width: 80, height: 80)
             .background(Circle().fill(Color.accentColor))
@@ -1225,7 +1226,7 @@ struct ProfileView: View {
     /// A large icon-only circle, no caption - the caption text became the accessibility label.
     private func addressRowIconLabel(icon: String, label: String) -> some View {
         Image(systemName: icon)
-            .font(.system(size: 22, weight: .medium))
+            .font(.scaled(size: 22, weight: .medium))
             .foregroundColor(.accentColor)
             .frame(width: 54, height: 54)
             .background(Circle().fill(.regularMaterial))
@@ -1449,8 +1450,28 @@ struct ProfileView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isResolvingDonateAddress)
+
+                Divider().padding(.leading, 16)
+                Button {
+                    showOpenSourceLicenses = true
+                } label: {
+                    HStack {
+                        Text("Open Source Licenses")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .background(glassBackground(cornerRadius: 18))
+        }
+        .sheet(isPresented: $showOpenSourceLicenses) {
+            OpenSourceLicensesView()
         }
     }
 
@@ -5139,7 +5160,7 @@ struct SystemContactPickerSheet: View {
                 if permissionDenied {
                     VStack(spacing: 12) {
                         Image(systemName: "person.crop.circle.badge.xmark")
-                            .font(.system(size: 36))
+                            .font(.scaled(size: 36))
                             .foregroundColor(.secondary)
                         Text("Contacts access is required.")
                             .foregroundColor(.secondary)
@@ -5155,7 +5176,7 @@ struct SystemContactPickerSheet: View {
                 } else if filteredSelections.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "person.2.slash")
-                            .font(.system(size: 36))
+                            .font(.scaled(size: 36))
                             .foregroundColor(.secondary)
                         Text("No contacts found.")
                             .foregroundColor(.secondary)
@@ -5269,7 +5290,7 @@ struct SystemContactLinkPickerSheet: View {
                 if permissionDenied {
                     VStack(spacing: 12) {
                         Image(systemName: "person.crop.circle.badge.xmark")
-                            .font(.system(size: 36))
+                            .font(.scaled(size: 36))
                             .foregroundColor(.secondary)
                         Text("Contacts access is required.")
                             .foregroundColor(.secondary)
@@ -5285,7 +5306,7 @@ struct SystemContactLinkPickerSheet: View {
                 } else if filteredTargets.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "person.2.slash")
-                            .font(.system(size: 36))
+                            .font(.scaled(size: 36))
                             .foregroundColor(.secondary)
                         Text("No system contacts found.")
                             .foregroundColor(.secondary)
@@ -5394,7 +5415,7 @@ struct ProfileHelpView: View {
         Button(action: action) {
             HStack(spacing: 14) {
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.scaled(size: 20, weight: .semibold))
                     .foregroundColor(.accentColor)
                     .frame(width: 30)
                 VStack(alignment: .leading, spacing: 3) {
@@ -5467,7 +5488,7 @@ struct ProfileAppsView: View {
                                         .frame(width: 34, height: 34)
                                 } else {
                                     Image(systemName: app.icon)
-                                        .font(.system(size: 28, weight: .semibold))
+                                        .font(.scaled(size: 28, weight: .semibold))
                                         .foregroundColor(.accentColor)
                                 }
                             }
@@ -5547,7 +5568,7 @@ struct InAppBrowserScreen: View {
                     onClose()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.scaled(size: 16, weight: .semibold))
                         .foregroundColor(.primary)
                         .frame(width: 34, height: 34)
                         .background(Circle().fill(.regularMaterial))

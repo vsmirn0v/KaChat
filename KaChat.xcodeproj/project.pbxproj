@@ -61,6 +61,7 @@
 		CHAD00010001000100000001 /* ChattingAddressPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAD00010001000000000001 /* ChattingAddressPickerView.swift */; };
 		CM0001B0000000000000001 /* ChildModeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CM0001A0000000000000001 /* ChildModeService.swift */; };
 		CM0002B0000000000000001 /* ChildModeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CM0002A0000000000000001 /* ChildModeSettingsView.swift */; };
+		OSL0001B000000000000001 /* OpenSourceLicensesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = OSL0001A000000000000001 /* OpenSourceLicensesView.swift */; };
 		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
 		CS0001B0000000000000001 /* Base58.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0001A0000000000000001 /* Base58.swift */; };
 		CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */; };
@@ -321,6 +322,7 @@
 		CHAD00010001000000000001 /* ChattingAddressPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChattingAddressPickerView.swift; sourceTree = "<group>"; };
 		CM0001A0000000000000001 /* ChildModeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildModeService.swift; sourceTree = "<group>"; };
 		CM0002A0000000000000001 /* ChildModeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildModeSettingsView.swift; sourceTree = "<group>"; };
+		OSL0001A000000000000001 /* OpenSourceLicensesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenSourceLicensesView.swift; sourceTree = "<group>"; };
 		CPTV00010001000000000001 /* ComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerTextView.swift; sourceTree = "<group>"; };
 		CS0001A0000000000000001 /* Base58.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base58.swift; sourceTree = "<group>"; };
 		CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaExtendedPublicKey.swift; sourceTree = "<group>"; };
@@ -892,6 +894,7 @@
 				E810001C2D4C00010000000F /* SettingsView.swift */,
 				MV0001A0000000000000001 /* MenuVisibilityView.swift */,
 				CM0002A0000000000000001 /* ChildModeSettingsView.swift */,
+				OSL0001A000000000000001 /* OpenSourceLicensesView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -1346,6 +1349,7 @@
 				CH0002B0000000000000001 /* ChessGameService.swift in Sources */,
 				CM0001B0000000000000001 /* ChildModeService.swift in Sources */,
 				CM0002B0000000000000001 /* ChildModeSettingsView.swift in Sources */,
+				OSL0001B000000000000001 /* OpenSourceLicensesView.swift in Sources */,
 				CS0004B0000000000000001 /* ColdStorageView.swift in Sources */,
 				CS0006B0000000000000001 /* KsptCodec.swift in Sources */,
 				CS0007B0000000000000001 /* QrFrameChunker.swift in Sources */,
