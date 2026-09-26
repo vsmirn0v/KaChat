@@ -358,7 +358,7 @@ struct ChattingAddressDetailView: View {
             isSwitching = false
             onSet()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(for: error)
             isSwitching = false
         }
     }

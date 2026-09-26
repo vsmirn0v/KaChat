@@ -4667,10 +4667,7 @@ struct ChatDetailView: View {
     }
 
     private func displayErrorMessage(_ error: Error) -> String {
-        if case let KasiaError.networkError(message) = error {
-            return message
-        }
-        return error.localizedDescription
+        UserFacingError.message(for: error)
     }
 
     private func shouldShowRetryHint(for message: String) -> Bool {

@@ -183,7 +183,7 @@ struct SettingsView: View {
                         } catch {
                             toastStyle = .error
                             toastToken = UUID()
-                            toastMessage = "Couldn't delete the account: \(error.localizedDescription)"
+                            toastMessage = "Couldn't delete the account: \(UserFacingError.message(for: error))"
                         }
                     }
                 }
@@ -3586,7 +3586,7 @@ struct NextcloudSettingsView: View {
                 backupInfo = await NextcloudService.shared.fetchBackupInfo()
                 backupStatusMessage = "Backup uploaded."
             } catch {
-                backupErrorMessage = error.localizedDescription
+                backupErrorMessage = UserFacingError.message(for: error)
             }
             isBackingUp = false
         }
@@ -3610,7 +3610,7 @@ struct NextcloudSettingsView: View {
                 )
                 appPasswordInput = ""
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = UserFacingError.message(for: error)
             }
             isConnecting = false
         }

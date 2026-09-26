@@ -1617,7 +1617,7 @@ struct ProfileView: View {
         let nsError = error as NSError
         var parts: [String] = [
             "type=\(String(describing: type(of: error)))",
-            "message=\(error.localizedDescription)",
+            "message=\(UserFacingError.message(for: error))",
             "domain=\(nsError.domain)",
             "code=\(nsError.code)"
         ]
@@ -2681,7 +2681,7 @@ private struct KNSProfileEditorSheet: View {
             }
         } catch {
             await MainActor.run {
-                imageLoadError = error.localizedDescription
+                imageLoadError = UserFacingError.message(for: error)
                 Haptics.impact(.medium)
             }
         }
@@ -3023,7 +3023,7 @@ private struct KNSDomainInscribeSheet: View {
             }
         } catch {
             await MainActor.run {
-                feeError = error.localizedDescription
+                feeError = UserFacingError.message(for: error)
             }
         }
     }
@@ -3067,7 +3067,7 @@ private struct KNSDomainInscribeSheet: View {
                 await MainActor.run {
                     availability = nil
                     isCheckingAvailability = false
-                    checkError = error.localizedDescription
+                    checkError = UserFacingError.message(for: error)
                 }
             }
         }
@@ -3091,7 +3091,7 @@ private struct KNSDomainInscribeSheet: View {
             } catch {
                 await MainActor.run {
                     isSubmitting = false
-                    submitError = error.localizedDescription
+                    submitError = UserFacingError.message(for: error)
                     Haptics.impact(.medium)
                 }
             }
@@ -3605,7 +3605,7 @@ struct KNSDomainSendView: View {
                 await MainActor.run {
                     isSubmitting = false
                     transferStage = nil
-                    errorMessage = error.localizedDescription
+                    errorMessage = UserFacingError.message(for: error)
                     Haptics.impact(.medium)
                 }
             }
@@ -4083,7 +4083,7 @@ struct ChattingAddressManageView: View {
             utxoLoadError = nil
         } catch {
             // The list keeps what it had; an outage is not an empty address.
-            utxoLoadError = error.localizedDescription
+            utxoLoadError = UserFacingError.message(for: error)
         }
         isLoadingUtxos = false
     }
@@ -4976,7 +4976,7 @@ struct WithdrawKaspaView: View {
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
+                    errorMessage = UserFacingError.message(for: error)
                     isEstimatingMax = false
                 }
             }
@@ -5021,7 +5021,7 @@ struct WithdrawKaspaView: View {
             } catch {
                 await MainActor.run {
                     isSending = false
-                    errorMessage = error.localizedDescription
+                    errorMessage = UserFacingError.message(for: error)
                 }
             }
         }

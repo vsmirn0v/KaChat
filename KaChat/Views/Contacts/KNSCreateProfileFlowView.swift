@@ -276,7 +276,7 @@ struct KNSCreateProfileFlowView: View {
                 step = .needsFunding(balanceKas: kas)
             }
         } catch {
-            fundingCheckError = error.localizedDescription
+            fundingCheckError = UserFacingError.message(for: error)
             step = .needsFunding(balanceKas: 0)
         }
     }
@@ -804,7 +804,7 @@ private struct KNSDomainCreationStepView: View {
             feeTiers = try await KNSService.shared.fetchInscribeFeeTiers()
             feeError = nil
         } catch {
-            feeError = error.localizedDescription
+            feeError = UserFacingError.message(for: error)
         }
     }
 
@@ -841,7 +841,7 @@ private struct KNSDomainCreationStepView: View {
                 guard !Task.isCancelled else { return }
                 availability = nil
                 isCheckingAvailability = false
-                checkError = error.localizedDescription
+                checkError = UserFacingError.message(for: error)
             }
         }
     }
@@ -864,7 +864,7 @@ private struct KNSDomainCreationStepView: View {
             } catch {
                 await MainActor.run {
                     isSubmitting = false
-                    submitError = error.localizedDescription
+                    submitError = UserFacingError.message(for: error)
                     Haptics.impact(.medium)
                 }
             }
@@ -1027,7 +1027,7 @@ private struct KNSImageInscribeStepView: View {
             }
         } catch {
             await MainActor.run {
-                errorMessage = error.localizedDescription
+                errorMessage = UserFacingError.message(for: error)
             }
         }
         await MainActor.run {
@@ -1062,7 +1062,7 @@ private struct KNSImageInscribeStepView: View {
             } catch {
                 await MainActor.run {
                     isSubmitting = false
-                    errorMessage = error.localizedDescription
+                    errorMessage = UserFacingError.message(for: error)
                     Haptics.impact(.medium)
                 }
             }
@@ -1285,7 +1285,7 @@ private struct KNSDetailsStepView: View {
                     await MainActor.run {
                         isSubmitting = false
                         fieldStatuses[field.key] = nil
-                        errorMessage = localizedFormat("Failed to inscribe %@: %@", field.key.displayName, error.localizedDescription)
+                        errorMessage = localizedFormat("Failed to inscribe %@: %@", field.key.displayName, UserFacingError.message(for: error))
                         Haptics.impact(.medium)
                     }
                     return

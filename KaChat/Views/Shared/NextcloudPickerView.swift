@@ -182,7 +182,7 @@ private struct NextcloudFolderListView: View {
         do {
             files = try await NextcloudService.shared.listFolder(path)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(for: error)
         }
         isLoading = false
     }
@@ -197,7 +197,7 @@ private struct NextcloudFolderListView: View {
                 onPick(url, file)
             } catch {
                 sharingPath = nil
-                errorMessage = error.localizedDescription
+                errorMessage = UserFacingError.message(for: error)
             }
         }
     }
@@ -377,7 +377,7 @@ private struct NextcloudFolderSelectList: View {
                 folders = try await NextcloudService.shared.listFolder(path)
                     .filter(\.isDirectory)
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = UserFacingError.message(for: error)
             }
             isLoading = false
         }

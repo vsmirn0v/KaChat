@@ -328,7 +328,7 @@ struct ColdStorageListView: View {
         let result = manager.importAccount(kpubString: kpub, label: nameInput)
         pendingKpub = nil
         if case .failure(let error) = result {
-            importError = error.localizedDescription
+            importError = UserFacingError.message(for: error)
         }
     }
 
@@ -2006,7 +2006,7 @@ struct CoinControlView: View {
             utxos = try await NodePoolService.shared.getUtxosByAddresses([fromAddress])
             loadError = nil
         } catch {
-            loadError = error.localizedDescription
+            loadError = UserFacingError.message(for: error)
         }
         isLoading = false
     }
@@ -2579,7 +2579,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
             utxoLoadError = nil
         } catch {
             // The list keeps what it had; an outage is not an empty address.
-            utxoLoadError = error.localizedDescription
+            utxoLoadError = UserFacingError.message(for: error)
         }
         isLoadingUtxos = false
     }

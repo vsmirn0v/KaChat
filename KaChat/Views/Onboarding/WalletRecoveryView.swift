@@ -107,7 +107,7 @@ struct WalletRecoveryView: View {
             do {
                 try await walletManager.deleteWallet()
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = UserFacingError.message(for: error)
             }
             isRemoving = false
         }

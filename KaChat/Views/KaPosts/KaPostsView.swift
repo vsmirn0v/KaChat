@@ -1414,11 +1414,11 @@ struct KaPostsView: View {
         } catch {
             guard feedPage.epoch == epoch else { return }
             feedPage.isLoading = false
-            feedPage.errorMessage = error.localizedDescription
+            feedPage.errorMessage = UserFacingError.message(for: error)
             // A failed APPEND keeps everything already loaded on screen (the footer offers a
             // retry); only a failed refresh surfaces as the feed-level error.
             if reset {
-                feedError = error.localizedDescription
+                feedError = UserFacingError.message(for: error)
             }
             AppLog.log("[KaPosts] Feed fetch failed: %@", error.localizedDescription)
         }
@@ -1547,7 +1547,7 @@ struct KaPostsView: View {
         } catch {
             guard myPostsPage.epoch == epoch else { return }
             myPostsPage.isLoading = false
-            myPostsPage.errorMessage = error.localizedDescription
+            myPostsPage.errorMessage = UserFacingError.message(for: error)
             AppLog.log("[KaPosts] Profile posts page failed: %@", error.localizedDescription)
         }
     }
@@ -1575,7 +1575,7 @@ struct KaPostsView: View {
         } catch {
             guard myRepliesPage.epoch == epoch else { return }
             myRepliesPage.isLoading = false
-            myRepliesPage.errorMessage = error.localizedDescription
+            myRepliesPage.errorMessage = UserFacingError.message(for: error)
             AppLog.log("[KaPosts] Profile replies page failed: %@", error.localizedDescription)
         }
     }
@@ -1604,7 +1604,7 @@ struct KaPostsView: View {
         } catch {
             guard posterPostsPage.epoch == epoch else { return }
             posterPostsPage.isLoading = false
-            posterPostsPage.errorMessage = error.localizedDescription
+            posterPostsPage.errorMessage = UserFacingError.message(for: error)
             AppLog.log("[KaPosts] Poster posts page failed: %@", error.localizedDescription)
         }
     }
@@ -1632,7 +1632,7 @@ struct KaPostsView: View {
         } catch {
             guard posterRepliesPage.epoch == epoch else { return }
             posterRepliesPage.isLoading = false
-            posterRepliesPage.errorMessage = error.localizedDescription
+            posterRepliesPage.errorMessage = UserFacingError.message(for: error)
             AppLog.log("[KaPosts] Poster replies page failed: %@", error.localizedDescription)
         }
     }
@@ -1719,7 +1719,7 @@ struct KaPostsView: View {
         } catch {
             guard threadPages[key]?.epoch == epoch else { return }
             threadPages[key]?.isLoading = false
-            threadPages[key]?.errorMessage = error.localizedDescription
+            threadPages[key]?.errorMessage = UserFacingError.message(for: error)
             AppLog.log("[KaPosts] Replies page failed: %@", error.localizedDescription)
         }
     }
@@ -2385,7 +2385,7 @@ struct KaPostsView: View {
                     }
                 } catch {
                     mutatePost(id: post.id) { $0.pendingDeletion = false }
-                    feedError = "Couldn't delete the post: \(error.localizedDescription)"
+                    feedError = "Couldn't delete the post: \(UserFacingError.message(for: error))"
                     AppLog.log("[KaPosts] Delete submit failed: %@", error.localizedDescription)
                 }
             }
@@ -2445,7 +2445,7 @@ struct KaPostsView: View {
                         $0.editedAt = original?.editedAt ?? post.editedAt
                         $0.deliveryStatus = .sent
                     }
-                    feedError = "Couldn't save the edit: \(error.localizedDescription)"
+                    feedError = "Couldn't save the edit: \(UserFacingError.message(for: error))"
                     AppLog.log("[KaPosts] Edit submit failed: %@", error.localizedDescription)
                 }
             }
@@ -4044,7 +4044,7 @@ struct KaPostsView: View {
                 showActionToast("Tipped \(kasText) KAS to \(name)", txId: txId ?? "")
             } catch {
                 AppLog.log("[KaPosts] Instant tip failed: %@", error.localizedDescription)
-                feedError = "Tip didn't send: \(error.localizedDescription)"
+                feedError = "Tip didn't send: \(UserFacingError.message(for: error))"
                 tipTarget = TipTarget(address: address)
             }
         }
@@ -6393,7 +6393,7 @@ private struct KaPostTipSheet: View {
             } catch {
                 await MainActor.run {
                     isSending = false
-                    errorMessage = error.localizedDescription
+                    errorMessage = UserFacingError.message(for: error)
                 }
             }
         }
@@ -7799,7 +7799,7 @@ struct KaPostEngagementView: View {
             page.isLoading = false
             // Keep whatever is already listed; only a failed FIRST page falls back.
             guard reset else {
-                page.errorMessage = error.localizedDescription
+                page.errorMessage = UserFacingError.message(for: error)
                 AppLog.log("[KaPosts] Engagement page failed: %@", error.localizedDescription)
                 return
             }
@@ -8071,7 +8071,7 @@ struct KaPostsFollowListView: View {
         } catch {
             guard page.epoch == epoch else { return }
             page.isLoading = false
-            page.errorMessage = error.localizedDescription
+            page.errorMessage = UserFacingError.message(for: error)
             isLoading = false
             if reset {
                 // First page failed: still show the local follows rather than an empty screen.
@@ -8451,7 +8451,7 @@ struct KaPostsNotificationsView: View {
         } catch {
             guard page.epoch == epoch else { return }
             page.isLoading = false
-            page.errorMessage = error.localizedDescription
+            page.errorMessage = UserFacingError.message(for: error)
             isLoading = false
             // A failed page-append leaves the loaded notifications on screen; only a failed
             // first load counts as an outright failure.

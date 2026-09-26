@@ -2772,6 +2772,64 @@ enum KasiaError: LocalizedError {
     }
 }
 
+/// What an error says when a person has to read it.
+///
+/// About forty alerts used to show `error.localizedDescription` as it came: Foundation's
+/// `DecodingError` dump when a feed failed to parse, a raw `URLError` string when a backup
+/// failed, "Keychain error: -25300". The app's own errors carry sentences already written for
+/// the user, so those pass through with their developer prefixes stripped; system and library
+/// errors are translated; the raw text still goes to the log for diagnostics.
+enum UserFacingError {
+    static func message(for error: Error) -> String {
+        if error is CancellationError { return "Cancelled." }
+        if let kasia = error as? KasiaError {
+            switch kasia {
+            case .networkError(let text), .apiError(let text), .keychainError(let text), .encryptionError(let text):
+                return text.isEmpty ? kasia.localizedDescription : text
+            default:
+                return kasia.localizedDescription
+            }
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff:
+                return "No internet connection. Check your connection and try again."
+            case .timedOut:
+                return "The connection timed out. Check your connection and try again."
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .badURL, .unsupportedURL:
+                return "Couldn't reach the server. Check the address in Settings and your connection."
+            case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
+                 .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid, .clientCertificateRejected:
+                return "Couldn't make a secure connection to the server."
+            case .cancelled:
+                return "Cancelled."
+            default:
+                return "A network error occurred. Check your connection and try again."
+            }
+        }
+        if error is DecodingError {
+            return "The server sent something the app couldn't read. Try again; if it keeps happening, update the app."
+        }
+        let typeName = String(describing: type(of: error))
+        if typeName.hasPrefix("GRPC") {
+            return "The Kaspa node returned an error. The app will try another node; try again in a moment."
+        }
+        // LocalizedError conformers (NextcloudError, the swap client, ...) write their own
+        // sentences; anything else gets Foundation's description with any prefix removed.
+        let text = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        return message(text)
+    }
+
+    /// The same treatment for an error that is already a string.
+    static func message(_ text: String) -> String {
+        var cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["Network error: ", "API error: ", "Keychain error: ", "Encryption error: "] {
+            if cleaned.hasPrefix(prefix) { cleaned = String(cleaned.dropFirst(prefix.count)) }
+        }
+        return cleaned.isEmpty ? "Something went wrong. Please try again." : cleaned
+    }
+}
+
 // MARK: - gRPC Endpoint Pool
 
 /// Pool tier for endpoint classification

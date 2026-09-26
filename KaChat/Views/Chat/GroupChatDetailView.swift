@@ -995,7 +995,7 @@ struct GroupChatDetailView: View {
             } catch {
                 AppLog.log("[GroupChatDetailView] Nextcloud video send failed: %@", error.localizedDescription)
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
+                    errorMessage = UserFacingError.message(for: error)
                 }
             }
         }
@@ -1647,7 +1647,7 @@ struct GroupChatDetailView: View {
                 do {
                     try await groupChatService.sendGroupEdit(targetTxId: editing.txId, groupId: group.id, text: text)
                 } catch {
-                    errorMessage = error.localizedDescription
+                    errorMessage = UserFacingError.message(for: error)
                 }
             }
             return
@@ -1659,7 +1659,7 @@ struct GroupChatDetailView: View {
             do {
                 try await groupChatService.sendGroupMessage(text, to: group.id, feeOverride: feeOverride)
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = UserFacingError.message(for: error)
             }
         }
     }
@@ -1705,7 +1705,7 @@ struct GroupChatDetailView: View {
                         // The chain send itself failed - an on-chain image envelope would fail
                         // the same way, so surface the error instead of falling back.
                         await MainActor.run {
-                            self.errorMessage = error.localizedDescription
+                            self.errorMessage = UserFacingError.message(for: error)
                             self.isSendingPhoto = false
                         }
                     }
@@ -1725,7 +1725,7 @@ struct GroupChatDetailView: View {
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = error.localizedDescription
+                    self.errorMessage = UserFacingError.message(for: error)
                     self.isSendingPhoto = false
                 }
             }
@@ -1791,7 +1791,7 @@ struct GroupChatDetailView: View {
 
                 try await groupChatService.sendGroupAudio(recorded.data, to: group.id, fileName: recorded.fileName, mimeType: recorded.mimeType)
             } catch {
-                await MainActor.run { errorMessage = "Failed to send voice message: \(error.localizedDescription)" }
+                await MainActor.run { errorMessage = "Failed to send voice message: \(UserFacingError.message(for: error))" }
             }
         }
     }
@@ -2065,7 +2065,7 @@ struct GroupChatDetailView: View {
                 // In-place resend of the SAME failed message - does not create a new/duplicate one.
                 try await groupChatService.retryGroupMessage(message)
             } catch {
-                await MainActor.run { errorMessage = error.localizedDescription }
+                await MainActor.run { errorMessage = UserFacingError.message(for: error) }
             }
         }
     }
@@ -2876,7 +2876,7 @@ struct GroupChatInfoView: View {
                 else { try await groupChatService.resendInvites(group.id) }
                 await MainActor.run { resendMessage = address == nil ? "Invites resent to all members." : "Invite resent." }
             } catch {
-                await MainActor.run { resendMessage = error.localizedDescription }
+                await MainActor.run { resendMessage = UserFacingError.message(for: error) }
             }
         }
     }
@@ -2885,7 +2885,7 @@ struct GroupChatInfoView: View {
     private func removeMember(_ member: GroupMember) {
         Task {
             do { try await groupChatService.removeMember(member, from: group.id) }
-            catch { await MainActor.run { resendMessage = error.localizedDescription } }
+            catch { await MainActor.run { resendMessage = UserFacingError.message(for: error) } }
         }
     }
 
@@ -2982,7 +2982,7 @@ struct GroupChatInfoView: View {
                 // Stash the compressed photo and confirm (with the estimated fee) before sending.
                 await MainActor.run { pendingPhotoHex = jpeg.hexString }
             } catch {
-                await MainActor.run { groupPhotoError = error.localizedDescription }
+                await MainActor.run { groupPhotoError = UserFacingError.message(for: error) }
             }
             await MainActor.run { groupPhotoPickerItem = nil }
         }
@@ -3286,7 +3286,7 @@ struct GroupChatInfoView: View {
             do {
                 try await groupChatService.renameGroup(group.id, to: trimmed)
             } catch {
-                renameError = error.localizedDescription
+                renameError = UserFacingError.message(for: error)
             }
             isRenaming = false
         }

@@ -1966,7 +1966,7 @@ struct SpendingAddressWithdrawView: View {
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
+                    errorMessage = UserFacingError.message(for: error)
                     isEstimatingMax = false
                 }
             }
@@ -2014,7 +2014,7 @@ struct SpendingAddressWithdrawView: View {
             } catch {
                 await MainActor.run {
                     isSending = false
-                    errorMessage = error.localizedDescription
+                    errorMessage = UserFacingError.message(for: error)
                 }
             }
         }
@@ -2287,6 +2287,8 @@ private struct SpendingAddressTransactionHistoryView: View {
     @State private var isLoading = false
     @State private var utxos: [UTXO] = []
     @State private var isLoadingUtxos = false
+    /// See `CoinControlView.loadError`.
+    @State private var utxoLoadError: String?
     @State private var knsDomains: [KNSDomain] = []
     @State private var isLoadingDomains = false
     @State private var domainsLoadFailed = false
@@ -2563,8 +2565,14 @@ private struct SpendingAddressTransactionHistoryView: View {
                     Spacer()
                 }
             } else if utxos.isEmpty {
-                Text("No UTXOs.")
-                    .foregroundColor(.secondary)
+                if let utxoLoadError {
+                    UtxoLoadFailureRow(detail: utxoLoadError) {
+                        Task { await loadUtxos() }
+                    }
+                } else {
+                    Text("No UTXOs.")
+                        .foregroundColor(.secondary)
+                }
             } else {
                 ForEach(Array(utxos.enumerated()), id: \.offset) { _, utxo in
                     utxoRow(utxo)
@@ -2694,7 +2702,13 @@ private struct SpendingAddressTransactionHistoryView: View {
 
     private func loadUtxos() async {
         isLoadingUtxos = true
-        utxos = (try? await NodePoolService.shared.getUtxosByAddresses([entry.address])) ?? []
+        do {
+            utxos = try await NodePoolService.shared.getUtxosByAddresses([entry.address])
+            utxoLoadError = nil
+        } catch {
+            // The list keeps what it had; an outage is not an empty address.
+            utxoLoadError = UserFacingError.message(for: error)
+        }
         isLoadingUtxos = false
     }
 
