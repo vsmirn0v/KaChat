@@ -2435,11 +2435,12 @@ final class MessageStore {
         }
         let context = container.newBackgroundContext()
         var result = StoreDiagnostics(totalMessages: 0, distinctTxIds: 0, placeholderCount: 0, outgoingCount: 0, incomingCount: 0)
+        let walletAddr = currentWalletAddress
         return await withCheckedContinuation { continuation in
         context.perform {
             let totalFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
             totalFetch.resultType = .countResultType
-            if let walletAddr = currentWalletAddress {
+            if let walletAddr {
                 totalFetch.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
             }
             if let countResult = try? context.count(for: totalFetch) {
@@ -2450,7 +2451,7 @@ final class MessageStore {
             distinctFetch.resultType = .dictionaryResultType
             distinctFetch.propertiesToFetch = ["txId"]
             distinctFetch.returnsDistinctResults = true
-            if let walletAddr = currentWalletAddress {
+            if let walletAddr {
                 distinctFetch.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
             }
             let distinctCount = (try? context.fetch(distinctFetch).count) ?? 0
@@ -2458,7 +2459,7 @@ final class MessageStore {
 
             let placeholderFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
             placeholderFetch.resultType = .countResultType
-            if let walletAddr = currentWalletAddress {
+            if let walletAddr {
                 placeholderFetch.predicate = NSPredicate(format: "contentEncrypted == nil AND (walletAddress == %@ OR walletAddress == nil)", walletAddr)
             } else {
                 placeholderFetch.predicate = NSPredicate(format: "contentEncrypted == nil")
@@ -2468,7 +2469,7 @@ final class MessageStore {
 
             let outgoingFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
             outgoingFetch.resultType = .countResultType
-            if let walletAddr = currentWalletAddress {
+            if let walletAddr {
                 outgoingFetch.predicate = NSPredicate(format: "isOutgoing == YES AND (walletAddress == %@ OR walletAddress == nil)", walletAddr)
             } else {
                 outgoingFetch.predicate = NSPredicate(format: "isOutgoing == YES")
@@ -2477,7 +2478,7 @@ final class MessageStore {
 
             let incomingFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
             incomingFetch.resultType = .countResultType
-            if let walletAddr = currentWalletAddress {
+            if let walletAddr {
                 incomingFetch.predicate = NSPredicate(format: "isOutgoing == NO AND (walletAddress == %@ OR walletAddress == nil)", walletAddr)
             } else {
                 incomingFetch.predicate = NSPredicate(format: "isOutgoing == NO")

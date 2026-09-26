@@ -374,8 +374,8 @@ extension ChatService {
     /// `utxoSubscriptionFreshness`.
     var isUtxoSubscriptionHealthy: Bool {
         guard isUtxoSubscribed else { return false }
-        let manager = UtxoSubscriptionManager.shared
-        guard manager.state == .subscribed, let healthyAt = manager.lastHealthyAt else { return false }
+        let pool = NodePoolService.shared
+        guard pool.subscriptionState == .subscribed, let healthyAt = pool.subscriptionLastHealthyAt else { return false }
         return Date().timeIntervalSince(healthyAt) < utxoSubscriptionFreshness
     }
 

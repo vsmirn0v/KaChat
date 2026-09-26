@@ -819,6 +819,12 @@ final class NodePoolService: ObservableObject {
         subscriptionManager?.addNotificationHandler(handler) ?? UUID()
     }
 
+    /// When the primary UTXO subscription was last verified alive (a subscribe, or a keepalive
+    /// answered) - see `UtxoSubscriptionManager.lastHealthyAt`. Nil before the pool has one.
+    var subscriptionLastHealthyAt: Date? {
+        subscriptionManager?.lastHealthyAt
+    }
+
     /// Blocks, parsed once on the stream (see `ScannedBlock`). Called off the main actor;
     /// the scanners take the block to their own serial queues.
     func addBlockHandler(_ handler: @escaping BlockScanRegistry.Handler) -> UUID {
