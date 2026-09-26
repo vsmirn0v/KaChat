@@ -916,7 +916,7 @@ struct DiagnosticsSettingsPage: View {
         let totalUnread = ChatService.shared.conversations.reduce(0) { $0 + max(0, $1.unreadCount) }
         let sharedUnread = SharedDataManager.getUnreadCount()
         let messageStoreBytes = MessageStore.shared.currentStoreSizeBytes()
-        let storeDiagnostics = MessageStore.shared.currentStoreDiagnostics()
+        let storeDiagnostics = await MessageStore.shared.currentStoreDiagnostics()
 
         let appInfo = DiagnosticsArchive.AppInfo(
             bundleId: Bundle.main.bundleIdentifier ?? "unknown",

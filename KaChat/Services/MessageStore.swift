@@ -2427,13 +2427,16 @@ final class MessageStore {
         let incomingCount: Int
     }
 
-    func currentStoreDiagnostics() -> StoreDiagnostics {
+    /// Counts over the whole store; asynchronous so the diagnostics export never blocks the
+    /// thread that asked (it ran a synchronous performAndWait from the main actor).
+    func currentStoreDiagnostics() async -> StoreDiagnostics {
         guard ensureStoreLoaded() else {
             return StoreDiagnostics(totalMessages: 0, distinctTxIds: 0, placeholderCount: 0, outgoingCount: 0, incomingCount: 0)
         }
         let context = container.newBackgroundContext()
         var result = StoreDiagnostics(totalMessages: 0, distinctTxIds: 0, placeholderCount: 0, outgoingCount: 0, incomingCount: 0)
-        context.performAndWait {
+        return await withCheckedContinuation { continuation in
+        context.perform {
             let totalFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
             totalFetch.resultType = .countResultType
             if let walletAddr = currentWalletAddress {
@@ -2488,8 +2491,9 @@ final class MessageStore {
                 outgoingCount: outgoingCount,
                 incomingCount: incomingCount
             )
+            continuation.resume(returning: result)
         }
-        return result
+        }
     }
 
     private func fetchMessageCounts(in context: NSManagedObjectContext, walletAddr: String?) -> (total: Int, distinct: Int) {
