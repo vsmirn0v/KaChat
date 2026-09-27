@@ -1205,7 +1205,8 @@ struct KaChatInternalLinkCardView: View {
     private var iconName: String {
         switch match.link {
         case .kaPost: return "square.and.pencil"          // AppTab.kaposts.icon
-        case .publicChatRoom: return "dot.radiowaves.left.and.right" // AppTab.public chats.icon
+        case .publicChatRoom: return "dot.radiowaves.left.and.right" // AppTab.publicChats.icon
+        case .profile: return "person.crop.circle"
         }
     }
 
@@ -1220,6 +1221,7 @@ struct KaChatInternalLinkCardView: View {
             default: return "KaPosts"
             }
         case .publicChatRoom: return "Public Chat Room"
+        case .profile: return "KaChat Profile"
         }
     }
 
@@ -1229,6 +1231,11 @@ struct KaChatInternalLinkCardView: View {
             return kaPostEntry?.authorName ?? "KaPosts post"
         case .publicChatRoom(let channel):
             return "#\(channel)"
+        case .profile(let address):
+            if let domain = KNSService.shared.domainCache[address]?.primaryDomain {
+                return domain
+            }
+            return ContactsManager.shared.displayName(for: address)
         }
     }
 
@@ -1249,6 +1256,9 @@ struct KaChatInternalLinkCardView: View {
             return known
                 ? "Tap to open this KaChat public chat room."
                 : "Tap to join this KaChat public chat room."
+        case .profile(let address):
+            let isContact = ContactsManager.shared.contacts.contains { $0.address.lowercased() == address }
+            return isContact ? "Tap to open your chat." : "Tap to start a chat on KaChat."
         }
     }
 

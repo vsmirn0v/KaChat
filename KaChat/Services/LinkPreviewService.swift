@@ -11,16 +11,23 @@ import Foundation
 ///
 /// | Target         | Custom scheme                  | Universal link                                    |
 /// |----------------|--------------------------------|---------------------------------------------------|
-/// | KaPosts post   | `kachat://kapost/<txid>`       | `https://kachat.app/post/<txid>`                  |
-/// | Public Chat room | `kachat://public chat/<channel>` | `https://kachat.app/public chat/<channel>`          |
+/// | KaPosts post     | `kachat://kapost/<txid>`       | `https://kachat.app/post/<txid>`                  |
+/// | Public Chat room | `kachat://broadcast/<channel>` | `https://kachat.app/broadcast/<channel>`          |
+/// | Profile          | `kachat://profile/<address>`   | `https://kachat.app/u/<address>`                  |
 ///
 /// `<channel>` is the NORMALIZED room name with no leading `#` (see `PublicChatChannelName`).
+/// `<address>` is a full Kaspa address; in the universal form a mainnet address may drop its
+/// `kaspa:` prefix (the app writes it without, so the link reads cleanly), and a missing
+/// prefix means mainnet.
 /// Everything a pasted link carries is attacker-controlled, so `parse` re-validates the channel
 /// name from scratch (`normalizeAndValidateChannel`) rather than trusting the URL's text - a
 /// malformed or hostile name is rejected outright, never joined.
 enum KaChatInternalLink: Equatable {
     case kaPost(txId: String)
     case publicChatRoom(channel: String)
+    /// Someone's KaChat profile: opens their chat, or the new-chat screen prefilled with the
+    /// address when they are not a contact yet.
+    case profile(address: String)
 
     /// The universal-link host - the only host the app ever writes into a share. With KaChat
     /// installed iOS opens these links in the app; without it, kachat.app shows the post (or
@@ -35,6 +42,7 @@ enum KaChatInternalLink: Equatable {
         switch self {
         case .kaPost(let txId): return "kachat://kapost/\(txId)"
         case .publicChatRoom(let channel): return "kachat://broadcast/\(channel)"
+        case .profile(let address): return "kachat://profile/\(address)"
         }
     }
 
@@ -44,7 +52,18 @@ enum KaChatInternalLink: Equatable {
         switch self {
         case .kaPost(let txId): return "https://\(Self.universalLinkHost)/post/\(txId)"
         case .publicChatRoom(let channel): return "https://\(Self.universalLinkHost)/broadcast/\(channel)"
+        case .profile(let address):
+            let path = address.hasPrefix("kaspa:") ? String(address.dropFirst("kaspa:".count)) : address
+            return "https://\(Self.universalLinkHost)/u/\(path)"
         }
+    }
+
+    /// The line that goes with a shared profile link. The link itself (`universalLinkString`)
+    /// previews with the name and avatar in any chat app, opens a chat in KaChat, and offers
+    /// the download buttons to someone who does not have it yet.
+    static func profileShareMessage(name: String?) -> String {
+        guard let name, !name.isEmpty else { return "Chat with me on KaChat." }
+        return "Chat with \(name.replacingOccurrences(of: ".kas", with: "")) on KaChat."
     }
 
     /// The share sheet's text for a public chat-room invite - one human line and the kachat.app
@@ -79,6 +98,7 @@ enum KaChatInternalLink: Equatable {
             switch host {
             case "kapost": return kaPostLink(rawTxId: payload)
             case "broadcast": return publicChatLink(rawChannel: payload)
+            case "profile": return profileLink(rawAddress: payload)
             default: return nil
             }
         case "http", "https":
@@ -88,6 +108,7 @@ enum KaChatInternalLink: Equatable {
             switch parts[0].lowercased() {
             case "post": return kaPostLink(rawTxId: parts[1])
             case "broadcast": return publicChatLink(rawChannel: parts[1])
+            case "u": return profileLink(rawAddress: parts[1])
             default: return nil
             }
         default:
@@ -104,6 +125,15 @@ enum KaChatInternalLink: Equatable {
         guard id.count >= 8, id.count <= 128 else { return nil }
         guard id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { return nil }
         return .kaPost(txId: id)
+    }
+
+    /// A pasted address is attacker-controlled like everything else in a link: it has to be a
+    /// valid Kaspa address, checksum and all, or the link is not ours.
+    private static func profileLink(rawAddress: String) -> KaChatInternalLink? {
+        var address = rawAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !address.contains(":") { address = "kaspa:" + address }
+        guard address.count <= 100, KaspaAddress.isValid(address) else { return nil }
+        return .profile(address: address)
     }
 
     private static func publicChatLink(rawChannel: String) -> KaChatInternalLink? {
@@ -161,11 +191,11 @@ enum KaChatInternalLink: Equatable {
     /// universal form is matched here too so it is claimed as INTERNAL before the generic
     /// preview path can fetch it over the network.
     private static let pattern =
-        #"(?:kachat://(?:kapost|broadcast)/|https?://(?:www\.)?kachat\.(?:app|duckdns\.org)/(?:post|broadcast)/)[^\s<>"']+"#
+        #"(?:kachat://(?:kapost|broadcast|profile)/|https?://(?:www\.)?kachat\.(?:app|duckdns\.org)/(?:post|broadcast|u)/)[^\s<>"']+"#
 
     private static let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
 
-    /// Trailing prose punctuation is not part of the link ("... open kachat://public chat/kaspa.").
+    /// Trailing prose punctuation is not part of the link ("... open kachat://broadcast/kaspa.").
     private static let trailingTrim = CharacterSet(charactersIn: ".,;:!?)]}'\"")
 
     private final class MatchBox: NSObject {

@@ -97,6 +97,7 @@ struct ProfileView: View {
                 HStack(spacing: 12) {
                     Text("Profile")
                         .font(.largeTitle.weight(.bold))
+                    profileShareButton
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 16)
@@ -1458,6 +1459,31 @@ struct ProfileView: View {
             return version
         }
         return "\(version) (\(build))"
+    }
+
+    /// Next to the Profile title: a kachat.app link to you. Anywhere it is pasted it previews
+    /// with your KNS name and avatar; tapped with KaChat installed it opens a chat with you
+    /// (or the new-chat screen, for someone who has not got you as a contact); without it,
+    /// the page offers the download.
+    @ViewBuilder
+    private var profileShareButton: some View {
+        if let address = walletManager.currentWallet?.publicAddress,
+           let url = URL(string: KaChatInternalLink.profile(address: address).universalLinkString) {
+            let message = KaChatInternalLink.profileShareMessage(name: knsPrimaryDomain)
+            ShareLink(
+                item: url,
+                subject: Text("KaChat"),
+                message: Text(message),
+                preview: SharePreview(message, image: Image("KaspaLogo"))
+            ) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(Color.secondary.opacity(0.15)))
+            }
+            .accessibilityLabel("Share your profile")
+        }
     }
 
     private var websiteURL: URL {

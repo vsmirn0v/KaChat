@@ -99,6 +99,16 @@ function convertBits(data, from, to, pad) {
   return out;
 }
 
+// A Kaspa address with a valid checksum - the only thing a /u/ link may carry.
+const ADDRESS = /^(kaspa|kaspatest):[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{40,100}$/;
+function isKaspaAddress(address) {
+  if (!ADDRESS.test(address)) return false;
+  const [hrp, data] = address.split(':');
+  const expanded = [...hrp].map(c => c.charCodeAt(0) & 0x1f);
+  expanded.push(0);
+  return polymod([...expanded, ...[...data].map(c => CHARSET.indexOf(c))]) === 1n;
+}
+
 function kaspaAddress(pubkeyHex, hrp = 'kaspa') {
   if (!/^[0-9a-fA-F]+$/.test(pubkeyHex)) return null;
   let bytes = Buffer.from(pubkeyHex, 'hex');
@@ -151,6 +161,10 @@ function safeBase64(s) {
 async function loadIdentity(pubkey) {
   const address = kaspaAddress(pubkey);
   if (!address) return { address: null, name: null, avatar: null };
+  return loadIdentityForAddress(address);
+}
+
+async function loadIdentityForAddress(address) {
   return cached('id:' + address, 3_600_000, async () => {
     const out = { address, name: null, avatar: null };
     const primary = await fetchJSON(`${KNS_URL}/primary-name/${address}`);
@@ -331,6 +345,44 @@ function broadcastPage(channel) {
   });
 }
 
+// A person's page: the link a KaChat user shares from their profile. Unfurls with their KNS
+// name and avatar; with the app it opens a chat with them, without it offers the download.
+function profilePage(address, identity) {
+  const pathForm = address.startsWith('kaspa:') ? address.slice('kaspa:'.length) : address;
+  // A KNS name when they have one; otherwise the address, shortened, never a bare 10-char tail.
+  const shown = identity.name ? displayName(identity) : `${pathForm.slice(0, 8)}…${pathForm.slice(-6)}`;
+  const canonical = `${SITE_ORIGIN}/u/${encodeURIComponent(pathForm)}`;
+  const avatar = identity.avatar || `${SITE_ORIGIN}/og-default.png`;
+  const short = address.length > 24 ? `${address.slice(0, 12)}…${address.slice(-8)}` : address;
+  const body = `
+  <div class="card">
+    <div class="who">
+      <img class="avatar" src="${escapeHTML(avatar)}" alt="">
+      <div>
+        <div class="name">${escapeHTML(shown)}</div>
+        <div class="meta">${escapeHTML(short)}</div>
+      </div>
+    </div>
+    <div class="text">Chat with <strong>${escapeHTML(shown)}</strong> on KaChat: end-to-end encrypted messages and payments on the Kaspa network.</div>
+  </div>
+  <div class="note">
+    <strong>Chats live in the app.</strong>
+    Open this link in KaChat to start a chat with ${escapeHTML(shown)}.
+    <br><a class="open" href="kachat://profile/${encodeURIComponent(pathForm)}">Chat on KaChat</a>
+  </div>
+  <p class="meta" style="margin-top:22px">Don't have KaChat yet? It's free.</p>
+  ${STORE_BUTTONS}`;
+  return page({
+    title: identity.name ? `Chat with ${shown} on KaChat` : 'Chat with me on KaChat',
+    description: `Message ${shown} on KaChat - encrypted chat and payments on Kaspa. Tap to start the chat, or get the free app.`,
+    image: avatar,
+    canonical,
+    appArgument: canonical,
+    body,
+    largeImage: !identity.avatar,
+  });
+}
+
 function notFoundPage(what) {
   const body = `
   <div class="card">
@@ -351,7 +403,7 @@ function notFoundPage(what) {
 
 // ---------------------------------------------------------------- well-known
 function aasa() {
-  const paths = ['/post/*', '/broadcast/*'];
+  const paths = ['/post/*', '/broadcast/*', '/u/*'];
   return JSON.stringify({
     applinks: { apps: [], details: IOS_APP_IDS.map(appID => ({ appID, paths })) },
     // Also lets the Intents / Share extensions open these links - harmless without them.
@@ -416,6 +468,15 @@ const server = http.createServer(async (req, res) => {
       const channel = parts[1].replace(/^#/, '').toLowerCase();
       if (!CHANNEL.test(channel)) return send(res, 404, 'text/html; charset=utf-8', notFoundPage("That link isn't a KaChat room"));
       return send(res, 200, 'text/html; charset=utf-8', broadcastPage(channel));
+    }
+
+    if (parts.length === 2 && parts[0] === 'u') {
+      // The app writes mainnet addresses without their "kaspa:" prefix; a missing prefix means mainnet.
+      const raw = parts[1].trim().toLowerCase();
+      const address = raw.includes(':') ? raw : `kaspa:${raw}`;
+      if (!isKaspaAddress(address)) return send(res, 404, 'text/html; charset=utf-8', notFoundPage("That link isn't a KaChat profile"));
+      const identity = await loadIdentityForAddress(address);
+      return send(res, 200, 'text/html; charset=utf-8', profilePage(address, identity));
     }
 
     if (url.pathname === '/') return serveStatic(res, 'index.html') || send(res, 200, 'text/plain', 'KaChat');

@@ -1087,6 +1087,31 @@ enum KaChatLinkRouter {
             openKaPost(txId: txId)
         case .publicChatRoom(let channel):
             openPublicChatRoom(channel: channel)
+        case .profile(let address):
+            openProfile(address: address)
+        }
+    }
+
+    /// Someone's profile link: their chat if they are already a contact, otherwise the
+    /// new-chat screen with the address filled in, one tap from starting. Your own link just
+    /// lands on the chat list.
+    @MainActor
+    private static func openProfile(address: String) {
+        let normalized = address.lowercased()
+        guard KaspaAddress.isValid(normalized) else { return }
+        if WalletManager.shared.currentWallet?.publicAddress.lowercased() == normalized {
+            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
+            return
+        }
+        let chatService = ChatService.shared
+        let known = ContactsManager.shared.contacts.first { $0.address.lowercased() == normalized }?.address
+            ?? chatService.conversations.first { $0.contact.address.lowercased() == normalized }?.contact.address
+        if let known {
+            chatService.pendingChatNavigation = known
+            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: ["contactAddress": known])
+        } else {
+            chatService.pendingNewChatAddress = normalized
+            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
         }
     }
 

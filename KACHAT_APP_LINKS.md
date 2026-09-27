@@ -6,6 +6,7 @@ Every link the apps hand out is `https://kachat.app/...`:
 |---|---|---|
 | `https://kachat.app/post/<txid>` | KaPosts share sheet (iOS, Android, desktop) | the post's thread |
 | `https://kachat.app/broadcast/<room>` | broadcast room invite | the room |
+| `https://kachat.app/u/<address>` | the share button beside the Profile title | a chat with that person (the new-chat screen, prefilled, if they are not a contact yet) |
 
 One link, three behaviours:
 
@@ -59,13 +60,18 @@ Environment (`server/.env`):
   a canonical URL and the `apple-itunes-app` Smart App Banner. Replies are never fetched.
   A quote shows its quoted post inline. A missing post renders a "couldn't find" page (no cache).
 - `GET /broadcast/<room>` - the invite page, same buttons.
-- `GET /.well-known/apple-app-site-association` - `applinks` for `/post/*` and `/broadcast/*`
+- `GET /u/<address>` - a person's page. `<address>` is a Kaspa address; the apps write mainnet
+  ones without the `kaspa:` prefix (a missing prefix means mainnet) and the checksum is
+  verified before anything else. Resolves the KNS primary name and avatar (cached 1 h) and
+  renders `og:title` "Chat with <name> on KaChat", the avatar as `og:image`, a "Chat on KaChat"
+  button (`kachat://profile/<address>`) and the store buttons. An invalid address is a 404 page.
+- `GET /.well-known/apple-app-site-association` - `applinks` for `/post/*`, `/broadcast/*` and `/u/*`
   for every `IOS_APP_IDS` entry. Served as `application/json`, no redirect - exactly what Apple
   requires. The iOS app carries `applinks:kachat.app` (and still `applinks:kachat.duckdns.org`
   for links already out there).
 - `GET /.well-known/assetlinks.json` - the Android equivalent, from `ANDROID_PACKAGE` and
   `ANDROID_SHA256`. The Android app must declare an `autoVerify` intent filter for
-  `https://kachat.app/post/*` and `/broadcast/*` (and keep the `kachat://` scheme filter).
+  `https://kachat.app/post/*`, `/broadcast/*` and `/u/*` (and keep the `kachat://` scheme filter).
 - `GET /download` - 302 to the App Store on iPhone/iPad, Google Play on Android, `DESKTOP_URL`
   elsewhere. Use it anywhere a single "Get KaChat" link is wanted.
 - `GET /`, `/eula.html`, `/og-default.png` - the static site. **Replace `og-default.png`**
@@ -90,7 +96,9 @@ opens Safari). Facebook's and X's crawlers cache aggressively: use their "sharin
 
 - **iOS** (done in this repo): writes `https://kachat.app/...` in every share, opens both
   `kachat.app` and the old `kachat.duckdns.org` links, entitlement `applinks:kachat.app`.
-- **Android / desktop**: write the same `https://kachat.app/post/<txid>` and
-  `/broadcast/<room>` links in their share texts (the `kachat://` scheme form is no longer
+- **Android / desktop**: write the same `https://kachat.app/post/<txid>`,
+  `/broadcast/<room>` and `/u/<address>` links in their share texts (the `kachat://` scheme form is no longer
   included in share text on iOS - it previews nowhere), accept `kachat.app` links on the way
-  in, and add the App Links intent filter above.
+  in, and add the App Links intent filter above. A `/u/<address>` or `kachat://profile/<address>`
+  link opens the chat with that address when it is a contact, and otherwise the new-chat screen
+  with the address filled in (iOS: `KaChatLinkRouter.openProfile`).

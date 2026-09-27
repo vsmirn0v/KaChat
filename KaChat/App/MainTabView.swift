@@ -401,6 +401,7 @@ struct MainTabView: View {
             return
         }
         if chatService.pendingChatNavigation != nil ||
+            chatService.pendingNewChatAddress != nil ||
             GroupChatService.shared.pendingGroupNavigation != nil ||
             GroupChatService.shared.pendingGroupListNavigation {
             selectedTab = AppTab.chats.tag
