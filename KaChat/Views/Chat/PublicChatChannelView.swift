@@ -1635,6 +1635,13 @@ private struct PublicChatMessageRow: View {
 
                     trailingLinkPreview
 
+                    // Under your own message, exactly as in a 1:1 chat: "Sending", "Sent" with
+                    // the green check, "Failed · Tap to retry". It was a black badge pinned to
+                    // the bubble's corner, which read as a different thing from the 1:1 one.
+                    if isOwnMessage {
+                        deliveryStatus
+                    }
+
                     // A reaction (not the message) that failed to send - shown for reactions on
                     // any message (yours or another sender's), matching group chat.
                     if let localReaction, localReaction.deliveryStatus == .failed {
@@ -1865,12 +1872,6 @@ private struct PublicChatMessageRow: View {
                         .offset(y: -8)
                 }
             }
-            .overlay(alignment: .bottomTrailing) {
-                if isOwnMessage {
-                    deliveryBadge
-                        .offset(x: 4, y: 4)
-                }
-            }
             .overlay(alignment: isOwnMessage ? .bottomLeading : .bottomTrailing) {
                 if !reactions.isEmpty {
                     ReactionPillView(emojis: reactions.map { $0.emoji }, localReactionStatus: pillReactionStatus)
@@ -1942,7 +1943,7 @@ private struct PublicChatMessageRow: View {
         return actions
     }
 
-    private var deliveryBadge: some View {
+    private var deliveryStatus: some View {
         let status: DeliveryStatusLabel.Status
         switch message.deliveryStatus {
         case .failed: status = .failed
@@ -1950,9 +1951,6 @@ private struct PublicChatMessageRow: View {
         case .sent: status = .sent
         }
         return DeliveryStatusLabel(status: status, retry: message.deliveryStatus == .failed ? onRetry : nil)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(Color.black.opacity(0.75)))
     }
 }
 

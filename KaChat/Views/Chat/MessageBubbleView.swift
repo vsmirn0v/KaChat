@@ -360,21 +360,10 @@ struct MessageBubbleView: View {
 
                 // Delivery status only - the time now shows via swipe-to-reveal, matching
                 // public chat rooms, instead of always being visible under every bubble.
+                // "Sending" / "Sent" / "Failed · Tap to retry" - the failed label is itself the
+                // retry button (DeliveryStatusLabel), so no second "Retry" beside it.
                 if shouldShowStatusIcon {
-                    if shouldShowRetry {
-                        // Tappable "Retry" next to the red error icon, so a failed send can be
-                        // resent with one tap instead of only via the long-press menu.
-                        HStack(spacing: 4) {
-                            statusIcon
-                            Text("Retry")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundColor(.red)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture { onRetry?(message) }
-                    } else {
-                        statusIcon
-                    }
+                    statusIcon
                 }
 
                 if isEdited {

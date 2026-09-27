@@ -2698,21 +2698,9 @@ private struct GroupMessageBubbleRow: View {
                     LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil, isOutgoing: message.isOutgoing)
                 }
 
+                // The failed label is itself the retry button (DeliveryStatusLabel).
                 if message.isOutgoing {
-                    if shouldShowRetry {
-                        // Tappable "Retry" next to the red error icon, so a failed send can be
-                        // resent with one tap instead of only via the long-press menu.
-                        HStack(spacing: 4) {
-                            statusIcon
-                            Text("Retry")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundColor(.red)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture { onRetry() }
-                    } else {
-                        statusIcon
-                    }
+                    statusIcon
                 }
 
                 if isEdited {
