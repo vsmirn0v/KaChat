@@ -58,13 +58,6 @@ enum KaChatInternalLink: Equatable {
         }
     }
 
-    /// The line that goes with a shared profile link. The link itself (`universalLinkString`)
-    /// previews with the name and avatar in any chat app, opens a chat in KaChat, and offers
-    /// the download buttons to someone who does not have it yet.
-    static func profileShareMessage(name: String?) -> String {
-        guard let name, !name.isEmpty else { return "Chat with me on KaChat." }
-        return "Chat with \(name.replacingOccurrences(of: ".kas", with: "")) on KaChat."
-    }
 
     /// The share sheet's text for a public chat-room invite - one human line and the kachat.app
     /// link. Only the https form goes out: it previews everywhere and opens the app when it
