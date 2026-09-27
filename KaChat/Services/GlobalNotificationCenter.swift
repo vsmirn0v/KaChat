@@ -295,6 +295,8 @@ struct GlobalNotificationListView: View {
         case .publicChat:
             guard !childMode, !target.isEmpty else { return }
             PublicChatService.shared.pendingPublicChatNavigation = target
+            // Newest rows fetched while the list dismisses, not after the room opens.
+            Task { @MainActor in await PublicChatService.shared.refreshFromIndexerNow(channel: target) }
             dismiss()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                 NotificationCenter.default.post(

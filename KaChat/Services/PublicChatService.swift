@@ -578,10 +578,15 @@ final class PublicChatService: ObservableObject {
             // small limit is the mechanism. A burst larger than 30 between two polls is
             // recovered on the next room open (deep backfill re-runs per session).
             let steadyStateLimit = deepBackfilledChannels.contains(channel) ? 30 : 200
-            var messages = try await PublicChatIndexerClient.fetchHistoryPage(
+            let messages = try await PublicChatIndexerClient.fetchHistoryPage(
                 baseURL: baseURL, channel: channel, limit: steadyStateLimit
             )
             indexerFetchedChannels.insert(channel)
+            // The newest page goes in FIRST, before any history is paged. It used to wait for
+            // the whole 30-day backfill below - up to 50 sequential requests on a busy room - so
+            // the message a notification had just announced showed up seconds after the room
+            // opened, not with it.
+            await mergeIndexerRows(messages.messages, channel: channel, prune: true)
             // One-shot deep backfill per room per session: page older history with `before`
             // until the indexer runs out or we reach its 30-day window. Without this, rooms
             // only ever showed the newest single page (200 rows) — busy rooms like
@@ -611,15 +616,16 @@ final class PublicChatService: ObservableObject {
                             baseURL: baseURL, channel: channel, before: before
                         )
                     } catch {
-                        // Keep what this attempt did get: the pages already appended still
-                        // merge below, and the cursor recorded after each of them is where the
-                        // next 8s tick resumes - not page 1.
+                        // Keep what this attempt did get: the pages already merged stay, and
+                        // the cursor recorded after each of them is where the next 8s tick
+                        // resumes - not page 1.
                         AppLog.log("%@", "[PublicChat] Deep backfill for #\(channel) paused at before=\(before): \(error.localizedDescription)")
                         interrupted = true
                         break
                     }
                     guard !page.messages.isEmpty else { break }
-                    messages.messages.append(contentsOf: page.messages)
+                    // Each page merged as it arrives, oldest last.
+                    await mergeIndexerRows(page.messages, channel: channel, prune: false)
                     hasMore = page.hasMore
                     oldest = page.messages.map(\.blockTime).min()
                     if hasMore, let next = oldest {
@@ -633,74 +639,80 @@ final class PublicChatService: ObservableObject {
                     deepBackfillResume[channel] = nil
                 }
             }
-            let hidden = store.hiddenSenderAddresses(forChannel: channel)
-            let visible = messages.messages.filter { !hidden.contains($0.senderAddress) }
-
-            // Reactions never become visible message rows - route them to the per-channel
-            // reactions index instead (newest-blockTime-wins per (target, reactor), so
-            // re-serving the same history every poll is idempotent - see
-            // `PublicChatStore.applyIncomingReaction`).
-            var reactionsChanged = false
-            var editsChanged = false
-            for row in visible {
-                if let edit = MessageEditCodec.parse(row.content) {
-                    if applyIncomingEdit(edit, channel: channel, senderAddress: row.senderAddress, editTxId: row.txId, blockTime: row.blockTime) {
-                        editsChanged = true
-                    }
-                    continue
-                }
-                guard let reaction = MessageReactionCodec.parse(row.content) else { continue }
-                let changed = store.applyIncomingReaction(
-                    targetTxId: reaction.targetTxId,
-                    channel: channel,
-                    reactorAddress: row.senderAddress,
-                    emoji: reaction.action == "remove" ? nil : reaction.emoji,
-                    reactionTxId: row.txId,
-                    blockTime: row.blockTime
-                )
-                reactionsChanged = reactionsChanged || changed
-            }
-            if reactionsChanged {
-                loadReactions(for: channel)
-            }
-            if editsChanged {
-                loadEdits(for: channel)
-            }
-
-            let rows = visible
-                .filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
-                .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
-            var insertedCount = await store.insertMessages(rows).count
-            if Self.serviceChannels.contains(channel) {
-                // Rows this phone sent carry its own clock until the chain's time reaches us -
-                // see processPublicChatHits.
-                for row in rows where store.updateBlockTime(id: row.id, blockTime: row.blockTime) {
-                    insertedCount += 1
-                }
-            }
-            if insertedCount > 0 {
-                await store.pruneExpiredMessages()
-                loadMessages(for: channel)
-            }
-            // Global notification center: live (session-gated) incoming channel messages. The
-            // center dedupes by txId, so re-serving the same history every poll is a no-op.
-            // The center stores the body verbatim, so hand it the FRIENDLY preview rather than
-            // the raw wire content: a public chat reply/voice/photo/chess message is a JSON
-            // envelope (`MessageReplyCodec` and friends) and would otherwise show as raw JSON
-            // in the bell list. Same call the scan-driven local banner already makes below in
-            // `notifyIfEnabled`.
-            for row in rows {
-                GlobalNotificationCenter.shared.recordPublicChatIfLive(
-                    channel: channel, senderAddress: row.senderAddress,
-                    content: MessageReplyCodec.previewText(for: row.content),
-                    txId: row.id, blockTime: row.blockTime
-                )
-            }
         } catch {
             // Best-effort on top of live scanning - the loop just tries again next tick.
             AppLog.log("%@", "[PublicChat] Indexer fetch failed for #\(channel): \(error.localizedDescription)")
         }
     }
+
+    /// One page of indexer rows into the room: edits and reactions to their indexes, the
+    /// rest into the store, the room reloaded when anything was new.
+    private func mergeIndexerRows(_ page: [PublicChatIndexerClient.IndexedPublicChat], channel: String, prune: Bool) async {
+        let hidden = store.hiddenSenderAddresses(forChannel: channel)
+        let visible = page.filter { !hidden.contains($0.senderAddress) }
+
+        // Reactions never become visible message rows - route them to the per-channel
+        // reactions index instead (newest-blockTime-wins per (target, reactor), so
+        // re-serving the same history every poll is idempotent - see
+        // `PublicChatStore.applyIncomingReaction`).
+        var reactionsChanged = false
+        var editsChanged = false
+        for row in visible {
+            if let edit = MessageEditCodec.parse(row.content) {
+                if applyIncomingEdit(edit, channel: channel, senderAddress: row.senderAddress, editTxId: row.txId, blockTime: row.blockTime) {
+                    editsChanged = true
+                }
+                continue
+            }
+            guard let reaction = MessageReactionCodec.parse(row.content) else { continue }
+            let changed = store.applyIncomingReaction(
+                targetTxId: reaction.targetTxId,
+                channel: channel,
+                reactorAddress: row.senderAddress,
+                emoji: reaction.action == "remove" ? nil : reaction.emoji,
+                reactionTxId: row.txId,
+                blockTime: row.blockTime
+            )
+            reactionsChanged = reactionsChanged || changed
+        }
+        if reactionsChanged {
+            loadReactions(for: channel)
+        }
+        if editsChanged {
+            loadEdits(for: channel)
+        }
+
+        let rows = visible
+            .filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
+            .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
+        var insertedCount = await store.insertMessages(rows).count
+        if Self.serviceChannels.contains(channel) {
+            // Rows this phone sent carry its own clock until the chain's time reaches us -
+            // see processPublicChatHits.
+            for row in rows where store.updateBlockTime(id: row.id, blockTime: row.blockTime) {
+                insertedCount += 1
+            }
+        }
+        if insertedCount > 0 {
+            if prune { await store.pruneExpiredMessages() }
+            loadMessages(for: channel)
+        }
+        // Global notification center: live (session-gated) incoming channel messages. The
+        // center dedupes by txId, so re-serving the same history every poll is a no-op.
+        // The center stores the body verbatim, so hand it the FRIENDLY preview rather than
+        // the raw wire content: a public chat reply/voice/photo/chess message is a JSON
+        // envelope (`MessageReplyCodec` and friends) and would otherwise show as raw JSON
+        // in the bell list. Same call the scan-driven local banner already makes below in
+        // `notifyIfEnabled`.
+        for row in rows {
+            GlobalNotificationCenter.shared.recordPublicChatIfLive(
+                channel: channel, senderAddress: row.senderAddress,
+                content: MessageReplyCodec.previewText(for: row.content),
+                txId: row.id, blockTime: row.blockTime
+            )
+        }
+    }
+
 
     /// True while this channel's room screen is open (the acquire/release refcount) - the
     /// notification policy's "currently open conversation": banners for a room the user is

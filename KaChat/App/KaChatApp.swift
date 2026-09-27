@@ -969,9 +969,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         if threadIdentifier.hasPrefix("broadcast:") {
             let channel = String(threadIdentifier.dropFirst("broadcast:".count))
             if !channel.isEmpty {
-                // Store pending navigation for cold start scenario
+                // Store pending navigation for cold start scenario, and ask the indexer for the
+                // room's newest rows right now, in parallel with the navigation: the message the
+                // notification announced is not in the store yet (a push carries no id to insert
+                // it by), and waiting for the room to open before asking was the delay.
                 Task { @MainActor in
                     PublicChatService.shared.pendingPublicChatNavigation = channel
+                    await PublicChatService.shared.refreshFromIndexerNow(channel: channel)
                 }
 
                 // Also post notification for already-running views
