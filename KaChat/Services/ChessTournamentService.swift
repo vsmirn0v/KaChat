@@ -198,7 +198,7 @@ final class ChessTournamentService: ObservableObject {
     var myPrivateDuels: [ChessTournament] {
         guard let me = myAddress else { return [] }
         return tournaments.values
-            .filter { !$0.isPublic && $0.isDuel && ($0.status == .open || $0.status == .live) && $0.players.contains(me) }
+            .filter { !$0.isPublic && $0.isDuel && ($0.status == .open || $0.isInPlay(at: now)) && $0.players.contains(me) }
             .sorted { $0.createdAt > $1.createdAt }
     }
 
@@ -206,18 +206,23 @@ final class ChessTournamentService: ObservableObject {
     var myPrivateTournaments: [ChessTournament] {
         guard let me = myAddress else { return [] }
         return tournaments.values
-            .filter { !$0.isPublic && !$0.isDuel && ($0.status == .open || $0.status == .live) && $0.players.contains(me) }
+            .filter { !$0.isPublic && !$0.isDuel && ($0.status == .open || $0.isInPlay(at: now)) && $0.players.contains(me) }
             .sorted { $0.createdAt > $1.createdAt }
     }
 
     var openTournaments: [ChessTournament] {
         tournaments.values.filter { $0.status == .open }.sorted { $0.createdAt > $1.createdAt }
     }
+    /// Rooms with a game still being played. A live room whose clocks have all run out with
+    /// no claim posted is not one of them (see `ChessTournamentGame.flaggedSide`).
     var liveTournaments: [ChessTournament] {
-        tournaments.values.filter { $0.status == .live }.sorted { ($0.startedAt ?? 0) > ($1.startedAt ?? 0) }
+        tournaments.values.filter { $0.isInPlay(at: now) }.sorted { ($0.startedAt ?? 0) > ($1.startedAt ?? 0) }
     }
+    /// Finished on the chain, or finished on the clock with the claim still to come.
     var finishedTournaments: [ChessTournament] {
-        tournaments.values.filter { $0.status == .finished }.sorted { ($0.startedAt ?? 0) > ($1.startedAt ?? 0) }
+        tournaments.values
+            .filter { $0.status == .finished || ($0.status == .live && !$0.isInPlay(at: now)) }
+            .sorted { ($0.startedAt ?? 0) > ($1.startedAt ?? 0) }
     }
 
     /// The tournament this player is in that is not over, if any. A waiting seat that has
@@ -225,7 +230,7 @@ final class ChessTournamentService: ObservableObject {
     var myActiveTournament: ChessTournament? {
         guard let me = myAddress else { return nil }
         return tournaments.values
-            .filter { ($0.status == .live && $0.players.contains(me)) || ($0.status == .open && $0.isSeated(me, at: now)) }
+            .filter { $0.isStillPlaying(me, at: now) || ($0.status == .open && $0.isSeated(me, at: now)) }
             .sorted { $0.createdAt > $1.createdAt }
             .first
     }

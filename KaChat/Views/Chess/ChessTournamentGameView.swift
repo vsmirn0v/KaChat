@@ -365,6 +365,10 @@ struct ChessTournamentGameView: View {
                 case .drawTiebreak(let reason): return "Draw by \(reason). \(who) won on clock."
                 }
             }
+            if let winner = game.decidedWinner(at: service.now) {
+                // Out of clock, claim not posted yet: the result is already fixed.
+                return "Time ran out. \(name(for: winner)) won on time."
+            }
             if service.pendingMoveGames.contains("\(tournamentId)|\(gameId)") { return "Sending your move…" }
             // The clock runs from the moment the board opens (the match-found countdown covers
             // the start - see ChessTournamentCodec.matchFoundDelayMs); nothing to count down here.
@@ -376,7 +380,7 @@ struct ChessTournamentGameView: View {
         }()
         Text(text)
             .font(.subheadline.weight(.semibold))
-            .foregroundColor(game.isOver ? .secondary : .primary)
+            .foregroundColor(game.isDecided(at: service.now) ? .secondary : .primary)
     }
 
     // MARK: - Board

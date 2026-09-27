@@ -328,9 +328,9 @@ struct ChessTournamentsView: View {
                     .frame(width: 32)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(name(for: game.white)).fontWeight(game.winner == game.white ? .bold : .regular)
+                        Text(name(for: game.white)).fontWeight(game.decidedWinner(at: service.now) == game.white ? .bold : .regular)
                         Text("vs").foregroundColor(.secondary)
-                        Text(name(for: game.black)).fontWeight(game.winner == game.black ? .bold : .regular)
+                        Text(name(for: game.black)).fontWeight(game.decidedWinner(at: service.now) == game.black ? .bold : .regular)
                     }
                     .font(.subheadline)
                     .lineLimit(1)
@@ -351,7 +351,11 @@ struct ChessTournamentsView: View {
     }
 
     private func finishedText(_ game: ChessTournamentGame) -> String {
-        guard let winner = game.winner, let outcome = game.outcome else { return "finished" }
+        guard let winner = game.winner, let outcome = game.outcome else {
+            // Out of clock, claim not posted: the same result, said the same way.
+            if let winner = game.decidedWinner(at: service.now) { return "\(name(for: winner)) won on time" }
+            return "finished"
+        }
         let who = name(for: winner)
         switch outcome {
         case .checkmate: return "\(who) won by checkmate"
@@ -395,7 +399,7 @@ struct ChessTournamentsView: View {
         } else {
             ForEach(live) { tournament in
                 Section {
-                    let games = tournament.games.values.filter { !$0.isOver }.sorted { ($0.round, $0.id) < ($1.round, $1.id) }
+                    let games = tournament.games.values.filter { !$0.isDecided(at: service.now) }.sorted { ($0.round, $0.id) < ($1.round, $1.id) }
                     ForEach(games) { game in
                         liveGameRow(game, in: tournament)
                     }

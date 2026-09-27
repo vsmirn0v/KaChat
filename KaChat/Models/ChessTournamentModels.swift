@@ -208,6 +208,27 @@ struct ChessTournamentGame: Identifiable, Equatable {
 
     var isOver: Bool { winner != nil }
     var sideToMove: ChessColor { board.sideToMove }
+
+    /// The side whose clock has run out at `now`, before anyone has posted the claim. The
+    /// reducer ends a game on the clock only when the opponent's phone posts that claim; when
+    /// the winner has already left, nobody ever does, and the game used to read as in play
+    /// forever on every phone - including the loser's, which then counted as busy and could
+    /// not join another room. Three seconds of margin so a move in flight is not beaten to it.
+    func flaggedSide(at now: Int64) -> ChessColor? {
+        guard !isOver, remainingMs(sideToMove, at: now - 3_000) == 0 else { return nil }
+        return sideToMove
+    }
+
+    /// Over on the board, or on the clock with the claim still to come.
+    func isDecided(at now: Int64) -> Bool { isOver || flaggedSide(at: now) != nil }
+
+    /// The winner as it stands at `now`: the one the chain recorded, or the flagged side's
+    /// opponent.
+    func decidedWinner(at now: Int64) -> String? {
+        if let winner { return winner }
+        guard let flagged = flaggedSide(at: now) else { return nil }
+        return flagged == .white ? black : white
+    }
     var playerToMove: String { sideToMove == .white ? white : black }
 
     func address(of color: ChessColor) -> String { color == .white ? white : black }
@@ -286,6 +307,22 @@ struct ChessTournament: Identifiable, Equatable {
         return .live
     }
     var champion: String? { games[finalGameId]?.winner }
+
+    /// In play as anyone can see it at `now`: live, with at least one game still undecided.
+    /// A live room whose games have all run out of clock without a claim reads as finished.
+    func isInPlay(at now: Int64) -> Bool {
+        status == .live && games.values.contains { !$0.isDecided(at: now) }
+    }
+
+    /// Whether `address` still has something to play here at `now`: a player who has lost a
+    /// game - on the board, or on the clock with the claim still to come - is out.
+    func isStillPlaying(_ address: String, at now: Int64) -> Bool {
+        guard isInPlay(at: now), players.contains(address) else { return false }
+        return !games.values.contains { game in
+            guard game.color(of: address) != nil, let winner = game.decidedWinner(at: now) else { return false }
+            return winner != address
+        }
+    }
     var seatsLeft: Int { max(0, capacity - players.count) }
 
     /// The players whose seats are still good at `now` (chain or wall time): while a room
