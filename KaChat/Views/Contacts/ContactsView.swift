@@ -1468,8 +1468,9 @@ struct ProfileView: View {
     @ViewBuilder
     private var profileShareButton: some View {
         if let address = walletManager.currentWallet?.publicAddress,
-           let url = URL(string: KaChatInternalLink.profile(address: address).universalLinkString) {
-            // The link and nothing else: it previews with your name and avatar on its own.
+           let url = KaChatInternalLink.profileShareURL(for: address) {
+            // The link and nothing else, built by the same call as User Info > Share: it
+            // previews with your name and avatar on its own.
             // (`preview` only titles the share sheet; it is not part of what gets pasted.)
             ShareLink(
                 item: url,

@@ -37,6 +37,15 @@ enum KaChatInternalLink: Equatable {
     /// Links from before kachat.app: still opened, never written.
     static let legacyUniversalLinkHosts: Set<String> = ["kachat.duckdns.org"]
 
+    /// The one profile link every share button hands out - your own (Profile, beside the title)
+    /// and anyone else's (User Info > Share) - so the two can never drift apart:
+    /// `https://kachat.app/u/<address without kaspa:>`, lowercased and trimmed.
+    static func profileShareURL(for address: String) -> URL? {
+        let normalized = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        return URL(string: KaChatInternalLink.profile(address: normalized).universalLinkString)
+    }
+
     /// The form the share sheets emit, matching KaPosts' existing share text (`KaPostsView`).
     var shareLinkString: String {
         switch self {

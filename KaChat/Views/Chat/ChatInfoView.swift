@@ -766,7 +766,7 @@ struct ChatInfoView: View {
     /// download to anyone without the app. The link alone, no text around it.
     @ViewBuilder
     private var shareCard: some View {
-        if let url = URL(string: KaChatInternalLink.profile(address: contact.address).universalLinkString) {
+        if let url = KaChatInternalLink.profileShareURL(for: contact.address) {
             ShareLink(
                 item: url,
                 preview: SharePreview(contactsManager.displayName(for: contact), image: Image("KaspaLogo"))
