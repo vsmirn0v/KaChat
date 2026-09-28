@@ -341,19 +341,12 @@ struct PublicChatChannelView: View {
             // are now the same piece of furniture. It also gives the band either side of the name
             // somewhere to live: tapping there jumps to the first message in the room.
             .safeAreaInset(edge: .top, spacing: 0) {
+                // Icon and name open Room Info; the space either side jumps to the first
+                // message.
                 roomTitleChip
-                    .frame(maxWidth: .infinity)
-                    // The tap target is a BACKGROUND, not a ZStack layer: `Color.clear` in a
-                    // ZStack is flexible in both axes and would size the whole inset to the
-                    // proposed height, swallowing the screen. As a background it takes exactly the
-                    // row's frame, and sitting behind the chip leaves the chip's own tap (Room
-                    // Info) untouched - this only claims the dead space either side of it.
-                    .background(
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { jumpToRoomStart() }
-                            .accessibilityLabel(Text("Go to the first message"))
-                            .accessibilityAddTraits(.isButton)
+                    .chatHeaderTapBand(
+                        onChip: { showRoomInfo = true },
+                        onBand: { jumpToRoomStart() }
                     )
                     // Reaches up into the navigation bar's row so the icon sits level with the
                     // back button. Bounded at -52 for the same reason as the other two: the inset

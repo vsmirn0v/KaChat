@@ -882,3 +882,68 @@ struct DeliveryStatusLabel: View {
         }
     }
 }
+
+// MARK: - Chat header tap band
+
+/// The header row over a 1:1, group or public chat thread: the avatar-over-name chip, centred
+/// in a full-width band. Taps over the chip - and a margin either side of it - open the info
+/// screen; taps on the dead space further out jump to the first message.
+///
+/// The chip's own Button is not enough. The row is pulled up into the navigation bar's row,
+/// so the avatar sits inside the bar, and taps there reached the band behind the chip instead
+/// of the chip - tapping the avatar jumped to the top of the thread. The band now decides by
+/// where the tap landed, so wherever a tap on the chip ends up, it opens the info screen.
+private struct ChatHeaderTapBand: ViewModifier {
+    let onChip: () -> Void
+    let onBand: () -> Void
+    @State private var chipWidth: CGFloat = 0
+
+    /// Extra reach either side of the chip, so a tap just off the pill still counts.
+    private let chipMargin: CGFloat = 24
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                GeometryReader { chip in
+                    Color.clear.preference(key: ChatHeaderChipWidthKey.self, value: chip.size.width)
+                }
+            )
+            .onPreferenceChange(ChatHeaderChipWidthKey.self) { chipWidth = $0 }
+            .frame(maxWidth: .infinity)
+            // A BACKGROUND, not a ZStack layer: `Color.clear` in a ZStack is flexible in both
+            // axes and would size the whole inset to the proposed height, swallowing the screen.
+            // As a background it takes exactly the row's frame.
+            .background(
+                GeometryReader { band in
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(
+                            SpatialTapGesture().onEnded { tap in
+                                let reach = chipWidth / 2 + chipMargin
+                                if abs(tap.location.x - band.size.width / 2) <= reach {
+                                    onChip()
+                                } else {
+                                    onBand()
+                                }
+                            }
+                        )
+                        .accessibilityLabel(Text("Go to the first message"))
+                        .accessibilityAddTraits(.isButton)
+                }
+            )
+    }
+}
+
+private struct ChatHeaderChipWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+extension View {
+    /// Centres a chat header chip in a full-width tap band - see `ChatHeaderTapBand`.
+    func chatHeaderTapBand(onChip: @escaping () -> Void, onBand: @escaping () -> Void) -> some View {
+        modifier(ChatHeaderTapBand(onChip: onChip, onBand: onBand))
+    }
+}

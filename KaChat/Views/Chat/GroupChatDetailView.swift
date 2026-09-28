@@ -585,19 +585,12 @@ struct GroupChatDetailView: View {
                 // which is what kept the group header cramped to a 28pt thumbnail while 1:1
                 // showed a proper one. Same mechanism, same measurements as ChatDetailView.
                 .safeAreaInset(edge: .top, spacing: 0) {
+                    // Photo and name open Group Info; the space either side jumps to the
+                    // first message.
                     groupTitleChip
-                    .frame(maxWidth: .infinity)
-                    // The tap target is a BACKGROUND, not a ZStack layer: `Color.clear` in a
-                    // ZStack is flexible in both axes and would size the whole inset to the
-                    // proposed height, swallowing the screen. As a background it takes exactly the
-                    // row's frame, and sitting behind the chip leaves the chip's own tap (Group
-                    // Info) untouched - this only claims the dead space either side of it.
-                    .background(
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { jumpToGroupStart(using: proxy) }
-                            .accessibilityLabel(Text("Go to the first message"))
-                            .accessibilityAddTraits(.isButton)
+                    .chatHeaderTapBand(
+                        onChip: { showInfo = true },
+                        onBand: { jumpToGroupStart(using: proxy) }
                     )
                         // Reaches up into the navigation bar's row so the photo sits level with
                         // the back button. Bounded at -52 for the same reason as 1:1: the inset

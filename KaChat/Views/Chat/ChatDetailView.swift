@@ -611,20 +611,12 @@ struct ChatDetailView: View {
                         // with the back button and the connection dot rather than starting below
                         // them. The negative top padding is what closes that gap - the bar's
                         // height is fixed, so the header has to reach up into it.
+                        // Avatar and name open User Info; the space either side jumps to the
+                        // first message.
                         chatTitleChip
-                        .frame(maxWidth: .infinity)
-                        // The tap target is a BACKGROUND, not a ZStack layer: `Color.clear` in a
-                        // ZStack is flexible in both axes and would size the whole inset to the
-                        // proposed height, swallowing the screen. As a background it takes exactly
-                        // the row's frame, and sitting behind the chip leaves the chip's own tap
-                        // (Chat Info) untouched - this only claims the dead space either side of
-                        // it, which previously did nothing.
-                        .background(
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture { jumpToChatStart(using: proxy) }
-                                .accessibilityLabel(Text("Go to the first message"))
-                                .accessibilityAddTraits(.isButton)
+                        .chatHeaderTapBand(
+                            onChip: { showChatInfo = true },
+                            onBand: { jumpToChatStart(using: proxy) }
                         )
                             // Reaches up into the navigation bar's row so the avatar sits level
                             // with the back button. Bounded at -52: the inset is measured from
