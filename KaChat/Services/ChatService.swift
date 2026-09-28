@@ -97,9 +97,9 @@ final class ChatService: ObservableObject {
 
     /// Pending navigation from notification tap (used when app launches from terminated state)
     @Published var pendingChatNavigation: String?
-    /// A profile link for someone who is not a contact yet: the chat list opens the new-chat
-    /// screen with this address filled in (`KaChatLinkRouter.openProfile`).
-    @Published var pendingNewChatAddress: String?
+    /// A tapped profile link: the chat list opens User Info for this address
+    /// (`KaChatLinkRouter.openProfile`).
+    @Published var pendingProfileAddress: String?
 
     /// Images handed over from the Share Extension, keyed by contact address. Staged here until
     /// that contact's chat opens, then attached to the composer as a pending photo

@@ -6,7 +6,7 @@ Every link the apps hand out is `https://kachat.app/...`:
 |---|---|---|
 | `https://kachat.app/post/<txid>` | KaPosts share sheet (iOS, Android, desktop) | the post's thread |
 | `https://kachat.app/broadcast/<room>` | broadcast room invite | the room |
-| `https://kachat.app/u/<address>` | the share button beside the Profile title | a chat with that person (the new-chat screen, prefilled, if they are not a contact yet) |
+| `https://kachat.app/u/<address>` | the share button beside the Profile title, and Share in User Info | that person's User Info screen (name, avatar, KNS profile, Open Chat) |
 
 One link, three behaviours:
 
@@ -100,5 +100,5 @@ opens Safari). Facebook's and X's crawlers cache aggressively: use their "sharin
   `/broadcast/<room>` and `/u/<address>` links in their share texts (the `kachat://` scheme form is no longer
   included in share text on iOS - it previews nowhere), accept `kachat.app` links on the way
   in, and add the App Links intent filter above. A `/u/<address>` or `kachat://profile/<address>`
-  link opens the chat with that address when it is a contact, and otherwise the new-chat screen
-  with the address filled in (iOS: `KaChatLinkRouter.openProfile`).
+  link opens that address's User Info screen (the per-person profile screen, with Open Chat on
+  it); your own address just opens the app (iOS: `KaChatLinkRouter.openProfile`).

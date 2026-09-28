@@ -1103,16 +1103,14 @@ enum KaChatLinkRouter {
             NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
             return
         }
+        // Anyone else: their User Info, the same screen a chat header, a group roster or a
+        // public chat sender opens - with Open Chat on it, and their name and avatar to check
+        // who the link is for before writing to them.
         let chatService = ChatService.shared
         let known = ContactsManager.shared.contacts.first { $0.address.lowercased() == normalized }?.address
             ?? chatService.conversations.first { $0.contact.address.lowercased() == normalized }?.contact.address
-        if let known {
-            chatService.pendingChatNavigation = known
-            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: ["contactAddress": known])
-        } else {
-            chatService.pendingNewChatAddress = normalized
-            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
-        }
+        chatService.pendingProfileAddress = known ?? normalized
+        NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
     }
 
     @MainActor

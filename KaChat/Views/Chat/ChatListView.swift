@@ -27,8 +27,8 @@ struct ChatListView: View {
     @State private var selectedGroup: GroupChat?
     @State private var selectedContactStartInPaymentMode = false
     @State private var showAddContact = false
-    /// From a profile link: the address the new-chat screen opens with.
-    @State private var newChatPrefillAddress: String?
+    /// From a profile link: the person whose User Info is up.
+    @State private var linkedProfileContact: Contact?
     @State private var selectedListTab: ChatsListTab = .chats
     /// The page Select mode started on - page swipes snap back to it while editing.
     @State private var editModeLockedTab: ChatsListTab?
@@ -183,7 +183,7 @@ struct ChatListView: View {
             .sheet(isPresented: $showAddContact) {
                 // Tab-aware: the create button opens the group builder on the Group Chats
                 // tab and the 1:1 create screen on the Chats tab.
-                AddContactView(startInGroupMode: selectedListTab == .groups && newChatPrefillAddress == nil, initialAddress: newChatPrefillAddress) { contact in
+                AddContactView(startInGroupMode: selectedListTab == .groups) { contact in
                     _ = chatService.getOrCreateConversation(for: contact)
                     selectedContactStartInPaymentMode = false
                     selectedGroup = nil
@@ -316,7 +316,7 @@ struct ChatListView: View {
                 selectedListTab = .publicChats
             }
             // Cold start from a profile link.
-            if chatService.pendingNewChatAddress != nil { openPendingNewChat() }
+            if chatService.pendingProfileAddress != nil { openPendingProfile() }
         }
         .safeAreaInset(edge: .bottom) {
             if editMode == .active {
@@ -400,11 +400,23 @@ struct ChatListView: View {
                 checkPendingNavigation()
             }
         }
-        .onChange(of: chatService.pendingNewChatAddress) { newValue in
-            if newValue != nil { openPendingNewChat() }
+        .onChange(of: chatService.pendingProfileAddress) { newValue in
+            if newValue != nil { openPendingProfile() }
         }
-        .onChange(of: showAddContact) { shown in
-            if !shown { newChatPrefillAddress = nil }
+        .sheet(isPresented: Binding(
+            get: { linkedProfileContact != nil },
+            set: { if !$0 { linkedProfileContact = nil } }
+        )) {
+            if let contact = linkedProfileContact {
+                NavigationStack {
+                    ChatInfoView(
+                        contact: Binding(
+                            get: { linkedProfileContact ?? contact },
+                            set: { linkedProfileContact = $0 }
+                        )
+                    )
+                }
+            }
         }
         .onChange(of: groupChatService.pendingGroupNavigation) { newValue in
             if newValue != nil {
@@ -427,13 +439,14 @@ struct ChatListView: View {
         navigateToChat(address: contactAddress, startInPaymentMode: startInPaymentMode)
     }
 
-    /// A profile link for someone who is not a contact: the new-chat screen, address filled in.
-    private func openPendingNewChat() {
-        guard let address = chatService.pendingNewChatAddress else { return }
-        chatService.pendingNewChatAddress = nil
+    /// A profile link: that person's User Info. Someone new gets the same auto-added contact a
+    /// tapped public chat sender does, so the name and settings saved there stick.
+    private func openPendingProfile() {
+        guard let address = chatService.pendingProfileAddress else { return }
+        chatService.pendingProfileAddress = nil
         selectedListTab = .chats
-        newChatPrefillAddress = address
-        showAddContact = true
+        linkedProfileContact = contactsManager.getContact(byAddress: address)
+            ?? contactsManager.getOrCreateContact(address: address)
     }
 
     private func checkPendingNavigation() {

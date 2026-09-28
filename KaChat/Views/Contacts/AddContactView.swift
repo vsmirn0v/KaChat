@@ -10,8 +10,6 @@ struct AddContactView: View {
 
     var onAdd: ((Contact) -> Void)?
     var onCreateGroup: ((GroupChat) -> Void)?
-    /// From a profile link: the address to start with, resolved exactly as if it were typed.
-    var initialAddress: String?
 
     @State private var addressInput = ""
     @State private var error: String?
@@ -150,10 +148,9 @@ struct AddContactView: View {
         resolvedAddress ?? addressInput
     }
 
-    init(startInGroupMode: Bool = false, initialAddress: String? = nil, onAdd: ((Contact) -> Void)? = nil, onCreateGroup: ((GroupChat) -> Void)? = nil) {
+    init(startInGroupMode: Bool = false, onAdd: ((Contact) -> Void)? = nil, onCreateGroup: ((GroupChat) -> Void)? = nil) {
         self.onAdd = onAdd
         self.onCreateGroup = onCreateGroup
-        self.initialAddress = initialAddress
         // The create button is tab-aware (Chats vs Group Chats), so the screen opens
         // directly in the right mode instead of exposing a toggle.
         _isGroupMode = State(initialValue: startInGroupMode)
@@ -956,11 +953,6 @@ struct AddContactView: View {
         // skip delivery: the subscription, push and the catch-up sync all still run.
         .onAppear {
             chatService.stopForegroundContactSweep()
-            // Set on appear, not in init, so the field's onChange runs the same validation
-            // and resolution a typed address gets.
-            if let initialAddress, addressInput.isEmpty, !isGroupMode {
-                addressInput = initialAddress
-            }
         }
         .onDisappear { chatService.startForegroundContactSweep() }
     }
