@@ -4,7 +4,9 @@ import SwiftUI
 
 /// Translation for KaPosts, X-style: a post written in another language offers a "Translate post"
 /// link, tapping it swaps the text in place, and the link becomes "Translated from Spanish - Show
-/// original".
+/// original". Public chat messages use it too, from their long-press menu (keys prefixed
+/// `publicchat:`, sent without a txid - see `PublicChatMessageRow`). Never 1:1 or group
+/// messages: those are encrypted, and translating one would hand its plaintext to a server.
 ///
 /// The translation itself happens on the KaChat server (see `TRANSLATION_SERVICE.md`), the way X
 /// does it, rather than on the device. On-device translation - Apple's Translation framework here,
@@ -234,6 +236,12 @@ final class PostTranslationService: ObservableObject {
     /// language the reader chose rather than the one the phone is set to.
     private static var readerLocale: Locale {
         AppSettings.load().language.locale ?? .current
+    }
+
+    /// The reader's own language by name ("English"), for "Shows this message in English."
+    static var readerLanguageName: String {
+        guard let code = readerLanguageCode else { return "your language" }
+        return displayName(of: Locale.Language(identifier: code))
     }
 
     /// Localized name of a language, for "Translated from X".

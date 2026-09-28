@@ -123,6 +123,21 @@ once per launch and fall back to "offer anyway" if it is unavailable.
 language missing from `target` here means readers who chose that language see no Translate link at
 all rather than a failure banner. Keep it in step with what the engine actually has loaded.
 
+### Public chat messages (5.1)
+
+The iOS app also translates **public chat** messages, from a message's long-press menu
+("Translate", then "Show Original" / "Show Translation"). It calls the same `POST /translate`,
+with one entry, **no `id`**, and the message text (reply wrapper stripped). Nothing changes on the
+server: an entry without an id is translated and not cached, exactly as §2 already specifies. A
+public chat txid is deliberately not sent, because the server would look it up as a KaPost.
+
+Optional later: the Public Chats indexer holds every room message, so it could verify a public
+chat txid the way §3 verifies a KaPost and cache those translations too. That would need a way to
+tell the two apart in the request (for example `"kind": "publicChat"`) before the client sends ids.
+
+1:1 and group messages are never sent here. They are encrypted, and translating one would hand
+its plaintext to this server.
+
 ## 3. Rules the server must hold
 
 **Never cache a translation under a txid whose text you did not verify.** `posts[].text` is

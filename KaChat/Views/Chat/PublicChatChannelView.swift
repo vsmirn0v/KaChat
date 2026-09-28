@@ -139,6 +139,11 @@ struct PublicChatChannelView: View {
             publicChatService.release(channelName)
         }
         .task {
+            // What the translation service can serve, so Translate is offered only for a
+            // language pair that can succeed. No-op after the first answer.
+            PostTranslationService.shared.refreshSupportedLanguages()
+        }
+        .task {
             // Keeps retention feeling "live" while this room is open - a message disappears
             // shortly after it expires rather than only on the next open or send.
             //
@@ -1476,6 +1481,8 @@ private struct PublicChatRoomTitleChip: View {
 
 private struct PublicChatMessageRow: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    /// Translation from the long-press menu - the KaPosts service, reused as-is.
+    @ObservedObject private var translation = PostTranslationService.shared
     let message: PublicChatMessage
     let isOwnMessage: Bool
     let avatarURLString: String?
@@ -1560,6 +1567,35 @@ private struct PublicChatMessageRow: View {
         replyQuote?.text ?? message.content
     }
 
+    /// Per message AND per text: an edit changes the text, and a translation of the old text
+    /// must not show over the new one. States live in memory only, so `hashValue` being
+    /// per-launch does not matter.
+    private var translationKey: String {
+        "publicchat:\(message.id):\(displayText.hashValue)"
+    }
+
+    /// The text the bubble draws: the translation while one is showing, otherwise the message.
+    /// Everything that decides WHAT the message is (voice, links, length) still reads
+    /// `displayText`, the original.
+    private var shownText: String {
+        translation.displayText(for: translationKey, original: displayText)
+    }
+
+    /// Worth offering Translate: someone else's plain text message, confidently in a language
+    /// other than the reader's. Voice notes and KaChat link cards have nothing to translate.
+    private var canTranslate: Bool {
+        !isOwnMessage
+            && displayText.first != "{"
+            && internalLink == nil
+            && translation.canOffer(for: displayText)
+    }
+
+    private func translate() {
+        // No txid: the service caches by KaPost id and checks the text against its own copy of
+        // the post, which a public chat message is not. Sent as bare text, translated, not cached.
+        translation.translate(key: translationKey, text: displayText, postId: nil)
+    }
+
     private var voicePayload: VoiceMessageSniff.Payload? {
         VoiceMessageSniff.decode(displayText)
     }
@@ -1623,6 +1659,8 @@ private struct PublicChatMessageRow: View {
                     }
 
                     bubble
+
+                    translationStatus
 
                     trailingLinkPreview
 
@@ -1702,11 +1740,11 @@ private struct PublicChatMessageRow: View {
     private func bubbleContent(voicePayload: VoiceMessageSniff.Payload?) -> some View {
         if let voicePayload {
             PublicChatAudioBubble(data: voicePayload.data, isOwnMessage: isOwnMessage)
-        } else if displayText.utf8.count > Self.inlineTextTruncationThreshold {
+        } else if shownText.utf8.count > Self.inlineTextTruncationThreshold {
             truncatedTextContent
-        } else if MessageTextRenderPlan.prefersUIKitTextView(displayText) {
+        } else if MessageTextRenderPlan.prefersUIKitTextView(shownText) {
             LinkifiedMessageTextView(
-                text: displayText,
+                text: shownText,
                 isOutgoing: isOwnMessage,
                 isSingleEmojiOnly: false,
                 onLinkLongPress: { linkMenuURL = $0 },
@@ -1715,7 +1753,7 @@ private struct PublicChatMessageRow: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         } else {
-            Text(displayText)
+            Text(shownText)
                 .foregroundColor(isOwnMessage ? .white : .primary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -1727,7 +1765,7 @@ private struct PublicChatMessageRow: View {
             showFullText = true
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(String(displayText.prefix(Self.truncatedPreviewLength)) + "…")
+                Text(String(shownText.prefix(Self.truncatedPreviewLength)) + "…")
                     .foregroundColor(isOwnMessage ? .white : .primary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Show More")
@@ -1739,7 +1777,7 @@ private struct PublicChatMessageRow: View {
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showFullText) {
-            FullMessageTextView(text: displayText) {
+            FullMessageTextView(text: shownText) {
                 onCopyMessage()
             }
         }
@@ -1920,6 +1958,20 @@ private struct PublicChatMessageRow: View {
         if voicePayload == nil {
             actions.append(.copyMessage { onCopyMessage() })
         }
+        switch translation.state(for: translationKey) {
+        case .translated:
+            if translation.isShowingOriginal(translationKey) {
+                actions.append(.showTranslation { translation.showTranslation(key: translationKey) })
+            } else {
+                actions.append(.showOriginal { translation.showOriginal(key: translationKey) })
+            }
+        case .translating, .unavailable:
+            break
+        case .none, .failed:
+            if voicePayload == nil, canTranslate {
+                actions.append(.translate(into: PostTranslationService.readerLanguageName) { translate() })
+            }
+        }
         if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.id) {
             actions.append(.explorer(url))
         }
@@ -1932,6 +1984,54 @@ private struct PublicChatMessageRow: View {
             actions.append(.reactions(count: reactions.count, onShowReactions))
         }
         return actions
+    }
+
+    /// The line under a translated bubble, the same words KaPosts uses: "Translating...",
+    /// "Translated from Spanish - Show original", or why it could not be. Nothing at all until
+    /// Translate is picked from the long-press menu.
+    @ViewBuilder
+    private var translationStatus: some View {
+        switch translation.state(for: translationKey) {
+        case .none:
+            EmptyView()
+        case .translating:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Translating...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        case .translated(_, let sourceName):
+            if translation.isShowingOriginal(translationKey) {
+                translationLink("Show translation") { translation.showTranslation(key: translationKey) }
+            } else {
+                HStack(spacing: 4) {
+                    Text("Translated from \(sourceName)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("-")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    translationLink("Show original") { translation.showOriginal(key: translationKey) }
+                }
+            }
+        case .failed:
+            // A dropped connection or a server briefly away: tapping again is the fix.
+            translationLink("Translation unavailable - try again") { translate() }
+        case .unavailable(let reason):
+            Text(reason)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func translationLink(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.accentColor)
+        }
+        .buttonStyle(.plain)
     }
 
     private var deliveryStatus: some View {

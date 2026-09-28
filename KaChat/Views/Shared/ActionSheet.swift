@@ -670,6 +670,15 @@ struct MessageAction: Identifiable {
     static func retry(_ action: @escaping () -> Void) -> MessageAction {
         MessageAction(title: "Retry Send", subtitle: "Sends this message again.", systemImage: "arrow.clockwise", action: action)
     }
+    static func translate(into language: String, _ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Translate", subtitle: "Shows this message in \(language).", systemImage: "character.bubble", action: action)
+    }
+    static func showOriginal(_ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Show Original", subtitle: "Back to the text as it was sent.", systemImage: "arrow.uturn.backward", action: action)
+    }
+    static func showTranslation(_ action: @escaping () -> Void) -> MessageAction {
+        MessageAction(title: "Show Translation", subtitle: "The translated text again.", systemImage: "character.bubble", action: action)
+    }
     static func select(_ action: @escaping () -> Void) -> MessageAction {
         MessageAction(title: "Select", subtitle: "Pick several messages at once.", systemImage: "checkmark.circle", action: action)
     }
