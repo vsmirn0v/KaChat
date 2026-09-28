@@ -1099,13 +1099,10 @@ enum KaChatLinkRouter {
     private static func openProfile(address: String) {
         let normalized = address.lowercased()
         guard KaspaAddress.isValid(normalized) else { return }
-        if WalletManager.shared.currentWallet?.publicAddress.lowercased() == normalized {
-            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
-            return
-        }
-        // Anyone else: their User Info, the same screen a chat header, a group roster or a
-        // public chat sender opens - with Open Chat on it, and their name and avatar to check
-        // who the link is for before writing to them.
+        // User Info, for anyone - yourself included (your own link shows your own card: name,
+        // avatar, KNS profile, address, Share). The same screen a chat header, a group roster or
+        // a public chat sender opens, with Open Chat on it for anyone else, and their name and
+        // avatar to check who the link is for before writing to them.
         let chatService = ChatService.shared
         let known = ContactsManager.shared.contacts.first { $0.address.lowercased() == normalized }?.address
             ?? chatService.conversations.first { $0.contact.address.lowercased() == normalized }?.contact.address

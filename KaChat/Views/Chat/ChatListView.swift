@@ -440,11 +440,16 @@ struct ChatListView: View {
     }
 
     /// A profile link: that person's User Info. Someone new gets the same auto-added contact a
-    /// tapped public chat sender does, so the name and settings saved there stick.
+    /// tapped public chat sender does, so the name and settings saved there stick. Your own link
+    /// shows your own User Info from a throwaway value - you are never added as your own contact.
     private func openPendingProfile() {
         guard let address = chatService.pendingProfileAddress else { return }
         chatService.pendingProfileAddress = nil
         selectedListTab = .chats
+        if walletManager.currentWallet?.publicAddress.lowercased() == address.lowercased() {
+            linkedProfileContact = Contact(address: address)
+            return
+        }
         linkedProfileContact = contactsManager.getContact(byAddress: address)
             ?? contactsManager.getOrCreateContact(address: address)
     }

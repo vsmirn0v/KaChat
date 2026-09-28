@@ -63,6 +63,14 @@ struct ChatInfoView: View {
         return (!contact.isAutoAdded || contact.hasSentOutgoingMessage) ? "Show" : "Hidden"
     }
 
+    /// Your own User Info - reached from your own profile link. Shows who you are (name, avatar,
+    /// KNS profile, address, domains, share) and none of the per-contact settings, which have
+    /// nothing to act on when the person is you.
+    private var isSelf: Bool {
+        guard let mine = walletManager.currentWallet?.publicAddress.lowercased() else { return false }
+        return mine == contact.address.lowercased()
+    }
+
     private var messages: [ChatMessage] {
         chatService.conversations.first(where: { $0.contact.address == contact.address })?.messages ?? []
     }
@@ -165,21 +173,27 @@ struct ChatInfoView: View {
                             // something you can change - the pencil is what says otherwise. It
                             // focuses the field too, so it works as the affordance it looks like
                             // rather than being decoration next to the real target.
-                            HStack(spacing: 6) {
-                                TextField("Name", text: $editedAlias)
+                            if isSelf {
+                                Text(contactsManager.displayName(for: contact))
                                     .font(.headline)
-                                    .focused($isEditing)
-                                Button {
-                                    isEditing = true
-                                } label: {
-                                    Image(systemName: "pencil")
-                                        .font(.scaled(size: 13, weight: .semibold))
-                                        .foregroundColor(.accentColor)
-                                        .frame(width: 26, height: 26)
-                                        .contentShape(Rectangle())
+                                    .lineLimit(1)
+                            } else {
+                                HStack(spacing: 6) {
+                                    TextField("Name", text: $editedAlias)
+                                        .font(.headline)
+                                        .focused($isEditing)
+                                    Button {
+                                        isEditing = true
+                                    } label: {
+                                        Image(systemName: "pencil")
+                                            .font(.scaled(size: 13, weight: .semibold))
+                                            .foregroundColor(.accentColor)
+                                            .frame(width: 26, height: 26)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(Text("Edit name"))
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(Text("Edit name"))
                             }
 
                             // Matches Android: the plain contact-name card shows the address as a
@@ -294,10 +308,12 @@ struct ChatInfoView: View {
                     // roster or a public chat room, where the person may be someone you have
                     // never messaged - and the only route to them was backing out and finding
                     // them on the chat list.
-                    infoCard(
-                        "Open Chat",
-                        systemImage: "bubble.left.and.bubble.right"
-                    ) { openChatWithContact() }
+                    if !isSelf {
+                        infoCard(
+                            "Open Chat",
+                            systemImage: "bubble.left.and.bubble.right"
+                        ) { openChatWithContact() }
+                    }
 
                     infoCard(
                         "Address",
@@ -310,35 +326,40 @@ struct ChatInfoView: View {
                     ) { activeSheet = .domains }
                     .disabled(knsDomains.isEmpty)
 
-                    infoCard(
-                        "Aliases",
-                        systemImage: "number"
-                    ) { activeSheet = .aliases }
+                    // Per-contact settings: the chat's aliases, the Contacts-app link,
+                    // notification/photo/call choices and message stats. None of them has
+                    // anything to act on in your own User Info.
+                    if !isSelf {
+                        infoCard(
+                            "Aliases",
+                            systemImage: "number"
+                        ) { activeSheet = .aliases }
 
-                    infoCard(
-                        "System Contact",
-                        systemImage: "person.crop.circle"
-                    ) { activeSheet = .systemContact }
+                        infoCard(
+                            "System Contact",
+                            systemImage: "person.crop.circle"
+                        ) { activeSheet = .systemContact }
 
-                    infoCard(
-                        "Notifications",
-                        systemImage: notificationModeOverride == .off ? "bell.slash" : "bell"
-                    ) { activeSheet = .notifications }
+                        infoCard(
+                            "Notifications",
+                            systemImage: notificationModeOverride == .off ? "bell.slash" : "bell"
+                        ) { activeSheet = .notifications }
 
-                    infoCard(
-                        "Photos",
-                        systemImage: "photo"
-                    ) { activeSheet = .photos }
+                        infoCard(
+                            "Photos",
+                            systemImage: "photo"
+                        ) { activeSheet = .photos }
 
-                    infoCard(
-                        "Calls",
-                        systemImage: contact.callsEnabled == true ? "phone" : "phone.down"
-                    ) { activeSheet = .calls }
+                        infoCard(
+                            "Calls",
+                            systemImage: contact.callsEnabled == true ? "phone" : "phone.down"
+                        ) { activeSheet = .calls }
 
-                    infoCard(
-                        "Info",
-                        systemImage: "info.circle"
-                    ) { activeSheet = .info }
+                        infoCard(
+                            "Info",
+                            systemImage: "info.circle"
+                        ) { activeSheet = .info }
+                    }
 
                     shareCard
                 }
@@ -368,15 +389,22 @@ struct ChatInfoView: View {
                 )
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
+                if isSelf {
+                    // Nothing on your own User Info is editable, so nothing to save.
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
                     }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        saveChanges()
-                        dismiss()
+                } else {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            saveChanges()
+                            dismiss()
+                        }
                     }
                 }
             }

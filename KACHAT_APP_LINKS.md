@@ -43,7 +43,7 @@ Environment (`server/.env`):
 |---|---|---|
 | `INDEXER_URL` | `https://kachat.duckdns.org` | The KaPosts indexer; the site calls `GET /get-post?id=<txid>`. |
 | `INDEXER_REQUESTER_PUBKEY` | a nobody placeholder | `get-post` requires a `requesterPubkey` (it only personalises `isUpvoted` & co.); the placeholder is accepted as-is by the current indexer. |
-| `KNS_URL` | `https://api.knsdomains.org/mainnet/api/v1` | Poster name (`/primary-name/<address>`) and avatar (`/domain/<assetId>/profile`). |
+| `KNS_URL` | `https://api.knsdomains.org/mainnet/api/v1` | Name (`/primary-name/<address>`, else the first domain from `/assets?owner=<address>&type=domain`) and avatar (`/domain/<assetId>/profile`). |
 | `APP_STORE_URL` | `https://apps.apple.com/app/id6759102359` | iOS download button + Safari's Smart App Banner. |
 | `PLAY_URL` | `https://play.google.com/store/apps/details?id=com.kachat.app` | Android download button. |
 | `DESKTOP_URL` | `https://kachat.app/#desktop` | Desktop download button - point it at the real desktop download page. |
@@ -62,8 +62,11 @@ Environment (`server/.env`):
 - `GET /broadcast/<room>` - the invite page, same buttons.
 - `GET /u/<address>` - a person's page. `<address>` is a Kaspa address; the apps write mainnet
   ones without the `kaspa:` prefix (a missing prefix means mainnet) and the checksum is
-  verified before anything else. Resolves the KNS primary name and avatar (cached 1 h) and
-  renders `og:title` "Chat with <name> on KaChat", the avatar as `og:image`, a "Chat on KaChat"
+  verified before anything else. Resolves the KNS name - the primary name, or the first domain
+  they own when no primary is set, as the app does - and its avatar (cached 1 h; a lookup KNS
+  failed to answer is cached 1 min, so a slow KNS doesn't pin a nameless preview) and renders
+  `og:title` "Chat with <name> on KaChat" with the avatar as `og:image`. With no domain at all it
+  reads "Chat with me on KaChat" and shows the shortened address. Plus a "Chat on KaChat"
   button (`kachat://profile/<address>`) and the store buttons. An invalid address is a 404 page.
 - `GET /.well-known/apple-app-site-association` - `applinks` for `/post/*`, `/broadcast/*` and `/u/*`
   for every `IOS_APP_IDS` entry. Served as `application/json`, no redirect - exactly what Apple
@@ -101,4 +104,6 @@ opens Safari). Facebook's and X's crawlers cache aggressively: use their "sharin
   included in share text on iOS - it previews nowhere), accept `kachat.app` links on the way
   in, and add the App Links intent filter above. A `/u/<address>` or `kachat://profile/<address>`
   link opens that address's User Info screen (the per-person profile screen, with Open Chat on
-  it); your own address just opens the app (iOS: `KaChatLinkRouter.openProfile`).
+  it). Your own address opens your own User Info - name, avatar, KNS profile, Address, KNS
+  Domains, Share - without the per-contact rows, and never adds you as your own contact
+  (iOS: `KaChatLinkRouter.openProfile`).
