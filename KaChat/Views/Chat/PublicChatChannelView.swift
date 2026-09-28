@@ -326,9 +326,7 @@ struct PublicChatChannelView: View {
                         contact: Binding(
                             get: { profileContact ?? contact },
                             set: { profileContact = $0 }
-                        ),
-                        title: "User Info",
-                        showsNotificationSettings: false
+                        )
                     )
                 }
             }

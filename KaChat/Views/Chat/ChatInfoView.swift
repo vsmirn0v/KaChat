@@ -3,11 +3,9 @@ import CoreImage
 import UIKit
 
 struct ChatInfoView: View {
+    /// The one screen for anyone's profile: a 1:1 chat header, a group roster row and a public
+    /// chat sender all open this, with the same title and the same rows.
     @Binding var contact: Contact
-    var title: String = "Chat Info"
-    /// Per-contact notification overrides only make sense for a 1:1 chat thread - hidden when
-    /// viewing a public chat sender's profile (there's no per-sender notification setting there).
-    var showsNotificationSettings: Bool = true
     @Environment(\.dismiss) private var dismiss
     /// Revealed values for the Aliases section's rows (nil while hidden behind dots).
     @State private var revealedReceivingAlias: String?
@@ -292,8 +290,8 @@ struct ChatInfoView: View {
                     // seven stacked sections - a QR, a domain list, alias reveals, system
                     // contact linking, two pickers and a stats block - which is a lot of screen
                     // to scroll past to reach any one of them.
-                    // Straight into the 1:1 thread. This screen is reached as "User Info" from a
-                    // group roster or a public chat room, where the person may be someone you have
+                    // Straight into the 1:1 thread. This screen is also reached from a group
+                    // roster or a public chat room, where the person may be someone you have
                     // never messaged - and the only route to them was backing out and finding
                     // them on the chat list.
                     infoCard(
@@ -322,12 +320,10 @@ struct ChatInfoView: View {
                         systemImage: "person.crop.circle"
                     ) { activeSheet = .systemContact }
 
-                    if showsNotificationSettings {
-                        infoCard(
-                            "Notifications",
-                            systemImage: notificationModeOverride == .off ? "bell.slash" : "bell"
-                        ) { activeSheet = .notifications }
-                    }
+                    infoCard(
+                        "Notifications",
+                        systemImage: notificationModeOverride == .off ? "bell.slash" : "bell"
+                    ) { activeSheet = .notifications }
 
                     infoCard(
                         "Photos",
@@ -343,6 +339,8 @@ struct ChatInfoView: View {
                         "Info",
                         systemImage: "info.circle"
                     ) { activeSheet = .info }
+
+                    shareCard
                 }
             }
             .toast(message: toastMessage, style: toastStyle)
@@ -358,7 +356,7 @@ struct ChatInfoView: View {
                 case .info: infoSheet
                 }
             }
-            .navigationTitle(title)
+            .navigationTitle("Chat Info")
             .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $showAvatarPreview) {
                 KNSAvatarFullscreenView(
@@ -634,17 +632,15 @@ struct ChatInfoView: View {
     private var notificationsSheet: some View {
         NavigationStack {
             Form {
-                if showsNotificationSettings {
-                    Section {
-                        Picker("Incoming Notifications", selection: $notificationModeOverride) {
-                            Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
-                                .tag(ContactNotificationMode?.none)
-                            Text("Off").tag(ContactNotificationMode?.some(.off))
-                            Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
-                            Text("Sound").tag(ContactNotificationMode?.some(.sound))
-                        }
-                        .pickerStyle(.menu)
+                Section {
+                    Picker("Incoming Notifications", selection: $notificationModeOverride) {
+                        Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
+                            .tag(ContactNotificationMode?.none)
+                        Text("Off").tag(ContactNotificationMode?.some(.off))
+                        Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
+                        Text("Sound").tag(ContactNotificationMode?.some(.sound))
                     }
+                    .pickerStyle(.menu)
                 }
             }
             .navigationTitle("Notifications")
@@ -763,6 +759,35 @@ struct ChatInfoView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// Shares this person's kachat.app profile link, the same link your own Profile shares:
+    /// it previews with their name and avatar, opens a chat with them in KaChat, and offers the
+    /// download to anyone without the app. The link alone, no text around it.
+    @ViewBuilder
+    private var shareCard: some View {
+        if let url = URL(string: KaChatInternalLink.profile(address: contact.address).universalLinkString) {
+            ShareLink(
+                item: url,
+                preview: SharePreview(contactsManager.displayName(for: contact), image: Image("KaspaLogo"))
+            ) {
+                HStack(spacing: 12) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.scaled(size: 16, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                        .frame(width: 26)
+                    Text("Share")
+                        .foregroundColor(.primary)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Share this profile"))
+        }
     }
 
     private func aliasRow(

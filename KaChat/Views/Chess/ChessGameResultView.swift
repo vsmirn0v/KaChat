@@ -79,7 +79,7 @@ struct ChessGameResultView: View {
     @ObservedObject private var service = ChessTournamentService.shared
     @EnvironmentObject private var walletManager: WalletManager
     @State private var revealed = false
-    /// A tapped leaderboard row: the same User Info sheet as everywhere else.
+    /// A tapped leaderboard row: the same Chat Info sheet as everywhere else.
     @State private var profileContact: Contact?
 
     private var tournament: ChessTournament? { service.tournaments[tournamentId] }
@@ -251,9 +251,7 @@ struct ChessGameResultView: View {
                         contact: Binding(
                             get: { profileContact ?? contact },
                             set: { profileContact = $0 }
-                        ),
-                        title: "User Info",
-                        showsNotificationSettings: false
+                        )
                     )
                 }
             }

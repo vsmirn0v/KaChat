@@ -598,7 +598,7 @@ struct ChessLeaderboardRows: View {
     let mode: ChessTournamentsView.Mode
     @ObservedObject private var service = ChessTournamentService.shared
     @EnvironmentObject private var walletManager: WalletManager
-    /// The player whose row was tapped: the same User Info sheet a public chat opens from an
+    /// The player whose row was tapped: the same Chat Info sheet a public chat opens from an
     /// avatar's View Profile.
     @State private var profileContact: Contact?
 
@@ -676,9 +676,7 @@ struct ChessLeaderboardRows: View {
                         contact: Binding(
                             get: { profileContact ?? contact },
                             set: { profileContact = $0 }
-                        ),
-                        title: "User Info",
-                        showsNotificationSettings: false
+                        )
                     )
                 }
             }

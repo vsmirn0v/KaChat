@@ -751,9 +751,7 @@ struct GroupChatDetailView: View {
                         contact: Binding(
                             get: { profileContact ?? contact },
                             set: { profileContact = $0 }
-                        ),
-                        title: "User Info",
-                        showsNotificationSettings: false
+                        )
                     )
                 }
             }
@@ -3105,9 +3103,7 @@ struct GroupChatInfoView: View {
                 if let contact = profileContact {
                     NavigationStack {
                         ChatInfoView(
-                            contact: profileContactBinding(fallback: contact),
-                            title: "User Info",
-                            showsNotificationSettings: false
+                            contact: profileContactBinding(fallback: contact)
                         )
                     }
                 }
