@@ -164,22 +164,69 @@ async function loadIdentity(pubkey) {
   return loadIdentityForAddress(address);
 }
 
+// Name first, avatar second. The name is the primary KNS name, or - for someone who owns
+// domains but never picked a primary - the first domain they own, the same fallback the app
+// uses (`KNSAddressInfo.primaryDomain`), so a link unfurls with the name KaChat shows for them.
+//
+// A lookup KNS failed to answer (timeout, 5xx, rate limit) is cached for a minute, not an hour:
+// otherwise one slow KNS response pinned "Chat with me on KaChat" with no avatar on that
+// person's link until the hour ran out.
+const IDENTITY_TTL_MS = 3_600_000;
+const IDENTITY_RETRY_TTL_MS = 60_000;
+
+function isTransient(res) {
+  return res.status === 0 || res.status === 429 || res.status >= 500;
+}
+
 async function loadIdentityForAddress(address) {
-  return cached('id:' + address, 3_600_000, async () => {
-    const out = { address, name: null, avatar: null };
-    const primary = await fetchJSON(`${KNS_URL}/primary-name/${address}`);
-    const domain = primary.body && primary.body.success && primary.body.data && primary.body.data.domain;
-    if (!domain) return out;
-    const name = domain.fullName || (domain.name ? `${domain.name}${domain.tld ? '.' + domain.tld : ''}` : null);
-    if (name) out.name = String(name).toLowerCase();
-    const assetId = domain.assetId || domain.inscriptionId || domain.id;
-    if (assetId) {
-      const profile = await fetchJSON(`${KNS_URL}/domain/${assetId}/profile`);
-      const avatar = profile.body && profile.body.success && profile.body.data && profile.body.data.profile && profile.body.data.profile.avatarUrl;
-      if (avatar) out.avatar = /^https?:\/\//i.test(avatar) ? avatar : `https://${avatar}`;
+  const key = 'id:' + address;
+  const hit = cache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.value;
+  const value = lookupIdentity(address).then(({ identity, transient }) => {
+    if (transient) {
+      const entry = cache.get(key);
+      if (entry && entry.value === value) entry.expires = Date.now() + IDENTITY_RETRY_TTL_MS;
     }
-    return out;
+    return identity;
   });
+  cache.set(key, { value, expires: Date.now() + IDENTITY_TTL_MS });
+  if (cache.size > 5000) cache.delete(cache.keys().next().value);
+  return value;
+}
+
+async function lookupIdentity(address) {
+  const identity = { address, name: null, avatar: null };
+  let transient = false;
+  let name = null;
+  let assetId = null;
+
+  const primary = await fetchJSON(`${KNS_URL}/primary-name/${address}`);
+  if (isTransient(primary)) transient = true;
+  const domain = primary.body && primary.body.success && primary.body.data && primary.body.data.domain;
+  if (domain) {
+    name = domain.fullName || (domain.name ? `${domain.name}${domain.tld ? '.' + domain.tld : ''}` : null);
+    assetId = primary.body.data.inscriptionId || domain.assetId || domain.inscriptionId || domain.id;
+  } else {
+    const owned = await fetchJSON(`${KNS_URL}/assets?owner=${encodeURIComponent(address)}&type=domain`);
+    if (isTransient(owned)) transient = true;
+    const assets = (owned.body && owned.body.success && owned.body.data && owned.body.data.assets) || [];
+    const first = assets.find(a => a && a.isDomain !== false && a.asset && a.isVerifiedDomain !== false)
+      || assets.find(a => a && a.asset);
+    if (first) {
+      name = first.asset;
+      assetId = first.assetId || null;
+    }
+  }
+  if (!name) return { identity, transient };
+  identity.name = String(name).toLowerCase();
+
+  if (assetId) {
+    const profile = await fetchJSON(`${KNS_URL}/domain/${assetId}/profile`);
+    if (isTransient(profile)) transient = true;
+    const avatar = profile.body && profile.body.success && profile.body.data && profile.body.data.profile && profile.body.data.profile.avatarUrl;
+    if (avatar) identity.avatar = /^https?:\/\//i.test(avatar) ? avatar : `https://${avatar}`;
+  }
+  return { identity, transient };
 }
 
 // ---------------------------------------------------------------- html
