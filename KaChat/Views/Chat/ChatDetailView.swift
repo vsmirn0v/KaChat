@@ -1930,7 +1930,7 @@ struct ChatDetailView: View {
     /// Android 3.0's "+" composer menu (Pay in Kaspa / Photo / Audio Message / Send Handshake),
     /// replacing the old row of always-visible quick-action pills + a separate standalone photo
     /// button that used to clutter this same spot.
-    /// The chat's title: avatar and name as one tappable chip into Chat Info.
+    /// The chat's title: avatar and name as one tappable chip into User Info.
     ///
     /// It was a VStack - a 36pt avatar with the name underneath - which is taller than the
     /// navigation bar gives a principal item, so the avatar was drawn clipped at the top and
@@ -3408,7 +3408,7 @@ struct ChatDetailView: View {
                 .padding(.top, 20)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)
-            Text("They will be able to call you too. You can turn this off any time in Chat Info.")
+            Text("They will be able to call you too. You can turn this off any time in User Info.")
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

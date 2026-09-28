@@ -356,7 +356,7 @@ struct ChatInfoView: View {
                 case .info: infoSheet
                 }
             }
-            .navigationTitle("Chat Info")
+            .navigationTitle("User Info")
             .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $showAvatarPreview) {
                 KNSAvatarFullscreenView(
@@ -940,9 +940,9 @@ private struct StatItem: View {
 
 /// The contact's KNS domains, primary first, on their own screen.
 ///
-/// Pushed from Chat Info rather than listed inline: an address owning a few dozen domains buried
+/// Pushed from User Info rather than listed inline: an address owning a few dozen domains buried
 /// everything below it in that form. The rows are handed in already sorted and already resolved,
-/// so this view does no lookups of its own and shows whatever Chat Info had cached.
+/// so this view does no lookups of its own and shows whatever User Info had cached.
 private struct ContactDomainsView: View {
     let domains: [KNSDomain]
     let isPrimary: (KNSDomain) -> Bool
