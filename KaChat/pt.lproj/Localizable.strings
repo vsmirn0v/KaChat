@@ -698,3 +698,11 @@
 "–" = "–";
 "—" = "—";
 "♟️" = "♟️";
+
+/* Message actions: translation (public chats), User Info share */
+"Translate" = "Traduzir";
+"Show Original" = "Ver original";
+"Show Translation" = "Ver tradução";
+"Share" = "Compartilhar";
+"Back to the text as it was sent." = "Volta ao texto como foi enviado.";
+"The translated text again." = "O texto traduzido de novo.";

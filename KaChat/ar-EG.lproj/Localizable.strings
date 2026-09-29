@@ -698,3 +698,11 @@
 "–" = "–";
 "—" = "—";
 "♟️" = "♟️";
+
+/* Message actions: translation (public chats), User Info share */
+"Translate" = "ترجمة";
+"Show Original" = "عرض الأصل";
+"Show Translation" = "عرض الترجمة";
+"Share" = "مشاركة";
+"Back to the text as it was sent." = "الرجوع للنص زي ما اتبعت.";
+"The translated text again." = "النص المترجم تاني.";

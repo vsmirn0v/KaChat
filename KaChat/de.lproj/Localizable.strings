@@ -645,3 +645,11 @@
 "KaChat lets you send and receive messages on the Kaspa network itself. Kaspa is required to pay fees when sending your messages. The fee you pay goes to miners which secure the network." = "Mit KaChat kannst du Nachrichten direkt im Kaspa-Netzwerk senden und empfangen. Kaspa wird benötigt, um Gebühren beim Senden deiner Nachrichten zu bezahlen. Die Gebühr, die du zahlst, geht an die Miner, die das Netzwerk sichern.";
 "Leaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone - rejoining later starts with no history." = "Das Verlassen dieses Broadcasts löscht dauerhaft jede dafür auf diesem Gerät zwischengespeicherte Nachricht. Dies kann nicht rückgängig gemacht werden - ein späterer erneuter Beitritt beginnt ohne Verlauf.";
 "Message sync appears incomplete under restricted network conditions. Consider wiping and re-syncing incoming messages on a normal connection." = "Nachrichtensynchronisation scheint unter eingeschränkten Netzwerkbedingungen unvollständig. Erwäge, eingehende Nachrichten zu löschen und bei normaler Verbindung neu zu synchronisieren.";
+
+/* Message actions: translation (public chats), User Info share */
+"Translate" = "Übersetzen";
+"Show Original" = "Original anzeigen";
+"Show Translation" = "Übersetzung anzeigen";
+"Share" = "Teilen";
+"Back to the text as it was sent." = "Zurück zum Text, wie er gesendet wurde.";
+"The translated text again." = "Wieder der übersetzte Text.";

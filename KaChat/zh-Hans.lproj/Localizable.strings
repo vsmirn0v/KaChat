@@ -698,3 +698,11 @@
 "–" = "–";
 "—" = "—";
 "♟️" = "♟️";
+
+/* Message actions: translation (public chats), User Info share */
+"Translate" = "翻译";
+"Show Original" = "显示原文";
+"Show Translation" = "显示译文";
+"Share" = "分享";
+"Back to the text as it was sent." = "回到发送时的原文。";
+"The translated text again." = "再次显示译文。";

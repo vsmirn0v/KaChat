@@ -698,3 +698,11 @@
 "–" = "–";
 "—" = "—";
 "♟️" = "♟️";
+
+/* Message actions: translation (public chats), User Info share */
+"Translate" = "번역";
+"Show Original" = "원문 보기";
+"Show Translation" = "번역 보기";
+"Share" = "공유";
+"Back to the text as it was sent." = "보낸 그대로의 텍스트로 돌아갑니다.";
+"The translated text again." = "번역된 텍스트를 다시 봅니다.";

@@ -698,3 +698,11 @@
 "–" = "–";
 "—" = "—";
 "♟️" = "♟️";
+
+/* Message actions: translation (public chats), User Info share */
+"Translate" = "অনুবাদ করুন";
+"Show Original" = "মূল দেখান";
+"Show Translation" = "অনুবাদ দেখান";
+"Share" = "শেয়ার করুন";
+"Back to the text as it was sent." = "যেভাবে পাঠানো হয়েছিল সেই লেখায় ফিরুন।";
+"The translated text again." = "আবার অনূদিত লেখা।";

@@ -47,10 +47,13 @@ struct ActionSheetRow: View {
                 }
                 .frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    // Looked up, not shown verbatim: `Text(String)` skips Localizable.strings, so
+                    // every action sheet read in English in all 18 other languages. A title
+                    // with no translation still shows as written.
+                    Text(LocalizedStringKey(title))
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(tint == .accentColor ? .primary : tint)
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.leading)

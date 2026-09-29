@@ -698,3 +698,11 @@
 "–" = "–";
 "—" = "—";
 "♟️" = "♟️";
+
+/* Message actions: translation (public chats), User Info share */
+"Translate" = "翻訳";
+"Show Original" = "原文を表示";
+"Show Translation" = "翻訳を表示";
+"Share" = "共有";
+"Back to the text as it was sent." = "送信されたときのテキストに戻します。";
+"The translated text again." = "翻訳されたテキストに戻します。";

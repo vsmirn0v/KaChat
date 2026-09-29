@@ -699,3 +699,11 @@
 "–" = "–";
 "—" = "—";
 "♟️" = "♟️";
+
+/* Message actions: translation (public chats), User Info share */
+"Translate" = "Translate";
+"Show Original" = "Show Original";
+"Show Translation" = "Show Translation";
+"Share" = "Share";
+"Back to the text as it was sent." = "Back to the text as it was sent.";
+"The translated text again." = "The translated text again.";
