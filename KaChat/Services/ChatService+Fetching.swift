@@ -1661,7 +1661,7 @@ extension ChatService {
     func markChatFetchLoading(_ address: String) {
         // Show spinner only when there is actual payload work to parse/add.
         if chatFetchCounts[address] != nil {
-            chatFetchStates[address] = .loading
+            setChatFetchState(.loading, for: address)
         }
     }
 
@@ -1672,11 +1672,7 @@ extension ChatService {
         let nextCount = (chatFetchCounts[address] ?? 1) - 1
         if nextCount <= 0 {
             chatFetchCounts.removeValue(forKey: address)
-            if chatFetchFailed.contains(address) {
-                chatFetchStates[address] = .failed
-            } else {
-                chatFetchStates.removeValue(forKey: address)
-            }
+            setChatFetchState(chatFetchFailed.contains(address) ? .failed : nil, for: address)
         } else {
             chatFetchCounts[address] = nextCount
         }

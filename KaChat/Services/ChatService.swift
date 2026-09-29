@@ -71,6 +71,19 @@ final class ChatService: ObservableObject {
     }
     @Published var chatFetchStates: [String: ChatFetchState] = [:]
 
+    /// Sets (or clears, with nil) a contact's fetch state, publishing only when it changes.
+    /// Every chat list row reads this dictionary, and a same-value write - removing a key that
+    /// is not there, re-marking a loading contact loading - still re-rendered all of them, twice
+    /// per contact on every full sync.
+    func setChatFetchState(_ state: ChatFetchState?, for address: String) {
+        guard chatFetchStates[address] != state else { return }
+        if let state {
+            chatFetchStates[address] = state
+        } else {
+            chatFetchStates.removeValue(forKey: address)
+        }
+    }
+
     /// Per-contact last-read blockTime, seeded from the persisted read cursor when messages are
     /// loaded from the store and advanced when a chat is read. `addMessageToConversation` consults
     /// it so the initial full re-sync (which re-fetches all history with `lastPollTime == 0`) never

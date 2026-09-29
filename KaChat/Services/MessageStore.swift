@@ -2151,7 +2151,7 @@ final class MessageStore {
 
     /// One conversation's most recent reaction across all its messages, with enough context to
     /// render a chat-list preview ("Reacted to your message" etc.) without a second round trip.
-    struct LatestReactionPreview {
+    struct LatestReactionPreview: Equatable {
         let emoji: String
         let reactorAddress: String
         let blockTime: Int64

@@ -1164,13 +1164,13 @@ extension ChatService {
     }
 
     func beginSyncBlockTime() {
-        isSyncInProgress = true
+        if !isSyncInProgress { isSyncInProgress = true }
         syncMaxBlockTime = lastPollTime
     }
 
     func endSyncBlockTime(success: Bool) {
         defer {
-            isSyncInProgress = false
+            if isSyncInProgress { isSyncInProgress = false }
             syncMaxBlockTime = nil
         }
 

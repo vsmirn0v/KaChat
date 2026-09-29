@@ -599,12 +599,12 @@ extension ChatService {
 
         var activeFetchSucceeded = false
         if let active = activeAddress {
-            chatFetchStates[active] = .loading
-        } else {
+            setChatFetchState(.loading, for: active)
+        } else if !isLoading {
             isLoading = true
         }
         beginSyncBlockTime()
-        isSyncInProgress = true  // Enable batching for Core Data writes
+        if !isSyncInProgress { isSyncInProgress = true }  // Enable batching for Core Data writes
         var syncSucceeded = false
         let shouldSuppressNotifications = activeAddress == nil && lastPollTime == 0
         let previousSuppress = suppressNotificationsUntilSynced
@@ -615,15 +615,12 @@ extension ChatService {
             if shouldSuppressNotifications {
                 suppressNotificationsUntilSynced = previousSuppress
             }
-            isSyncInProgress = false  // Disable batching before final save
+            if isSyncInProgress { isSyncInProgress = false }  // Disable batching before final save
             if let active = activeAddress {
-                if activeFetchSucceeded {
-                    chatFetchStates.removeValue(forKey: active)
-                } else {
-                    chatFetchStates[active] = .failed
-                }
+                setChatFetchState(activeFetchSucceeded ? nil : .failed, for: active)
             }
-            isLoading = false
+            // Same-value writes still publish, re-rendering every observer.
+            if isLoading { isLoading = false }
             // Check if resubscription was deferred during sync
             executeResubscriptionIfNeeded()
             endSyncBlockTime(success: syncSucceeded)  // This handles batched save
@@ -3536,7 +3533,7 @@ extension ChatService {
         routingStates.removeValue(forKey: address)
         conversationAliases.removeValue(forKey: address)
         declinedContacts.remove(address)
-        chatFetchStates.removeValue(forKey: address)
+        setChatFetchState(nil, for: address)
         chatFetchCounts.removeValue(forKey: address)
         chatFetchFailed.remove(address)
     }

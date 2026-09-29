@@ -11,15 +11,22 @@ extension ChatService {
     func loadReactions(for contactAddress: String) {
         guard let key = messageEncryptionKey() else { return }
         Task { @MainActor in
+            // Merged into a copy and assigned once: a key-by-key loop on the @Published
+            // dictionary published once per message with reactions, each a full re-render of
+            // the thread and the chat list, right as the chat was opening.
             let loaded = await messageStore.fetchReactions(contactAddress: contactAddress, decryptionKey: key)
+            var reactions = reactionsByTxId
             for (targetTxId, snapshots) in loaded {
-                reactionsByTxId[targetTxId] = snapshots
+                reactions[targetTxId] = snapshots
             }
+            if reactions != reactionsByTxId { reactionsByTxId = reactions }
             // Edits ride the same open: one fetch per conversation, then the live index.
             let edits = await messageStore.fetchEdits(contactAddress: contactAddress, decryptionKey: key)
+            var mergedEdits = editsByTxId
             for (targetTxId, edit) in edits {
-                editsByTxId[targetTxId] = edit
+                mergedEdits[targetTxId] = edit
             }
+            if mergedEdits != editsByTxId { editsByTxId = mergedEdits }
         }
     }
 
@@ -121,7 +128,8 @@ extension ChatService {
         guard let key = messageEncryptionKey() else { return }
         let latest = await messageStore.fetchLatestReactionPerContact(decryptionKey: key)
         await MainActor.run {
-            latestReactionByContact = latest
+            // Runs on every return to the chat list; unchanged, it must not re-render the list.
+            if latestReactionByContact != latest { latestReactionByContact = latest }
         }
     }
 
