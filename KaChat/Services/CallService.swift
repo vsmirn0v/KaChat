@@ -1302,7 +1302,16 @@ final class CallService: ObservableObject {
         let raw: UInt64?
         switch value {
         case let number as NSNumber: raw = number.uint64Value
-        case let string as String: raw = UInt64(string) ?? UInt64(Double(string) ?? 0)
+        case let string as String:
+            // `UInt64(Double)` traps on a negative, NaN or out-of-range value, and this runs on
+            // a VoIP push before the call reaches CallKit - so only a sane finite number counts.
+            if let exact = UInt64(string) {
+                raw = exact
+            } else if let double = Double(string), double.isFinite, double > 0, double < 1.8e19 {
+                raw = UInt64(double)
+            } else {
+                raw = nil
+            }
         default: raw = nil
         }
         guard let raw, raw > 0 else { return nil }

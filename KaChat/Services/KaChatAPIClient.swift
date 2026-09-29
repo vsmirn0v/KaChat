@@ -1070,7 +1070,8 @@ private actor HTTP1Client {
         guard let host = url.host else { throw HTTP1ClientError.invalidURL }
         guard let scheme = url.scheme, scheme == "https" else { throw HTTP1ClientError.unsupportedScheme }
         let port = url.port ?? 443
-        guard let portValue = NWEndpoint.Port(rawValue: UInt16(port)) else { throw HTTP1ClientError.invalidURL }
+        guard let port16 = UInt16(exactly: port),
+              let portValue = NWEndpoint.Port(rawValue: port16) else { throw HTTP1ClientError.invalidURL }
 
         let tlsOptions = NWProtocolTLS.Options()
         sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, host)
@@ -1259,18 +1260,21 @@ private actor HTTP1Client {
                 throw HTTP1ClientError.invalidResponse
             }
             let sizeData = data[offset..<lineRange.lowerBound]
-            let sizeString = String(decoding: sizeData, as: UTF8.self).split(separator: ";")[0]
-            guard let size = Int(sizeString, radix: 16) else {
+            // Every value here comes from the server: an empty size line, a negative size or one
+            // that overflows used to trap instead of failing the request.
+            guard let sizeString = String(decoding: sizeData, as: UTF8.self).split(separator: ";").first,
+                  let size = Int(sizeString.trimmingCharacters(in: .whitespaces), radix: 16),
+                  size >= 0 else {
                 throw HTTP1ClientError.invalidResponse
             }
             let chunkStart = lineRange.upperBound
             if size == 0 {
                 break
             }
-            let chunkEnd = chunkStart + size
-            guard chunkEnd <= data.count else {
+            guard size <= data.count - chunkStart else {
                 throw HTTP1ClientError.invalidResponse
             }
+            let chunkEnd = chunkStart + size
             output.append(data[chunkStart..<chunkEnd])
             offset = chunkEnd + 2
         }

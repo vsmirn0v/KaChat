@@ -153,7 +153,8 @@ struct ScannedBlock: Sendable {
             guard !txId.isEmpty else { continue }
             kept.append(Transaction(
                 txId: txId,
-                blockTime: Int64(tx.verboseData.blockTime),
+                // From a node found through peer gossip: clamp, never trap on a value past Int64.
+                blockTime: Int64(clamping: tx.verboseData.blockTime),
                 payloadHex: tx.payload,
                 firstOutputScriptHex: tx.outputs.first?.scriptPublicKey.scriptPublicKey ?? ""
             ))

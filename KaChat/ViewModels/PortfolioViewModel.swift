@@ -983,11 +983,12 @@ final class PortfolioViewModel: ObservableObject {
         sourceAddress: String? = nil,
         sourceTxId: String? = nil
     ) {
-        guard let activePortfolioId = portfolioId ?? PortfolioManager.shared.activePortfolioId else { return }
+        guard let activePortfolioId = portfolioId ?? PortfolioManager.shared.activePortfolioId,
+              let amountSompi = Self.sompi(fromKas: amountKas) else { return }
         let tx = PortfolioTransaction(
             id: UUID().uuidString,
             type: type,
-            amountSompi: Int64((amountKas * 100_000_000).rounded()),
+            amountSompi: amountSompi,
             fiatValue: fiatValue,
             timestamp: timestamp,
             notes: notes,
@@ -997,6 +998,15 @@ final class PortfolioViewModel: ObservableObject {
         )
         transactions.append(tx)
         persist()
+    }
+
+    /// KAS to sompi, or nil for an amount no wallet can hold. `Int64(Double)` traps on NaN,
+    /// infinity or anything past ~92 billion KAS, and both a pasted figure and a CSV cell
+    /// (`Double("inf")`, `"1e20"`) reach here.
+    static func sompi(fromKas kas: Double) -> Int64? {
+        let sompi = (kas * 100_000_000).rounded()
+        guard sompi.isFinite, abs(sompi) < 9.2e18 else { return nil }
+        return Int64(sompi)
     }
 
     /// Preserves the existing row's `portfolioId` (a transaction being edited never moves to a
@@ -1010,11 +1020,12 @@ final class PortfolioViewModel: ObservableObject {
         timestamp: Date,
         notes: String?
     ) {
-        guard let index = transactions.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = transactions.firstIndex(where: { $0.id == id }),
+              let amountSompi = Self.sompi(fromKas: amountKas) else { return }
         transactions[index] = PortfolioTransaction(
             id: id,
             type: type,
-            amountSompi: Int64((amountKas * 100_000_000).rounded()),
+            amountSompi: amountSompi,
             fiatValue: fiatValue,
             timestamp: timestamp,
             notes: notes,
@@ -1160,7 +1171,8 @@ final class PortfolioViewModel: ObservableObject {
             let typeRaw = fields[2].trimmingCharacters(in: .whitespaces).lowercased()
             guard let type = PortfolioTransactionType(rawValue: typeRaw) else { continue }
             guard let timestamp = dateFormatter.date(from: fields[0].trimmingCharacters(in: .whitespaces)) else { continue }
-            guard let kas = Self.parseLenientDouble(fields[4]) else { continue }
+            guard let kas = Self.parseLenientDouble(fields[4]),
+                  let amountSompi = Self.sompi(fromKas: kas) else { continue }
             guard let totalValue = Self.parseLenientDouble(fields[5]) else { continue }
 
             var fiatValue = totalValue
@@ -1181,7 +1193,7 @@ final class PortfolioViewModel: ObservableObject {
                 transactions[existingIndex] = PortfolioTransaction(
                     id: transactions[existingIndex].id,
                     type: type,
-                    amountSompi: Int64((kas * 100_000_000).rounded()),
+                    amountSompi: amountSompi,
                     fiatValue: fiatValue,
                     timestamp: timestamp,
                     notes: notes,
@@ -1192,7 +1204,7 @@ final class PortfolioViewModel: ObservableObject {
                     PortfolioTransaction(
                         id: UUID().uuidString,
                         type: type,
-                        amountSompi: Int64((kas * 100_000_000).rounded()),
+                        amountSompi: amountSompi,
                         fiatValue: fiatValue,
                         timestamp: timestamp,
                         notes: notes,

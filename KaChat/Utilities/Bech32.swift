@@ -47,6 +47,9 @@ struct Bech32 {
 
         let hrp = String(parts[0])
         let dataString = String(parts[1])
+        // The prefix comes from outside (a pasted address, a shared profile link): a non-ASCII
+        // one used to reach `hrpExpand`'s force-unwrap and crash the app on one tap.
+        guard !hrp.isEmpty, hrp.allSatisfy({ $0.isASCII }) else { return nil }
 
         // Decode from charset
         var values = [UInt8]()
@@ -99,7 +102,9 @@ struct Bech32 {
         var result = [UInt8]()
         // Kaspa uses only the lower 5 bits of each prefix character (lowercase mask)
         for char in hrp.lowercased() {
-            result.append(UInt8(char.asciiValue! & 0x1f))
+            // `decode` rejects non-ASCII prefixes first; a stray one here counts as 0 rather
+            // than crashing.
+            result.append(UInt8((char.asciiValue ?? 0) & 0x1f))
         }
         // Null byte separator
         result.append(0)
