@@ -140,6 +140,8 @@ final class PublicChatService: ObservableObject {
         liveViewRefCounts = [:]
         loadReadState()
         sweptChannels = []
+        // Each wallet has its own store: what one applied says nothing about the other's.
+        appliedIndexerRows = [:]
         // The store opens off the main thread now; the rooms are read once it says so.
         let targetWallet = walletAddress?.lowercased()
         store.setCurrentWallet(walletAddress) { [weak self] in

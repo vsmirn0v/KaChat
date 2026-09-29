@@ -186,14 +186,16 @@ struct MainTabView: View {
             )
         }
         // The one thing here that reacts to the wallet: a switch of address. Subscribed to that
-        // alone, rather than observing all of WalletManager for it.
+        // alone, rather than observing all of WalletManager for it. Uses the address the
+        // publisher delivers: @Published emits before the property changes, so reading
+        // `currentWallet` here would still see the previous wallet.
         .onReceive(
             WalletManager.shared.$currentWallet
                 .map { $0?.publicAddress }
                 .removeDuplicates()
                 .dropFirst()
-        ) { _ in
-            preloadProfileResources()
+        ) { address in
+            if let address { ProfileView.preloadQRCode(for: address) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { _ in
             // Switch to Chats tab when notification is tapped

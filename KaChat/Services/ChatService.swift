@@ -234,6 +234,9 @@ final class ChatService: ObservableObject {
 
     /// The background load of the open chat's whole history (see `loadFullHistory`).
     var fullHistoryLoadTask: Task<Void, Never>?
+    /// The chat most recently left, trimmed back to the in-memory window once the chat list is
+    /// showing again (`trimLeftConversationIfNeeded`).
+    var lastLeftConversationAddress: String?
 
     /// Whether the app posts its OWN banners for the messages, group traffic, public chats and
     /// KaPosts activity it discovers itself - through the UTXO subscription, the sweep, the

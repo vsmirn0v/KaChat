@@ -60,6 +60,10 @@ struct PublicChatChannelView: View {
     @State private var feeEstimateTask: Task<Void, Never>?
     @State private var feeShimmerPhase: CGFloat = -1
     @State private var revealOffset: CGFloat = 0
+    /// A once-a-minute clock for the reaction pill's green "sent" check, which is meant to go
+    /// away 10 minutes after your reaction. Rows skip re-rendering unless their inputs change
+    /// (`.equatable()`), so the expiry has to arrive as an input - see `isReactionCheckFresh`.
+    @State private var reactionCheckClock = Date()
     private let maxRevealOffset: CGFloat = 64
     /// User-set fee, from tapping the fee pill - see ChatDetailView.feeOverrideSompi's doc comment.
     @State private var feeOverrideSompi: UInt64?
@@ -144,6 +148,13 @@ struct PublicChatChannelView: View {
             // What the translation service can serve, so Translate is offered only for a
             // language pair that can succeed. No-op after the first answer.
             PostTranslationService.shared.refreshSupportedLanguages()
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                guard !Task.isCancelled else { return }
+                reactionCheckClock = Date()
+            }
         }
         .task {
             // Keeps retention feeling "live" while this room is open - a message disappears
@@ -751,6 +762,10 @@ struct PublicChatChannelView: View {
             onMoreReactions: { emojiPickerTarget = IdentifiedTxId(id: message.id) },
             activeQuickReactionMessageId: $activeQuickReactionMessageId,
             isQuickReactionBarShown: activeQuickReactionMessageId == message.id,
+            isReactionCheckFresh: messageReactions.contains {
+                $0.reactorAddress == (myAddress ?? "") && $0.deliveryStatus == .sent
+                    && Int64(reactionCheckClock.timeIntervalSince1970 * 1000) - $0.blockTime < 600_000
+            },
             isEdited: edit != nil,
             onEdit: canEdit ? { beginEdit(message) } : nil
         )
@@ -1546,6 +1561,9 @@ private struct PublicChatMessageRow: View, Equatable {
     var activeQuickReactionMessageId: Binding<String?> = .constant(nil)
     /// Whether the quick-reaction bar is on THIS row, as a value so `==` can see it change.
     var isQuickReactionBarShown: Bool = false
+    /// Your sent reaction here is under 10 minutes old, so the pill still shows its green check.
+    /// Worked out by the parent against a minute clock; a value so `==` sees it expire.
+    var isReactionCheckFresh: Bool = false
     /// The text shown is an edit of what was sent (the parent swapped `content`); a small
     /// "edited" chip sits on the bubble. `onEdit` is offered on the user's own text bubbles only.
     var isEdited: Bool = false
@@ -1575,6 +1593,7 @@ private struct PublicChatMessageRow: View, Equatable {
             && lhs.reactions == rhs.reactions
             && lhs.myReactorAddress == rhs.myReactorAddress
             && lhs.isQuickReactionBarShown == rhs.isQuickReactionBarShown
+            && lhs.isReactionCheckFresh == rhs.isReactionCheckFresh
             && lhs.isEdited == rhs.isEdited
             && (lhs.onEdit == nil) == (rhs.onEdit == nil)
             && (lhs.onJumpToReply == nil) == (rhs.onJumpToReply == nil)
@@ -1596,8 +1615,7 @@ private struct PublicChatMessageRow: View, Equatable {
     private var pillReactionStatus: ChatMessage.DeliveryStatus? {
         guard let localReaction else { return nil }
         guard localReaction.deliveryStatus == .sent else { return localReaction.deliveryStatus }
-        let ageMs = Int64(Date().timeIntervalSince1970 * 1000) - localReaction.blockTime
-        return ageMs < 600_000 ? .sent : nil
+        return isReactionCheckFresh ? .sent : nil
     }
 
     /// See `MessageBubbleView.inlineTextTruncationThreshold`'s doc comment - public chat rooms are

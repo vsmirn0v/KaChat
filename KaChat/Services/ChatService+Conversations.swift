@@ -191,32 +191,30 @@ extension ChatService {
         activeChatPollTask = nil
         fullHistoryLoadTask?.cancel()
         fullHistoryLoadTask = nil
-        let leftAddress = activeConversationAddress
+        if let left = activeConversationAddress { lastLeftConversationAddress = left }
         activeConversationAddress = nil
         AppLog.log("[ChatService] Left conversation")
-        if let leftAddress { trimLeftConversation(leftAddress) }
     }
 
     /// Lets go of the history `loadFullHistory` pulled in, back to the normal in-memory window,
-    /// once the chat has been left. A beat later, and only if it was not re-entered meanwhile:
-    /// pushing a screen over the chat (a chess game) leaves and re-enters it, and trimming in
-    /// between would make it load everything again. Without this, every long chat opened in a
+    /// once the reader is really back on the chat list - called from `ChatListView.onAppear`.
+    /// Not from `leaveConversation`: a chat also "disappears" for a tab switch, the camera or a
+    /// call screen, and trimming there cut a reader scrolled far up a long chat back to the
+    /// newest messages, losing their place. Without any trim, every long chat opened in a
     /// session stayed whole in memory, and every later `conversations` publish carried it.
-    private func trimLeftConversation(_ address: String) {
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            guard let self, self.activeConversationAddress != address,
-                  let index = self.conversations.firstIndex(where: { $0.contact.address == address }) else { return }
-            let current = self.conversations[index].messages
-            guard current.count > Self.inMemoryConversationWindowSize else { return }
-            let trimmed = Self.trimMessagesForMemory(current)
-            guard trimmed.count < current.count else { return }
-            var updatedConversations = self.conversations
-            updatedConversations[index].messages = trimmed
-            self.conversations = updatedConversations
-            // The store still has everything; paging back up must be allowed to find it.
-            self.olderHistoryExhaustedContacts.remove(address)
-        }
+    func trimLeftConversationIfNeeded() {
+        guard let address = lastLeftConversationAddress, activeConversationAddress != address else { return }
+        lastLeftConversationAddress = nil
+        guard let index = conversations.firstIndex(where: { $0.contact.address == address }) else { return }
+        let current = conversations[index].messages
+        guard current.count > Self.inMemoryConversationWindowSize else { return }
+        let trimmed = Self.trimMessagesForMemory(current)
+        guard trimmed.count < current.count else { return }
+        var updatedConversations = conversations
+        updatedConversations[index].messages = trimmed
+        conversations = updatedConversations
+        // The store still has everything; paging back up must be allowed to find it.
+        olderHistoryExhaustedContacts.remove(address)
     }
 
     /// While a 1:1 chat is open and the app is foregrounded, poll the indexer for new messages

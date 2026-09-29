@@ -364,6 +364,8 @@ struct ChatListView: View {
             checkPendingGroupListNavigation()
             requestNotificationPermissionIfNeeded()
             loadedConversationCount = conversationPageSize
+            // Back from a chat: its fully loaded history can go now.
+            chatService.trimLeftConversationIfNeeded()
             refreshFilteredConversations()
             Task { _ = try? await walletManager.refreshBalance() }
         }
