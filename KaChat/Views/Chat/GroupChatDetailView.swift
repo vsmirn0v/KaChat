@@ -269,7 +269,16 @@ struct GroupChatDetailView: View {
         return hasher.finalize()
     }
 
-    private var messages: [GroupMessage] {
+    /// The thread as the view reads it: `computedMessages`, cached by `rebuildTimelineIfNeeded`.
+    /// It was the computed property itself, and `body` reads it through `onChange(of:
+    /// messages.count)`, the row appear handlers and `displayedMessages` - so every body pass (a
+    /// keystroke, any service publish) filtered and sorted the whole group history, several
+    /// times over. Now that happens only when `timelineCacheKey` moves.
+    @State private var cachedMessages: [GroupMessage] = []
+
+    private var messages: [GroupMessage] { cachedMessages }
+
+    private var computedMessages: [GroupMessage] {
         let hidden = groupChatService.hiddenMemberAddresses(for: group.id)
         // `systemLineClock` is only read so this recomputes on the minute tick below - without
         // it a membership line inserted while you are looking at the thread would sit there
@@ -292,8 +301,11 @@ struct GroupChatDetailView: View {
     /// history loads as the window grows on scroll-up, and `.bottom` keeps the bottom pinned as those
     /// older rows prepend, so growing never jumps either.
     private var displayedMessages: [GroupMessage] {
+        renderWindow(of: messages)
+    }
+
+    private func renderWindow(of all: [GroupMessage]) -> [GroupMessage] {
         guard initialLayoutReady else { return [] }
-        let all = messages
         let window = loadedGroupMessageCount <= 0 ? groupMessagePageSize * 3 : loadedGroupMessageCount
         guard all.count > window else { return all }
         return Array(all.suffix(window))
@@ -355,16 +367,19 @@ struct GroupChatDetailView: View {
         let key = timelineCacheKey
         guard key != cachedTimelineKey else { return }
         cachedTimelineKey = key
-        cachedTimelineItems = buildTimelineItems()
+        // Filtered and sorted once here, then read by everything else from the cache.
+        let all = computedMessages
+        cachedMessages = all
+        cachedTimelineItems = buildTimelineItems(from: renderWindow(of: all))
     }
 
-    private func buildTimelineItems() -> [GroupTimelineItem] {
+    private func buildTimelineItems(from displayed: [GroupMessage]) -> [GroupTimelineItem] {
         var items: [GroupTimelineItem] = []
-        items.reserveCapacity(displayedMessages.count + 8)
+        items.reserveCapacity(displayed.count + 8)
         let calendar = Calendar.autoupdatingCurrent
         var currentDayStart: Date?
         var currentDayEnd: Date?
-        for message in displayedMessages {
+        for message in displayed {
             let timestamp = message.timestamp
             if let start = currentDayStart, let end = currentDayEnd, timestamp >= start, timestamp < end {
                 items.append(.message(message))
