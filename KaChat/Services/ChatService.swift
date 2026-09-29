@@ -537,6 +537,13 @@ final class ChatService: ObservableObject {
     var draftSaveTask: Task<Void, Never>?
     // Pending self-stash jobs that couldn't be sent due to missing UTXOs
     var pendingSelfStash: [PendingSelfStash] = []
+    /// Contacts this wallet has a `saved_handshake` note for - read back by
+    /// `fetchSavedHandshakes`, or written/queued here - and whether a complete read-back has
+    /// happened yet, so `ensureContactStash` never writes a note it cannot know is missing.
+    /// Per wallet, loaded by `loadContactStashStateIfNeeded`.
+    var contactStashKnownAddresses: Set<String> = []
+    var contactStashIndexComplete = false
+    var contactStashStateWallet: String?
     var cachedUtxos: [UTXO] = []
     var cachedUtxosTimestamp: Date?
     let utxoCacheInterval: TimeInterval = 20

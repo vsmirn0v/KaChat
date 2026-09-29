@@ -1511,7 +1511,12 @@ extension ChatService {
         let fullScanKey = Self.selfStashFullScanKeyPrefix + myAddress
         let highWater = UInt64(max(0, defaults.integer(forKey: highWaterKey)))
         let lastFullScanAt = defaults.double(forKey: fullScanKey)
-        let fullScanDue = highWater == 0
+        // Until one complete read-back has recorded which contacts have notes, a contact note
+        // cannot safely be written (see `ensureContactStash`) - so the first sync after this
+        // arrives scans in full rather than waiting out the full-scan interval.
+        loadContactStashStateIfNeeded(wallet: myAddress)
+        let fullScanDue = !contactStashIndexComplete
+            || highWater == 0
             || lastFullScanAt <= 0
             || Date().timeIntervalSince1970 - lastFullScanAt >= Self.selfStashFullScanInterval
         let startBlockTime: UInt64 = fullScanDue ? 0 : highWater - min(highWater, Self.selfStashReorgRewindMs)
@@ -1541,11 +1546,13 @@ extension ChatService {
             defaults.set(Date().timeIntervalSince1970, forKey: fullScanKey)
         }
 
+        var notedContacts = Set<String>()
         for stash in savedHandshakes {
             guard let stashedData = stash.stashedData else { continue }
             // Decrypt the stashed data on background thread to get our alias and contact info
             if let savedData = await decryptSelfStash(stashedData, privateKey: privKey) {
                 let contact = savedData.contactAddress
+                if !contact.isEmpty { notedContacts.insert(contact) }
                 let alias = savedData.ourAlias
                 if !contact.isEmpty && !alias.isEmpty {
                     AppLog.log("[ChatService] Saved handshake: contact=%@, ourAlias=%@, theirAlias=%@",
@@ -1564,6 +1571,10 @@ extension ChatService {
                 }
             }
         }
+        // Which contacts already have a note; after a full read-back, write the missing ones
+        // for chats that never had a handshake (see `ensureContactStash`).
+        recordContactStashes(notedContacts, completeScan: fullScanDue)
+        if fullScanDue { backfillContactStashes() }
     }
 
     /// Per-phase retry budget for fetches running INSIDE a sync cycle. `fetchNewMessages`
@@ -2874,6 +2885,11 @@ extension ChatService {
         let contact = contactsManager.getOrCreateContact(address: contactAddress)
         if message.isOutgoing {
             contactsManager.markHasSentOutgoingMessage(address: contactAddress)
+            // Your message went out in a chat with no handshake: make sure a fresh import of
+            // this seed can find the chat again. Cheap no-op for every chat already noted.
+            if message.deliveryStatus == .sent {
+                ensureContactStash(for: contactAddress)
+            }
         }
         var isNewMessage = false
         var isNewConversation = false

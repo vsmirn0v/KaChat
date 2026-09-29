@@ -476,13 +476,17 @@ struct PendingSelfStash: Codable, Identifiable, Equatable {
     let ourAlias: String
     let theirAlias: String?
     let isResponse: Bool
+    /// A contact-only note for a chat with no handshake (`buildContactSelfStashTx`) rather than
+    /// a handshake's. Optional so queues saved before it existed still decode.
+    var contactOnly: Bool?
 
-    init(partnerAddress: String, ourAlias: String, theirAlias: String?, isResponse: Bool) {
+    init(partnerAddress: String, ourAlias: String, theirAlias: String?, isResponse: Bool, contactOnly: Bool? = nil) {
         self.id = UUID()
         self.partnerAddress = partnerAddress
         self.ourAlias = ourAlias
         self.theirAlias = theirAlias
         self.isResponse = isResponse
+        self.contactOnly = contactOnly
     }
 }
 

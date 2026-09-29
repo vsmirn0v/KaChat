@@ -105,6 +105,31 @@ Handshakes are structurally similar to payments but carry encrypted public key e
 - **Sender address** (critical for key exchange)
 - **Payload** (encrypted handshake data)
 
+### 4. Saved-handshake notes (contact recovery)
+
+**Direction**: your address → your own address (fee only; the partner is not in the transaction)
+
+**Payload format**: `kchat:1:self_stash:saved_handshake:<encrypted to your own key>`
+
+How a freshly imported seed finds its chats again: the indexer serves these by owner
+(`/self-stash/by-owner`, scope `saved_handshake`) and `fetchSavedHandshakes` decrypts each one.
+Two shapes:
+
+- **Handshake note** (`"type": "handshake"`), written with every handshake: `alias`,
+  `theirAlias`, `partnerAddress`, `isResponse`.
+- **Contact note** (`"type": "contact"`, 5.1), for a chat that never had a handshake
+  (deterministic aliases): `partnerAddress` / `recipientAddress` only, no alias fields. Without
+  it such a chat is invisible to a fresh import - its messages carry aliases derived from both
+  keys, and an alias cannot be turned back into an address. The reader derives the
+  deterministic pair from the address (`ensureRoutingState`) and fetches the chat.
+
+iOS writes a contact note once per contact, after your first sent message in a chat with no
+handshake (`ChatService.ensureContactStash`), and backfills old chats you have sent in after
+each complete read-back (`backfillContactStashes`) - never before one, so it never duplicates a
+note already on chain. The indexer sees only ciphertext under your address. Other platforms:
+read a note with no alias as "derive the deterministic pair for this address", and write the
+same note under the same rules.
+
 ## Message Resolution Flow
 
 ### For Self-Stash Messages (Fast Path)

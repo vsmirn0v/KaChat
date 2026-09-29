@@ -921,11 +921,7 @@ struct KasiaTransactionBuilder {
         senderPrivateKey: Data,
         utxos: [UTXO]
     ) throws -> KaspaRpcTransaction {
-        // Encrypt handshake metadata to ourselves
-        guard let senderPubKey = KaspaAddress.publicKey(from: senderAddress) else {
-            throw KasiaError.invalidAddress
-        }
-
+        // Encrypted to ourselves in `buildSavedHandshakeStashTx`.
         let payloadDict: [String: Any?] = [
             "type": "handshake",
             "alias": ourAlias,
@@ -937,7 +933,53 @@ struct KasiaTransactionBuilder {
             "isResponse": isResponse ? true : nil
         ]
 
-        let sanitized = payloadDict.compactMapValues { $0 }
+        return try buildSavedHandshakeStashTx(
+            payloadDict: payloadDict.compactMapValues { $0 },
+            from: senderAddress,
+            senderPrivateKey: senderPrivateKey,
+            utxos: utxos
+        )
+    }
+
+    /// A contact-only self-stash note for a chat that never had a handshake (deterministic
+    /// aliases): just the partner's address, encrypted to ourselves, so a fresh import of this
+    /// seed learns the chat exists. No alias fields - `fetchSavedHandshakes` derives the
+    /// deterministic pair from the address (`ensureRoutingState`), and without an alias this is
+    /// never mistaken for a legacy handshake's routing. Same `saved_handshake` scope as handshake
+    /// notes so every version's recovery scan reads it; same shape on chain - a transaction to
+    /// ourselves, fee only, the partner nowhere in it.
+    static func buildContactSelfStashTx(
+        from senderAddress: String,
+        partnerAddress: String,
+        senderPrivateKey: Data,
+        utxos: [UTXO]
+    ) throws -> KaspaRpcTransaction {
+        let payloadDict: [String: Any] = [
+            "type": "contact",
+            "timestamp": UInt64(Date().timeIntervalSince1970 * 1000),
+            "version": 1,
+            "partnerAddress": partnerAddress,
+            "recipientAddress": partnerAddress
+        ]
+        return try buildSavedHandshakeStashTx(
+            payloadDict: payloadDict,
+            from: senderAddress,
+            senderPrivateKey: senderPrivateKey,
+            utxos: utxos
+        )
+    }
+
+    /// Encrypts `payloadDict` to the sender and wraps it as a `saved_handshake` self-stash
+    /// transaction back to the sender's own address.
+    private static func buildSavedHandshakeStashTx(
+        payloadDict sanitized: [String: Any],
+        from senderAddress: String,
+        senderPrivateKey: Data,
+        utxos: [UTXO]
+    ) throws -> KaspaRpcTransaction {
+        guard let senderPubKey = KaspaAddress.publicKey(from: senderAddress) else {
+            throw KasiaError.invalidAddress
+        }
         let payloadData = try JSONSerialization.data(withJSONObject: sanitized, options: [])
         guard let payloadString = String(data: payloadData, encoding: .utf8) else {
             throw KasiaError.encryptionError("Failed to encode self-stash payload")

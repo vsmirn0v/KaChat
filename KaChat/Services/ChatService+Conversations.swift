@@ -3767,7 +3767,98 @@ extension ChatService {
         let job = PendingSelfStash(partnerAddress: contactAddress, ourAlias: ourAlias, theirAlias: theirAlias, isResponse: isResponse)
         pendingSelfStash.append(job)
         savePendingSelfStash()
+        noteContactStashed(contactAddress)
         AppLog.log("%@", "[ChatService] Queued self-stash for \(contactAddress.suffix(10))")
+    }
+
+    // MARK: - Contact notes for chats without a handshake
+
+    /// A chat that never had a handshake (deterministic aliases) leaves nothing on chain that a
+    /// fresh import of the seed could find it by: its messages carry aliases derived from both
+    /// keys, and an alias cannot be turned back into an address. So the first time you message
+    /// such a contact, a contact-only `saved_handshake` note is written - the partner's address,
+    /// encrypted to yourself, in a transaction to yourself - and `fetchSavedHandshakes` on the
+    /// new device turns it back into the chat. Once per contact, and only after a complete
+    /// read-back of the notes already on chain, so it never writes one that exists.
+    func ensureContactStash(for contactAddress: String) {
+        guard let wallet = WalletManager.shared.currentWallet?.publicAddress,
+              contactAddress != wallet else { return }
+        loadContactStashStateIfNeeded(wallet: wallet)
+        guard contactStashIndexComplete,
+              !contactStashKnownAddresses.contains(contactAddress),
+              !pendingSelfStash.contains(where: { $0.partnerAddress == contactAddress }),
+              needsContactStash(contactAddress) else { return }
+        let job = PendingSelfStash(partnerAddress: contactAddress, ourAlias: "", theirAlias: nil, isResponse: false, contactOnly: true)
+        pendingSelfStash.append(job)
+        savePendingSelfStash()
+        noteContactStashed(contactAddress)
+        AppLog.log("%@", "[ChatService] Queued contact note for \(contactAddress.suffix(10))")
+        Task { [weak self] in await self?.attemptPendingSelfStashSends() }
+    }
+
+    /// Only chats with no handshake need one: a handshake chat is found again by its handshake
+    /// (and already writes its own note). Deterministic-only routing and no handshake message.
+    private func needsContactStash(_ contactAddress: String) -> Bool {
+        guard routingStates[contactAddress]?.mode == .deterministicOnly else { return false }
+        if let conversation = conversations.first(where: { $0.contact.address == contactAddress }),
+           conversation.messages.contains(where: { $0.messageType == .handshake }) {
+            return false
+        }
+        return true
+    }
+
+    /// Old chats, from before notes were written for them: every chat without a handshake that
+    /// you have sent a message in and that has no note gets one. Runs after each complete
+    /// read-back (`fetchSavedHandshakes`); a chat already noted or queued is skipped, so it only
+    /// ever writes what is missing. Each note is its own small transaction through the pending
+    /// queue, which sends as many as there are spare coins and keeps the rest for the next sync.
+    func backfillContactStashes() {
+        guard let wallet = WalletManager.shared.currentWallet?.publicAddress else { return }
+        loadContactStashStateIfNeeded(wallet: wallet)
+        guard contactStashIndexComplete else { return }
+        for conversation in conversations {
+            let address = conversation.contact.address
+            let hasSent = conversation.contact.hasSentOutgoingMessage
+                || contactsManager.getContact(byAddress: address)?.hasSentOutgoingMessage == true
+                || conversation.messages.contains(where: { $0.isOutgoing })
+            guard hasSent else { continue }
+            ensureContactStash(for: address)
+        }
+    }
+
+    /// Records that `contactAddress` has (or is getting) a note.
+    func noteContactStashed(_ contactAddress: String) {
+        guard let wallet = WalletManager.shared.currentWallet?.publicAddress, !contactAddress.isEmpty else { return }
+        loadContactStashStateIfNeeded(wallet: wallet)
+        guard contactStashKnownAddresses.insert(contactAddress).inserted else { return }
+        saveContactStashState(wallet: wallet)
+    }
+
+    /// Called by `fetchSavedHandshakes` with every contact a note was read back for, and whether
+    /// the read-back covered the whole history (a full scan).
+    func recordContactStashes(_ addresses: Set<String>, completeScan: Bool) {
+        guard let wallet = WalletManager.shared.currentWallet?.publicAddress else { return }
+        loadContactStashStateIfNeeded(wallet: wallet)
+        let before = contactStashKnownAddresses.count
+        contactStashKnownAddresses.formUnion(addresses.filter { !$0.isEmpty })
+        let becameComplete = completeScan && !contactStashIndexComplete
+        if becameComplete { contactStashIndexComplete = true }
+        if contactStashKnownAddresses.count != before || becameComplete {
+            saveContactStashState(wallet: wallet)
+        }
+    }
+
+    func loadContactStashStateIfNeeded(wallet: String) {
+        guard contactStashStateWallet != wallet else { return }
+        contactStashStateWallet = wallet
+        let known = userDefaults.stringArray(forKey: "kachat_contact_stash_known_\(wallet)") ?? []
+        contactStashKnownAddresses = Set(known)
+        contactStashIndexComplete = userDefaults.bool(forKey: "kachat_contact_stash_complete_\(wallet)")
+    }
+
+    private func saveContactStashState(wallet: String) {
+        userDefaults.set(Array(contactStashKnownAddresses), forKey: "kachat_contact_stash_known_\(wallet)")
+        userDefaults.set(contactStashIndexComplete, forKey: "kachat_contact_stash_complete_\(wallet)")
     }
 
     func submitSelfStashTx(
@@ -3840,15 +3931,22 @@ extension ChatService {
                 let (first, rest) = splitUtxosForSelfStash(remaining)
                 remaining = rest
                 do {
-                    let stashTx = try KasiaTransactionBuilder.buildHandshakeSelfStashTx(
-                        from: wallet.publicAddress,
-                        partnerAddress: job.partnerAddress,
-                        ourAlias: job.ourAlias,
-                        theirAlias: job.theirAlias,
-                        isResponse: job.isResponse,
-                        senderPrivateKey: privateKey,
-                        utxos: first
-                    )
+                    let stashTx = job.contactOnly == true
+                        ? try KasiaTransactionBuilder.buildContactSelfStashTx(
+                            from: wallet.publicAddress,
+                            partnerAddress: job.partnerAddress,
+                            senderPrivateKey: privateKey,
+                            utxos: first
+                        )
+                        : try KasiaTransactionBuilder.buildHandshakeSelfStashTx(
+                            from: wallet.publicAddress,
+                            partnerAddress: job.partnerAddress,
+                            ourAlias: job.ourAlias,
+                            theirAlias: job.theirAlias,
+                            isResponse: job.isResponse,
+                            senderPrivateKey: privateKey,
+                            utxos: first
+                        )
                     let (txId, endpoint) = try await rpcManager.submitTransaction(stashTx, allowOrphan: false)
                     AppLog.log("[ChatService] Self-stash submitted: \(txId) via \(endpoint)")
                     succeeded.append(job)
