@@ -344,6 +344,7 @@ final class KeychainService {
         try? deleteLegacyPrivateKey(includeAccessGroup: false)
         try deleteSecureEnclaveKey()
         clearDeviceIdCache()
+        groupBagCacheLock.withLock { groupBagCache.removeAll() }
     }
 
     func privateKeyStorageStatus() -> String {
@@ -407,19 +408,32 @@ final class KeychainService {
     // deliberately Keychain-only, never synced anywhere, matching the seed-phrase precedent.
     // A new device won't auto-restore group membership - the admin has to re-add it directly.
 
+    /// Decoded bags, by group id. `loadGroupBag` is on the group poll's path - every group,
+    /// every tick (5s while a group is open), and again per incoming message - and each uncached
+    /// call is a Keychain read, a Secure Enclave unwrap and a JSON decode, on the main actor
+    /// for its `GroupChatService` callers. The bag only changes through `saveGroupBag` /
+    /// `deleteGroupBag` here, which keep this in step; `clearAll` drops it.
+    private var groupBagCache: [String: GroupBag] = [:]
+    private let groupBagCacheLock = NSLock()
+
     func saveGroupBag(_ bag: GroupBag) throws {
         let data = try JSONEncoder().encode(bag)
         try saveSensitiveDataForGroup(data, baseKey: .groupBag, groupId: bag.groupId)
+        groupBagCacheLock.withLock { groupBagCache[bag.groupId] = bag }
     }
 
     func loadGroupBag(groupId: String) throws -> GroupBag? {
+        if let cached = groupBagCacheLock.withLock({ groupBagCache[groupId] }) { return cached }
         guard let data = try loadSensitiveDataForGroup(baseKey: .groupBag, groupId: groupId) else {
             return nil
         }
-        return try JSONDecoder().decode(GroupBag.self, from: data)
+        let bag = try JSONDecoder().decode(GroupBag.self, from: data)
+        groupBagCacheLock.withLock { groupBagCache[groupId] = bag }
+        return bag
     }
 
     func deleteGroupBag(groupId: String) throws {
+        groupBagCacheLock.withLock { _ = groupBagCache.removeValue(forKey: groupId) }
         try deleteSensitiveDataForGroup(baseKey: .groupBag, groupId: groupId)
     }
 
