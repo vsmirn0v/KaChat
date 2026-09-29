@@ -451,12 +451,17 @@ struct ChatListView: View {
         guard let address = chatService.pendingProfileAddress else { return }
         chatService.pendingProfileAddress = nil
         selectedListTab = .chats
-        if walletManager.currentWallet?.publicAddress.lowercased() == address.lowercased() {
-            linkedProfileContact = Contact(address: address)
-            return
+        let contact = walletManager.currentWallet?.publicAddress.lowercased() == address.lowercased()
+            ? Contact(address: address)
+            : (contactsManager.getContact(byAddress: address) ?? contactsManager.getOrCreateContact(address: address))
+        // A profile sheet already up (or one SwiftUI declined to present) would leave the binding
+        // stuck true, and no later link could open. Close it first, then present the new one.
+        if linkedProfileContact != nil {
+            linkedProfileContact = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { linkedProfileContact = contact }
+        } else {
+            linkedProfileContact = contact
         }
-        linkedProfileContact = contactsManager.getContact(byAddress: address)
-            ?? contactsManager.getOrCreateContact(address: address)
     }
 
     private func checkPendingNavigation() {

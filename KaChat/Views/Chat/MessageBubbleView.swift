@@ -493,11 +493,30 @@ struct MessageBubbleView: View {
 
     private var shouldShowRetry: Bool {
         guard message.isOutgoing, message.deliveryStatus == .failed else { return false }
+        if let chessEnvelope, !chessRetryStillFits(chessEnvelope) { return false }
         switch message.messageType {
         case .contextual, .audio, .handshake:
             return true
         case .payment:
             return false
+        }
+    }
+
+    /// A failed chess action is left off the board (see `ChessGameService.summarize`), so the
+    /// game carries on without it - and retrying it later would replay it into a game that has
+    /// moved on: a failed move retried after you played a different one lands on your board and
+    /// the opponent's in different orders, splitting the two boards. Retry is offered only
+    /// while the action still fits: a move while it is still your turn, an accept while the
+    /// game still waits for one, a resignation or invite while the game is not over.
+    private func chessRetryStillFits(_ envelope: ChessEnvelope) -> Bool {
+        guard let summary = chessSummary else { return true }
+        switch envelope {
+        case .move:
+            return summary.status == .inProgress && summary.board.sideToMove == summary.viewerColor
+        case .response:
+            return summary.status == .pendingResponse
+        case .resign, .invite:
+            return !summary.status.isGameOver
         }
     }
 
