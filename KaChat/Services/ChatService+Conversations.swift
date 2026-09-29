@@ -49,25 +49,73 @@ extension ChatService {
     /// Async/background fetch variant that keeps Core Data page
     /// reads and decrypt work off the main actor. The final in-memory merge still happens on
     /// the main actor for published state consistency.
-    /// Pulls the whole stored history of the open chat into memory, page after page, in the
-    /// background. The list then only ever grows its rendered window over messages already in
-    /// memory - scrolling up never waits on a store read, and the top of the chat is there
-    /// the moment the reader reaches it. The open conversation is exempt from the memory trim
-    /// (see `trimMessagesForMemory`'s callers), so what is loaded here stays until the chat is
-    /// left, when `leaveConversation`'s normal trim lets it go again.
+    /// Pulls the whole stored history of the open chat into memory in the background. The list
+    /// then only ever grows its rendered window over messages already in memory - scrolling up
+    /// never waits on a store read, and the top of the chat is there the moment the reader
+    /// reaches it. The open conversation is exempt from the memory trim (see
+    /// `trimMessagesForMemory`'s callers); `leaveConversation` trims it back once the chat is left.
+    ///
+    /// Gentle on purpose. It waits out the push animation, then reads pages off the main actor
+    /// and merges them in batches of `fullHistoryMergeBatch` messages. It used to merge and
+    /// publish `conversations` after every 500-message page, starting while the chat was still
+    /// sliding in; each publish re-rendered the chat list underneath, every row in it and the
+    /// open thread, and re-ran the thread's snapshot rebuild over the whole history - dozens of
+    /// times over for a long chat, which is the lag right after opening one.
+    private static let fullHistoryPageSize = 500
+    private static let fullHistoryMergeBatch = 3_000
+
     private func loadFullHistory(for address: String) {
         fullHistoryLoadTask?.cancel()
         fullHistoryLoadTask = Task { @MainActor [weak self] in
-            var pages = 0
-            while let self, !Task.isCancelled, self.activeConversationAddress == address, pages < 400 {
-                let loaded = await self.loadOlderMessagesPageAsync(for: address, pageSize: 500)
-                if loaded == 0 { break }
-                pages += 1
-                // A breath between pages: the merge publishes the conversation each time, and
-                // the reader is scrolling this very list.
-                try? await Task.sleep(nanoseconds: 40_000_000)
+            // Past the push transition, so the first frames of the chat are not competing.
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self, !Task.isCancelled, self.activeConversationAddress == address,
+                  !self.olderHistoryExhaustedContacts.contains(address),
+                  let key = self.messageEncryptionKey(),
+                  let index = self.conversations.firstIndex(where: { $0.contact.address == address }) else { return }
+
+            var cursor = self.oldestLoadedCursor(in: self.conversations[index])
+            var pending: [ChatMessage] = []
+            var exhausted = false
+            for _ in 0..<400 {
+                guard !Task.isCancelled, self.activeConversationAddress == address else { break }
+                let page = await self.messageStore.fetchMessagesPageAsync(
+                    contactAddress: address,
+                    decryptionKey: key,
+                    limit: Self.fullHistoryPageSize,
+                    olderThan: cursor
+                )
+                pending.append(contentsOf: page.messages)
+                guard let oldest = page.messages.min(by: Self.isMessageOrderedBefore), page.hasMore else {
+                    exhausted = true
+                    break
+                }
+                cursor = MessageStore.MessagePageCursor(
+                    blockTime: Int64(oldest.blockTime),
+                    timestamp: oldest.timestamp,
+                    txId: oldest.txId
+                )
+                if pending.count >= Self.fullHistoryMergeBatch {
+                    self.mergeOlderHistory(pending, into: address)
+                    pending.removeAll(keepingCapacity: true)
+                }
             }
+            guard !Task.isCancelled, self.activeConversationAddress == address else { return }
+            if !pending.isEmpty { self.mergeOlderHistory(pending, into: address) }
+            if exhausted { self.olderHistoryExhaustedContacts.insert(address) }
         }
+    }
+
+    /// One merge and one publish for a batch of older pages.
+    private func mergeOlderHistory(_ older: [ChatMessage], into address: String) {
+        guard let index = conversations.firstIndex(where: { $0.contact.address == address }) else { return }
+        var updatedConversations = conversations
+        var conversation = updatedConversations[index]
+        let merged = Self.dedupeMessages(older + conversation.messages)
+        guard merged.count != conversation.messages.count else { return }
+        conversation.messages = merged
+        updatedConversations[index] = conversation
+        conversations = updatedConversations
     }
 
     @discardableResult
@@ -143,8 +191,32 @@ extension ChatService {
         activeChatPollTask = nil
         fullHistoryLoadTask?.cancel()
         fullHistoryLoadTask = nil
+        let leftAddress = activeConversationAddress
         activeConversationAddress = nil
         AppLog.log("[ChatService] Left conversation")
+        if let leftAddress { trimLeftConversation(leftAddress) }
+    }
+
+    /// Lets go of the history `loadFullHistory` pulled in, back to the normal in-memory window,
+    /// once the chat has been left. A beat later, and only if it was not re-entered meanwhile:
+    /// pushing a screen over the chat (a chess game) leaves and re-enters it, and trimming in
+    /// between would make it load everything again. Without this, every long chat opened in a
+    /// session stayed whole in memory, and every later `conversations` publish carried it.
+    private func trimLeftConversation(_ address: String) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self, self.activeConversationAddress != address,
+                  let index = self.conversations.firstIndex(where: { $0.contact.address == address }) else { return }
+            let current = self.conversations[index].messages
+            guard current.count > Self.inMemoryConversationWindowSize else { return }
+            let trimmed = Self.trimMessagesForMemory(current)
+            guard trimmed.count < current.count else { return }
+            var updatedConversations = self.conversations
+            updatedConversations[index].messages = trimmed
+            self.conversations = updatedConversations
+            // The store still has everything; paging back up must be allowed to find it.
+            self.olderHistoryExhaustedContacts.remove(address)
+        }
     }
 
     /// While a 1:1 chat is open and the app is foregrounded, poll the indexer for new messages
