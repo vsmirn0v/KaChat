@@ -1558,9 +1558,33 @@ enum VoiceMessageSniff {
         InlineMediaSniff.mimeType(of: text)?.lowercased().hasPrefix("audio/") == true
     }
 
+    /// Decoded payloads by message text. `decode` is read from bubble bodies, which re-run far
+    /// more often than a message changes, and each uncached call was a full JSON parse plus a
+    /// base64 decode of the whole recording.
+    private final class PayloadBox {
+        let payload: Payload
+        init(_ payload: Payload) { self.payload = payload }
+    }
+    private static let payloadCache: NSCache<NSString, PayloadBox> = {
+        let cache = NSCache<NSString, PayloadBox>()
+        cache.countLimit = 64
+        return cache
+    }()
+
     /// Decodes the inline voice-message JSON into its mimeType and raw audio bytes, or nil if
     /// `text` isn't a voice message.
     static func decode(_ text: String) -> Payload? {
+        // Cheap rejections first: plain text, and JSON envelopes that are not audio (replies,
+        // chess, calls, photos), are answered from the head of the string.
+        guard text.first(where: { !$0.isWhitespace }) == "{", isVoiceMessage(text) else { return nil }
+        let key = text as NSString
+        if let cached = payloadCache.object(forKey: key) { return cached.payload }
+        guard let payload = decodeUncached(text) else { return nil }
+        payloadCache.setObject(PayloadBox(payload), forKey: key)
+        return payload
+    }
+
+    private static func decodeUncached(_ text: String) -> Payload? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let jsonData = trimmed.data(using: .utf8) else { return nil }
         guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
