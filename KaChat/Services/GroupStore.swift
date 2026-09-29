@@ -436,19 +436,36 @@ final class GroupStore {
         var edits: [String: MessageEditSnapshot] = [:]
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDGroupMessageEdit>(entityName: CDGroupMessageEdit.entityName)
-            request.predicate = NSPredicate(format: "groupId == %@", groupId)
-            guard let results = try? context.fetch(request) else { return }
-            for record in results {
-                guard let text = record.text else { continue }
-                let status: ChatMessage.DeliveryStatus
-                switch record.deliveryStatus {
-                case "failed": status = .failed
-                case "pending": status = .pending
-                default: status = .sent
-                }
-                edits[record.targetTxId] = MessageEditSnapshot(targetTxId: record.targetTxId, text: text, editTxId: record.editTxId, blockTime: record.blockTime, deliveryStatus: status)
+            edits = Self.editSnapshots(groupId: groupId, in: context)
+        }
+        return edits
+    }
+
+    /// `fetchGroupEdits` on a background context: opening a group read the whole group's edits
+    /// and reactions synchronously on the main thread while the thread slid in.
+    func fetchGroupEditsAsync(groupId: String) async -> [String: MessageEditSnapshot] {
+        guard isLoaded else { return [:] }
+        return await withCheckedContinuation { continuation in
+            container.performBackgroundTask { context in
+                continuation.resume(returning: Self.editSnapshots(groupId: groupId, in: context))
             }
+        }
+    }
+
+    private static func editSnapshots(groupId: String, in context: NSManagedObjectContext) -> [String: MessageEditSnapshot] {
+        var edits: [String: MessageEditSnapshot] = [:]
+        let request = NSFetchRequest<CDGroupMessageEdit>(entityName: CDGroupMessageEdit.entityName)
+        request.predicate = NSPredicate(format: "groupId == %@", groupId)
+        guard let results = try? context.fetch(request) else { return edits }
+        for record in results {
+            guard let text = record.text else { continue }
+            let status: ChatMessage.DeliveryStatus
+            switch record.deliveryStatus {
+            case "failed": status = .failed
+            case "pending": status = .pending
+            default: status = .sent
+            }
+            edits[record.targetTxId] = MessageEditSnapshot(targetTxId: record.targetTxId, text: text, editTxId: record.editTxId, blockTime: record.blockTime, deliveryStatus: status)
         }
         return edits
     }
@@ -474,20 +491,36 @@ final class GroupStore {
         var grouped: [String: [ReactionSnapshot]] = [:]
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDGroupReaction>(entityName: CDGroupReaction.entityName)
-            request.predicate = NSPredicate(format: "groupId == %@", groupId)
-            guard let results = try? context.fetch(request) else { return }
-            for record in results {
-                guard let emoji = record.emoji else { continue }
-                let status: ChatMessage.DeliveryStatus
-                switch record.deliveryStatus {
-                case "failed": status = .failed
-                case "pending": status = .pending
-                default: status = .sent
-                }
-                let snapshot = ReactionSnapshot(targetTxId: record.targetTxId, reactorAddress: record.reactorAddress, emoji: emoji, deliveryStatus: status, failedAction: record.failedAction, blockTime: record.blockTime)
-                grouped[record.targetTxId, default: []].append(snapshot)
+            grouped = Self.reactionSnapshots(groupId: groupId, in: context)
+        }
+        return grouped
+    }
+
+    /// `fetchGroupReactions` on a background context - see `fetchGroupEditsAsync`.
+    func fetchGroupReactionsAsync(groupId: String) async -> [String: [ReactionSnapshot]] {
+        guard isLoaded else { return [:] }
+        return await withCheckedContinuation { continuation in
+            container.performBackgroundTask { context in
+                continuation.resume(returning: Self.reactionSnapshots(groupId: groupId, in: context))
             }
+        }
+    }
+
+    private static func reactionSnapshots(groupId: String, in context: NSManagedObjectContext) -> [String: [ReactionSnapshot]] {
+        var grouped: [String: [ReactionSnapshot]] = [:]
+        let request = NSFetchRequest<CDGroupReaction>(entityName: CDGroupReaction.entityName)
+        request.predicate = NSPredicate(format: "groupId == %@", groupId)
+        guard let results = try? context.fetch(request) else { return grouped }
+        for record in results {
+            guard let emoji = record.emoji else { continue }
+            let status: ChatMessage.DeliveryStatus
+            switch record.deliveryStatus {
+            case "failed": status = .failed
+            case "pending": status = .pending
+            default: status = .sent
+            }
+            let snapshot = ReactionSnapshot(targetTxId: record.targetTxId, reactorAddress: record.reactorAddress, emoji: emoji, deliveryStatus: status, failedAction: record.failedAction, blockTime: record.blockTime)
+            grouped[record.targetTxId, default: []].append(snapshot)
         }
         return grouped
     }

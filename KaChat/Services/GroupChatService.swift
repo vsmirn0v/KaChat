@@ -680,9 +680,37 @@ final class GroupChatService: ObservableObject {
 
     /// Loads this group's reactions from disk into the live in-memory index - mirrors
     /// `ChatService.loadReactions(for:)` for 1:1.
+    ///
+    /// Read on a background context - opening a group, and warming every group at wallet load,
+    /// used to read each group's reactions and edits synchronously on the main thread. Live
+    /// changes that land while the read is in flight (an incoming reaction, your own tap) are
+    /// already in the store AND the index, so any key that moved during the read keeps its
+    /// live value rather than the read's.
     func loadGroupReactions(for groupId: String) {
-        editsByGroupId[groupId] = store.fetchGroupEdits(groupId: groupId)
-        reactionsByGroupId[groupId] = store.fetchGroupReactions(groupId: groupId)
+        let editsBefore = editsByGroupId[groupId]
+        let reactionsBefore = reactionsByGroupId[groupId]
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let edits = await self.store.fetchGroupEditsAsync(groupId: groupId)
+            let reactions = await self.store.fetchGroupReactionsAsync(groupId: groupId)
+            let mergedEdits = Self.keepingLiveChanges(read: edits, before: editsBefore, now: self.editsByGroupId[groupId])
+            if self.editsByGroupId[groupId] != mergedEdits { self.editsByGroupId[groupId] = mergedEdits }
+            let mergedReactions = Self.keepingLiveChanges(read: reactions, before: reactionsBefore, now: self.reactionsByGroupId[groupId])
+            if self.reactionsByGroupId[groupId] != mergedReactions { self.reactionsByGroupId[groupId] = mergedReactions }
+        }
+    }
+
+    /// `read` from the store, overlaid with every key the live index changed (set or removed)
+    /// between `before` (when the read started) and `now`.
+    private static func keepingLiveChanges<V: Equatable>(read: [String: V], before: [String: V]?, now: [String: V]?) -> [String: V] {
+        let before = before ?? [:]
+        let now = now ?? [:]
+        guard before != now else { return read }
+        var merged = read
+        for key in Set(before.keys).union(now.keys) where before[key] != now[key] {
+            merged[key] = now[key]
+        }
+        return merged
     }
 
     private func applyLocalGroupReaction(targetTxId: String, groupId: String, reactorAddress: String, emoji: String, deliveryStatus: ChatMessage.DeliveryStatus = .sent, failedAction: String? = nil, blockTime: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) {
@@ -888,6 +916,8 @@ final class GroupChatService: ObservableObject {
     func setCurrentWallet(_ walletAddress: String?) {
         hasActiveWallet = walletAddress != nil
         currentWalletAddress = walletAddress
+        // Another wallet's store: what this one handled says nothing about it.
+        handledGroupTxIds.removeAll()
         loadGroupCatchUpCursors()
         loadGroupLastReadAt()
         loadGroupHiddenMembers()
@@ -949,6 +979,7 @@ final class GroupChatService: ObservableObject {
             try? keychain.deleteGroupBag(groupId: group.id)
         }
         store.clearAll()
+        handledGroupTxIds.removeAll()
         groups = []
         groupMessages.removeAll()
         groupCatchUpCursors = [:]
@@ -1299,6 +1330,8 @@ final class GroupChatService: ObservableObject {
     func deleteGroup(_ groupId: String) {
         try? keychain.deleteGroupBag(groupId: groupId)
         store.deleteGroup(id: groupId)
+        // Its messages are gone from the store; a re-join must be able to store them again.
+        handledGroupTxIds.removeAll()
         groups.removeAll { $0.id == groupId }
         groupMessages.removeValue(forKey: groupId)
         SharedDataManager.syncGroupsForExtension()
@@ -2303,7 +2336,21 @@ final class GroupChatService: ObservableObject {
         }
     }
 
+    /// gcomm txids fully handled this session (inserted, or applied as a reaction or edit).
+    /// Catch-up re-serves its rewind window on every pass and the live poll repeats it, and each
+    /// re-serve paid the signature check, the decrypt and a store fetch again, on the main
+    /// actor, before the store's own dedupe said "already have it". Only successes are
+    /// remembered: a message rejected for a missing epoch key must be tried again once the key
+    /// arrives.
+    private var handledGroupTxIds: Set<String> = []
+
+    private func markGroupTxHandled(_ txId: String) {
+        if handledGroupTxIds.count >= 20_000 { handledGroupTxIds.removeAll(keepingCapacity: true) }
+        handledGroupTxIds.insert(txId)
+    }
+
     private func handleIncomingGroupMessage(_ parsed: GroupCipher.ParsedGroupMessage, txId: String, blockTime: Int64) {
+        guard !handledGroupTxIds.contains(txId) else { return }
         var matchedAnyGroup = false
         for group in groups {
             guard let bag = try? keychain.loadGroupBag(groupId: group.id),
@@ -2360,6 +2407,7 @@ final class GroupChatService: ObservableObject {
                     let snapshot = MessageEditSnapshot(targetTxId: edit.targetTxId, text: edit.text, editTxId: txId, blockTime: blockTime, deliveryStatus: .sent)
                     applyLocalGroupEdit(snapshot, groupId: group.id)
                     store.upsertGroupEdit(targetTxId: edit.targetTxId, groupId: group.id, text: edit.text, editTxId: txId, blockTime: blockTime)
+                    markGroupTxHandled(txId)
                 }
                 return
             }
@@ -2385,6 +2433,7 @@ final class GroupChatService: ObservableObject {
                     removeLocalGroupReaction(targetTxId: reaction.targetTxId, groupId: group.id, reactorAddress: senderAddress)
                     store.removeGroupReaction(targetTxId: reaction.targetTxId, reactorAddress: senderAddress)
                 }
+                markGroupTxHandled(txId)
                 return
             }
 
@@ -2394,6 +2443,8 @@ final class GroupChatService: ObservableObject {
                 blockTime: blockTime, isOutgoing: senderAddress == WalletManager.shared.currentWallet?.publicAddress,
                 deliveryStatus: .sent
             )
+            // Stored now, or already stored: either way this tx never needs handling again.
+            markGroupTxHandled(txId)
             guard inserted else { return }
 
             let message = GroupMessage(
@@ -2522,6 +2573,8 @@ final class GroupChatService: ObservableObject {
     private func deleteLocalGroupForTombstone(_ groupId: String) {
         try? keychain.deleteGroupBag(groupId: groupId)
         store.deleteGroup(id: groupId)
+        // Its messages are gone from the store; a re-join must be able to store them again.
+        handledGroupTxIds.removeAll()
         groups.removeAll { $0.id == groupId }
         groupMessages.removeValue(forKey: groupId)
         SharedDataManager.syncGroupsForExtension()
