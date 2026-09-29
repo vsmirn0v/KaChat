@@ -1522,10 +1522,13 @@ extension ChatService {
         let startBlockTime: UInt64 = fullScanDue ? 0 : highWater - min(highWater, Self.selfStashReorgRewindMs)
 
         let savedHandshakes: [SelfStashResponse]
+        let readReachedEnd: Bool
         do {
-            savedHandshakes = try await apiClient.getSelfStash(
+            let read = try await apiClient.getSelfStashReportingEnd(
                 owner: myAddress, scope: "saved_handshake", startBlockTime: startBlockTime
             )
+            savedHandshakes = read.items
+            readReachedEnd = read.reachedEnd
         } catch {
             // Any failure - including the DPI path that returns quietly below - drops the mark:
             // the next attempt is a from-zero scan, so a partial read can never leave a gap
@@ -1572,9 +1575,15 @@ extension ChatService {
             }
         }
         // Which contacts already have a note; after a full read-back, write the missing ones
-        // for chats that never had a handshake (see `ensureContactStash`).
-        recordContactStashes(notedContacts, completeScan: fullScanDue)
-        if fullScanDue { backfillContactStashes() }
+        // for chats that never had a handshake (see `ensureContactStash`). "Full" means from
+        // block time 0 AND to the end - a read stopped at the page cap is not complete, and
+        // treating it so would write a second note for every contact past the cut-off. Only
+        // for the wallet this read was for: a switch during the awaits above must not credit
+        // this wallet's notes to the next one.
+        guard isActiveWallet(myAddress) else { return }
+        let completeScan = fullScanDue && readReachedEnd
+        recordContactStashes(notedContacts, completeScan: completeScan, wallet: myAddress)
+        if completeScan { backfillContactStashes() }
     }
 
     /// Per-phase retry budget for fetches running INSIDE a sync cycle. `fetchNewMessages`

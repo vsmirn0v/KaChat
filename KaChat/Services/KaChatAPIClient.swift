@@ -324,14 +324,25 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
     /// it (rewound for reorg safety) to read only what landed since - see
     /// `ChatService.fetchSavedHandshakes`.
     func getSelfStash(owner: String, scope: String, limit: Int = 50, startBlockTime: UInt64 = 0) async throws -> [SelfStashResponse] {
+        try await getSelfStashReportingEnd(owner: owner, scope: scope, limit: limit, startBlockTime: startBlockTime).items
+    }
+
+    /// `getSelfStash`, plus whether the read actually reached the end of the owner's stash - a
+    /// short last page - rather than stopping at the page cap or on a page that made no
+    /// progress. Contact-note bookkeeping only trusts a read-back that reached the end.
+    func getSelfStashReportingEnd(owner: String, scope: String, limit: Int = 50, startBlockTime: UInt64 = 0) async throws -> (items: [SelfStashResponse], reachedEnd: Bool) {
         let scopeHex = scope.data(using: .utf8)?.map { String(format: "%02x", $0) }.joined() ?? ""
-        return try await getPaginated(
+        var reachedEnd = false
+        let items: [SelfStashResponse] = try await getPaginated(
             endpoint: "/self-stash/by-owner",
             params: ["owner": owner, "scope": scopeHex],
             limit: limit,
             startBlockTime: startBlockTime,
-            getBlockTime: { $0.blockTime }
+            maxPages: 200,
+            getBlockTime: { $0.blockTime },
+            reachedEnd: { reachedEnd = $0 }
         )
+        return (items, reachedEnd)
     }
 
     // MARK: - Group Messages
@@ -538,13 +549,16 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         limit: Int,
         startBlockTime: UInt64,
         maxPages: Int = 20,
-        getBlockTime: (T) -> UInt64?
+        getBlockTime: (T) -> UInt64?,
+        reachedEnd: ((Bool) -> Void)? = nil
     ) async throws -> [T] {
         var allResults: [T] = []
         var currentBlockTime = startBlockTime
         var pageCount = 0
         let baseLimit = limit
         var currentLimit = baseLimit
+        var endedOnShortPage = false
+        defer { reachedEnd?(endedOnShortPage) }
 
         while pageCount < maxPages {
             // Build params with current cursor
@@ -574,6 +588,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
 
             // If we got fewer results than the limit, we've reached the end
             if results.count < currentLimit {
+                endedOnShortPage = true
                 break
             }
 

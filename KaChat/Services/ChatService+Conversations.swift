@@ -3765,7 +3765,6 @@ extension ChatService {
         let job = PendingSelfStash(partnerAddress: contactAddress, ourAlias: ourAlias, theirAlias: theirAlias, isResponse: isResponse)
         pendingSelfStash.append(job)
         savePendingSelfStash()
-        noteContactStashed(contactAddress)
         AppLog.log("%@", "[ChatService] Queued self-stash for \(contactAddress.suffix(10))")
     }
 
@@ -3778,7 +3777,7 @@ extension ChatService {
     /// encrypted to yourself, in a transaction to yourself - and `fetchSavedHandshakes` on the
     /// new device turns it back into the chat. Once per contact, and only after a complete
     /// read-back of the notes already on chain, so it never writes one that exists.
-    func ensureContactStash(for contactAddress: String) {
+    func ensureContactStash(for contactAddress: String, flushQueuedStashes: Bool = true) {
         guard let wallet = WalletManager.shared.currentWallet?.publicAddress,
               contactAddress != wallet else { return }
         loadContactStashStateIfNeeded(wallet: wallet)
@@ -3789,9 +3788,8 @@ extension ChatService {
         let job = PendingSelfStash(partnerAddress: contactAddress, ourAlias: "", theirAlias: nil, isResponse: false, contactOnly: true)
         pendingSelfStash.append(job)
         savePendingSelfStash()
-        noteContactStashed(contactAddress)
         AppLog.log("%@", "[ChatService] Queued contact note for \(contactAddress.suffix(10))")
-        Task { [weak self] in await self?.attemptPendingSelfStashSends() }
+        if flushQueuedStashes { Task { [weak self] in await self?.attemptPendingSelfStashSends() } }
     }
 
     /// Only chats with no handshake need one: a handshake chat is found again by its handshake
@@ -3820,8 +3818,10 @@ extension ChatService {
                 || contactsManager.getContact(byAddress: address)?.hasSentOutgoingMessage == true
                 || conversation.messages.contains(where: { $0.isOutgoing })
             guard hasSent else { continue }
-            ensureContactStash(for: address)
+            ensureContactStash(for: address, flushQueuedStashes: false)
         }
+        // One send pass for the whole batch, not one per queued note.
+        Task { [weak self] in await self?.attemptPendingSelfStashSends() }
     }
 
     /// Records that `contactAddress` has (or is getting) a note.
@@ -3834,8 +3834,7 @@ extension ChatService {
 
     /// Called by `fetchSavedHandshakes` with every contact a note was read back for, and whether
     /// the read-back covered the whole history (a full scan).
-    func recordContactStashes(_ addresses: Set<String>, completeScan: Bool) {
-        guard let wallet = WalletManager.shared.currentWallet?.publicAddress else { return }
+    func recordContactStashes(_ addresses: Set<String>, completeScan: Bool, wallet: String) {
         loadContactStashStateIfNeeded(wallet: wallet)
         let before = contactStashKnownAddresses.count
         contactStashKnownAddresses.formUnion(addresses.filter { !$0.isEmpty })
@@ -3908,7 +3907,12 @@ extension ChatService {
     func attemptPendingSelfStashSends() async {
         guard let wallet = WalletManager.shared.currentWallet,
               let privateKey = WalletManager.shared.getPrivateKey(),
-              !pendingSelfStash.isEmpty else { return }
+              !pendingSelfStash.isEmpty,
+              !isFlushingSelfStash else { return }
+        // One pass at a time: two overlapping passes read the same queue, and the second could
+        // spend the first one's fresh change on the same note - a duplicate and a second fee.
+        isFlushingSelfStash = true
+        defer { isFlushingSelfStash = false }
 
         do {
             let rpcManager = NodePoolService.shared
@@ -3948,6 +3952,9 @@ extension ChatService {
                     let (txId, endpoint) = try await rpcManager.submitTransaction(stashTx, allowOrphan: false)
                     AppLog.log("[ChatService] Self-stash submitted: \(txId) via \(endpoint)")
                     succeeded.append(job)
+                    // Noted only once it is actually on its way: the queue does not survive a
+                    // wallet switch, and a note marked at queue time would never be written.
+                    noteContactStashed(job.partnerAddress)
                 } catch {
                     AppLog.log("%@", "[ChatService] Pending self-stash failed: \(error.localizedDescription)")
                 }

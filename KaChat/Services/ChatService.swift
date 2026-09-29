@@ -547,6 +547,8 @@ final class ChatService: ObservableObject {
     var contactStashKnownAddresses: Set<String> = []
     var contactStashIndexComplete = false
     var contactStashStateWallet: String?
+    /// A pending self-stash send pass is running (`attemptPendingSelfStashSends`).
+    var isFlushingSelfStash = false
     var cachedUtxos: [UTXO] = []
     var cachedUtxosTimestamp: Date?
     let utxoCacheInterval: TimeInterval = 20
