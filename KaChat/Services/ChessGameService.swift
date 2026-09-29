@@ -164,17 +164,24 @@ enum ChessGameService {
                   envelope.gameId == gameId else { continue }
             lastMessageTxId = message.txId
             let senderAddress = message.isOutgoing ? myAddress : contactAddress
+            // Your own response, move or resignation that failed to send never reached the
+            // opponent, so it does not change the game on your side either - otherwise the two
+            // boards disagree (you see the game started, or over, and they are still waiting).
+            // It stays the last action, which is what offers Retry.
+            let unsent = message.isOutgoing && message.deliveryStatus == .failed
 
             switch envelope {
             case .invite(let content):
                 invite = content
                 inviterAddress = senderAddress
             case .response(let content):
+                if unsent { continue }
                 response = content
             case .move(let content):
-                if message.isOutgoing && message.deliveryStatus == .failed { continue }
+                if unsent { continue }
                 moveEntries.append((message, content, senderAddress))
             case .resign(let content):
+                if unsent { continue }
                 resignerAddress = senderAddress
                 resignReason = content.reason
             }
@@ -245,7 +252,10 @@ enum ChessGameService {
             status = .resigned(loser: loser, timeout: resignReason == "timeout")
         } else if let response, !response.accepted {
             status = .declined
-        } else if response == nil {
+        } else if response == nil && moveHistory.isEmpty {
+            // A move on the board means the game was accepted, even when the acceptance itself
+            // has not reached this phone yet (or never will) - the game goes on rather than
+            // sitting on "Waiting for response" with the opponent's first move already here.
             status = .pendingResponse
         } else if ChessEngine.isCheckmate(board) {
             status = .checkmate(winner: board.sideToMove.opposite)
