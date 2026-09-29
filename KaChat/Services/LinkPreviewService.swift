@@ -413,6 +413,14 @@ enum NextcloudMediaKind: String, Equatable {
 /// shape (`KNSService.swift` `fetchPrimaryNameResult`) and `MessageTextRenderPlan`'s `NSCache`
 /// sizing convention (`countLimit = 2_048`).
 actor LinkPreviewService {
+    /// What a log line may say about a link: its host, never the path or query. Logs are
+    /// public (`AppLog`) and ship in the diagnostics export, and a Nextcloud share link's path
+    /// IS its access token - logging it handed the user's private photos and voice notes to
+    /// anyone who read the export.
+    nonisolated static func logLabel(_ url: URL) -> String {
+        url.host ?? "(no host)"
+    }
+
     static let shared = LinkPreviewService()
 
     /// `nil` value = "fetched, but no preview data found" (still worth caching so a bad/plain link
@@ -555,7 +563,7 @@ actor LinkPreviewService {
                 // it at the back of the FIFO like any new entry.
                 evict(key)
             } else {
-                AppLog.log("[LinkPreview] cache hit for %@ -> %@", key, cached == nil ? "no data" : "has data")
+                AppLog.log("[LinkPreview] cache hit for %@ -> %@", Self.logLabel(url), cached == nil ? "no data" : "has data")
                 return cached
             }
         }
@@ -565,18 +573,18 @@ actor LinkPreviewService {
         }
 
         if let existing = inFlight[key] {
-            AppLog.log("[LinkPreview] joining in-flight fetch for %@", key)
+            AppLog.log("[LinkPreview] joining in-flight fetch for %@", Self.logLabel(url))
             return await existing.value
         }
 
-        AppLog.log("[LinkPreview] fetching %@", key)
+        AppLog.log("[LinkPreview] fetching %@", Self.logLabel(url))
         let task = Task<LinkPreviewData?, Never> { [weak self] in
             await self?.fetchPreview(for: url)
         }
         inFlight[key] = task
         let result = await task.value
         inFlight.removeValue(forKey: key)
-        AppLog.log("[LinkPreview] result for %@ -> %@", key, result == nil ? "nil (no preview)" : "title=\(result?.title ?? "nil") image=\(result?.imageURLString ?? "nil")")
+        AppLog.log("[LinkPreview] result for %@ -> %@", Self.logLabel(url), result == nil ? "no preview" : "preview")
         store(result, forKey: key)
         return result
     }
@@ -695,7 +703,7 @@ actor LinkPreviewService {
                 }
             }
             if let revokedStatus {
-                AppLog.log("[LinkPreview] Nextcloud share gone (HTTP %d) for %@", revokedStatus, url.absoluteString)
+                AppLog.log("[LinkPreview] Nextcloud share gone (HTTP %d) for %@", revokedStatus, LinkPreviewService.logLabel(url))
                 return LinkPreviewData(
                     url: url,
                     title: nil,
@@ -706,7 +714,7 @@ actor LinkPreviewService {
                 )
             }
             guard let http else {
-                AppLog.log("[LinkPreview] Nextcloud HEAD+ranged-GET both failed for %@", url.absoluteString)
+                AppLog.log("[LinkPreview] Nextcloud HEAD+ranged-GET both failed for %@", LinkPreviewService.logLabel(url))
                 return nil
             }
             let contentType = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
@@ -745,7 +753,7 @@ actor LinkPreviewService {
                 mediaByteSize: byteSize
             )
         } catch {
-            AppLog.log("[LinkPreview] Nextcloud HEAD failed for %@: %@", url.absoluteString, error.localizedDescription)
+            AppLog.log("[LinkPreview] Nextcloud HEAD failed for %@: %@", LinkPreviewService.logLabel(url), error.localizedDescription)
             return nil
         }
     }
@@ -769,7 +777,7 @@ actor LinkPreviewService {
 
     private func fetchPreview(for url: URL) async -> LinkPreviewData? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            AppLog.log("[LinkPreview] rejected non-http(s) scheme for %@", url.absoluteString)
+            AppLog.log("[LinkPreview] rejected non-http(s) scheme for %@", LinkPreviewService.logLabel(url))
             return nil
         }
 
@@ -811,17 +819,17 @@ actor LinkPreviewService {
             // links the user's own contacts sent.
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                AppLog.log("[LinkPreview] non-HTTP response for %@", url.absoluteString)
+                AppLog.log("[LinkPreview] non-HTTP response for %@", LinkPreviewService.logLabel(url))
                 return nil
             }
-            AppLog.log("[LinkPreview] HTTP %d, %d bytes for %@", httpResponse.statusCode, data.count, url.absoluteString)
+            AppLog.log("[LinkPreview] HTTP %d, %d bytes for %@", httpResponse.statusCode, data.count, LinkPreviewService.logLabel(url))
             guard (200..<300).contains(httpResponse.statusCode) else {
                 return nil
             }
 
             let capped = data.count > maxBodyBytes ? data.prefix(maxBodyBytes) : data
             guard let html = String(data: capped, encoding: .utf8) ?? String(data: capped, encoding: .isoLatin1) else {
-                AppLog.log("[LinkPreview] could not decode response body as text for %@", url.absoluteString)
+                AppLog.log("[LinkPreview] could not decode response body as text for %@", LinkPreviewService.logLabel(url))
                 return nil
             }
 
@@ -831,7 +839,7 @@ actor LinkPreviewService {
             }
             return parsed
         } catch {
-            AppLog.log("[LinkPreview] fetch failed for %@: %@", url.absoluteString, error.localizedDescription)
+            AppLog.log("[LinkPreview] fetch failed for %@: %@", LinkPreviewService.logLabel(url), error.localizedDescription)
             if let host = url.host?.lowercased(), host.contains("instagram") {
                 return Self.instagramFallback(for: url, scraped: nil)
             }
@@ -891,7 +899,7 @@ actor LinkPreviewService {
         do {
             let (data, response) = try await session.data(from: oEmbedURL)
             guard let httpResponse = response as? HTTPURLResponse else { return nil }
-            AppLog.log("[LinkPreview] YouTube oEmbed HTTP %d, %d bytes for %@", httpResponse.statusCode, data.count, url.absoluteString)
+            AppLog.log("[LinkPreview] YouTube oEmbed HTTP %d, %d bytes for %@", httpResponse.statusCode, data.count, LinkPreviewService.logLabel(url))
             guard (200..<300).contains(httpResponse.statusCode) else { return nil }
 
             let decoded = try JSONDecoder().decode(YouTubeOEmbedResponse.self, from: data)
@@ -905,7 +913,7 @@ actor LinkPreviewService {
                 siteName: "YouTube"
             )
         } catch {
-            AppLog.log("[LinkPreview] YouTube oEmbed failed for %@: %@", url.absoluteString, error.localizedDescription)
+            AppLog.log("[LinkPreview] YouTube oEmbed failed for %@: %@", LinkPreviewService.logLabel(url), error.localizedDescription)
             return nil
         }
     }
@@ -917,7 +925,7 @@ actor LinkPreviewService {
         let siteName = metaContent(property: "og:site_name", in: html) ?? url.host
 
         guard title != nil || description != nil || imageURLString != nil else {
-            AppLog.log("[LinkPreview] no og: tags found in %d chars of HTML for %@", html.count, url.absoluteString)
+            AppLog.log("[LinkPreview] no og: tags found in %d chars of HTML for %@", html.count, LinkPreviewService.logLabel(url))
             return nil
         }
 
