@@ -8,8 +8,11 @@ struct ChatListView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var groupChatService: GroupChatService
-    /// Observed for the Public Chats tab's unread badge.
-    @ObservedObject private var publicChats = PublicChatService.shared
+    /// Not observed here. It was, for the Public Chats page's unread badge alone, so every room
+    /// message, read marker, reaction and poll re-rendered the whole chat list - all three
+    /// pages, underneath an open room too. The badge observes it by itself
+    /// (`PublicChatsUnreadBadge`), and the rooms page observes it on its own.
+    private var publicChats: PublicChatService { PublicChatService.shared }
     @State private var showPublicChatsSettings = false
     /// The public room open on top of this list (see PublicChatListView.externalSelection).
     @State private var selectedPublicRoom: String?
@@ -645,12 +648,6 @@ struct ChatListView: View {
         // would either strand a selection the visible list can't act on, or silently blend Chats
         // and Group Chats selections together, so the other tab is inert while editing.
         let isSwitchBlocked = editMode == .active && !isSelected
-        let unreadCount: Int
-        switch tab {
-        case .chats: unreadCount = chatService.conversations.reduce(0) { $0 + $1.unreadCount }
-        case .groups: unreadCount = groupChatService.totalGroupUnreadCount
-        case .publicChats: unreadCount = publicChats.totalUnreadCount
-        }
         return Button {
             guard !isSwitchBlocked else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -663,13 +660,13 @@ struct ChatListView: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(isSwitchBlocked ? 0.25 : 0.5))
 
-                    if unreadCount > 0 {
-                        Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                            .font(.caption2.weight(.bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(Color.red))
+                    switch tab {
+                    case .chats:
+                        ChatsTabUnreadBadge(count: chatService.conversations.reduce(0) { $0 + $1.unreadCount })
+                    case .groups:
+                        ChatsTabUnreadBadge(count: groupChatService.totalGroupUnreadCount)
+                    case .publicChats:
+                        PublicChatsUnreadBadge()
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -1874,4 +1871,30 @@ struct GroupChatRow: View {
         .environmentObject(ChatService.shared)
         .environmentObject(ContactsManager.shared)
         .environmentObject(WalletManager.shared)
+}
+
+/// The red count beside a Chats / Group Chats / Public Chats page title.
+private struct ChatsTabUnreadBadge: View {
+    let count: Int
+
+    var body: some View {
+        if count > 0 {
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(.caption2.weight(.bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.red))
+        }
+    }
+}
+
+/// The Public Chats page's badge, observing `PublicChatService` on its own so room traffic
+/// re-renders this badge rather than the whole chat list.
+private struct PublicChatsUnreadBadge: View {
+    @ObservedObject private var publicChats = PublicChatService.shared
+
+    var body: some View {
+        ChatsTabUnreadBadge(count: publicChats.totalUnreadCount)
+    }
 }
