@@ -143,9 +143,10 @@ async function loadPost(txid) {
       timestamp: Number(post.timestamp) || Date.now(),
       parentPostId: post.parentPostId || null,
       editedAt: post.editedAt ? Number(post.editedAt) : null,
-      replies: post.repliesCount || 0,
-      likes: post.upVotesCount || 0,
-      reposts: post.quotesCount || 0,
+      // Numbers, whatever the indexer sent: they go into the page unescaped.
+      replies: Math.max(0, Math.floor(Number(post.repliesCount) || 0)),
+      likes: Math.max(0, Math.floor(Number(post.upVotesCount) || 0)),
+      reposts: Math.max(0, Math.floor(Number(post.quotesCount) || 0)),
       quote: post.quote && post.quote.referencedMessage
         ? { text: safeBase64(post.quote.referencedMessage), pubkey: post.quote.referencedSenderPubkey || '' }
         : null,
@@ -474,9 +475,14 @@ function send(res, status, type, body, extraHeaders = {}) {
   res.end(body);
 }
 
+// Only these files are served from STATIC_DIR. A decoded path segment can carry "/" or ".."
+// ("/server%2Fserver.js" returned this file), so names are allowlisted, never joined blindly.
+const STATIC_FILES = new Set(['index.html', 'eula.html', 'og-default.png', 'favicon.ico', 'robots.txt']);
+
 function serveStatic(res, name) {
+  if (!STATIC_FILES.has(name)) return false;
   const file = path.join(STATIC_DIR, name);
-  if (!file.startsWith(STATIC_DIR) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return false;
+  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return false;
   const types = { '.html': 'text/html; charset=utf-8', '.png': 'image/png', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.css': 'text/css', '.js': 'text/javascript', '.txt': 'text/plain' };
   send(res, 200, types[path.extname(file)] || 'application/octet-stream', fs.readFileSync(file), { 'cache-control': 'public, max-age=3600' });
   return true;
