@@ -536,6 +536,26 @@ final class PublicChatService: ObservableObject {
     /// Channels the indexer has answered at least once this session - the chess arena waits
     /// for this before letting a player pick a room (`ChessTournamentService.historyReady`).
     @Published private(set) var indexerFetchedChannels: Set<String> = []
+
+    /// Indexer rows already applied this session, per channel: reaction and edit txids that
+    /// landed, and "txid@blockTime" for service-room block-time fixes. The steady-state poll
+    /// re-serves the newest 30 rows every 8s, and each of those used to cost a synchronous
+    /// Core Data fetch on the main actor again - reapplying is idempotent, so it only ever cost
+    /// time. Not persisted: a fresh launch re-checks once, which is the safe direction.
+    private var appliedIndexerRows: [String: Set<String>] = [:]
+    private static let appliedIndexerRowsCap = 4_000
+
+    private func wasApplied(_ key: String, channel: String) -> Bool {
+        appliedIndexerRows[channel]?.contains(key) == true
+    }
+
+    private func markApplied(_ key: String, channel: String) {
+        var set = appliedIndexerRows[channel] ?? []
+        // Bounded by forgetting everything at the cap; the cost is one re-check per row.
+        if set.count >= Self.appliedIndexerRowsCap { set.removeAll(keepingCapacity: true) }
+        set.insert(key)
+        appliedIndexerRows[channel] = set
+    }
     /// Where an interrupted deep backfill picks up: the `before` cursor of the next page to
     /// ask for, and how many pages of the safety valve are left. Session-only, like the
     /// completed set above. Without this a single thrown page - one timeout on page 30 of a
@@ -662,12 +682,20 @@ final class PublicChatService: ObservableObject {
         var editsChanged = false
         for row in visible {
             if let edit = MessageEditCodec.parse(row.content) {
+                guard !wasApplied(row.txId, channel: channel) else { continue }
+                // Marked only once it lands: an edit met before its target message (history
+                // pages come newest first) has to be tried again when the target arrives.
                 if applyIncomingEdit(edit, channel: channel, senderAddress: row.senderAddress, editTxId: row.txId, blockTime: row.blockTime) {
                     editsChanged = true
+                    markApplied(row.txId, channel: channel)
                 }
                 continue
             }
             guard let reaction = MessageReactionCodec.parse(row.content) else { continue }
+            guard !wasApplied(row.txId, channel: channel) else { continue }
+            // A reaction row is keyed by target and reactor, not by the target's presence, so
+            // once the store has seen this tx (applied, or superseded) it never needs it again.
+            if store.isReady { markApplied(row.txId, channel: channel) }
             let changed = store.applyIncomingReaction(
                 targetTxId: reaction.targetTxId,
                 channel: channel,
@@ -692,8 +720,13 @@ final class PublicChatService: ObservableObject {
         if Self.serviceChannels.contains(channel) {
             // Rows this phone sent carry its own clock until the chain's time reaches us -
             // see processPublicChatHits.
-            for row in rows where store.updateBlockTime(id: row.id, blockTime: row.blockTime) {
-                insertedCount += 1
+            for row in rows {
+                let key = "\(row.id)@\(row.blockTime)"
+                guard !wasApplied(key, channel: channel) else { continue }
+                if store.updateBlockTime(id: row.id, blockTime: row.blockTime) {
+                    insertedCount += 1
+                }
+                if store.isReady { markApplied(key, channel: channel) }
             }
         }
         if insertedCount > 0 {

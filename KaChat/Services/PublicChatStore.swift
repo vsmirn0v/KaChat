@@ -60,6 +60,8 @@ final class PublicChatStore {
     private let container: NSPersistentContainer
     private(set) var currentWalletAddress: String?
     private var isLoaded = false
+    /// Whether the store is open, for callers that remember what it has already applied.
+    var isReady: Bool { isLoaded }
     /// See `MessageStore.loadGeneration`.
     private var loadGeneration = 0
 
