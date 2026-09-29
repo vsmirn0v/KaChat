@@ -1101,8 +1101,10 @@ private struct KNSAvatarShareSheet: UIViewControllerRepresentable {
 enum KNSProfileLinkBuilder {
     static func websiteURL(from raw: String?) -> URL? {
         guard let value = normalizedValue(raw) else { return nil }
-        if let url = URL(string: value), url.scheme != nil {
-            return url
+        if let url = URL(string: value), let scheme = url.scheme?.lowercased() {
+            // A profile field is anyone's text: only a web link becomes tappable. Any other
+            // scheme (shortcuts://, a wallet's deep link) would run on one tap.
+            return (scheme == "http" || scheme == "https") ? url : nil
         }
         return URL(string: "https://\(value)")
     }
@@ -1187,7 +1189,8 @@ enum KNSProfileLinkBuilder {
                     return directURL
                 }
             } else {
-                return directURL
+                // Not a web link - shown as text, never opened (see `websiteURL`).
+                return nil
             }
         } else {
             value = stripURLDecoration(value)

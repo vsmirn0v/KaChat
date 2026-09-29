@@ -1592,11 +1592,8 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
             // A link that points back into KaChat routes in-app. Handing our own universal link
             // to `UIApplication.shared.open` would bounce the user out to Safari instead - iOS
             // deliberately does not re-enter the app that opened it.
-            if let link = KaChatInternalLink.parse(url) {
-                KaChatLinkRouter.open(link)
-                return
-            }
-            UIApplication.shared.open(url)
+            // `openAnywhere` also keeps any non-web scheme from running on a tap.
+            KaChatLinkRouter.openAnywhere(url)
         }
 
         @objc

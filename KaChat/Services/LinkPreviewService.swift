@@ -25,8 +25,7 @@ import Foundation
 enum KaChatInternalLink: Equatable {
     case kaPost(txId: String)
     case publicChatRoom(channel: String)
-    /// Someone's KaChat profile: opens their chat, or the new-chat screen prefilled with the
-    /// address when they are not a contact yet.
+    /// Someone's KaChat profile: opens their User Info (yours too, for your own link).
     case profile(address: String)
 
     /// The universal-link host - the only host the app ever writes into a share. With KaChat

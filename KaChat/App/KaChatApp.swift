@@ -1077,7 +1077,20 @@ enum KaChatLinkRouter {
             open(link)
             return
         }
+        guard isSafeExternalLink(url) else {
+            AppLog.log("[Links] refused to open a %@ link from content", url.scheme ?? "schemeless")
+            return
+        }
         UIApplication.shared.open(url)
+    }
+
+    /// Links that other people's content (messages, posts, KNS profiles) may open outside the
+    /// app: the web and email. Anything else - `shortcuts://run-shortcut`, another wallet's
+    /// deep link, `itms-services://`, `tel:` - stays inert, since the text detectors happily
+    /// link every scheme and one tap would run it.
+    static func isSafeExternalLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https" || scheme == "mailto"
     }
 
     @MainActor
@@ -1092,9 +1105,8 @@ enum KaChatLinkRouter {
         }
     }
 
-    /// Someone's profile link: their chat if they are already a contact, otherwise the
-    /// new-chat screen with the address filled in, one tap from starting. Your own link just
-    /// lands on the chat list.
+    /// Someone's profile link - yours included - opens their User Info, from which Open Chat is
+    /// one tap (see `ChatListView.openPendingProfile`).
     @MainActor
     private static func openProfile(address: String) {
         let normalized = address.lowercased()

@@ -2466,7 +2466,8 @@ private struct GroupMessageBubbleRow: View {
         if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
             let nsText = display as NSString
             for match in detector.matches(in: display, options: [], range: NSRange(location: 0, length: nsText.length)) {
-                guard let url = match.url, let sr = Range(match.range, in: display) else { continue }
+                guard let url = match.url, let sr = Range(match.range, in: display),
+                      KaChatInternalLink.parse(url) != nil || KaChatLinkRouter.isSafeExternalLink(url) else { continue }
                 let startOffset = display.distance(from: display.startIndex, to: sr.lowerBound)
                 let length = display.distance(from: sr.lowerBound, to: sr.upperBound)
                 let start = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
@@ -2630,7 +2631,10 @@ private struct GroupMessageBubbleRow: View {
                                             if !addr.isEmpty { onOpenChat(addr) }
                                             return .handled
                                         }
-                                        return .systemAction
+                                        // Through the router: in-app for KaChat links, and only
+                                        // web/email outside it.
+                                        KaChatLinkRouter.openAnywhere(url)
+                                        return .handled
                                     })
                             } else if MessageTextRenderPlan.prefersUIKitTextView(displayContent) {
                                 LinkifiedMessageTextView(

@@ -1920,13 +1920,7 @@ private struct PublicChatMessageRow: View, Equatable {
         .sheet(item: Binding(get: { linkMenuURL.map(IdentifiedURL.init) }, set: { if $0 == nil { linkMenuURL = nil } })) { wrapper in
             LinkActionsSheet(
                 url: wrapper.url,
-                onOpen: {
-                    if let internalLink = KaChatInternalLink.parse(wrapper.url) {
-                        KaChatLinkRouter.open(internalLink)
-                    } else {
-                        UIApplication.shared.open(wrapper.url)
-                    }
-                },
+                onOpen: { KaChatLinkRouter.openAnywhere(wrapper.url) },
                 onCopy: { UIPasteboard.general.string = wrapper.url.absoluteString }
             )
         }
@@ -1988,11 +1982,7 @@ private struct PublicChatMessageRow: View, Equatable {
             actions.append(.openLink {
                 // Internal KaChat links open in-app rather than in Safari - see
                 // `LinkifiedMessageTextView.Coordinator.handleTap`.
-                if let internalLink = KaChatInternalLink.parse(firstLink) {
-                    KaChatLinkRouter.open(internalLink)
-                } else {
-                    UIApplication.shared.open(firstLink)
-                }
+                KaChatLinkRouter.openAnywhere(firstLink)
             })
             // Not for a Nextcloud share: the link is the address of someone's file, and the
             // preview card already refuses to hand it out - same rule here, same classifier.
