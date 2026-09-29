@@ -84,7 +84,7 @@ struct ProfileView: View {
                 .padding()
             }
             .refreshable {
-                _ = try? await walletManager.refreshBalance()
+                _ = try? await walletManager.refreshBalance(force: true)
                 await loadSpendingAddressBalance()
             }
             // Pinned large-title header: the system .large title scrolls away with the content,
@@ -1235,7 +1235,7 @@ struct ProfileView: View {
         balanceRefreshTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled else { return }
-            _ = try? await walletManager.refreshBalance()
+            _ = try? await walletManager.refreshBalance(force: true)
             guard !Task.isCancelled else { return }
             await loadSpendingAddressBalance()
         }

@@ -734,7 +734,7 @@ extension ChatService {
                 guard self.isUtxoSubscribed else { return }
 
                 do {
-                    let total = try await WalletManager.shared.refreshBalance()
+                    let total = try await WalletManager.shared.refreshBalance(force: true)
                     AppLog.log("[ChatService] Post-subscription balance refreshed on attempt %d: %@ sompi",
                           attemptIndex + 1, String(total))
                     return

@@ -1144,9 +1144,9 @@ extension KaPostsAPIClient {
         // immediately, once after the UTXO change settles (Kaspa blocks are ~1s, so the second
         // pass reliably catches it).
         Task { @MainActor in
-            _ = try? await WalletManager.shared.refreshBalance()
+            _ = try? await WalletManager.shared.refreshBalance(force: true)
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            _ = try? await WalletManager.shared.refreshBalance()
+            _ = try? await WalletManager.shared.refreshBalance(force: true)
         }
         return txId
     }

@@ -476,7 +476,7 @@ extension ChatService {
         }
 
         // Refresh balance to reflect UTXO changes
-        _ = try? await WalletManager.shared.refreshBalance()
+        _ = try? await WalletManager.shared.refreshBalance(force: true)
     }
 
     func enqueueIncomingPaymentResolution(

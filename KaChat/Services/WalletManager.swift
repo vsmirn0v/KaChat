@@ -106,7 +106,12 @@ final class WalletManager: ObservableObject {
     @Published var currentWallet: Wallet?
     @Published var isLoading = true
     @Published var error: KasiaError?
-    @Published var isBalanceRefreshing = false
+    /// Not @Published: nothing renders it, and each toggle published the whole WalletManager -
+    /// which every tab root, the chat list and its rows observe - twice per balance refresh.
+    var isBalanceRefreshing = false
+    /// When `refreshBalance` last finished for which address, so the half-dozen callers that
+    /// fire together on a tab switch share one network round trip.
+    private var lastBalanceRefresh: (address: String, at: Date, total: UInt64)?
     @Published private(set) var hasStoredWallet = false
     /// The stored wallet whose keys this device does not hold - see `WalletRecoveryView`. Set
     /// only when both the private key and the seed were looked up and found absent, never on
@@ -267,7 +272,7 @@ final class WalletManager: ObservableObject {
                 KaPostsModerationStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 NextcloudService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 await ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-                Task { _ = try? await refreshBalance() }
+                Task { _ = try? await refreshBalance(force: true) }
                 return
             }
 
@@ -433,7 +438,7 @@ final class WalletManager: ObservableObject {
         // (e.g. MainTabView.onAppear) do not fire immediately after import.
         ChatService.shared.startPolling()
 
-        Task { _ = try? await refreshBalance() }
+        Task { _ = try? await refreshBalance(force: true) }
         return wallet
     }
 
@@ -935,21 +940,33 @@ final class WalletManager: ObservableObject {
         return balance == 0
     }
 
-    /// Refresh balance by summing UTXOs for the current wallet
-    func refreshBalance() async throws -> UInt64 {
+    /// Refresh balance by summing UTXOs for the current wallet. `force` skips the few-seconds
+    /// reuse below; event-driven callers (a UTXO change, a spend, a wallet load, pull to refresh)
+    /// pass it, since they know the balance may have just moved.
+    func refreshBalance(force: Bool = false) async throws -> UInt64 {
         guard let wallet = currentWallet else {
             throw KasiaError.walletNotFound
+        }
+        // Every toolbar balance label refreshes on appear, and so does the chat list, so one tab
+        // switch used to fire several refreshes back to back. Answers from the last one if it is
+        // only seconds old.
+        if !force, let last = lastBalanceRefresh, last.address == wallet.publicAddress,
+           Date().timeIntervalSince(last.at) < 5 {
+            return last.total
         }
         isBalanceRefreshing = true
         defer { isBalanceRefreshing = false }
         let utxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
         let total = utxos.reduce(0) { $0 + $1.amount }
         await MainActor.run {
-            if var w = self.currentWallet {
+            // Only when it moved: assigning `currentWallet` publishes WalletManager, which
+            // re-renders every tab root and every chat list row, for an unchanged balance.
+            if var w = self.currentWallet, w.publicAddress == wallet.publicAddress, w.balanceSompi != total {
                 w.balanceSompi = total
                 self.currentWallet = w
             }
         }
+        lastBalanceRefresh = (wallet.publicAddress, Date(), total)
         storeCachedBalance(total, for: wallet.publicAddress)
         return total
     }
