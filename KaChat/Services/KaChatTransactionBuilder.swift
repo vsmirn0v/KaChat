@@ -42,6 +42,16 @@ struct KasiaTransactionBuilder {
     /// is still a sensible amount to keep a chat funded.
     static let dustThreshold: UInt64 = 20_000_000 // 0.2 KAS
 
+    /// The most a payment may fold into its fee when its change cannot stand as an output.
+    /// A change output is only ever too small for storage mass below about 0.1 KAS (its own
+    /// harmonic term is C / change), so a larger remainder that does not fit means the
+    /// RECIPIENT amount is what breaks the budget - and folding then paid the whole change to
+    /// the miners: a 0.0999 KAS send from a 10.1 KAS coin built a ~10 KAS fee. Anything over
+    /// this is refused (or fixed by adding an input) rather than given away.
+    static let maxFoldedChangeSompi: UInt64 = 10_000_000 // 0.1 KAS
+
+    static let smallSendMassMessage = "This amount can't be sent from these coins without giving most of the change away as a network fee. Try a slightly larger amount, or compound this address first."
+
     /// Kaspa caps transaction mass (~100,000 grams); each input costs ~1,118 grams (dominated by
     /// 1,000 grams of sig-op mass), so a transaction tops out near ~89 inputs before the node
     /// rejects it as over-mass. Cap selection well under that so we never build a doomed transaction
@@ -1480,6 +1490,8 @@ struct KasiaTransactionBuilder {
         let sorted = spendableForBuild(utxos, virtualDaaScore: virtualDaaScore).sorted { $0.amount > $1.amount }
         var selected: [UTXO] = []
         var total: UInt64 = 0
+        // Funds were enough but no shape fit without giving away real change - see below.
+        var blockedByStorageMass = false
 
         for utxo in sorted {
             // Refuse to build an over-mass transaction: if we've hit the input cap and still
@@ -1519,14 +1531,23 @@ struct KasiaTransactionBuilder {
                 return PaymentSelection(utxos: selected, change: change)
             }
 
-            // Try without change (treat dust as fee, + buffer, + priority tip)
+            // Try without change (treat dust as fee, + buffer, + priority tip) - only when the
+            // leftover really is dust. A bigger leftover that will not fit means the send itself
+            // is too small for this coin set: keep adding inputs (a smaller coin lowers the mass),
+            // and refuse if none does, rather than paying the change away as fee.
             let feeNoChange = estimateFee(payload: payload, inputCount: selected.count, outputs: [recipientOutput]) + 3 + extraFeeSompi
             if total > amount && total - amount >= feeNoChange {
                 change = total - amount - feeNoChange
-                return PaymentSelection(utxos: selected, change: change)
+                if change <= maxFoldedChangeSompi {
+                    return PaymentSelection(utxos: selected, change: change)
+                }
+                blockedByStorageMass = true
             }
         }
 
+        if blockedByStorageMass {
+            throw KasiaError.networkError(smallSendMassMessage)
+        }
         throw KasiaError.networkError("Insufficient funds for payment")
     }
 
@@ -1578,10 +1599,15 @@ struct KasiaTransactionBuilder {
             }
         }
 
-        // Try without change (treat dust/leftover as fee, + buffer, + priority tip)
+        // Try without change (treat dust as fee, + buffer, + priority tip) - dust only, the same
+        // rule as the greedy selector: never pay real change away to make a shape fit.
         let feeNoChange = estimateFee(payload: payload, inputCount: usable.count, outputs: [recipientOutput]) + 3 + extraFeeSompi
         if total > amount, total - amount >= feeNoChange {
-            return PaymentSelection(utxos: usable, change: total - amount - feeNoChange)
+            let leftover = total - amount - feeNoChange
+            guard leftover <= maxFoldedChangeSompi else {
+                throw KasiaError.networkError(smallSendMassMessage)
+            }
+            return PaymentSelection(utxos: usable, change: leftover)
         }
 
         throw KasiaError.networkError("Insufficient funds for payment")
