@@ -225,7 +225,9 @@ final class PublicChatService: ObservableObject {
         guard !base.isEmpty else { return false }
         do {
             let page = try await PublicChatIndexerClient.fetchHistoryPage(baseURL: base, channel: channel, limit: 40)
-            indexerFetchedChannels.insert(channel)
+            // Guarded: inserting an element that is already there still publishes, which
+            // re-rendered an open room on every sweep for nothing.
+            if !indexerFetchedChannels.contains(channel) { indexerFetchedChannels.insert(channel) }
             let hidden = store.hiddenSenderAddresses(forChannel: channel)
             var editsChanged = false
             for row in page.messages where !hidden.contains(row.senderAddress) {
@@ -581,7 +583,8 @@ final class PublicChatService: ObservableObject {
             let messages = try await PublicChatIndexerClient.fetchHistoryPage(
                 baseURL: baseURL, channel: channel, limit: steadyStateLimit
             )
-            indexerFetchedChannels.insert(channel)
+            // Guarded: a no-op insert still publishes, re-rendering the open room every poll.
+            if !indexerFetchedChannels.contains(channel) { indexerFetchedChannels.insert(channel) }
             // The newest page goes in FIRST, before any history is paged. It used to wait for
             // the whole 30-day backfill below - up to 50 sequential requests on a busy room - so
             // the message a notification had just announced showed up seconds after the room

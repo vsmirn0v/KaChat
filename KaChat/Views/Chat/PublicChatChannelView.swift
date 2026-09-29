@@ -11,7 +11,9 @@ struct PublicChatChannelView: View {
 
     @EnvironmentObject var publicChatService: PublicChatService
     @EnvironmentObject var contactsManager: ContactsManager
-    @EnvironmentObject var chatService: ChatService
+    /// Not observed: the room only ever calls into it (opening a 1:1 chat). As an
+    /// @EnvironmentObject every 1:1 sync, fetch state and conversation publish re-rendered it.
+    private var chatService: ChatService { ChatService.shared }
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var knsService = KNSService.shared
@@ -741,11 +743,24 @@ struct PublicChatChannelView: View {
             },
             onMoreReactions: { emojiPickerTarget = IdentifiedTxId(id: message.id) },
             activeQuickReactionMessageId: $activeQuickReactionMessageId,
-            revealOffset: revealOffset,
-            maxRevealOffset: maxRevealOffset,
+            isQuickReactionBarShown: activeQuickReactionMessageId == message.id,
             isEdited: edit != nil,
             onEdit: canEdit ? { beginEdit(message) } : nil
         )
+        // Compared on its data (see `PublicChatMessageRow.==`): its closures made every row
+        // look changed to SwiftUI, so every keystroke, fee estimate, poll and avatar load in the
+        // room re-ran the body of every visible row.
+        .equatable()
+        // Swipe-to-reveal-time lives out here, not inside the row: the offset changes every
+        // frame of the drag, and as a row input it re-rendered every row per frame.
+        .offset(x: revealOffset)
+        .background(alignment: .trailing) {
+            Text(SharedFormatting.chatTime.string(from: Date(timeIntervalSince1970: Double(message.blockTime) / 1000)))
+                .font(.scaled(size: 11))
+                .foregroundColor(.secondary)
+                .padding(.trailing, 12)
+                .opacity(min(max(-revealOffset / maxRevealOffset, 0), 1))
+        }
         .id(message.id)
         .background(
             RoundedRectangle(cornerRadius: 12)
@@ -1479,7 +1494,7 @@ private struct PublicChatRoomTitleChip: View {
     }
 }
 
-private struct PublicChatMessageRow: View {
+private struct PublicChatMessageRow: View, Equatable {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     /// Translation from the long-press menu - the KaPosts service, reused as-is.
     @ObservedObject private var translation = PostTranslationService.shared
@@ -1522,8 +1537,8 @@ private struct PublicChatMessageRow: View {
     /// Shared across every bubble in the room (not per-bubble `@State`) - mirrors group chat's
     /// identical binding, keyed by the public chat row's `String` txId.
     var activeQuickReactionMessageId: Binding<String?> = .constant(nil)
-    let revealOffset: CGFloat
-    let maxRevealOffset: CGFloat
+    /// Whether the quick-reaction bar is on THIS row, as a value so `==` can see it change.
+    var isQuickReactionBarShown: Bool = false
     /// The text shown is an edit of what was sent (the parent swapped `content`); a small
     /// "edited" chip sits on the bubble. `onEdit` is offered on the user's own text bubbles only.
     var isEdited: Bool = false
@@ -1536,8 +1551,29 @@ private struct PublicChatMessageRow: View {
     /// group; the gesture that summons it is unchanged.
     @State private var linkMenuURL: URL?
 
-    private var showQuickReactionBar: Bool {
-        activeQuickReactionMessageId.wrappedValue == message.id
+    private var showQuickReactionBar: Bool { isQuickReactionBarShown }
+
+    /// Everything the row draws from. The closures are left out on purpose - they are rebuilt
+    /// on every parent pass and never compare equal, which is what made SwiftUI re-render every
+    /// row on every room update - but whether each optional action EXISTS is compared, since
+    /// that changes what the row offers. Observed state inside the row (settings, translation)
+    /// still refreshes it on its own.
+    static func == (lhs: PublicChatMessageRow, rhs: PublicChatMessageRow) -> Bool {
+        lhs.message == rhs.message
+            && lhs.isOwnMessage == rhs.isOwnMessage
+            && lhs.avatarURLString == rhs.avatarURLString
+            && lhs.displayName == rhs.displayName
+            && lhs.replyQuote == rhs.replyQuote
+            && lhs.replySenderDisplayName == rhs.replySenderDisplayName
+            && lhs.reactions == rhs.reactions
+            && lhs.myReactorAddress == rhs.myReactorAddress
+            && lhs.isQuickReactionBarShown == rhs.isQuickReactionBarShown
+            && lhs.isEdited == rhs.isEdited
+            && (lhs.onEdit == nil) == (rhs.onEdit == nil)
+            && (lhs.onJumpToReply == nil) == (rhs.onJumpToReply == nil)
+            && (lhs.onShowReactions == nil) == (rhs.onShowReactions == nil)
+            && (lhs.onReact == nil) == (rhs.onReact == nil)
+            && (lhs.onRetryReaction == nil) == (rhs.onRetryReaction == nil)
     }
 
     /// The local user's own reaction on this message, if any - only our own reactions ever carry
@@ -1600,95 +1636,79 @@ private struct PublicChatMessageRow: View {
         VoiceMessageSniff.decode(displayText)
     }
 
-    private var timeText: String {
-        SharedFormatting.chatTime.string(from: Date(timeIntervalSince1970: Double(message.blockTime) / 1000))
-    }
-
-    /// 0 at rest, 1 once fully dragged open - matches Android's `-revealOffsetPx / maxRevealOffsetPx`.
-    private var revealProgress: CGFloat {
-        min(max(-revealOffset / maxRevealOffset, 0), 1)
-    }
-
+    /// The swipe-to-reveal time and its offset are drawn by the parent around this row (see
+    /// `PublicChatChannelView.messageRow`), so a drag does not re-render the row every frame.
     var body: some View {
-        ZStack(alignment: .trailing) {
-            Text(timeText)
-                .font(.scaled(size: 11))
-                .foregroundColor(.secondary)
-                .padding(.trailing, 12)
-                .opacity(revealProgress)
+        HStack(alignment: .bottom, spacing: 8) {
+            if !isOwnMessage {
+                avatarButton
+            } else {
+                Spacer(minLength: 40)
+            }
 
-            HStack(alignment: .bottom, spacing: 8) {
-                if !isOwnMessage {
-                    avatarButton
-                } else {
-                    Spacer(minLength: 40)
+            VStack(alignment: isOwnMessage ? .trailing : .leading, spacing: 3) {
+                // Sits directly above the bubble in normal layout flow, same as 1:1/group
+                // chat - an `.overlay` with a manual offset gets cropped by the ScrollView's
+                // own clipping instead of rendering cleanly above the row.
+                if showQuickReactionBar, let onReact {
+                    QuickReactionBarView(
+                        emojis: settingsViewModel.settings.effectiveQuickReactionEmojis,
+                        onReact: { emoji in
+                            onReact(emoji)
+                            activeQuickReactionMessageId.wrappedValue = nil
+                        },
+                        onReply: {
+                            onReply()
+                            activeQuickReactionMessageId.wrappedValue = nil
+                        },
+                        onMore: {
+                            // Close the bar and hand off in one go: the screen owns the
+                            // picker, so it survives this bar going away.
+                            activeQuickReactionMessageId.wrappedValue = nil
+                            onMoreReactions?()
+                        }
+                    )
+                    .frame(maxWidth: .infinity, alignment: isOwnMessage ? .trailing : .leading)
                 }
 
-                VStack(alignment: isOwnMessage ? .trailing : .leading, spacing: 3) {
-                    // Sits directly above the bubble in normal layout flow, same as 1:1/group
-                    // chat - an `.overlay` with a manual offset gets cropped by the ScrollView's
-                    // own clipping instead of rendering cleanly above the row.
-                    if showQuickReactionBar, let onReact {
-                        QuickReactionBarView(
-                            emojis: settingsViewModel.settings.effectiveQuickReactionEmojis,
-                            onReact: { emoji in
-                                onReact(emoji)
-                                activeQuickReactionMessageId.wrappedValue = nil
-                            },
-                            onReply: {
-                                onReply()
-                                activeQuickReactionMessageId.wrappedValue = nil
-                            },
-                            onMore: {
-                                // Close the bar and hand off in one go: the screen owns the
-                                // picker, so it survives this bar going away.
-                                activeQuickReactionMessageId.wrappedValue = nil
-                                onMoreReactions?()
-                            }
-                        )
-                        .frame(maxWidth: .infinity, alignment: isOwnMessage ? .trailing : .leading)
-                    }
+                Text(isOwnMessage ? "You" : displayName)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.accentColor)
 
-                    Text(isOwnMessage ? "You" : displayName)
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.accentColor)
-
-                    if let replyQuote {
-                        replyQuoteView(replyQuote)
-                    }
-
-                    bubble
-
-                    translationStatus
-
-                    trailingLinkPreview
-
-                    // Under your own message, exactly as in a 1:1 chat: "Sending", "Sent" with
-                    // the green check, "Failed · Tap to retry". It was a black badge pinned to
-                    // the bubble's corner, which read as a different thing from the 1:1 one.
-                    if isOwnMessage {
-                        deliveryStatus
-                    }
-
-                    // A reaction (not the message) that failed to send - shown for reactions on
-                    // any message (yours or another sender's), matching group chat.
-                    if let localReaction, localReaction.deliveryStatus == .failed {
-                        Text("Retry")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundColor(.red)
-                            .contentShape(Rectangle())
-                            .onTapGesture { onRetryReaction?(localReaction) }
-                    }
+                if let replyQuote {
+                    replyQuoteView(replyQuote)
                 }
 
+                bubble
+
+                translationStatus
+
+                trailingLinkPreview
+
+                // Under your own message, exactly as in a 1:1 chat: "Sending", "Sent" with
+                // the green check, "Failed · Tap to retry". It was a black badge pinned to
+                // the bubble's corner, which read as a different thing from the 1:1 one.
                 if isOwnMessage {
-                    avatarButton
-                } else {
-                    Spacer(minLength: 40)
+                    deliveryStatus
+                }
+
+                // A reaction (not the message) that failed to send - shown for reactions on
+                // any message (yours or another sender's), matching group chat.
+                if let localReaction, localReaction.deliveryStatus == .failed {
+                    Text("Retry")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.red)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onRetryReaction?(localReaction) }
                 }
             }
-            .offset(x: revealOffset)
+
+            if isOwnMessage {
+                avatarButton
+            } else {
+                Spacer(minLength: 40)
+            }
         }
     }
 
