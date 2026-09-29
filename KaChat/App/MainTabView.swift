@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import UIKit
 
 struct MainTabView: View {
@@ -40,8 +41,12 @@ struct MainTabView: View {
     @ObservedObject private var pictureInPicture = CallPictureInPicture.shared
     /// What the Chats slot currently shows: .chats, or a masked-out tab (.kaposts/.public chats)
     @Environment(\.scenePhase) private var scenePhase
-    @EnvironmentObject var chatService: ChatService
-    @EnvironmentObject var walletManager: WalletManager
+    /// Not observed. This view only CALLS into these two (start/stop polling, onboarding holds,
+    /// pending routes) and renders nothing from them, but as @EnvironmentObjects every chat
+    /// sync step, fetch state, conversation update and balance write re-ran the root TabView -
+    /// re-applying every tab item and badge - underneath whatever screen was open.
+    private var chatService: ChatService { ChatService.shared }
+    private var walletManager: WalletManager { WalletManager.shared }
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     // Red dot on the Profile tab while the bell (which lives on the Profile screen)
     // holds unread notifications.
@@ -180,7 +185,14 @@ struct MainTabView: View {
                 isOnboardingRun: true
             )
         }
-        .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
+        // The one thing here that reacts to the wallet: a switch of address. Subscribed to that
+        // alone, rather than observing all of WalletManager for it.
+        .onReceive(
+            WalletManager.shared.$currentWallet
+                .map { $0?.publicAddress }
+                .removeDuplicates()
+                .dropFirst()
+        ) { _ in
             preloadProfileResources()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { _ in
