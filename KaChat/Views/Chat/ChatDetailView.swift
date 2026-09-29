@@ -1087,7 +1087,16 @@ struct ChatDetailView: View {
             // area behind as a black band over the chat list underneath.
             isPaymentFocused = false
             isMessageFocused = false
-            chatService.leaveConversation()
+            // Not while the chess board is going up over this chat. A full-screen cover makes
+            // this view disappear, and leaving here stopped the 2s open-chat poll for as long as
+            // the board was open - the opponent's move then arrived only if push or the UTXO
+            // subscription happened to carry it, and until then both boards sat on "Waiting on
+            // opponent". It also queued the chat's memory trim, which on a long game could drop
+            // the invite the board is built from. The board re-enters the conversation itself,
+            // and this view re-enters on appear when the board closes.
+            if activeChessGameId == nil {
+                chatService.leaveConversation()
+            }
             chatService.cancelReply()
             cancelRecording()
             // Voice-note playback is owned per bubble; the thread going away is what ends it.

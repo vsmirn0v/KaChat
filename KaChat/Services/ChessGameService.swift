@@ -132,9 +132,19 @@ struct ChessGameSummary {
 
 @MainActor
 enum ChessGameService {
-    /// Scans `messages` for every chess envelope sharing `gameId`, in the order they already
-    /// appear (conversations are already chronological), and replays them. Returns nil if no
-    /// invite for this `gameId` is present.
+    /// Scans `messages` for every chess envelope sharing `gameId` and replays the game. Returns
+    /// nil if no invite for this `gameId` is present.
+    ///
+    /// Moves are replayed by TURN, not by timestamp. Each side's moves are kept in their own
+    /// order and dealt alternately to whichever color is to move. Sorting everything by
+    /// `timestamp` broke on real phones: an outgoing move carries the SENDER's clock and an
+    /// incoming one the chain's, so a phone whose clock ran ahead sorted its own move after the
+    /// reply to it. The reply then looked illegal and was skipped, that phone showed "their
+    /// turn" while the other phone was already waiting - both sides stuck "Waiting on opponent".
+    ///
+    /// A move that FAILED to send is left off the board: it never reached the chain, so the
+    /// opponent cannot see it, and counting it here left the sender waiting on a reply to a move
+    /// that does not exist. It still drives `lastMessageTxId`, so the board offers Retry.
     static func summarize(gameId: String, in messages: [ChatMessage], myAddress: String, contactAddress: String) -> ChessGameSummary? {
         var invite: ChessInviteContent?
         var inviterAddress: String?
@@ -147,6 +157,7 @@ enum ChessGameService {
         // Last clockMs each color reported on its own moves - resolved to a concrete remaining
         // time (falling back to the initial allotment) after the invite's time control is known.
         var lastClockByColor: [ChessColor: Int64] = [:]
+        var moveEntries: [(message: ChatMessage, content: ChessMoveContent, sender: String)] = []
 
         for message in messages.sorted(by: { $0.timestamp < $1.timestamp }) {
             guard let envelope = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content)),
@@ -161,31 +172,65 @@ enum ChessGameService {
             case .response(let content):
                 response = content
             case .move(let content):
-                guard let from = ChessSquare(algebraic: content.from), let to = ChessSquare(algebraic: content.to) else { continue }
-                let promotion = ChessPieceType.fromPromotionLetter(content.promotion)
-                let move = ChessEngine.normalizingPromotion(ChessMove(from: from, to: to, promotion: promotion), in: board)
-                guard ChessEngine.isLegal(move, in: board), let movingPiece = board.piece(at: from) else { continue }
-                let isEnPassantCapture = movingPiece.type == .pawn && to == board.enPassantTarget && board.piece(at: to) == nil
-                let capturedPiece: ChessPiece? = isEnPassantCapture
-                    ? board.piece(at: ChessSquare(file: to.file, rank: from.rank))
-                    : board.piece(at: to)
-                board = ChessEngine.apply(move, to: board)
-                if let clockMs = content.clockMs {
-                    lastClockByColor[movingPiece.color] = clockMs
-                }
-                moveHistory.append(ChessMoveRecord(
-                    from: from,
-                    to: to,
-                    pieceType: movingPiece.type,
-                    color: movingPiece.color,
-                    capturedType: capturedPiece?.type,
-                    capturedColor: capturedPiece?.color,
-                    promotion: promotion,
-                    messageTxId: message.txId
-                ))
+                if message.isOutgoing && message.deliveryStatus == .failed { continue }
+                moveEntries.append((message, content, senderAddress))
             case .resign(let content):
                 resignerAddress = senderAddress
                 resignReason = content.reason
+            }
+        }
+
+        if let invite, let inviterAddress {
+            let otherAddress = inviterAddress == myAddress ? contactAddress : myAddress
+            let white = invite.inviterColor == .white ? inviterAddress : otherAddress
+            // Each side's own order. Your own moves by your send clock (one phone, so it only
+            // runs forward); the opponent's by chain time, which is when they actually landed.
+            func sideOrder(_ lhs: ChatMessage, _ rhs: ChatMessage) -> Bool {
+                if !lhs.isOutgoing, !rhs.isOutgoing, lhs.blockTime != rhs.blockTime,
+                   lhs.blockTime > 0, rhs.blockTime > 0 {
+                    return lhs.blockTime < rhs.blockTime
+                }
+                return lhs.timestamp < rhs.timestamp
+            }
+            var whiteQueue = moveEntries.filter { $0.sender == white }.sorted { sideOrder($0.message, $1.message) }
+            var blackQueue = moveEntries.filter { $0.sender != white }.sorted { sideOrder($0.message, $1.message) }
+
+            // Deal moves to the side to move until that side has nothing legal left to play. A
+            // side's move that is illegal here (a duplicate resend, one made against a board that
+            // was wrong at the time) is dropped and its next move tried, as the old replay did.
+            while true {
+                let toMove = board.sideToMove
+                var applied = false
+                while !(toMove == .white ? whiteQueue : blackQueue).isEmpty {
+                    let entry = toMove == .white ? whiteQueue.removeFirst() : blackQueue.removeFirst()
+                    let content = entry.content
+                    guard let from = ChessSquare(algebraic: content.from), let to = ChessSquare(algebraic: content.to) else { continue }
+                    let promotion = ChessPieceType.fromPromotionLetter(content.promotion)
+                    let move = ChessEngine.normalizingPromotion(ChessMove(from: from, to: to, promotion: promotion), in: board)
+                    guard ChessEngine.isLegal(move, in: board), let movingPiece = board.piece(at: from),
+                          movingPiece.color == toMove else { continue }
+                    let isEnPassantCapture = movingPiece.type == .pawn && to == board.enPassantTarget && board.piece(at: to) == nil
+                    let capturedPiece: ChessPiece? = isEnPassantCapture
+                        ? board.piece(at: ChessSquare(file: to.file, rank: from.rank))
+                        : board.piece(at: to)
+                    board = ChessEngine.apply(move, to: board)
+                    if let clockMs = content.clockMs {
+                        lastClockByColor[movingPiece.color] = clockMs
+                    }
+                    moveHistory.append(ChessMoveRecord(
+                        from: from,
+                        to: to,
+                        pieceType: movingPiece.type,
+                        color: movingPiece.color,
+                        capturedType: capturedPiece?.type,
+                        capturedColor: capturedPiece?.color,
+                        promotion: promotion,
+                        messageTxId: entry.message.txId
+                    ))
+                    applied = true
+                    break
+                }
+                if !applied { break }
             }
         }
 
