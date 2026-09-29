@@ -678,39 +678,40 @@ final class PublicChatService: ObservableObject {
         // reactions index instead (newest-blockTime-wins per (target, reactor), so
         // re-serving the same history every poll is idempotent - see
         // `PublicChatStore.applyIncomingReaction`).
-        var reactionsChanged = false
-        var editsChanged = false
+        // Collected here, applied in one background pass with one save (see
+        // `PublicChatStore.applyIncoming`) - this was a main-thread fetch and save per row.
+        var incomingReactions: [PublicChatStore.IncomingReaction] = []
+        var incomingEdits: [PublicChatStore.IncomingEdit] = []
         for row in visible {
             if let edit = MessageEditCodec.parse(row.content) {
                 guard !wasApplied(row.txId, channel: channel) else { continue }
-                // Marked only once it lands: an edit met before its target message (history
-                // pages come newest first) has to be tried again when the target arrives.
-                if applyIncomingEdit(edit, channel: channel, senderAddress: row.senderAddress, editTxId: row.txId, blockTime: row.blockTime) {
-                    editsChanged = true
-                    markApplied(row.txId, channel: channel)
-                }
+                incomingEdits.append(.init(
+                    targetTxId: edit.targetTxId, senderAddress: row.senderAddress,
+                    text: edit.text, editTxId: row.txId, blockTime: row.blockTime
+                ))
                 continue
             }
             guard let reaction = MessageReactionCodec.parse(row.content) else { continue }
             guard !wasApplied(row.txId, channel: channel) else { continue }
-            // A reaction row is keyed by target and reactor, not by the target's presence, so
-            // once the store has seen this tx (applied, or superseded) it never needs it again.
-            if store.isReady { markApplied(row.txId, channel: channel) }
-            let changed = store.applyIncomingReaction(
-                targetTxId: reaction.targetTxId,
-                channel: channel,
-                reactorAddress: row.senderAddress,
+            incomingReactions.append(.init(
+                targetTxId: reaction.targetTxId, reactorAddress: row.senderAddress,
                 emoji: reaction.action == "remove" ? nil : reaction.emoji,
-                reactionTxId: row.txId,
-                blockTime: row.blockTime
-            )
-            reactionsChanged = reactionsChanged || changed
+                reactionTxId: row.txId, blockTime: row.blockTime
+            ))
         }
-        if reactionsChanged {
-            loadReactions(for: channel)
-        }
-        if editsChanged {
-            loadEdits(for: channel)
+        if !incomingReactions.isEmpty || !incomingEdits.isEmpty {
+            let storeReady = store.isReady
+            let result = await store.applyIncoming(reactions: incomingReactions, edits: incomingEdits, channel: channel)
+            // A reaction row is keyed by target and reactor, not by the target's presence, so
+            // once the store has seen its tx (applied, or superseded) it never needs it again.
+            if storeReady {
+                for reaction in incomingReactions { markApplied(reaction.reactionTxId, channel: channel) }
+            }
+            // Edits only once they land: one met before its target message (history pages come
+            // newest first) has to be tried again when the target arrives.
+            for editTxId in result.appliedEditTxIds { markApplied(editTxId, channel: channel) }
+            if result.reactionsChanged { loadReactions(for: channel) }
+            if !result.appliedEditTxIds.isEmpty { loadEdits(for: channel) }
         }
 
         let rows = visible
@@ -799,11 +800,23 @@ final class PublicChatService: ObservableObject {
         editsByChannel[PublicChatChannelName.normalize(name)] ?? [:]
     }
 
+    /// Read on a background context. Opening a room called this and `loadReactions`
+    /// synchronously on the main thread, whole channel each, while the room was sliding in.
+    /// A generation per channel keeps an older read that finishes late from overwriting a newer
+    /// one (a local edit reloads straight after its write).
     private func loadEdits(for channel: String) {
-        let fresh = store.fetchEdits(forChannel: channel)
-        guard editsByChannel[channel] != fresh else { return }
-        editsByChannel[channel] = fresh
+        editLoadGeneration[channel, default: 0] &+= 1
+        let generation = editLoadGeneration[channel]
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let fresh = await self.store.fetchEditsAsync(forChannel: channel)
+            guard self.editLoadGeneration[channel] == generation,
+                  self.editsByChannel[channel] != fresh else { return }
+            self.editsByChannel[channel] = fresh
+        }
     }
+    private var editLoadGeneration: [String: Int] = [:]
+    private var reactionLoadGeneration: [String: Int] = [:]
 
     /// An edit envelope seen in a room (scan, indexer page or sweep): applied if its sender
     /// sent the message it names and that message is text. Returns whether anything changed.
@@ -855,10 +868,17 @@ final class PublicChatService: ObservableObject {
         }
     }
 
+    /// Background read with a per-channel generation - see `loadEdits`.
     private func loadReactions(for channel: String) {
-        let fresh = store.fetchReactions(forChannel: channel)
-        guard reactionsByChannel[channel] != fresh else { return }
-        reactionsByChannel[channel] = fresh
+        reactionLoadGeneration[channel, default: 0] &+= 1
+        let generation = reactionLoadGeneration[channel]
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let fresh = await self.store.fetchReactionsAsync(forChannel: channel)
+            guard self.reactionLoadGeneration[channel] == generation,
+                  self.reactionsByChannel[channel] != fresh else { return }
+            self.reactionsByChannel[channel] = fresh
+        }
     }
 
     /// How many of a room's newest messages are in memory. Enough to scroll through a busy

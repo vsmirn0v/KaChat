@@ -466,7 +466,7 @@ final class PublicChatStore {
         let normalized = PublicChatChannelName.normalize(channel)
         let context = viewContext
         context.performAndWait {
-            let reaction = fetchReactionRow(targetTxId: targetTxId, reactorAddress: reactorAddress, in: context)
+            let reaction = Self.fetchReactionRow(targetTxId: targetTxId, reactorAddress: reactorAddress, in: context)
                 ?? CDPublicChatReaction(context: context)
             reaction.targetTxId = targetTxId
             reaction.channelName = normalized
@@ -494,28 +494,43 @@ final class PublicChatStore {
         blockTime: Int64
     ) -> Bool {
         guard isLoaded else { return false }
-        let normalized = PublicChatChannelName.normalize(channel)
         let context = viewContext
         var changed = false
         context.performAndWait {
-            let existing = fetchReactionRow(targetTxId: targetTxId, reactorAddress: reactorAddress, in: context)
-            if let existing {
-                // Already applied this exact reaction tx, or a newer change supersedes it.
-                guard existing.reactionTxId != reactionTxId, existing.blockTime <= blockTime else { return }
-            }
-            let reaction = existing ?? CDPublicChatReaction(context: context)
-            reaction.targetTxId = targetTxId
-            reaction.channelName = normalized
-            reaction.reactorAddress = reactorAddress
-            reaction.emoji = emoji
-            reaction.reactionTxId = reactionTxId
-            reaction.blockTime = blockTime
-            reaction.deliveryStatus = nil
-            reaction.failedAction = nil
-            save(context)
-            changed = true
+            changed = Self.applyReactionRow(
+                targetTxId: targetTxId, channel: channel, reactorAddress: reactorAddress,
+                emoji: emoji, reactionTxId: reactionTxId, blockTime: blockTime, in: context
+            )
+            if changed { save(context) }
         }
         return changed
+    }
+
+    /// The body of `applyIncomingReaction`, on any context; the caller saves.
+    private static func applyReactionRow(
+        targetTxId: String,
+        channel: String,
+        reactorAddress: String,
+        emoji: String?,
+        reactionTxId: String,
+        blockTime: Int64,
+        in context: NSManagedObjectContext
+    ) -> Bool {
+        let existing = fetchReactionRow(targetTxId: targetTxId, reactorAddress: reactorAddress, in: context)
+        if let existing {
+            // Already applied this exact reaction tx, or a newer change supersedes it.
+            guard existing.reactionTxId != reactionTxId, existing.blockTime <= blockTime else { return false }
+        }
+        let reaction = existing ?? CDPublicChatReaction(context: context)
+        reaction.targetTxId = targetTxId
+        reaction.channelName = PublicChatChannelName.normalize(channel)
+        reaction.reactorAddress = reactorAddress
+        reaction.emoji = emoji
+        reaction.reactionTxId = reactionTxId
+        reaction.blockTime = blockTime
+        reaction.deliveryStatus = nil
+        reaction.failedAction = nil
+        return true
     }
 
     // MARK: - Edits (CDPublicChatEdit)
@@ -543,58 +558,154 @@ final class PublicChatStore {
     @discardableResult
     func upsertEdit(targetTxId: String, channel: String, text: String, editTxId: String?, blockTime: Int64, deliveryStatus: String? = nil) -> Bool {
         guard isLoaded else { return false }
-        let normalized = PublicChatChannelName.normalize(channel)
         let context = viewContext
         var changed = false
         context.performAndWait {
-            let request = NSFetchRequest<CDPublicChatEdit>(entityName: CDPublicChatEdit.entityName)
-            request.predicate = NSPredicate(format: "targetTxId == %@", targetTxId)
-            let existing = (try? context.fetch(request)) ?? []
-            if let current = existing.first, current.deliveryStatus == nil || current.deliveryStatus == "sent" {
-                if current.editTxId == editTxId, current.text == text { return }
-                if current.blockTime > blockTime, current.editTxId != editTxId { return }
-            }
-            let edit = existing.first ?? CDPublicChatEdit(context: context)
-            for duplicate in existing.dropFirst() {
-                context.delete(duplicate)
-            }
-            edit.targetTxId = targetTxId
-            edit.channelName = normalized
-            edit.text = text
-            edit.editTxId = editTxId
-            edit.blockTime = blockTime
-            edit.deliveryStatus = deliveryStatus
-            save(context)
-            changed = true
+            changed = Self.upsertEditRow(
+                targetTxId: targetTxId, channel: channel, text: text, editTxId: editTxId,
+                blockTime: blockTime, deliveryStatus: deliveryStatus, in: context
+            )
+            if changed { save(context) }
         }
         return changed
+    }
+
+    /// The body of `upsertEdit`, on any context; the caller saves.
+    private static func upsertEditRow(
+        targetTxId: String,
+        channel: String,
+        text: String,
+        editTxId: String?,
+        blockTime: Int64,
+        deliveryStatus: String?,
+        in context: NSManagedObjectContext
+    ) -> Bool {
+        let request = NSFetchRequest<CDPublicChatEdit>(entityName: CDPublicChatEdit.entityName)
+        request.predicate = NSPredicate(format: "targetTxId == %@", targetTxId)
+        let existing = (try? context.fetch(request)) ?? []
+        if let current = existing.first, current.deliveryStatus == nil || current.deliveryStatus == "sent" {
+            if current.editTxId == editTxId, current.text == text { return false }
+            if current.blockTime > blockTime, current.editTxId != editTxId { return false }
+        }
+        let edit = existing.first ?? CDPublicChatEdit(context: context)
+        for duplicate in existing.dropFirst() {
+            context.delete(duplicate)
+        }
+        edit.targetTxId = targetTxId
+        edit.channelName = PublicChatChannelName.normalize(channel)
+        edit.text = text
+        edit.editTxId = editTxId
+        edit.blockTime = blockTime
+        edit.deliveryStatus = deliveryStatus
+        return true
+    }
+
+    /// One indexer page's reactions and edits, applied on a background context with one save.
+    /// This was a synchronous main-thread fetch (and save) per row - on the 8s room poll and,
+    /// worse, through a room's first full backfill of up to 50 pages of 200 rows, which is where
+    /// scrolling a freshly opened room stuttered. The same rules as `applyIncomingReaction` /
+    /// `upsertEdit`; an edit counts only when its sender sent the text message it names.
+    /// Returns whether any reaction changed, and the edit txids that were applied.
+    struct IncomingReaction {
+        let targetTxId: String
+        let reactorAddress: String
+        let emoji: String?
+        let reactionTxId: String
+        let blockTime: Int64
+    }
+
+    struct IncomingEdit {
+        let targetTxId: String
+        let senderAddress: String
+        let text: String
+        let editTxId: String
+        let blockTime: Int64
+    }
+
+    func applyIncoming(
+        reactions: [IncomingReaction],
+        edits: [IncomingEdit],
+        channel: String
+    ) async -> (reactionsChanged: Bool, appliedEditTxIds: Set<String>) {
+        guard isLoaded, !(reactions.isEmpty && edits.isEmpty) else { return (false, []) }
+        return await withCheckedContinuation { continuation in
+            container.performBackgroundTask { context in
+                // The store's copy wins a conflict: a reaction or edit the user just made on
+                // the main context is newer than anything a history page carries.
+                context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+                var reactionsChanged = false
+                for reaction in reactions {
+                    if Self.applyReactionRow(
+                        targetTxId: reaction.targetTxId, channel: channel,
+                        reactorAddress: reaction.reactorAddress, emoji: reaction.emoji,
+                        reactionTxId: reaction.reactionTxId, blockTime: reaction.blockTime, in: context
+                    ) {
+                        reactionsChanged = true
+                    }
+                }
+                var appliedEdits = Set<String>()
+                for edit in edits {
+                    let request = NSFetchRequest<CDPublicChatMessage>(entityName: CDPublicChatMessage.entityName)
+                    request.predicate = NSPredicate(format: "id == %@", edit.targetTxId)
+                    request.fetchLimit = 1
+                    guard let target = (try? context.fetch(request))?.first,
+                          target.senderAddress == edit.senderAddress,
+                          MessageEditCodec.isEditable(target.content ?? "") else { continue }
+                    if Self.upsertEditRow(
+                        targetTxId: edit.targetTxId, channel: channel, text: edit.text,
+                        editTxId: edit.editTxId, blockTime: edit.blockTime, deliveryStatus: nil, in: context
+                    ) {
+                        appliedEdits.insert(edit.editTxId)
+                    }
+                }
+                if context.hasChanges { try? context.save() }
+                continuation.resume(returning: (reactionsChanged, appliedEdits))
+            }
+        }
     }
 
     /// All edits in `channel`, keyed by the message they change.
     func fetchEdits(forChannel channel: String) -> [String: MessageEditSnapshot] {
         guard isLoaded else { return [:] }
-        let normalized = PublicChatChannelName.normalize(channel)
         var edits: [String: MessageEditSnapshot] = [:]
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDPublicChatEdit>(entityName: CDPublicChatEdit.entityName)
-            request.predicate = NSPredicate(format: "channelName == %@", normalized)
-            guard let results = try? context.fetch(request) else { return }
-            for record in results {
-                guard let text = record.text else { continue }
-                let status: ChatMessage.DeliveryStatus
-                switch record.deliveryStatus {
-                case "failed": status = .failed
-                case "pending": status = .pending
-                default: status = .sent
-                }
-                edits[record.targetTxId] = MessageEditSnapshot(targetTxId: record.targetTxId, text: text, editTxId: record.editTxId, blockTime: record.blockTime, deliveryStatus: status)
-            }
+            edits = Self.editSnapshots(forChannel: channel, in: context)
         }
         return edits
     }
 
-    private func fetchReactionRow(targetTxId: String, reactorAddress: String, in context: NSManagedObjectContext) -> CDPublicChatReaction? {
+    /// `fetchEdits` on a background context - what opening a room and the poll use, so a room
+    /// with a long edit history is not read on the main thread as it slides in.
+    func fetchEditsAsync(forChannel channel: String) async -> [String: MessageEditSnapshot] {
+        guard isLoaded else { return [:] }
+        return await withCheckedContinuation { continuation in
+            container.performBackgroundTask { context in
+                continuation.resume(returning: Self.editSnapshots(forChannel: channel, in: context))
+            }
+        }
+    }
+
+    private static func editSnapshots(forChannel channel: String, in context: NSManagedObjectContext) -> [String: MessageEditSnapshot] {
+        let normalized = PublicChatChannelName.normalize(channel)
+        var edits: [String: MessageEditSnapshot] = [:]
+        let request = NSFetchRequest<CDPublicChatEdit>(entityName: CDPublicChatEdit.entityName)
+        request.predicate = NSPredicate(format: "channelName == %@", normalized)
+        guard let results = try? context.fetch(request) else { return edits }
+        for record in results {
+            guard let text = record.text else { continue }
+            let status: ChatMessage.DeliveryStatus
+            switch record.deliveryStatus {
+            case "failed": status = .failed
+            case "pending": status = .pending
+            default: status = .sent
+            }
+            edits[record.targetTxId] = MessageEditSnapshot(targetTxId: record.targetTxId, text: text, editTxId: record.editTxId, blockTime: record.blockTime, deliveryStatus: status)
+        }
+        return edits
+    }
+
+    private static func fetchReactionRow(targetTxId: String, reactorAddress: String, in context: NSManagedObjectContext) -> CDPublicChatReaction? {
         let request = NSFetchRequest<CDPublicChatReaction>(entityName: CDPublicChatReaction.entityName)
         request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
         let rows = (try? context.fetch(request)) ?? []
@@ -610,31 +721,47 @@ final class PublicChatStore {
     /// reaction UI (`ReactionPillView` + retry affordances) already speaks it.
     func fetchReactions(forChannel channel: String) -> [String: [GroupStore.ReactionSnapshot]] {
         guard isLoaded else { return [:] }
-        let normalized = PublicChatChannelName.normalize(channel)
         var grouped: [String: [GroupStore.ReactionSnapshot]] = [:]
         let context = viewContext
         context.performAndWait {
-            let request = NSFetchRequest<CDPublicChatReaction>(entityName: CDPublicChatReaction.entityName)
-            request.predicate = NSPredicate(format: "channelName == %@", normalized)
-            guard let results = try? context.fetch(request) else { return }
-            for record in results {
-                guard let emoji = record.emoji else { continue } // remove-tombstone
-                let status: ChatMessage.DeliveryStatus
-                switch record.deliveryStatus {
-                case "failed": status = .failed
-                case "pending": status = .pending
-                default: status = .sent
-                }
-                let snapshot = GroupStore.ReactionSnapshot(
-                    targetTxId: record.targetTxId,
-                    reactorAddress: record.reactorAddress,
-                    emoji: emoji,
-                    deliveryStatus: status,
-                    failedAction: record.failedAction,
-                    blockTime: record.blockTime
-                )
-                grouped[record.targetTxId, default: []].append(snapshot)
+            grouped = Self.reactionSnapshots(forChannel: channel, in: context)
+        }
+        return grouped
+    }
+
+    /// `fetchReactions` on a background context - see `fetchEditsAsync`.
+    func fetchReactionsAsync(forChannel channel: String) async -> [String: [GroupStore.ReactionSnapshot]] {
+        guard isLoaded else { return [:] }
+        return await withCheckedContinuation { continuation in
+            container.performBackgroundTask { context in
+                continuation.resume(returning: Self.reactionSnapshots(forChannel: channel, in: context))
             }
+        }
+    }
+
+    private static func reactionSnapshots(forChannel channel: String, in context: NSManagedObjectContext) -> [String: [GroupStore.ReactionSnapshot]] {
+        let normalized = PublicChatChannelName.normalize(channel)
+        var grouped: [String: [GroupStore.ReactionSnapshot]] = [:]
+        let request = NSFetchRequest<CDPublicChatReaction>(entityName: CDPublicChatReaction.entityName)
+        request.predicate = NSPredicate(format: "channelName == %@", normalized)
+        guard let results = try? context.fetch(request) else { return grouped }
+        for record in results {
+            guard let emoji = record.emoji else { continue } // remove-tombstone
+            let status: ChatMessage.DeliveryStatus
+            switch record.deliveryStatus {
+            case "failed": status = .failed
+            case "pending": status = .pending
+            default: status = .sent
+            }
+            let snapshot = GroupStore.ReactionSnapshot(
+                targetTxId: record.targetTxId,
+                reactorAddress: record.reactorAddress,
+                emoji: emoji,
+                deliveryStatus: status,
+                failedAction: record.failedAction,
+                blockTime: record.blockTime
+            )
+            grouped[record.targetTxId, default: []].append(snapshot)
         }
         return grouped
     }
