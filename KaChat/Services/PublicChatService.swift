@@ -931,7 +931,12 @@ final class PublicChatService: ObservableObject {
         }
         // Reaction envelopes are never rendered as message rows - drop any that made it into
         // the message table (rows scanned by an app version that predates reactions).
-        let fresh = rows.filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
+        // Off the main actor: up to 400 rows, each a codec sniff, on every reload - and a
+        // room's first backfill reloads once per history page.
+        let fresh = await Task.detached(priority: .userInitiated) {
+            rows.filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
+        }.value
+        guard messageLoadGeneration[channel] == generation else { return }
         // Only actually publish when the content changed: `@Published` fires on every
         // assignment regardless of equality, and an unconditional assignment re-rendered the
         // whole message list - including an open avatar menu - even when nothing had changed.

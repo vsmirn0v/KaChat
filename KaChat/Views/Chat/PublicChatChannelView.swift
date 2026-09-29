@@ -482,9 +482,16 @@ struct PublicChatChannelView: View {
                             if let anchor = keepInPlaceAfterOlderLoad {
                                 keepInPlaceAfterOlderLoad = nil
                                 proxy.scrollTo(anchor, anchor: .top)
-                            } else {
-                                scrollToBottom(using: proxy, animated: true)
                             }
+                        }
+                        // To the bottom only when the NEWEST message changed. This was on the
+                        // count, so every history page a freshly opened room paged in (older
+                        // rows, landing at the top) ran an animated scroll to the bottom -
+                        // stutter while the room filled, and a reader scrolled up into that
+                        // history kept being thrown back down.
+                        .onChange(of: messages.last?.id) { _ in
+                            guard keepInPlaceAfterOlderLoad == nil else { return }
+                            scrollToBottom(using: proxy, animated: true)
                         }
                         .onChange(of: pendingJumpToTxId) { id in
                             guard let id else { return }
