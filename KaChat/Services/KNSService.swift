@@ -1075,7 +1075,9 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
     private func updateCache(_ info: KNSAddressInfo, address: String) {
         domainCache[address] = info
-        trimCacheIfNeeded(&domainCache)
+        // Checked out here: handing a @Published dictionary over `inout` publishes it even when
+        // the trim does nothing, a second re-render of every avatar/name reader per fetch.
+        if domainCache.count > maxCacheEntries { trimCacheIfNeeded(&domainCache) }
         persistCache()
         // The wallet's OWN primary domain just (re)loaded - push it to the App Group so the
         // notification extension's mentions-only gate can match Android-composed @domain
@@ -1161,7 +1163,9 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
     private func updateProfileCache(_ info: KNSAddressProfileInfo, address: String) {
         profileCache[address] = info
-        trimCacheIfNeeded(&profileCache)
+        // Checked out here: handing a @Published dictionary over `inout` publishes it even when
+        // the trim does nothing, a second re-render of every avatar/name reader per fetch.
+        if profileCache.count > maxCacheEntries { trimCacheIfNeeded(&profileCache) }
         persistProfileCache()
     }
 
