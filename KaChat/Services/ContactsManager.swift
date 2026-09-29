@@ -2037,7 +2037,22 @@ final class SystemContactAvatarStore: ObservableObject {
 
     private func setImage(_ image: UIImage, for id: String) {
         images.setObject(image, forKey: id as NSString, cost: Self.cacheCost(for: image))
-        version &+= 1
+        bumpVersionSoon()
+    }
+
+    /// Photos land in bursts - the post-bootstrap prefetch, a list scrolling into a screenful of
+    /// linked contacts - and every `KNSAvatarView` in the app observes `version`, so one bump per
+    /// photo re-rendered every avatar once per photo. Bursts now coalesce into one bump.
+    private var versionBumpScheduled = false
+
+    private func bumpVersionSoon() {
+        guard !versionBumpScheduled else { return }
+        versionBumpScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+            self.versionBumpScheduled = false
+            self.version &+= 1
+        }
     }
 
     private func markAttempted(_ id: String) {
