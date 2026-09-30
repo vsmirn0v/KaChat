@@ -61,6 +61,8 @@ struct ChatListView: View {
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
     @State private var selectedGroupIDs: Set<String> = []
+    /// Public rooms picked in Select mode (by channel name).
+    @State private var selectedPublicRooms: Set<String> = []
 
     private let conversationPageSize = 80
     private let conversationPrefetchThreshold = 12
@@ -125,7 +127,7 @@ struct ChatListView: View {
                                     selectedContactIDs = Set(filteredConversationsCache.map { $0.contact.id })
                                 }
                             }
-                        } else {
+                        } else if selectedListTab == .groups {
                             Button(selectedGroupIDs.count == displayedGroups.count ? "Deselect All" : "Select All") {
                                 if selectedGroupIDs.count == displayedGroups.count {
                                     selectedGroupIDs = []
@@ -133,25 +135,30 @@ struct ChatListView: View {
                                     selectedGroupIDs = Set(displayedGroups.map { $0.id })
                                 }
                             }
+                        } else {
+                            let allRooms = Set(PublicChatService.shared.listedChannels.map(\.channelName))
+                            Button(!allRooms.isEmpty && selectedPublicRooms == allRooms ? "Deselect All" : "Select All") {
+                                selectedPublicRooms = selectedPublicRooms == allRooms ? [] : allRooms
+                            }
                         }
                     }
                 }
+                // Public Chats keeps its settings (which default rooms show at all) beside Select.
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    // Rooms are not selectable in bulk; their corner holds Public Chats settings
-                    // (which default rooms show at all) instead.
-                    if selectedListTab != .publicChats {
-                        Button(editMode == .active ? "Cancel" : "Select") {
-                            withAnimation {
-                                editMode = editMode == .active ? .inactive : .active
-                            }
-                        }
-                    } else {
+                    if selectedListTab == .publicChats, editMode != .active {
                         Button {
                             showPublicChatsSettings = true
                         } label: {
                             Image(systemName: "gearshape")
                         }
                         .accessibilityLabel("Public Chats settings")
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(editMode == .active ? "Cancel" : "Select") {
+                        withAnimation {
+                            editMode = editMode == .active ? .inactive : .active
+                        }
                     }
                 }
             }
@@ -220,9 +227,13 @@ struct ChatListView: View {
                             .filter { selectedContactIDs.contains($0.contact.id) }
                             .map { $0.contact }
                         deleteConversations(targets)
-                    } else {
+                    } else if selectedListTab == .groups {
                         let targets = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
                         deleteGroups(targets)
+                    } else {
+                        for room in selectedPublicRooms {
+                            PublicChatService.shared.removeFromList(room)
+                        }
                     }
                     editMode = .inactive
                 }
@@ -304,7 +315,7 @@ struct ChatListView: View {
                     .tag(ChatsListTab.groups)
                 // The public chat rooms screen, whole, as the third page. Its room selection is
                 // ours: the destination has to be declared outside this (lazy) TabView.
-                PublicChatListView(embeddedInChats: true, selection: $selectedPublicRoom)
+                PublicChatListView(embeddedInChats: true, selection: $selectedPublicRoom, roomSelection: $selectedPublicRooms)
                     .tag(ChatsListTab.publicChats)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
@@ -340,6 +351,7 @@ struct ChatListView: View {
             if newValue == .inactive {
                 selectedContactIDs = []
                 selectedGroupIDs = []
+                selectedPublicRooms = []
                 editModeLockedTab = nil
             } else if newValue == .active {
                 editModeLockedTab = selectedListTab
@@ -918,6 +930,33 @@ struct ChatListView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .disabled(selectedContactIDs.isEmpty)
+                } else if selectedListTab == .publicChats {
+                    Button {
+                        for room in selectedPublicRooms { publicChats.markChannelRead(room) }
+                        editMode = .inactive
+                    } label: {
+                        Image(systemName: "envelope.open")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(selectedPublicRooms.isEmpty)
+
+                    Button {
+                        for room in selectedPublicRooms { publicChats.markChannelUnread(room) }
+                        editMode = .inactive
+                    } label: {
+                        Image(systemName: "envelope.badge")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(selectedPublicRooms.isEmpty)
+
+                    Button(role: .destructive) {
+                        showBulkDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(selectedPublicRooms.isEmpty)
                 } else {
                     Button {
                         let targets = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
@@ -1107,15 +1146,22 @@ struct ChatListView: View {
     private var bulkDeleteAlertTitle: String {
         if selectedListTab == .chats {
             return "Delete \(selectedContactIDs.count) Chat\(selectedContactIDs.count == 1 ? "" : "s")?"
-        } else {
+        } else if selectedListTab == .groups {
             return "Delete \(selectedGroupIDs.count) Group\(selectedGroupIDs.count == 1 ? "" : "s")?"
+        } else {
+            return "Delete \(selectedPublicRooms.count) Public Chat\(selectedPublicRooms.count == 1 ? "" : "s")?"
         }
     }
 
     private var bulkDeleteAlertMessage: String {
-        selectedListTab == .chats
-            ? "This permanently deletes every message in each selected chat from this device. This cannot be undone."
-            : "This removes each selected group and its messages from this device. This cannot be undone, and other members won't be notified."
+        switch selectedListTab {
+        case .chats:
+            return "This permanently deletes every message in each selected chat from this device. This cannot be undone."
+        case .groups:
+            return "This removes each selected group and its messages from this device. This cannot be undone, and other members won't be notified."
+        case .publicChats:
+            return "Rooms you added are removed with their messages. Default rooms are only switched off - turn them back on any time in Public Chats settings (the gear)."
+        }
     }
 
     /// Long-press context menu for a 1:1 conversation row. Read/Unread show contextually (the

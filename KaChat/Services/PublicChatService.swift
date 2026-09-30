@@ -283,6 +283,39 @@ final class PublicChatService: ObservableObject {
     @Published private(set) var hiddenCuratedChannels: Set<String> = []
     private var hiddenCuratedKey: String? { walletAddress.map { "kachat_broadcast_hidden_curated_\($0)" } }
 
+    /// The rooms the Public Chats list shows, in its order: the two Popular rooms on top, then
+    /// every other joined room by latest activity. Service rooms and default rooms switched off
+    /// in settings are left out. Shared by the list and by its Select All.
+    var listedChannels: [PublicChatChannel] {
+        let featured = Self.featuredChannels.compactMap { name in
+            channels.first { $0.channelName == name }
+        }
+        .filter { isCuratedChannelShown($0.channelName) }
+        func lastActivity(_ channel: PublicChatChannel) -> Int64 {
+            messages(forChannel: channel.channelName).last?.blockTime
+                ?? Int64((channel.joinedAt ?? .distantPast).timeIntervalSince1970 * 1000)
+        }
+        let others = channels
+            .filter { !Self.featuredChannels.contains($0.channelName) }
+            .filter { !Self.serviceChannels.contains($0.channelName) }
+            // A default room switched off in Public Chats settings stays out of the list.
+            .filter { isCuratedChannelShown($0.channelName) }
+            .sorted { lastActivity($0) > lastActivity($1) }
+        return featured + others
+    }
+
+    /// "Delete" from the room list. A room you added is left for good (`leaveChannel`, its
+    /// messages go). A default room cannot really be deleted - it is simply switched off, the
+    /// same as its toggle in Public Chats settings, and that toggle brings it back.
+    func removeFromList(_ rawName: String) {
+        let name = PublicChatChannelName.normalize(rawName)
+        if Self.indexedChannels.contains(name) {
+            setCuratedChannel(name, shown: false)
+        } else {
+            leaveChannel(name)
+        }
+    }
+
     func isCuratedChannelShown(_ name: String) -> Bool {
         !hiddenCuratedChannels.contains(PublicChatChannelName.normalize(name))
     }

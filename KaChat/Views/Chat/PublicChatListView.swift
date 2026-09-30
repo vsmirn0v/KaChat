@@ -40,10 +40,17 @@ struct PublicChatListView: View {
     /// user's own channels under a wall of list.
     @State private var languagesExpanded = false
 
-    init(initialChannel: String? = nil, embeddedInChats: Bool = false, selection: Binding<String?>? = nil) {
+    /// Rooms picked in Select mode, owned by the Chats screen (its toolbar and bottom bar act
+    /// on them). Constant empty when this list stands alone.
+    private var roomSelection: Binding<Set<String>>
+    @Environment(\.editMode) private var editMode
+    private var isSelecting: Bool { editMode?.wrappedValue == .active }
+
+    init(initialChannel: String? = nil, embeddedInChats: Bool = false, selection: Binding<String?>? = nil, roomSelection: Binding<Set<String>>? = nil) {
         self.embeddedInChats = embeddedInChats
         self.initialChannel = initialChannel
         self.externalSelection = selection
+        self.roomSelection = roomSelection ?? .constant([])
     }
 
     var body: some View {
@@ -192,22 +199,7 @@ struct PublicChatListView: View {
     /// The rooms in the list: the two curated rooms pinned on top, then every other joined room
     /// (your own, and any language room you opened) by latest activity.
     private var listedChannels: [PublicChatChannel] {
-        let featured = PublicChatService.featuredChannels.compactMap { name in
-            publicChatService.channels.first { $0.channelName == name }
-        }
-        .filter { publicChatService.isCuratedChannelShown($0.channelName) }
-        let others = publicChatService.channels
-            .filter { !PublicChatService.featuredChannels.contains($0.channelName) }
-            .filter { !PublicChatService.serviceChannels.contains($0.channelName) }
-            // A default room switched off in Public Chats settings stays out of the list.
-            .filter { publicChatService.isCuratedChannelShown($0.channelName) }
-            .sorted { lastActivity($0) > lastActivity($1) }
-        return featured + others
-    }
-
-    private func lastActivity(_ channel: PublicChatChannel) -> Int64 {
-        publicChatService.messages(forChannel: channel.channelName).last?.blockTime
-            ?? Int64((channel.joinedAt ?? .distantPast).timeIntervalSince1970 * 1000)
+        publicChatService.listedChannels
     }
 
     /// Curated language rooms not opened yet - offered for discovery under "Other Languages".
@@ -220,7 +212,17 @@ struct PublicChatListView: View {
 
     private func roomRow(_ channel: PublicChatChannel) -> some View {
         Button {
-            selectedChannel = channel.channelName
+            // In Select mode a tap picks the room, as on the Chats and Group Chats pages -
+            // the row's own Button takes the tap before List's selection would see it.
+            if isSelecting {
+                if roomSelection.wrappedValue.contains(channel.channelName) {
+                    roomSelection.wrappedValue.remove(channel.channelName)
+                } else {
+                    roomSelection.wrappedValue.insert(channel.channelName)
+                }
+            } else {
+                selectedChannel = channel.channelName
+            }
         } label: {
             PublicChatRow(channelName: channel.channelName, channel: channel)
         }
@@ -228,20 +230,22 @@ struct PublicChatListView: View {
         // A Button label needs simultaneousGesture for the long press (as in the chat lists).
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                guard !isSelecting else { return }
                 Haptics.impact(.medium)
                 roomActionTarget = channel.channelName
             }
         )
+        .tag(channel.channelName)
         .listRowBackground(Color.clear)
     }
 
     private var combinedList: some View {
-        List {
+        List(selection: roomSelection) {
             ForEach(listedChannels) { channel in
                 roomRow(channel)
             }
 
-            if !unjoinedLanguageChannels.isEmpty {
+            if !unjoinedLanguageChannels.isEmpty, !isSelecting {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) { languagesExpanded.toggle() }
                 } label: {
@@ -291,6 +295,7 @@ struct PublicChatListView: View {
         // The same floating button the Chats and Group Chats pages carry, here for joining or
         // creating a room.
         .overlay(alignment: .bottomTrailing) {
+            if !isSelecting {
             Button {
                 Haptics.impact(.light)
                 joinFieldText = ""
@@ -311,6 +316,7 @@ struct PublicChatListView: View {
             .accessibilityLabel("Join or create a public room")
             .padding(.trailing, 20)
             .padding(.bottom, 16)
+            }
         }
         .onAppear { publicChatService.primeChannelSummaries() }
         .onChange(of: publicChatService.channels) { _ in publicChatService.primeChannelSummaries() }
@@ -325,8 +331,8 @@ struct PublicChatListView: View {
     private struct RoomActionTarget: Identifiable { let id: String }
 
     /// The long-press half sheet, same shape as a group's: read state, notifications, the room
-    /// link, and - for rooms you added yourself - listening, retention and delete. Curated rooms
-    /// are permanent, so they offer no delete.
+    /// link, and delete - which for a default room only switches it off (see
+    /// `PublicChatService.removeFromList`).
     @ViewBuilder
     private func roomActionSheet(for name: String) -> some View {
         let channel = publicChatService.channels.first { $0.channelName == name }
@@ -376,6 +382,15 @@ struct PublicChatListView: View {
                     // the second is silently dropped.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { channelToLeave = name }
                 }
+            } else if isCurated {
+                // A default room is never really deleted - it is switched off, exactly like its
+                // toggle in Public Chats settings, and that toggle brings it back. Nothing is
+                // lost, so it needs no confirmation.
+                ActionSheetRow(title: "Delete", subtitle: "Switches this default room off. Turn it back on in Public Chats settings.", systemImage: "trash", tint: .red) {
+                    roomActionTarget = nil
+                    publicChatService.removeFromList(name)
+                    showToast("#\(name) is off - turn it back on in Public Chats settings")
+                }
             }
 
             Spacer(minLength: 0)
@@ -383,7 +398,7 @@ struct PublicChatListView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(isCurated ? 330 : 410)])
+        .presentationDetents([.height(410)])
         .presentationDragIndicator(.visible)
     }
 
