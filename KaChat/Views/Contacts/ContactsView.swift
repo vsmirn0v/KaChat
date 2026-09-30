@@ -27,6 +27,8 @@ struct ProfileView: View {
     @State private var toastStyle: ToastStyle = .success
     @State private var isLoadingKNS = false
     @State private var knsDomains: [KNSDomain] = []
+    /// Names on the other services (.k, .kaspa), for the Your Domains count.
+    @ObservedObject private var nameServices = NameServicesClient.shared
     @State private var knsPrimaryDomain: String?
     @State private var knsProfileInfo: KNSAddressProfileInfo?
     @State private var showMoreProfileInfo = false
@@ -488,7 +490,8 @@ struct ProfileView: View {
                     Label("Your Domains", systemImage: "at")
                         .foregroundColor(.primary)
                     Spacer()
-                    Text("\(knsDomains.count)")
+                    // Every name the account owns: KNS plus .k and .kaspa.
+                    Text("\(knsDomains.count + (nameServices.ownerAddress == walletAddress.lowercased() ? nameServices.totalOwned : 0))")
                         .foregroundColor(.secondary)
                     Image(systemName: "chevron.right")
                         .font(.caption)
@@ -499,6 +502,10 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
             .background(glassBackground(cornerRadius: 18))
+            // The .k and .kaspa lookups, so the count above includes them before the list opens.
+            .task(id: walletAddress) {
+                await NameServicesClient.shared.refresh(for: walletAddress)
+            }
         }
     }
 
@@ -2708,8 +2715,48 @@ private struct KNSDomainsListView: View {
     let onRefresh: () async -> Void
 
     @State private var showInscribeSheet = false
+    /// Which name service's tab is showing. `.kas` is KNS, the rest come from `NameServicesClient`.
+    @State private var selectedTLD: NameServiceTLD = .kas
+    @ObservedObject private var nameServices = NameServicesClient.shared
 
     var body: some View {
+        VStack(spacing: 0) {
+            // One tab per name ending: KNS (.kas), dotk (.k), Kaspa Names (.kaspa), and KaChat's
+            // own (.kachat, not live yet).
+            Picker("Name service", selection: $selectedTLD) {
+                ForEach(NameServiceTLD.allCases) { tld in
+                    Text(tld.suffix).tag(tld)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+
+            switch selectedTLD {
+            case .kas:
+                knsDomainList
+            case .k, .kaspa:
+                serviceNameList(selectedTLD)
+            case .kachat:
+                kachatComingSoon
+            }
+        }
+        .task(id: walletAddress) {
+            await nameServices.refresh(for: walletAddress)
+        }
+        .navigationTitle("Your Domains")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showInscribeSheet) {
+            KNSDomainInscribeSheet(walletAddress: walletAddress) { result in
+                showInscribeSheet = false
+                onInscribeComplete(result)
+            }
+        }
+    }
+
+    // MARK: .kas (KNS)
+
+    private var knsDomainList: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
                 if domains.isEmpty {
@@ -2760,13 +2807,77 @@ private struct KNSDomainsListView: View {
             .padding(.horizontal)
             .padding(.bottom, 16)
         }
-        .navigationTitle("Your Domains")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showInscribeSheet) {
-            KNSDomainInscribeSheet(walletAddress: walletAddress) { result in
-                showInscribeSheet = false
-                onInscribeComplete(result)
+    }
+
+    // MARK: .k and .kaspa
+
+    @ViewBuilder
+    private func serviceNameList(_ tld: NameServiceTLD) -> some View {
+        let names = nameServices.owned[tld] ?? []
+        ScrollView {
+            LazyVStack(spacing: 16) {
+                if names.isEmpty {
+                    VStack(spacing: 10) {
+                        if nameServices.loading.contains(tld) && nameServices.owned[tld] == nil {
+                            ProgressView()
+                        } else if nameServices.failed.contains(tld) {
+                            Text("Couldn't reach \(tld.serviceName). Pull down to try again.")
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        } else {
+                            Text("No \(tld.suffix) names yet.")
+                                .foregroundColor(.secondary)
+                        }
+                        if let url = tld.websiteURL {
+                            Link(destination: url) {
+                                Text("Get a \(tld.suffix) name at \(url.host ?? tld.serviceName)")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                } else {
+                    ForEach(names) { owned in
+                        DomainNameCardView(
+                            title: owned.display,
+                            badge: owned.isProvisional ? String(localized: "Settling") : nil
+                        )
+                    }
+                    if let url = tld.websiteURL {
+                        Link(destination: url) {
+                            Text("Manage on \(url.host ?? tld.serviceName)")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .padding(.top, 4)
+                    }
+                }
             }
+            .padding()
+        }
+        .refreshable {
+            await nameServices.refresh(for: walletAddress)
+        }
+    }
+
+    // MARK: .kachat
+
+    private var kachatComingSoon: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                Image(systemName: "at.circle")
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                Text(".kachat names are coming")
+                    .font(.headline)
+                Text("KaChat's own names will live here: claim one, set it as your name in chats, and share it as your profile link.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 40)
         }
     }
 
@@ -2795,12 +2906,23 @@ struct KNSDomainCard: View {
     var isPrimary: Bool = false
 
     var body: some View {
+        DomainNameCardView(title: domain.fullName, badge: isPrimary ? String(localized: "Primary") : nil)
+    }
+}
+
+/// The teal name card, for any name service: the name, and an optional corner badge
+/// ("Primary" on KNS, "Settling" on a `.kaspa` name still inside its settling window).
+struct DomainNameCardView: View {
+    let title: String
+    var badge: String? = nil
+
+    var body: some View {
         ZStack(alignment: .topTrailing) {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color.accentColor)
                 .frame(height: 100)
                 .overlay(
-                    Text(domain.fullName)
+                    Text(title)
                         .font(.title2.weight(.bold))
                         .foregroundColor(.black)
                         .lineLimit(1)
@@ -2808,8 +2930,8 @@ struct KNSDomainCard: View {
                         .padding(.horizontal, 20)
                 )
 
-            if isPrimary {
-                Text("Primary")
+            if let badge {
+                Text(badge)
                     .font(.caption2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
