@@ -959,3 +959,44 @@ extension View {
         modifier(ChatHeaderTapBand(onChip: onChip, onBand: onBand))
     }
 }
+
+// MARK: - Underline tab bar
+
+/// The app's tab bar for switching pages inside a screen: bold teal labels (dimmed when not
+/// selected), a teal bar under the selected one, a divider below - the look of the Chats /
+/// Group Chats / Public Chats bar. Used by Your Domains and Connection Settings.
+struct UnderlineTabBar<Tab: Hashable>: View {
+    let tabs: [(tab: Tab, title: String)]
+    @Binding var selection: Tab
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(tabs.indices, id: \.self) { index in
+                    let item = tabs[index]
+                    let isSelected = selection == item.tab
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { selection = item.tab }
+                    } label: {
+                        VStack(spacing: 8) {
+                            Text(LocalizedStringKey(item.title))
+                                .font(.subheadline.weight(.bold))
+                                .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 12)
+                            Rectangle()
+                                .fill(isSelected ? Color.accentColor : Color.clear)
+                                .frame(height: 2.5)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+            Divider()
+        }
+    }
+}

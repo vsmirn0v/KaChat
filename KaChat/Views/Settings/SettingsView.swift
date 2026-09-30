@@ -1927,242 +1927,321 @@ struct ConnectionSettingsView: View {
         return "https://" + trimmed
     }
 
-    var body: some View {
-        Form {
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Indexer URL")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("https://kachat.duckdns.org", text: $indexerURL)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    httpsInlineError(for: indexerURL)
+    @ViewBuilder
+    private var indexerSections: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Indexer URL")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("https://kachat.duckdns.org", text: $indexerURL)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                httpsInlineError(for: indexerURL)
+            }
+        } header: {
+            Text("Message Indexer")
+        } footer: {
+            Text("Message indexer service for chat functionality")
+        }
+
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("KaPost Indexer URL")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField(AppSettings.defaultKaPostIndexerURL, text: $kaPostIndexerURL)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                httpsInlineError(for: kaPostIndexerURL)
+            }
+        } header: {
+            Text("KaPost Indexer")
+        } footer: {
+            Text("K social network indexer that powers KaPosts feeds")
+        }
+
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Public Chats Indexer URL")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField(AppSettings.defaultPublicChatIndexerURL, text: $publicChatIndexerURL)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                httpsInlineError(for: publicChatIndexerURL)
+            }
+        } header: {
+            Text("Public Chats Indexer")
+        } footer: {
+            Text("KaChat public chat history indexer for #kaspa and #kachat-bugs")
+        }
+
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Push Indexer URL")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField(AppSettings.defaultPushIndexerURL, text: $pushIndexerURL)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                httpsInlineError(for: pushIndexerURL)
+            }
+        } header: {
+            Text("Push Registration")
+        } footer: {
+            Text("Used only for push registration and updates")
+        }
+
+    }
+
+    @ViewBuilder
+    private var nodeSections: some View {
+        Section {
+            Picker(
+                "Kaspa Node",
+                selection: Binding(get: { nodeChoiceSelection }, set: { applyNodeChoice($0) })
+            ) {
+                Text("Default (Recommended)").tag(NodeChoice.defaultNode)
+                Text("Automatic Scan").tag(NodeChoice.automatic)
+                ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
+                    Text(entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.address : entry.label)
+                        .tag(NodeChoice.saved(entry.address))
                 }
-            } header: {
-                Text("KaChat Indexer")
-            } footer: {
-                Text("Message indexer service for chat functionality")
+                if case .custom(let address) = nodeChoiceSelection {
+                    Text(address).tag(NodeChoice.custom(address))
+                }
             }
 
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("KaPost Indexer URL")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField(AppSettings.defaultKaPostIndexerURL, text: $kaPostIndexerURL)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    httpsInlineError(for: kaPostIndexerURL)
-                }
-            } header: {
-                Text("KaPost Indexer")
-            } footer: {
-                Text("K social network indexer that powers KaPosts feeds")
+            if let trustedNodeValidationError {
+                Text(trustedNodeValidationError)
+                    .font(.caption)
+                    .foregroundColor(.red)
             }
 
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Translation Service URL")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField(AppSettings.defaultTranslationServiceURL, text: $translationServiceURL)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    httpsInlineError(for: translationServiceURL)
+            if !settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Connected only to this node")
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
+            }
+        } header: {
+            Text("Kaspa Node")
+        } footer: {
+            Text("Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here.")
+        }
+
+        Section {
+            TextField("Label (optional)", text: $newSavedNodeLabel)
+                .autocapitalization(.words)
+
+            HStack {
+                TextField("host:port or grpcs://host", text: $newSavedNodeAddress)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .onChange(of: newSavedNodeAddress) { _ in
+                        savedNodeAddressError = nil
+                    }
+
+                Button {
+                    addSavedNodeAddress()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundColor(.accentColor)
                 }
-            } header: {
-                Text("Translation Service")
-            } footer: {
-                Text("Translates KaPosts written in another language. Runs on the KaPost indexer's box by default; point this at your own if you host one (see TRANSLATION_SERVICE.md).")
+                .disabled(newSavedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Public Chats Indexer URL")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField(AppSettings.defaultPublicChatIndexerURL, text: $publicChatIndexerURL)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    httpsInlineError(for: publicChatIndexerURL)
-                }
-            } header: {
-                Text("Public Chats Indexer")
-            } footer: {
-                Text("KaChat public chat history indexer for #kaspa and #kachat-bugs")
+            if let savedNodeAddressError {
+                Text(savedNodeAddressError)
+                    .font(.caption)
+                    .foregroundColor(.red)
             }
 
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Push Indexer URL")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField(AppSettings.defaultPushIndexerURL, text: $pushIndexerURL)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    httpsInlineError(for: pushIndexerURL)
-                }
-            } header: {
-                Text("Push Registration")
-            } footer: {
-                Text("Used only for push registration and updates")
-            }
+            if settingsViewModel.settings.savedNodeAddresses.isEmpty {
+                Text("No saved addresses")
+                    .foregroundColor(.secondary)
+                    .italic()
+            } else {
+                ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if !entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text(entry.label)
+                                Text(entry.address)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text(entry.address)
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            UIPasteboard.general.string = entry.address
+                            Haptics.success()
+                            showToast("Node address copied.")
+                        }
 
-            Section {
-                // Shown, not editable. This field had no empty-string fallback, so saving it
-                // blank wrote "" and every KNS call then failed with an unsupported-URL error
-                // until it was typed back in. It now follows the selected network.
+                        Button {
+                            deleteSavedNodeAddress(entry)
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Delete saved address")
+                    }
+                }
+                .onDelete { indexSet in
+                    settingsViewModel.settings.savedNodeAddresses.remove(atOffsets: indexSet)
+                    settingsViewModel.saveSettings()
+                }
+            }
+        } header: {
+            Text("IP Address Book")
+        } footer: {
+            Text("Save your own node addresses here, then tap one to copy it and paste into the Kaspa Node field above.")
+        }
+    }
+
+    @ViewBuilder
+    private var translationSections: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Translation Service URL")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField(AppSettings.defaultTranslationServiceURL, text: $translationServiceURL)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                httpsInlineError(for: translationServiceURL)
+            }
+        } header: {
+            Text("Translation Service")
+        } footer: {
+            Text("Translates KaPosts written in another language. Runs on the KaPost indexer's box by default; point this at your own if you host one (see TRANSLATION_SERVICE.md).")
+        }
+
+    }
+
+    @ViewBuilder
+    private var domainsSections: some View {
+        Section {
+            // Shown, not editable. This field had no empty-string fallback, so saving it
+            // blank wrote "" and every KNS call then failed with an unsupported-URL error
+            // until it was typed back in. It now follows the selected network.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("KNS API URL")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(settingsViewModel.knsBaseURL)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+        } header: {
+            Text("Kaspa Name Service")
+        } footer: {
+            Text("KNS domain resolution service")
+        }
+
+
+        // The other name services this app reads (see `NameServicesClient`). Shown, not
+        // editable yet - they have one public deployment each.
+        Section {
+            ForEach([NameServiceTLD.k, .kaspa], id: \.self) { tld in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("KNS API URL")
+                    Text("\(tld.serviceName) (\(tld.suffix))")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text(settingsViewModel.knsBaseURL)
+                    Text(tld.apiBaseURL(for: settingsViewModel.settings.networkType) ?? String(localized: "Not available on this network"))
                         .font(.system(.body, design: .monospaced))
                         .foregroundColor(.secondary)
                         .textSelection(.enabled)
                 }
-            } header: {
-                Text("Kaspa Name Service")
-            } footer: {
-                Text("KNS domain resolution service")
             }
-
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Kaspa REST API URL")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("https://api.kaspa.org", text: $kaspaRestAPIURL)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    httpsInlineError(for: kaspaRestAPIURL)
-                }
-            } header: {
-                Text("Kaspa Explorer API")
-            } footer: {
-                Text("REST API for transaction history and balance lookups")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("KaChat Names (.kachat)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text("Coming soon")
+                    .foregroundColor(.secondary)
             }
+        } header: {
+            Text("Other Name Services")
+        } footer: {
+            Text("Used to show the .k and .kaspa names an address owns. KaChat's own .kachat names will be set here once they launch.")
+        }
+    }
 
-            Section {
-                Picker(
-                    "Kaspa Node",
-                    selection: Binding(get: { nodeChoiceSelection }, set: { applyNodeChoice($0) })
-                ) {
-                    Text("Default (Recommended)").tag(NodeChoice.defaultNode)
-                    Text("Automatic Scan").tag(NodeChoice.automatic)
-                    ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
-                        Text(entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.address : entry.label)
-                            .tag(NodeChoice.saved(entry.address))
-                    }
-                    if case .custom(let address) = nodeChoiceSelection {
-                        Text(address).tag(NodeChoice.custom(address))
-                    }
-                }
-
-                if let trustedNodeValidationError {
-                    Text(trustedNodeValidationError)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-
-                if !settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Connected only to this node")
-                        .font(.caption)
-                        .foregroundColor(.accentColor)
-                }
-            } header: {
-                Text("Kaspa Node")
-            } footer: {
-                Text("Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the Indexer/KNS/REST API URLs above. Add custom addresses to the IP Address Book below to select them here.")
+    @ViewBuilder
+    private var explorerSections: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Kaspa REST API URL")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("https://api.kaspa.org", text: $kaspaRestAPIURL)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                httpsInlineError(for: kaspaRestAPIURL)
             }
+        } header: {
+            Text("Kaspa Explorer API")
+        } footer: {
+            Text("REST API for transaction history and balance lookups")
+        }
 
-            Section {
-                TextField("Label (optional)", text: $newSavedNodeLabel)
-                    .autocapitalization(.words)
+    }
 
-                HStack {
-                    TextField("host:port or grpcs://host", text: $newSavedNodeAddress)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                        .onChange(of: newSavedNodeAddress) { _ in
-                            savedNodeAddressError = nil
-                        }
+    /// One tab per kind of connection, so the page stays short as the app talks to more
+    /// services: indexers, the Kaspa node, translation, name services, the block explorer.
+    private enum ConnectionTab: String, CaseIterable {
+        case indexer, node, translation, domains, explorer
 
-                    Button {
-                        addSavedNodeAddress()
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundColor(.accentColor)
-                    }
-                    .disabled(newSavedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        var title: String {
+            switch self {
+            case .indexer: return "Indexer"
+            case .node: return "Node"
+            case .translation: return "Translation"
+            case .domains: return "Domains"
+            case .explorer: return "Explorer"
+            }
+        }
+    }
+
+    @State private var selectedTab: ConnectionTab = .indexer
+
+    var body: some View {
+        VStack(spacing: 0) {
+            UnderlineTabBar(
+                tabs: ConnectionTab.allCases.map { (tab: $0, title: $0.title) },
+                selection: $selectedTab
+            )
+            // Save covers every tab: the fields keep their edits while you switch between them.
+            Form {
+                switch selectedTab {
+                case .indexer: indexerSections
+                case .node: nodeSections
+                case .translation: translationSections
+                case .domains: domainsSections
+                case .explorer: explorerSections
                 }
-
-                if let savedNodeAddressError {
-                    Text(savedNodeAddressError)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-
-                if settingsViewModel.settings.savedNodeAddresses.isEmpty {
-                    Text("No saved addresses")
-                        .foregroundColor(.secondary)
-                        .italic()
-                } else {
-                    ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                if !entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Text(entry.label)
-                                    Text(entry.address)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                } else {
-                                    Text(entry.address)
-                                        .font(.system(.body, design: .monospaced))
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                UIPasteboard.general.string = entry.address
-                                Haptics.success()
-                                showToast("Node address copied.")
-                            }
-
-                            Button {
-                                deleteSavedNodeAddress(entry)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.red)
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Delete saved address")
-                        }
-                    }
-                    .onDelete { indexSet in
-                        settingsViewModel.settings.savedNodeAddresses.remove(atOffsets: indexSet)
-                        settingsViewModel.saveSettings()
-                    }
-                }
-            } header: {
-                Text("IP Address Book")
-            } footer: {
-                Text("Save your own node addresses here, then tap one to copy it and paste into the Kaspa Node field above.")
             }
         }
         .navigationTitle("Connection Settings")

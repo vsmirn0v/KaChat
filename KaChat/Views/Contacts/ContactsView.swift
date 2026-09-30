@@ -2724,14 +2724,10 @@ private struct KNSDomainsListView: View {
             // One tab per name ending, KaChat's own first: .kachat (not live yet), KNS (.kas),
             // dotk (.k), Kaspa Names (.kaspa). The same underline tab bar as Chats / Group Chats
             // / Public Chats: bold teal labels, a bar under the selected one.
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    ForEach(NameServiceTLD.allCases) { tld in
-                        domainTabButton(tld)
-                    }
-                }
-                Divider()
-            }
+            UnderlineTabBar(
+                tabs: NameServiceTLD.allCases.map { (tab: $0, title: $0.suffix) },
+                selection: $selectedTLD
+            )
 
             switch selectedTLD {
             case .kas:
@@ -2778,27 +2774,6 @@ private struct KNSDomainsListView: View {
                     }
                 }
             }
-    }
-
-    private func domainTabButton(_ tld: NameServiceTLD) -> some View {
-        let isSelected = selectedTLD == tld
-        return Button {
-            withAnimation(.easeInOut(duration: 0.2)) { selectedTLD = tld }
-        } label: {
-            VStack(spacing: 8) {
-                Text(tld.suffix)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 12)
-                Rectangle()
-                    .fill(isSelected ? Color.accentColor : Color.clear)
-                    .frame(height: 2.5)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: .kas (KNS)

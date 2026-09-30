@@ -46,6 +46,16 @@ enum NameServiceTLD: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The read API this app calls for the service, shown in Connection Settings > Domains.
+    /// nil for `.kas` (KNS has its own setting there) and `.kachat` (not live).
+    func apiBaseURL(for network: NetworkType) -> String? {
+        switch self {
+        case .k: return network == .mainnet ? "https://api.dotk.name/v1" : "https://api-tn10.dotk.name/v1"
+        case .kaspa: return network == .mainnet ? "https://kaspaname.com/v1" : nil
+        case .kas, .kachat: return nil
+        }
+    }
+
     /// Whether the app can read this service yet.
     var isLive: Bool { self != .kachat }
 
@@ -133,8 +143,8 @@ final class NameServicesClient: ObservableObject {
     }
 
     private func fetchDotk(address: String, network: NetworkType) async -> [OwnedServiceName]? {
-        let base = network == .mainnet ? "https://api.dotk.name/v1" : "https://api-tn10.dotk.name/v1"
-        guard let encoded = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+        guard let base = NameServiceTLD.k.apiBaseURL(for: network),
+              let encoded = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let url = URL(string: "\(base)/addresses/\(encoded)") else { return nil }
         guard let response: DotkOwnerResponse = await getJSON(url) else { return nil }
         return response.names
@@ -163,7 +173,8 @@ final class NameServicesClient: ObservableObject {
         // address kind cannot own a name through this lookup.
         guard let key = KaspaAddress.publicKey(from: address), key.count == 32 else { return [] }
         let identifier = key.map { String(format: "%02x", $0) }.joined()
-        guard let url = URL(string: "https://kaspaname.com/v1/addresses/\(identifier)/names") else { return nil }
+        guard let base = NameServiceTLD.kaspa.apiBaseURL(for: network),
+              let url = URL(string: "\(base)/addresses/\(identifier)/names") else { return nil }
         guard let response: KaspaNamesOwnerResponse = await getJSON(url) else { return nil }
         return response.names
             // A losing lineage is a registration that was outranked: not this owner's name.
