@@ -1106,6 +1106,7 @@ struct ChatListView: View {
                 .map { (key: $0.lastMessage?.timestamp ?? Date.distantPast, value: $0) }
                 .sorted { $0.key > $1.key }
                 .map(\.value)
+            filteredConversationsCache = pinningSelfChat(filteredConversationsCache)
             return
         }
 
@@ -1118,10 +1119,11 @@ struct ChatListView: View {
                 .map { (key: $0.lastMessage?.timestamp ?? Date.distantPast, value: $0) }
                 .sorted { $0.key > $1.key }
                 .map(\.value)
+            filteredConversationsCache = pinningSelfChat(filteredConversationsCache)
             return
         }
 
-        filteredConversationsCache = sourceConversations.filter { conv in
+        filteredConversationsCache = pinningSelfChat(sourceConversations.filter { conv in
             guard chatService.isConversationVisibleInChatList(conv, settings: settings) else { return false }
             if contactsManager.displayName(for: conv.contact).range(of: query, options: .caseInsensitive) != nil {
                 return true
@@ -1137,7 +1139,19 @@ struct ChatListView: View {
                     message.content.utf8.count <= 4096 &&
                     message.content.range(of: query, options: .caseInsensitive) != nil
             }
-        }
+        })
+    }
+
+    /// Your chat with yourself always sits first, whatever else was active more recently - it is
+    /// the notes-to-self and landing spot for unknown senders, and should never have to be
+    /// scrolled for. Everything else keeps its order.
+    private func pinningSelfChat(_ conversations: [Conversation]) -> [Conversation] {
+        guard let mine = walletManager.currentWallet?.publicAddress.lowercased(),
+              let index = conversations.firstIndex(where: { $0.contact.address.lowercased() == mine }),
+              index > 0 else { return conversations }
+        var pinned = conversations
+        pinned.insert(pinned.remove(at: index), at: 0)
+        return pinned
     }
 
     /// Pulled out of the `.alert(...)` call site as a plain computed property - an inline ternary
