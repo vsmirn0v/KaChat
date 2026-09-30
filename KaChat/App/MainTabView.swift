@@ -93,6 +93,8 @@ struct MainTabView: View {
                                 logo
                             } else if tab == .chess {
                                 Image(uiImage: ChessTabIcon.image(side: 24))
+                            } else if tab == .kachatNames {
+                                Image(uiImage: KachatTabIcon.image(side: 24))
                             } else {
                                 Image(systemName: tab.icon)
                             }
@@ -298,6 +300,8 @@ struct MainTabView: View {
             EcosystemView()
         case .chess:
             ChessHomeView()
+        case .kachatNames:
+            KachatMarketView()
         case .apps:
             NavigationStack {
                 ProfileAppsView()

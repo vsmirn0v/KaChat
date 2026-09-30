@@ -257,6 +257,8 @@ struct MenuVisibilityView: View {
                 .frame(width: size, height: size)
         } else if tab == .chess {
             ChessTabIcon.view(side: size)
+        } else if tab == .kachatNames {
+            KachatTabIcon.view(side: size)
         } else {
             Image(systemName: tab.icon)
                 .font(.scaled(size: size, weight: .medium))

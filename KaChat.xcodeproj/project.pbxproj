@@ -42,6 +42,7 @@
 		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
 		BSVC00010001000100000001 /* PublicChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BSVC00010001000000000001 /* PublicChatService.swift */; };
 		C3F79B2E51A64D08B7E1265A /* EcosystemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */; };
+		KCM0001B000000000000001 /* KachatMarketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCM0001A000000000000001 /* KachatMarketView.swift */; };
 		C7A1F42E63B84D8195C0AE71 /* AddToPortfolioSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */; };
 		CACHEMGR00010001000100000001 /* CacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACHEMGR00010001000000000001 /* CacheManager.swift */; };
 		CALL0001B000000000000001 /* NextcloudTalkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CALL0001A000000000000001 /* NextcloudTalkClient.swift */; };
@@ -342,6 +343,7 @@
 		CSEX00010001000000000008 /* ChatService+PaymentPools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+PaymentPools.swift"; sourceTree = "<group>"; };
 		D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToPortfolioSheet.swift; sourceTree = "<group>"; };
 		D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EcosystemView.swift; sourceTree = "<group>"; };
+		KCM0001A000000000000001 /* KachatMarketView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatMarketView.swift; sourceTree = "<group>"; };
 		DA0001A0000000000000001 /* DeviceAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceAuth.swift; sourceTree = "<group>"; };
 		DECI00010001000000000001 /* DecimalInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecimalInput.swift; sourceTree = "<group>"; };
 		DTAL00010001000000000001 /* DeterministicAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicAlias.swift; sourceTree = "<group>"; };
@@ -942,6 +944,7 @@
 			isa = PBXGroup;
 			children = (
 				D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */,
+				KCM0001A000000000000001 /* KachatMarketView.swift */,
 			);
 			path = Ecosystem;
 			sourceTree = "<group>";
@@ -1396,6 +1399,7 @@
 				E81000212D4C000100000011 /* Models.swift in Sources */,
 				E81000232D4C000100000012 /* MainTabView.swift in Sources */,
 				C3F79B2E51A64D08B7E1265A /* EcosystemView.swift in Sources */,
+				KCM0001B000000000000001 /* KachatMarketView.swift in Sources */,
 				E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */,
 				DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */,
 				D9F31A6B7E2C48D0A15B3C42 /* KaPostsMarkdown.swift in Sources */,

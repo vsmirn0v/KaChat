@@ -91,6 +91,8 @@ struct EcosystemView: View {
             SwapView()
         case .chess:
             ChessHomeView()
+        case .kachatNames:
+            KachatMarketView()
         case .apps:
             NavigationStack {
                 // ProfileAppsView sets its own title; only the shared header items are added.
@@ -176,6 +178,8 @@ struct EcosystemView: View {
                                     .frame(width: 26, height: 26)
                             } else if tab == .chess {
                                 ChessTabIcon.view(side: 26)
+                            } else if tab == .kachatNames {
+                                KachatTabIcon.view(side: 30)
                             } else {
                                 Image(systemName: tab.icon)
                                     .font(.scaled(size: 26, weight: .medium))

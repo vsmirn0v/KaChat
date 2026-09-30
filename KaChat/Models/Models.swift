@@ -1797,6 +1797,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case apps
     /// Chess tournaments (5.1) - Kaspa Hub > Chess Online. See ONLINE_CHESS.md.
     case chess
+    /// .kachat names (5.2) - Kaspa Hub > .kachat: the marketplace for KaChat's own names
+    /// (claim, buy and sell, trustless). UI only until the name service is built.
+    case kachatNames
     /// The container the other feature tabs live in when they are not in the dock themselves -
     /// see `ecosystemSections(from:)`. Displayed as "Kaspa Hub"; the case name and its raw
     /// value stay `ecosystem` because the raw value is PERSISTED in `tabOrder`, so renaming it
@@ -1823,6 +1826,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         // the Ecosystem grid and the screen itself show.
         case .apps: return "Websites"
         case .chess: return "Chess"
+        case .kachatNames: return ".kachat"
         case .ecosystem: return "Kaspa Hub"
         case .more: return "More"
         }
@@ -1839,6 +1843,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .publicChats: return "dot.radiowaves.left.and.right"
         case .apps: return "globe"
         case .chess: return "checkerboard.rectangle"
+        // Drawn as the ".kachat" wordmark (KachatTabIcon) wherever tabs are drawn; this symbol
+        // is only the fallback for anything that has not been taught about it.
+        case .kachatNames: return "at"
         // Kaspa Hub wears the Kaspa mark itself, not an SF Symbol - see `usesKaspaLogo`.
         case .ecosystem: return "circle.hexagongrid"
         case .more: return "plus.circle"
@@ -1876,6 +1883,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .publicChats: return 8
         case .apps: return 9
         case .chess: return 11
+        case .kachatNames: return 12
         case .ecosystem: return 10
         }
     }
@@ -1892,20 +1900,20 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     static let pinnedToDock: [AppTab] = [.ecosystem, .profile]
 
     /// Tabs the user can place. Excludes the Hub (pinned) and the retired "+ More".
-    static let assignable: [AppTab] = [.chats, .portfolio, .coldStorage, .swap, .kaposts, .apps, .chess]
+    static let assignable: [AppTab] = [.chats, .portfolio, .coldStorage, .swap, .kaposts, .apps, .chess, .kachatNames]
 
     /// Ecosystem takes the dock slot Swap used to hold, so a default install shows exactly the
     /// five the dock can fit - Portfolio, Storage, Chats, Ecosystem, Profile - with Swap, KaPosts,
     /// Public Chats and the websites list still ENABLED but living inside Ecosystem rather than
     /// competing for a dock slot.
-    static let defaultOrder: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile, .swap, .kaposts, .publicChats, .apps, .chess]
+    static let defaultOrder: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile, .kachatNames, .swap, .kaposts, .publicChats, .apps, .chess]
 
     /// What a fresh install starts with: the three that were asked for, in that order, plus the
     /// two that fill the dock to its cap. Everything else starts in Kaspa Hub.
     static let defaultDock: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile]
 
     /// The rest, in the order the Hub grid shows them until the user rearranges it.
-    static let defaultHub: [AppTab] = [.kaposts, .swap, .apps]
+    static let defaultHub: [AppTab] = [.kachatNames, .kaposts, .swap, .apps]
 
     /// Slots the user can actually fill: the cap minus the pinned tabs.
     static var assignableDockSlots: Int { maxDockItems - pinnedToDock.count }
@@ -1951,6 +1959,8 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .publicChats: return false
         case .apps: return !settings.hideAppsTab
         case .chess: return !settings.hideChessTab && !settings.childModeEnabled
+        // A marketplace - buying and selling with real KAS - so Simple Mode hides it, like Swap.
+        case .kachatNames: return !settings.childModeEnabled
         case .ecosystem: return !settings.hideEcosystemTab
         // "+ More" is retired from the dock entirely (Customize Dock lives in Settings now) -
         // hard-hidden regardless of what an old saved blob says.
