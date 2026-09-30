@@ -27,6 +27,8 @@ struct ProfileView: View {
     @State private var toastStyle: ToastStyle = .success
     @State private var isLoadingKNS = false
     @State private var knsDomains: [KNSDomain] = []
+    /// The .kas domain whose full profile is being customized (Your Domains > the domain).
+    @State private var domainProfileEdit: DomainProfileEditTarget?
     /// Names on the other services (.k, .kaspa), for the Your Domains count.
     @ObservedObject private var nameServices = NameServicesClient.shared
     @State private var knsPrimaryDomain: String?
@@ -217,60 +219,53 @@ struct ProfileView: View {
             .onReceive(NotificationCenter.default.publisher(for: .openKNSProfileEditor)) { _ in
                 showKNSEditor = true
             }
+            // "Edit .kachat Profile": KaChat's own names are not live yet, so the editor opens
+            // empty (see `KaChatProfileEditorSheet`).
             .sheet(isPresented: $showKNSEditor) {
-                if let profileInfo = knsProfileInfo, profileInfo.assetId != nil {
-                    KNSProfileEditorSheet(
-                        profileInfo: profileInfo,
-                        domains: $knsDomains,
-                        primaryDomain: $knsPrimaryDomain,
-                        settingPrimaryDomainId: $settingPrimaryDomainId,
-                        setPrimaryMessage: $setPrimaryMessage,
-                        onSetPrimary: { domain in
-                            Task {
-                                await setPrimaryDomain(domain)
-                            }
-                        },
-                        onInscribeComplete: { result in
-                            Haptics.success()
-                            showToast(localizedFormat("Inscribe submitted for %@.", result.domain))
-                            Task {
-                                await refreshKNSData(for: profileInfo.address)
-                            }
-                        },
-                        onTransferComplete: { result in
-                            Haptics.success()
-                            let message = result.verified
-                                ? localizedFormat("%@ transferred to %@.", result.domain, result.recipientAddress)
-                                : localizedFormat("Transfer submitted for %@.", result.domain)
-                            showToast(message)
-                            Task {
-                                await refreshKNSData(for: profileInfo.address)
-                            }
-                        },
-                        onSetupGuideCompleted: {
-                            Task {
-                                await refreshKNSData(for: profileInfo.address)
-                            }
-                        },
-                        onRefreshDomains: {
-                            await refreshKNSDomainsOnly(for: profileInfo.address)
-                        }
-                    ) { submission in
-                        showKNSEditor = false
+                KaChatProfileEditorSheet()
+            }
+            // A .kas domain's full profile, customized from Your Domains > the domain.
+            .sheet(item: $domainProfileEdit) { target in
+                KNSProfileEditorSheet(
+                    profileInfo: target.info,
+                    domains: $knsDomains,
+                    primaryDomain: $knsPrimaryDomain,
+                    settingPrimaryDomainId: $settingPrimaryDomainId,
+                    setPrimaryMessage: $setPrimaryMessage,
+                    onSetPrimary: { domain in
                         Task {
-                            await saveKNSProfile(submission: submission, profileInfo: profileInfo)
+                            await setPrimaryDomain(domain)
                         }
+                    },
+                    onInscribeComplete: { result in
+                        Haptics.success()
+                        showToast(localizedFormat("Inscribe submitted for %@.", result.domain))
+                        Task {
+                            await refreshKNSData(for: target.info.address)
+                        }
+                    },
+                    onTransferComplete: { result in
+                        Haptics.success()
+                        let message = result.verified
+                            ? localizedFormat("%@ transferred to %@.", result.domain, result.recipientAddress)
+                            : localizedFormat("Transfer submitted for %@.", result.domain)
+                        showToast(message)
+                        Task {
+                            await refreshKNSData(for: target.info.address)
+                        }
+                    },
+                    onSetupGuideCompleted: {
+                        Task {
+                            await refreshKNSData(for: target.info.address)
+                        }
+                    },
+                    onRefreshDomains: {
+                        await refreshKNSDomainsOnly(for: target.info.address)
                     }
-                } else {
-                    NavigationStack {
-                        VStack(spacing: 12) {
-                            Text("KNS profile unavailable.")
-                                .foregroundColor(.secondary)
-                            Button("Close") {
-                                showKNSEditor = false
-                            }
-                        }
-                        .padding()
+                ) { submission in
+                    domainProfileEdit = nil
+                    Task {
+                        await saveKNSProfile(submission: submission, profileInfo: target.info)
                     }
                 }
             }
@@ -483,7 +478,10 @@ struct ProfileView: View {
                         showToast(message)
                         Task { await refreshKNSData(for: walletAddress) }
                     },
-                    onRefresh: { await refreshKNSDomainsOnly(for: walletAddress) }
+                    onRefresh: { await refreshKNSDomainsOnly(for: walletAddress) },
+                    onCustomizeProfile: { domain in
+                        openDomainProfileEditor(domain, walletAddress: walletAddress)
+                    }
                 )
             } label: {
                 HStack {
@@ -604,13 +602,11 @@ struct ProfileView: View {
                 .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 3))
                 Spacer()
                 Button {
-                    if hasKNSProfile {
-                        showKNSEditor = true
-                    } else {
-                        showCreateKNSProfileFlow = true
-                    }
+                    showKNSEditor = true
                 } label: {
-                    Text(hasKNSProfile ? "Edit KNS Profile" : "Create KNS Profile")
+                    // KaChat's own profile. .kas profiles are customized per domain in Your
+                    // Domains instead; the app no longer shows them.
+                    Text("Edit .kachat Profile")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.accentColor)
                         .contentShape(Rectangle())
@@ -1601,6 +1597,21 @@ struct ProfileView: View {
         return String(text.prefix(maxLength - 3)) + "..."
     }
 
+    /// Loads one .kas domain's profile and opens the editor for it. The fetch is the editor's
+    /// own (`fetchDomainProfileForEditing`): the app no longer caches or shows .kas profiles.
+    private func openDomainProfileEditor(_ domain: KNSDomain, walletAddress: String) {
+        Task {
+            let profile = await KNSService.shared.fetchDomainProfileForEditing(assetId: domain.inscriptionId)
+            domainProfileEdit = DomainProfileEditTarget(info: KNSAddressProfileInfo(
+                address: walletAddress,
+                domainName: domain.fullName,
+                assetId: domain.inscriptionId,
+                profile: profile,
+                fetchedAt: Date()
+            ))
+        }
+    }
+
     private func saveKNSProfile(
         submission: KNSProfileEditorSubmission,
         profileInfo: KNSAddressProfileInfo
@@ -2231,7 +2242,13 @@ private struct KNSProfileEditorSheet: View {
     /// The profile as it stands NOW, falling back to the opening snapshot until the cache has an
     /// entry for this address.
     private var liveProfileInfo: KNSAddressProfileInfo {
-        knsService.profileCache[profileInfo.address] ?? profileInfo
+        // The cache holds the PRIMARY domain's entry, and since 5.2 no profile at all
+        // (KNSService.loadsDomainProfiles). Editing any one domain from Your Domains must read
+        // the profile it was opened with, or the fields would be wiped by the cache's empty one.
+        guard KNSService.loadsDomainProfiles,
+              let cached = knsService.profileCache[profileInfo.address],
+              cached.assetId == profileInfo.assetId else { return profileInfo }
+        return cached
     }
 
     /// Changes when the effective profile changes domain - which is exactly when the fields below
@@ -2713,6 +2730,7 @@ private struct KNSDomainsListView: View {
     let onInscribeComplete: (KNSDomainInscribeResult) -> Void
     let onTransferComplete: (KNSDomainTransferResult) -> Void
     let onRefresh: () async -> Void
+    var onCustomizeProfile: ((KNSDomain) -> Void)? = nil
 
     /// Which name service's tab is showing. `.kas` is KNS, the rest come from `NameServicesClient`.
     @State private var selectedTLD: NameServiceTLD = .defaultTab
@@ -2812,7 +2830,8 @@ private struct KNSDomainsListView: View {
                                 settingPrimaryDomainId: settingPrimaryDomainId,
                                 setPrimaryError: setPrimaryError?.isError == true ? setPrimaryError?.text : nil,
                                 onSetPrimary: onSetPrimary,
-                                onTransferComplete: onTransferComplete
+                                onTransferComplete: onTransferComplete,
+                                onCustomizeProfile: onCustomizeProfile
                             )
                         } label: {
                             KNSDomainCard(domain: domain, isPrimary: isPrimary)
@@ -3220,6 +3239,10 @@ struct KNSDomainDetailView: View {
     var setPrimaryError: String? = nil
     let onSetPrimary: (KNSDomain) -> Void
     let onTransferComplete: (KNSDomainTransferResult) -> Void
+    /// Opens the full profile editor for this domain (avatar, banner, bio, links). KaChat does
+    /// not SHOW .kas profiles anymore - .kachat profiles take priority - but a .kas domain's own
+    /// profile can still be customized here. Nil where the host offers no editor.
+    var onCustomizeProfile: ((KNSDomain) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var showSendSheet = false
@@ -3246,6 +3269,24 @@ struct KNSDomainDetailView: View {
                             .truncationMode(.middle)
                     }
                     .padding(16)
+
+                    if let onCustomizeProfile {
+                        Divider().padding(.leading, 16)
+                        Button {
+                            onCustomizeProfile(domain)
+                        } label: {
+                            HStack {
+                                Text("Customize Profile")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Image(systemName: "person.crop.circle")
+                                    .foregroundColor(.accentColor)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(16)
+                    }
 
                     if isPrimary {
                         Divider().padding(.leading, 16)
@@ -5708,6 +5749,68 @@ private struct InAppWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             parent.isLoading = false
+        }
+    }
+}
+
+/// One .kas domain opened for profile editing - see `ProfileView.openDomainProfileEditor`.
+private struct DomainProfileEditTarget: Identifiable {
+    let info: KNSAddressProfileInfo
+    var id: String { info.assetId ?? info.address }
+}
+
+/// "Edit .kachat Profile": the same layout as the .kas profile editor - avatar, banner, bio and
+/// links - but nothing in it yet, because KaChat's own names are not live. Once they are, this is
+/// the profile the whole app shows, ahead of any other name service's.
+struct KaChatProfileEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Label {
+                        Text(".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere.")
+                            .font(.subheadline)
+                    } icon: {
+                        Image(systemName: "at.circle")
+                            .foregroundColor(.accentColor)
+                    }
+                }
+
+                Section("Avatar") {
+                    Label("Choose Avatar", systemImage: "photo")
+                        .foregroundColor(.secondary)
+                }
+
+                Section("Banner") {
+                    Label("Choose Banner", systemImage: "photo.on.rectangle")
+                        .foregroundColor(.secondary)
+                }
+
+                Section("Profile") {
+                    ForEach(["Bio", "X handle", "Website", "Telegram", "Discord user id", "Email", "GitHub", "Redirect URL"], id: \.self) { field in
+                        Text(LocalizedStringKey(field))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Section(".kachat Name") {
+                    HStack {
+                        Text("Name")
+                        Spacer()
+                        Text("None yet")
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Edit .kachat Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
 }
