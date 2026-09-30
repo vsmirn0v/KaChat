@@ -477,7 +477,7 @@ function send(res, status, type, body, extraHeaders = {}) {
 
 // Only these files are served from STATIC_DIR. A decoded path segment can carry "/" or ".."
 // ("/server%2Fserver.js" returned this file), so names are allowlisted, never joined blindly.
-const STATIC_FILES = new Set(['index.html', 'eula.html', 'og-default.png', 'favicon.ico', 'robots.txt']);
+const STATIC_FILES = new Set(['index.html', 'eula.html', 'wallet-privacy.html', 'og-default.png', 'favicon.ico', 'robots.txt']);
 
 function serveStatic(res, name) {
   if (!STATIC_FILES.has(name)) return false;
