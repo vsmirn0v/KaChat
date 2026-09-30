@@ -110,7 +110,7 @@ struct AddContactView: View {
                     // if you typed one, that IS the name, and showing it immediately means the
                     // card is useful from the moment the address turns valid.
                     let name = previewProfile?.domainName ?? resolvedDomain
-                    Text(name ?? (isLoadingPreview ? "Looking up..." : "No KNS domain"))
+                    Text(name ?? (isLoadingPreview ? "Looking up..." : "No domain"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(name == nil ? .secondary : .primary)
                         .lineLimit(1)

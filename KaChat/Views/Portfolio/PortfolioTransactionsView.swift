@@ -620,7 +620,7 @@ private struct AddPortfolioAddressSheet: View {
 
         guard !trimmed.isEmpty else { return }
         if trimmed.hasPrefix("kaspa:") || trimmed.hasPrefix("kaspatest:") { return }
-        if KNSService.looksLikeDomain(trimmed) {
+        if NameServicesClient.looksLikeName(trimmed) {
             resolveKNSDomain(trimmed)
         }
     }
@@ -633,14 +633,16 @@ private struct AddPortfolioAddressSheet: View {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard addressText.trimmingCharacters(in: .whitespacesAndNewlines) == domain else { return }
 
-            let resolution = await KNSService.shared.resolveDomain(domain)
+            // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa.
+            let results = await NameServicesClient.shared.resolveEverywhere(domain)
+            let resolution = NameServicesClient.primary(of: results, typed: domain)
             await MainActor.run {
                 // Input may have moved on while the lookup was in flight — a stale answer
                 // must not overwrite the state for what's in the field now.
                 guard addressText.trimmingCharacters(in: .whitespacesAndNewlines) == domain else { return }
-                if let resolution {
-                    resolvedAddress = resolution.ownerAddress
-                    resolvedDomain = resolution.domain
+                if let resolution, let address = resolution.address {
+                    resolvedAddress = address
+                    resolvedDomain = resolution.display
                     knsNotFound = false
                 } else {
                     resolvedAddress = nil

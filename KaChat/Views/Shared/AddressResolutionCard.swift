@@ -27,7 +27,7 @@ struct AddressResolutionCard: View {
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     let name = profile?.domainName ?? domain
-                    Text(name ?? (isLoadingProfile ? "Looking up..." : "No KNS domain"))
+                    Text(name ?? (isLoadingProfile ? "Looking up..." : "No domain"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(name == nil ? .secondary : .primary)
                         .lineLimit(1)

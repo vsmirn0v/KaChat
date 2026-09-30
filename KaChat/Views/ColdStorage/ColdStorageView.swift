@@ -1390,7 +1390,7 @@ private struct ColdSendFlowView: View {
                         if isResolvingKNS {
                             HStack {
                                 ProgressView().scaleEffect(0.8)
-                                Text("Resolving KNS domain...")
+                                Text("Looking up domain...")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -1826,7 +1826,7 @@ private struct ColdSendFlowView: View {
             return
         }
 
-        if KNSService.looksLikeDomain(trimmed) {
+        if NameServicesClient.looksLikeName(trimmed) {
             isValidAddress = false
             resolveKNSDomain(trimmed)
         } else {
@@ -1845,10 +1845,14 @@ private struct ColdSendFlowView: View {
                 return
             }
 
-            if let resolution = await knsService.resolveDomain(domain) {
+            // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa
+            // (see NameServicesClient). The resolved line names which one answered.
+            let results = await NameServicesClient.shared.resolveEverywhere(domain)
+            if let resolution = NameServicesClient.primary(of: results, typed: domain),
+               let address = resolution.address {
                 await MainActor.run {
-                    resolvedAddress = resolution.ownerAddress
-                    resolvedDomain = resolution.domain
+                    resolvedAddress = address
+                    resolvedDomain = resolution.display
                     knsError = nil
                     isResolvingKNS = false
                 }
@@ -1856,7 +1860,7 @@ private struct ColdSendFlowView: View {
                 await MainActor.run {
                     resolvedAddress = nil
                     resolvedDomain = nil
-                    knsError = "KNS domain not found"
+                    knsError = "No domain found"
                     isResolvingKNS = false
                 }
             }
