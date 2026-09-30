@@ -1212,7 +1212,7 @@ struct GroupChatDetailView: View {
 
     @ViewBuilder
     private var mentionSuggestions: some View {
-        if let mentionQuery {
+        if MentionsFeature.enabled, let mentionQuery {
             let candidates = Array(mentionCandidates(for: mentionQuery).prefix(Self.maxMentionSuggestions))
             if !candidates.isEmpty {
                 // Width is measured explicitly via a PreferenceKey rather than just omitting
@@ -1629,6 +1629,9 @@ struct GroupChatDetailView: View {
     /// Swaps any `@DisplayName` the user typed/picked for the machine-readable `@{address}` form
     /// - see `GroupMentionCodec`'s doc comment.
     private func encodeMentions(_ text: String) -> String {
+        // Off until mentions are rebuilt on .kachat (see MentionsFeature): an "@name" typed
+        // now is sent as the plain text it is.
+        guard MentionsFeature.enabled else { return text }
         // Primary-KNS-only, matching what the autocomplete actually inserts (see
         // mentionCandidates(for:)) - not the general displayName(for:) fallback chain used for
         // *rendering* (decodeForDisplay), which stays permissive so historical mentions still
@@ -3037,9 +3040,11 @@ struct GroupChatInfoView: View {
                 .disabled(groupChatService.refreshingGroupIds.contains(group.id))
 
                 Toggle("Silent Group Chat", isOn: silentBinding)
-                Toggle("Only Notify if I'm Mentioned", isOn: mentionsOnlyBinding)
-                    // Silent already means "never", so the finer rule underneath it is moot.
-                    .disabled(groupChatService.silentNotifications(for: group.id))
+                if MentionsFeature.enabled {
+                    Toggle("Only Notify if I'm Mentioned", isOn: mentionsOnlyBinding)
+                        // Silent already means "never", so the finer rule underneath it is moot.
+                        .disabled(groupChatService.silentNotifications(for: group.id))
+                }
             }
 
             if group.isAdmin {

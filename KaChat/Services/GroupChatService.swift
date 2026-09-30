@@ -472,7 +472,12 @@ final class GroupChatService: ObservableObject {
     }
 
     private func loadGroupMentionsOnlyNotifications() {
-        groupMentionsOnlyNotifications = loadScoped(groupMentionsOnlyNotificationsKey) ?? []
+        // Not applied while mentions are off (MentionsFeature): nobody can mention you, so a
+        // stored "only if mentioned" would silence the group. The stored choice is left alone
+        // for when mentions return; the extension is synced from this in-memory (empty) set.
+        groupMentionsOnlyNotifications = MentionsFeature.enabled
+            ? (loadScoped(groupMentionsOnlyNotificationsKey) ?? [])
+            : []
         groupSilentNotifications = loadScoped(groupSilentNotificationsKey) ?? []
     }
 

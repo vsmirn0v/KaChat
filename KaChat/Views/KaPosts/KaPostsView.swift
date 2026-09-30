@@ -1981,6 +1981,7 @@ struct KaPostsView: View {
     /// contacts resolve from the local KNS cache; ANYONE else with a KNS domain resolves live
     /// through resolveDomain (owner address -> pubkey). Unresolvable tokens stay plain text.
     private func mentionedPubkeys(in text: String) async -> [String] {
+        guard MentionsFeature.enabled else { return [] }
         // Scanned on the RENDERED text, not the source. The @ token has to start a word, so
         // "**@alice.kas**" hides the mention behind the bold markers: the reader would see a
         // highlighted, tappable mention (the cell renders the same rendered text) while the
@@ -4753,7 +4754,9 @@ struct KaPostsView: View {
                     // The zero-balance gate stays: a reply costs KAS, so with a confirmed 0
                     // balance a tap presents the funding card instead of the keyboard. Reading
                     // the thread is untouched by it.
-                    KaPostMentionSuggestionBar(text: $replyText, selection: $replySelection)
+                    if MentionsFeature.enabled {
+                        KaPostMentionSuggestionBar(text: $replyText, selection: $replySelection)
+                    }
                     HStack(spacing: 10) {
                         MarkdownComposerField(
                             text: $replyText,
@@ -5765,7 +5768,7 @@ private struct KaPostCellView: View {
         // Highlight @mentions (accent-coloured) and make them TAPPABLE: each carries a
         // kachat-mention:// link that KaPostsView's OpenURLAction resolves to the mentioned
         // user's profile (any KNS domain, contact or not).
-        if let mentionRegex {
+        if MentionsFeature.enabled, let mentionRegex {
             for match in mentionRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) {
                 let domainRange = match.range(at: 2)
                 let tokenStart = domainRange.location - 1 // include the '@'
@@ -6850,11 +6853,13 @@ private struct KaPostComposerView: View {
     /// which read as "no list at all".
     @ViewBuilder
     private var mentionSuggestionBar: some View {
-        KaPostComposerMentionBar(
-            query: mentionQuery,
-            resolvedAnyDomain: resolvedAnyDomain,
-            onSelect: { insertMention($0) }
-        )
+        if MentionsFeature.enabled {
+            KaPostComposerMentionBar(
+                query: mentionQuery,
+                resolvedAnyDomain: resolvedAnyDomain,
+                onSelect: { insertMention($0) }
+            )
+        }
     }
 
     /// The bordered editor card. A growing multi-line TextField, deliberately NOT a TextEditor:
