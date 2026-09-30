@@ -268,8 +268,9 @@ final class SettingsViewModel: ObservableObject {
     let launchNetworkType: NetworkType
 
     init() {
-        self.settings = AppSettings.load()
-        self.launchNetworkType = settings.networkType
+        let loaded = AppSettings.load()
+        self.settings = loaded
+        self.launchNetworkType = loaded.networkType
         // Account switches post .settingsDidChange with a nil object (see WalletManager) so the
         // new account's dock overlay takes effect immediately. Saves post WITH the settings
         // object - skipped here, this instance already holds those values.
