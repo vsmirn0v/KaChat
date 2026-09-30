@@ -199,7 +199,10 @@ struct ChatInfoView: View {
                             // Matches Android: the plain contact-name card shows the address as a
                             // fallback caption; once the contact owns any KNS domain, the fancier
                             // profile card below takes over that spot with the bio instead.
-                            if knsDomains.isEmpty {
+                            if knsDomains.isEmpty || knsProfile?.bio == nil {
+                                // The address, unless a profile supplies a bio. Since 5.2 .kas
+                                // profiles are not loaded (KNSService.loadsDomainProfiles), so
+                                // this is what a .kas owner shows until .kachat profiles exist.
                                 Text(formatAddress(contact.address))
                                     .font(.caption)
                                     .foregroundColor(.secondary)

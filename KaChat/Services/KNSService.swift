@@ -989,6 +989,19 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         }
     }
 
+    /// Whether .kas profiles (avatar, banner, bio, links) are loaded for display anywhere in the
+    /// app. Off since 5.2 - only the domain name is resolved; see `fetchProfileInternal`.
+    static let loadsDomainProfiles = false
+
+    /// One .kas domain's profile, for editing it in Your Domains. Deliberately NOT cached or
+    /// shown elsewhere (`loadsDomainProfiles`). Nil when it has none or the lookup failed.
+    func fetchDomainProfileForEditing(assetId: String) async -> KNSDomainProfile? {
+        let trimmed = assetId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let (data, _) = await fetchDomainProfileResult(assetId: trimmed, baseURL: baseURL)
+        return data?.profile?.toModel()
+    }
+
     private func fetchDomainProfileResult(
         assetId: String,
         baseURL: String,
@@ -1129,6 +1142,22 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 address: address,
                 domainName: nil,
                 assetId: nil,
+                profile: nil,
+                fetchedAt: Date()
+            )
+            updateProfileCache(info, address: address)
+            return (info, false)
+        }
+
+        // 5.2: KaChat reads only a .kas domain's NAME, never its profile (avatar, banner, bio,
+        // links). Full profiles across the app will come from KaChat's own .kachat names, which
+        // take priority; a .kas profile is still editable from Your Domains, which fetches it on
+        // its own (`fetchDomainProfileForEditing`) without feeding this cache.
+        guard Self.loadsDomainProfiles else {
+            let info = KNSAddressProfileInfo(
+                address: address,
+                domainName: selectedProfileTarget.domainName,
+                assetId: selectedProfileTarget.assetId,
                 profile: nil,
                 fetchedAt: Date()
             )
@@ -1429,7 +1458,15 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
         var sanitized: [String: KNSAddressProfileInfo] = [:]
         for (address, info) in decoded {
-            sanitized[address] = info.sanitized()
+            let clean = info.sanitized()
+            // Profiles saved before 5.2 carry avatars and bios the app no longer shows.
+            sanitized[address] = Self.loadsDomainProfiles ? clean : KNSAddressProfileInfo(
+                address: clean.address,
+                domainName: clean.domainName,
+                assetId: clean.assetId,
+                profile: nil,
+                fetchedAt: clean.fetchedAt
+            )
         }
         profileCache = sanitized
     }
