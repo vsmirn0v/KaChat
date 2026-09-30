@@ -1637,7 +1637,7 @@ struct GroupChatDetailView: View {
         // *rendering* (decodeForDisplay), which stays permissive so historical mentions still
         // show something sensible. A member with no explicit primary returns "" here, which
         // GroupMentionCodec.encodeForSending already skips.
-        GroupMentionCodec.encodeForSending(text, members: group.members) { address in
+        return GroupMentionCodec.encodeForSending(text, members: group.members) { address in
             knsService.domainCache[address]?.explicitPrimaryDomain ?? ""
         }
     }
