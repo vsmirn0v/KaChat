@@ -389,7 +389,7 @@ struct PublicChatListView: View {
                 ActionSheetRow(title: "Delete", subtitle: "Switches this default room off. Turn it back on in Public Chats settings.", systemImage: "trash", tint: .red) {
                     roomActionTarget = nil
                     publicChatService.removeFromList(name)
-                    showToast("#\(name) is off - turn it back on in Public Chats settings")
+                    showToast(String(localized: "#\(name) is off - turn it back on in Public Chats settings"))
                 }
             }
 

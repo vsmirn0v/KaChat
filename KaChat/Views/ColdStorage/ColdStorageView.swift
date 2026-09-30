@@ -1860,7 +1860,7 @@ private struct ColdSendFlowView: View {
                 await MainActor.run {
                     resolvedAddress = nil
                     resolvedDomain = nil
-                    knsError = "No domain found"
+                    knsError = String(localized: "No domain found")
                     isResolvingKNS = false
                 }
             }

@@ -796,8 +796,8 @@ struct ConnectionHubPage: View {
                 if settingsViewModel.settings.networkType != settingsViewModel.launchNetworkType {
                     Label {
                         Text(settingsViewModel.settings.networkType == .testnet
-                             ? "Close KaChat completely and open it again to finish switching to Testnet."
-                             : "Close KaChat completely and open it again to finish switching back to Mainnet.")
+                             ? LocalizedStringKey("Close KaChat completely and open it again to finish switching to Testnet.")
+                             : LocalizedStringKey("Close KaChat completely and open it again to finish switching back to Mainnet."))
                     } icon: {
                         Image(systemName: "arrow.clockwise.circle.fill")
                             .foregroundColor(.orange)

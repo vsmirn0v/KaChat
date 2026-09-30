@@ -689,7 +689,7 @@ struct AddContactView: View {
                     // Deliberately does NOT set a name. A contact is only ever named when the
                     // user types one; display falls through to the domain on its own.
                     let explicit = NameServiceTLD.splitTypedName(typed).tld
-                    knsError = explicit.map { "No \($0.suffix) domain found" } ?? "No domain found"
+                    knsError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
                     // Nothing resolved for the ending typed, but another service may have it.
                     showOtherDomains = results.contains { $0.address != nil }
                 }
@@ -1307,7 +1307,7 @@ struct AddContactView: View {
             } else {
                 await MainActor.run {
                     guard let i = groupAddressEntries.firstIndex(where: { $0.id == id }) else { return }
-                    groupAddressEntries[i].knsError = "No domain found"
+                    groupAddressEntries[i].knsError = String(localized: "No domain found")
                     groupAddressEntries[i].isResolvingKNS = false
                 }
             }
