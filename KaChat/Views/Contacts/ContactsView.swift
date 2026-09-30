@@ -2716,14 +2716,14 @@ private struct KNSDomainsListView: View {
 
     @State private var showInscribeSheet = false
     /// Which name service's tab is showing. `.kas` is KNS, the rest come from `NameServicesClient`.
-    @State private var selectedTLD: NameServiceTLD = .kas
+    @State private var selectedTLD: NameServiceTLD = .defaultTab
     @ObservedObject private var nameServices = NameServicesClient.shared
 
     var body: some View {
         VStack(spacing: 0) {
-            // One tab per name ending: KNS (.kas), dotk (.k), Kaspa Names (.kaspa), and KaChat's
-            // own (.kachat, not live yet). The same underline tab bar as Chats / Group Chats /
-            // Public Chats: bold teal labels, a bar under the selected one.
+            // One tab per name ending, KaChat's own first: .kachat (not live yet), KNS (.kas),
+            // dotk (.k), Kaspa Names (.kaspa). The same underline tab bar as Chats / Group Chats
+            // / Public Chats: bold teal labels, a bar under the selected one.
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     ForEach(NameServiceTLD.allCases) { tld in

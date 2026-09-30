@@ -15,10 +15,11 @@ import Foundation
 /// TYPED does, and each service's rule is adjudication-critical - port it against that SDK's
 /// published vectors before adding forward resolution here.
 enum NameServiceTLD: String, CaseIterable, Identifiable {
+    // Declaration order is the tab order: KaChat's own names first.
+    case kachat
     case kas
     case k
     case kaspa
-    case kachat
 
     var id: String { rawValue }
 
@@ -47,6 +48,9 @@ enum NameServiceTLD: String, CaseIterable, Identifiable {
 
     /// Whether the app can read this service yet.
     var isLive: Bool { self != .kachat }
+
+    /// The tab Your Domains opens on: `.kachat` once it is live, KNS until then.
+    static var defaultTab: NameServiceTLD { NameServiceTLD.kachat.isLive ? .kachat : .kas }
 }
 
 /// One name an address owns on a service other than KNS.
