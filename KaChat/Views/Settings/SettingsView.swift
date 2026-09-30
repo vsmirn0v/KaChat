@@ -772,22 +772,45 @@ struct ConnectionHubPage: View {
 
     var body: some View {
         Form {
-            Section("Connection") {
+            Section {
                 NavigationLink {
                     ConnectionSettingsView()
                 } label: {
-                    HStack {
-                        Label("Connection Settings", systemImage: "network")
-                        Spacer()
-                        // Testnet is easy to forget you switched on.
-                        if settingsViewModel.settings.networkType == .testnet {
-                            Text("Testnet")
-                                .font(.caption.weight(.semibold))
-                                .foregroundColor(.orange)
-                        }
-                    }
+                    Label("Connection Settings", systemImage: "network")
                 }
 
+                // Mainnet <-> testnet. Each network keeps its own connection settings (see
+                // `AppSettings.switchNetwork(to:)`), so Connection Settings above shows the
+                // testnet values while this is on, and the mainnet ones come back when it's off.
+                Toggle(isOn: Binding(
+                    get: { settingsViewModel.settings.networkType == .testnet },
+                    set: { on in
+                        settingsViewModel.switchNetwork(to: on ? .testnet : .mainnet)
+                        Haptics.success()
+                    }
+                )) {
+                    Label("Testnet", systemImage: "testtube.2")
+                }
+                .tint(.orange)
+
+                if settingsViewModel.settings.networkType != settingsViewModel.launchNetworkType {
+                    Label {
+                        Text(settingsViewModel.settings.networkType == .testnet
+                             ? "Close KaChat completely and open it again to finish switching to Testnet."
+                             : "Close KaChat completely and open it again to finish switching back to Mainnet.")
+                    } icon: {
+                        Image(systemName: "arrow.clockwise.circle.fill")
+                            .foregroundColor(.orange)
+                    }
+                    .font(.subheadline)
+                }
+            } header: {
+                Text("Connection")
+            } footer: {
+                Text("Testnet is for testing only - testnet KAS has no value. On testnet your account uses its kaspatest: address, with its own balance and chats, and Connection Settings holds testnet values: the testnet explorer, automatic node discovery, and no KaChat indexers until testnet ones exist. Turning it off brings your mainnet settings back.")
+            }
+
+            Section {
                 NavigationLink {
                     KaspaExplorerSettingsView()
                 } label: {
@@ -2229,47 +2252,10 @@ struct ConnectionSettingsView: View {
             : String(localized: "No testnet indexer yet")
     }
 
-    private var isTestnet: Bool { settingsViewModel.settings.networkType == .testnet }
-
-    @ViewBuilder
-    private var testnetSections: some View {
-        Section {
-            Toggle("Testnet", isOn: Binding(
-                get: { isTestnet },
-                set: { switchNetwork(to: $0 ? .testnet : .mainnet) }
-            ))
-            if settingsViewModel.settings.networkType != settingsViewModel.launchNetworkType {
-                Label {
-                    Text(isTestnet
-                         ? "Close KaChat completely and open it again to finish switching to Testnet."
-                         : "Close KaChat completely and open it again to finish switching back to Mainnet.")
-                } icon: {
-                    Image(systemName: "arrow.clockwise.circle.fill")
-                        .foregroundColor(.orange)
-                }
-                .font(.subheadline)
-            }
-        } header: {
-            Text("Network")
-        } footer: {
-            Text("For testing only - testnet KAS has no value. On testnet your account uses its kaspatest: address, with its own balance, chats and contacts, and the other tabs show testnet settings: the testnet explorer, automatic node discovery, and no KaChat indexers until testnet ones exist. Each network keeps its own settings, so switching back restores your mainnet ones.")
-        }
-    }
-
-    /// Saves the fields in front of you for the network you are leaving, then swaps every tab to
-    /// the other network's settings.
-    private func switchNetwork(to network: NetworkType) {
-        guard network != settingsViewModel.settings.networkType else { return }
-        guard saveSettings() else { return }
-        settingsViewModel.switchNetwork(to: network)
-        loadCurrentSettings()
-        Haptics.success()
-    }
-
     /// One tab per kind of connection, so the page stays short as the app talks to more
     /// services: indexers, the Kaspa node, translation, name services, the block explorer.
     private enum ConnectionTab: String, CaseIterable {
-        case indexer, node, translation, domains, explorer, testnet
+        case indexer, node, translation, domains, explorer
 
         var title: String {
             switch self {
@@ -2278,7 +2264,6 @@ struct ConnectionSettingsView: View {
             case .translation: return "Translation"
             case .domains: return "Domains"
             case .explorer: return "Explorer"
-            case .testnet: return "Testnet"
             }
         }
     }
@@ -2299,7 +2284,6 @@ struct ConnectionSettingsView: View {
                 case .translation: translationSections
                 case .domains: domainsSections
                 case .explorer: explorerSections
-                case .testnet: testnetSections
                 }
             }
         }
