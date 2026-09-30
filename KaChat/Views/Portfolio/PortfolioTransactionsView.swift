@@ -515,7 +515,7 @@ private struct AddPortfolioAddressSheet: View {
                     }
                 } else {
                     Section {
-                        TextField("kaspa:qr... or name.kas", text: $addressText)
+                        TextField("kaspa:qr... or domain", text: $addressText)
                             .font(.system(.body, design: .monospaced))
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)

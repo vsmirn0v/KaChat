@@ -168,7 +168,7 @@ struct AddContactView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        TextField("kaspa:qr... or name.kas", text: $addressInput)
+                        TextField("kaspa:qr... or domain", text: $addressInput)
                             .font(.system(.body, design: .monospaced))
                             .autocapitalization(.none)
                             .autocorrectionDisabled()
@@ -768,7 +768,7 @@ struct AddContactView: View {
         Section {
             ForEach($groupAddressEntries) { $entry in
                 VStack(alignment: .leading, spacing: 10) {
-                    TextField("kaspa:qr... or name.kas", text: $entry.text)
+                    TextField("kaspa:qr... or domain", text: $entry.text)
                         .font(.system(.body, design: .monospaced))
                         .autocapitalization(.none)
                         .autocorrectionDisabled()

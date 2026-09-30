@@ -1377,7 +1377,7 @@ private struct ColdSendFlowView: View {
                             .truncationMode(.middle)
                     }
                 } else {
-                    TextField("kaspa:qr... or name.kas", text: $toAddress)
+                    TextField("kaspa:qr... or domain", text: $toAddress)
                         .font(.system(.body, design: .monospaced))
                         .autocapitalization(.none)
                         .autocorrectionDisabled()

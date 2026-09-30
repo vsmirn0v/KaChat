@@ -1587,7 +1587,7 @@ struct SpendingAddressWithdrawView: View {
                                 .truncationMode(.middle)
                         }
                     } else {
-                        TextField("kaspa:qr... or name.kas", text: $addressInput)
+                        TextField("kaspa:qr... or domain", text: $addressInput)
                             .font(.system(.body, design: .monospaced))
                             .autocapitalization(.none)
                             .autocorrectionDisabled()
