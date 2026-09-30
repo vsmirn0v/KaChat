@@ -302,6 +302,8 @@ struct MainTabView: View {
             ChessHomeView()
         case .kachatNames:
             KachatMarketView()
+        case .kachatStats:
+            KaChatStatsView()
         case .apps:
             NavigationStack {
                 ProfileAppsView()
