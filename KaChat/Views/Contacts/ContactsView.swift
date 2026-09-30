@@ -2742,6 +2742,12 @@ private struct KNSDomainsListView: View {
                 kachatComingSoon
             }
         }
+        .contentShape(Rectangle())
+        // A sideways swipe changes the name service, like the Chats / Group Chats pages - so the
+        // edge swipe that would leave the screen is switched off here (the back button still
+        // works, and the swipe comes back on the screens pushed from this one).
+        .simultaneousGesture(domainTabSwipe())
+        .swipeBackDisabled()
         .task(id: walletAddress) {
             await nameServices.refresh(for: walletAddress)
         }
@@ -2753,6 +2759,25 @@ private struct KNSDomainsListView: View {
                 onInscribeComplete(result)
             }
         }
+    }
+
+    private func domainTabSwipe() -> some Gesture {
+        DragGesture(minimumDistance: 25, coordinateSpace: .global)
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                // Decisively horizontal only, so scrolling the list never trips it.
+                guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
+                let tabs = NameServiceTLD.allCases
+                guard let index = tabs.firstIndex(of: selectedTLD) else { return }
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    if dx < 0, index + 1 < tabs.count {
+                        selectedTLD = tabs[index + 1]
+                    } else if dx > 0, index > 0 {
+                        selectedTLD = tabs[index - 1]
+                    }
+                }
+            }
     }
 
     private func domainTabButton(_ tld: NameServiceTLD) -> some View {
