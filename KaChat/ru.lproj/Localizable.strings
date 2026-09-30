@@ -741,3 +741,33 @@
 "Switches this default room off. Turn it back on in Public Chats settings." = "Отключает эту стандартную комнату. Включить снова можно в настройках публичных чатов.";
 "#%@ is off - turn it back on in Public Chats settings" = "#%@ отключена — включите её снова в настройках публичных чатов";
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Автопоиск находит лучшие доступные узлы и подключается к ним. Выбор конкретного узла подключает только к нему, без перехода на другие. Не влияет на индексаторы, домены и обозреватель на других вкладках. Добавьте свои адреса в адресную книгу IP ниже, чтобы выбрать их здесь.";
+
+/* 5.2: Kaspa Hub > .kachat marketplace */
+"Your name on KaChat" = "Ваше имя в KaChat";
+"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Получите имя .kachat или покупайте и продавайте имена напрямую друг другу. Имя и оплата проходят вместе в Kaspa — никто не держит ни то, ни другое посередине.";
+"Find a name" = "Найти имя";
+"Registration isn't open yet." = "Регистрация ещё не открыта.";
+"Claim" = "Получить";
+"Marketplace" = "Маркетплейс";
+"My Names" = "Мои имена";
+"Activity" = "Активность";
+"Featured" = "Избранное";
+"Names their owners have put up for sale." = "Имена, которые владельцы выставили на продажу.";
+"Recently listed" = "Недавно выставленные";
+"List a Name for Sale" = "Выставить имя на продажу";
+"Listings appear here once .kachat names launch." = "Объявления появятся здесь после запуска имён .kachat.";
+"No .kachat names yet" = "Пока нет имён .kachat";
+"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Здесь будут имена, которые вы получите или купите. Отсюда вы сможете сделать имя своим в чатах, выставить на продажу или отправить кому-то.";
+"Claim a Name" = "Получить имя";
+"Recent activity" = "Недавняя активность";
+"Claims, listings and sales across the marketplace." = "Получения, объявления и продажи по всему маркетплейсу.";
+"Activity appears here once .kachat names launch." = "Активность появится здесь после запуска имён .kachat.";
+"How it works" = "Как это работает";
+"List" = "Продать";
+"Trustless" = "Без доверия";
+"Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link." = "Выберите свободное имя и зарегистрируйте его в Kaspa. Оно ваше: имя в чатах, профиль, ссылка.";
+"Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back." = "Назначьте цену. Имя ждёт в ончейн-ковенанте — не у KaChat и не у кого-то ещё, — пока его не купят или вы его не заберёте.";
+"Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Оплатите указанную цену. Оплата уходит продавцу, а имя — вам в одной транзакции: либо происходит и то и другое, либо ничего.";
+"No middleman and no escrow account: Kaspa's own rules enforce every sale." = "Ни посредника, ни эскроу-счёта: каждую продажу обеспечивают правила самой Kaspa.";
+"Nothing here is live yet." = "Здесь пока ничего не работает.";
+"How .kachat works" = "Как работает .kachat";

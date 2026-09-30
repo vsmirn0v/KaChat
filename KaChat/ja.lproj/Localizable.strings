@@ -741,3 +741,33 @@
 "Switches this default room off. Turn it back on in Public Chats settings." = "この既定のルームをオフにします。公開チャットの設定で再びオンにできます。";
 "#%@ is off - turn it back on in Public Chats settings" = "#%@ はオフです。公開チャットの設定で再びオンにできます";
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "自動スキャンは利用可能な最適なノードを見つけて接続します。特定のノードを選ぶとそのノードのみに接続し、他には切り替えません。他のタブのインデクサ、ドメイン、エクスプローラには影響しません。ここで選ぶには、下の IP アドレス帳に独自のアドレスを追加してください。";
+
+/* 5.2: Kaspa Hub > .kachat marketplace */
+"Your name on KaChat" = "KaChat でのあなたの名前";
+"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = ".kachat 名を取得したり、ユーザー同士で直接売買したりできます。名前と支払いは Kaspa 上で同時に決済され、その間に誰かがどちらかを預かることはありません。";
+"Find a name" = "名前を検索";
+"Registration isn't open yet." = "登録はまだ始まっていません。";
+"Claim" = "取得";
+"Marketplace" = "マーケット";
+"My Names" = "自分の名前";
+"Activity" = "アクティビティ";
+"Featured" = "注目";
+"Names their owners have put up for sale." = "所有者が売りに出している名前。";
+"Recently listed" = "最近の出品";
+"List a Name for Sale" = "名前を出品";
+"Listings appear here once .kachat names launch." = ".kachat 名が始まると、ここに出品が表示されます。";
+"No .kachat names yet" = ".kachat 名はまだありません";
+"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "取得・購入した名前がここに表示されます。ここからチャットでの名前に設定したり、出品したり、誰かに送ったりできます。";
+"Claim a Name" = "名前を取得";
+"Recent activity" = "最近のアクティビティ";
+"Claims, listings and sales across the marketplace." = "マーケット全体の取得、出品、売買。";
+"Activity appears here once .kachat names launch." = ".kachat 名が始まると、ここにアクティビティが表示されます。";
+"How it works" = "仕組み";
+"List" = "出品";
+"Trustless" = "トラストレス";
+"Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link." = "空いている名前を選んで Kaspa に登録します。それはあなたのもの：チャットでの名前、プロフィール、リンクです。";
+"Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back." = "価格を設定します。名前は KaChat や他の誰でもなくオンチェーンのコベナントで待機し、誰かが購入するかあなたが取り下げるまでそこにあります。";
+"Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "表示価格を支払います。支払いは売り手に、名前はあなたに同じトランザクションで届きます。両方が起きるか、どちらも起きないかです。";
+"No middleman and no escrow account: Kaspa's own rules enforce every sale." = "仲介者もエスクロー口座もありません。すべての売買は Kaspa 自体のルールで保証されます。";
+"Nothing here is live yet." = "ここではまだ何も稼働していません。";
+"How .kachat works" = ".kachat の仕組み";

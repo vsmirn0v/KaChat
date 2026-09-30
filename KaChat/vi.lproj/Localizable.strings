@@ -741,3 +741,33 @@
 "Switches this default room off. Turn it back on in Public Chats settings." = "Tắt phòng mặc định này. Bật lại trong cài đặt Trò chuyện công khai.";
 "#%@ is off - turn it back on in Public Chats settings" = "#%@ đã tắt - bật lại trong cài đặt Trò chuyện công khai";
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Quét tự động tìm và kết nối với các node tốt nhất. Chọn một node cụ thể chỉ kết nối với node đó, không chuyển sang node khác. Không ảnh hưởng đến trình lập chỉ mục, tên miền hay trình khám phá ở các tab khác. Thêm địa chỉ của bạn vào Sổ địa chỉ IP bên dưới để chọn ở đây.";
+
+/* 5.2: Kaspa Hub > .kachat marketplace */
+"Your name on KaChat" = "Tên của bạn trên KaChat";
+"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Nhận một tên .kachat, hoặc mua bán tên trực tiếp giữa mọi người. Tên và khoản thanh toán được thực hiện cùng lúc trên Kaspa - không ai giữ thứ gì ở giữa.";
+"Find a name" = "Tìm tên";
+"Registration isn't open yet." = "Chưa mở đăng ký.";
+"Claim" = "Nhận";
+"Marketplace" = "Chợ";
+"My Names" = "Tên của tôi";
+"Activity" = "Hoạt động";
+"Featured" = "Nổi bật";
+"Names their owners have put up for sale." = "Các tên mà chủ sở hữu đã rao bán.";
+"Recently listed" = "Mới rao bán";
+"List a Name for Sale" = "Rao bán tên";
+"Listings appear here once .kachat names launch." = "Tin rao sẽ xuất hiện ở đây khi tên .kachat ra mắt.";
+"No .kachat names yet" = "Chưa có tên .kachat";
+"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Các tên bạn nhận hoặc mua sẽ hiện ở đây. Từ đây bạn có thể đặt làm tên trong trò chuyện, rao bán hoặc gửi cho người khác.";
+"Claim a Name" = "Nhận một tên";
+"Recent activity" = "Hoạt động gần đây";
+"Claims, listings and sales across the marketplace." = "Nhận tên, rao bán và giao dịch trên toàn chợ.";
+"Activity appears here once .kachat names launch." = "Hoạt động sẽ xuất hiện ở đây khi tên .kachat ra mắt.";
+"How it works" = "Cách hoạt động";
+"List" = "Rao bán";
+"Trustless" = "Không cần tin cậy";
+"Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link." = "Chọn một tên còn trống và đăng ký trên Kaspa. Nó là của bạn: tên trong trò chuyện, hồ sơ, liên kết của bạn.";
+"Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back." = "Đặt giá. Tên chờ trong một covenant trên chuỗi - không nằm ở KaChat hay ai khác - cho đến khi có người mua hoặc bạn rút lại.";
+"Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Trả giá niêm yết. Khoản thanh toán đến người bán và tên đến bạn trong cùng một giao dịch - hoặc cả hai xảy ra, hoặc không gì cả.";
+"No middleman and no escrow account: Kaspa's own rules enforce every sale." = "Không trung gian, không tài khoản ký quỹ: chính quy tắc của Kaspa bảo đảm mọi giao dịch.";
+"Nothing here is live yet." = "Chưa có gì hoạt động ở đây.";
+"How .kachat works" = "Cách .kachat hoạt động";

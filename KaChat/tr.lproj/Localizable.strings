@@ -741,3 +741,33 @@
 "Switches this default room off. Turn it back on in Public Chats settings." = "Bu varsayılan odayı kapatır. Herkese açık sohbet ayarlarından yeniden aç.";
 "#%@ is off - turn it back on in Public Chats settings" = "#%@ kapalı - herkese açık sohbet ayarlarından yeniden aç";
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Otomatik Tarama en iyi düğümleri bulur ve bağlanır. Belirli bir düğüm seçmek yalnızca ona bağlanır, başkalarına geçmez. Diğer sekmelerdeki dizinleyicileri, alan adlarını veya gezgini etkilemez. Burada seçmek için kendi adreslerini aşağıdaki IP Adres Defteri'ne ekle.";
+
+/* 5.2: Kaspa Hub > .kachat marketplace */
+"Your name on KaChat" = "KaChat'teki adın";
+"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Bir .kachat adı al ya da adları doğrudan kişiler arasında alıp sat. Ad ve ödeme Kaspa'da birlikte gerçekleşir - arada hiç kimse ikisini de tutmaz.";
+"Find a name" = "Ad bul";
+"Registration isn't open yet." = "Kayıt henüz açık değil.";
+"Claim" = "Al";
+"Marketplace" = "Pazar yeri";
+"My Names" = "Adlarım";
+"Activity" = "Etkinlik";
+"Featured" = "Öne çıkanlar";
+"Names their owners have put up for sale." = "Sahiplerinin satışa çıkardığı adlar.";
+"Recently listed" = "Yeni satışa çıkanlar";
+"List a Name for Sale" = "Bir adı satışa çıkar";
+"Listings appear here once .kachat names launch." = "İlanlar .kachat adları başladığında burada görünür.";
+"No .kachat names yet" = "Henüz .kachat adın yok";
+"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Aldığın veya satın aldığın adlar burada görünür. Buradan birini sohbetlerde adın yapabilir, satışa çıkarabilir ya da birine gönderebilirsin.";
+"Claim a Name" = "Ad al";
+"Recent activity" = "Son etkinlik";
+"Claims, listings and sales across the marketplace." = "Pazar yerindeki alımlar, ilanlar ve satışlar.";
+"Activity appears here once .kachat names launch." = "Etkinlik .kachat adları başladığında burada görünür.";
+"How it works" = "Nasıl çalışır";
+"List" = "Satışa çıkar";
+"Trustless" = "Güvene gerek yok";
+"Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link." = "Boş bir ad seç ve Kaspa'da kaydet. Senin olur: sohbetlerdeki adın, profilin, bağlantın.";
+"Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back." = "Bir fiyat belirle. Ad, biri satın alana ya da sen geri alana kadar KaChat'te veya başkasında değil, zincir üstü bir covenant'ta bekler.";
+"Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "İlan fiyatını öde. Ödeme satıcıya, ad sana aynı işlemde ulaşır - ya ikisi de olur ya hiçbiri.";
+"No middleman and no escrow account: Kaspa's own rules enforce every sale." = "Aracı yok, emanet hesabı yok: her satışı Kaspa'nın kendi kuralları güvenceye alır.";
+"Nothing here is live yet." = "Burada henüz hiçbir şey canlı değil.";
+"How .kachat works" = ".kachat nasıl çalışır";

@@ -742,3 +742,33 @@
 "Switches this default room off. Turn it back on in Public Chats settings." = "Switches this default room off. Turn it back on in Public Chats settings.";
 "#%@ is off - turn it back on in Public Chats settings" = "#%@ is off - turn it back on in Public Chats settings";
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here.";
+
+/* 5.2: Kaspa Hub > .kachat marketplace */
+"Your name on KaChat" = "Your name on KaChat";
+"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between.";
+"Find a name" = "Find a name";
+"Registration isn't open yet." = "Registration isn't open yet.";
+"Claim" = "Claim";
+"Marketplace" = "Marketplace";
+"My Names" = "My Names";
+"Activity" = "Activity";
+"Featured" = "Featured";
+"Names their owners have put up for sale." = "Names their owners have put up for sale.";
+"Recently listed" = "Recently listed";
+"List a Name for Sale" = "List a Name for Sale";
+"Listings appear here once .kachat names launch." = "Listings appear here once .kachat names launch.";
+"No .kachat names yet" = "No .kachat names yet";
+"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone.";
+"Claim a Name" = "Claim a Name";
+"Recent activity" = "Recent activity";
+"Claims, listings and sales across the marketplace." = "Claims, listings and sales across the marketplace.";
+"Activity appears here once .kachat names launch." = "Activity appears here once .kachat names launch.";
+"How it works" = "How it works";
+"List" = "List";
+"Trustless" = "Trustless";
+"Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link." = "Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link.";
+"Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back." = "Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back.";
+"Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does.";
+"No middleman and no escrow account: Kaspa's own rules enforce every sale." = "No middleman and no escrow account: Kaspa's own rules enforce every sale.";
+"Nothing here is live yet." = "Nothing here is live yet.";
+"How .kachat works" = "How .kachat works";

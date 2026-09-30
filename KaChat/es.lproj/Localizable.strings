@@ -741,3 +741,33 @@
 "Switches this default room off. Turn it back on in Public Chats settings." = "Desactiva esta sala predeterminada. Vuelve a activarla en la configuración de chats públicos.";
 "#%@ is off - turn it back on in Public Chats settings" = "#%@ está desactivada: vuelve a activarla en la configuración de chats públicos";
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "La búsqueda automática encuentra y se conecta a los mejores nodos disponibles. Elegir un nodo concreto conecta solo a él, sin recurrir a otros. No afecta a los indexadores, dominios ni al explorador de las otras pestañas. Añade direcciones propias a la Libreta de IPs de abajo para elegirlas aquí.";
+
+/* 5.2: Kaspa Hub > .kachat marketplace */
+"Your name on KaChat" = "Tu nombre en KaChat";
+"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Reclama un nombre .kachat, o compra y vende nombres entre personas. El nombre y el pago se liquidan juntos en Kaspa: nadie retiene ninguno de los dos entre medias.";
+"Find a name" = "Buscar un nombre";
+"Registration isn't open yet." = "El registro aún no está abierto.";
+"Claim" = "Reclamar";
+"Marketplace" = "Mercado";
+"My Names" = "Mis nombres";
+"Activity" = "Actividad";
+"Featured" = "Destacados";
+"Names their owners have put up for sale." = "Nombres que sus dueños han puesto a la venta.";
+"Recently listed" = "Publicados recientemente";
+"List a Name for Sale" = "Poner un nombre a la venta";
+"Listings appear here once .kachat names launch." = "Las ofertas aparecerán aquí cuando lleguen los nombres .kachat.";
+"No .kachat names yet" = "Aún no tienes nombres .kachat";
+"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Los nombres que reclames o compres aparecen aquí. Desde aquí podrás usarlo como tu nombre en los chats, ponerlo a la venta o enviarlo a alguien.";
+"Claim a Name" = "Reclamar un nombre";
+"Recent activity" = "Actividad reciente";
+"Claims, listings and sales across the marketplace." = "Reclamaciones, ofertas y ventas en todo el mercado.";
+"Activity appears here once .kachat names launch." = "La actividad aparecerá aquí cuando lleguen los nombres .kachat.";
+"How it works" = "Cómo funciona";
+"List" = "Vender";
+"Trustless" = "Sin intermediarios";
+"Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link." = "Elige un nombre libre y regístralo en Kaspa. Es tuyo: tu nombre en los chats, tu perfil, tu enlace.";
+"Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back." = "Fija un precio. El nombre espera en un covenant en la cadena, no en KaChat ni con nadie, hasta que alguien lo compre o lo retires.";
+"Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Paga el precio publicado. El pago llega al vendedor y el nombre llega a ti en la misma transacción: ocurren ambos o ninguno.";
+"No middleman and no escrow account: Kaspa's own rules enforce every sale." = "Sin intermediarios ni cuentas de custodia: las propias reglas de Kaspa garantizan cada venta.";
+"Nothing here is live yet." = "Aquí aún no hay nada activo.";
+"How .kachat works" = "Cómo funciona .kachat";

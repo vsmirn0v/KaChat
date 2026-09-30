@@ -741,3 +741,33 @@
 "Switches this default room off. Turn it back on in Public Chats settings." = "يُوقف هذه الغرفة الافتراضية. أعد تشغيلها من إعدادات المحادثات العامة.";
 "#%@ is off - turn it back on in Public Chats settings" = "#%@ متوقفة - أعد تشغيلها من إعدادات المحادثات العامة";
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "يعثر الفحص التلقائي على أفضل العقد المتاحة ويتصل بها. اختيار عقدة محددة يتصل بها وحدها دون الرجوع إلى غيرها. لا يؤثر على المفهرسات أو النطاقات أو المستكشف في التبويبات الأخرى. أضف عناوينك إلى دفتر عناوين IP أدناه لاختيارها هنا.";
+
+/* 5.2: Kaspa Hub > .kachat marketplace */
+"Your name on KaChat" = "اسمك على KaChat";
+"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "احصل على اسم .kachat، أو اشترِ الأسماء وبِعها مباشرة بين الأشخاص. يُسوّى الاسم والدفع معًا على Kaspa - لا أحد يحتفظ بأي منهما في المنتصف.";
+"Find a name" = "ابحث عن اسم";
+"Registration isn't open yet." = "التسجيل غير مفتوح بعد.";
+"Claim" = "احصل عليه";
+"Marketplace" = "السوق";
+"My Names" = "أسمائي";
+"Activity" = "النشاط";
+"Featured" = "مميزة";
+"Names their owners have put up for sale." = "أسماء عرضها أصحابها للبيع.";
+"Recently listed" = "أُدرجت مؤخرًا";
+"List a Name for Sale" = "اعرض اسمًا للبيع";
+"Listings appear here once .kachat names launch." = "ستظهر العروض هنا عند إطلاق أسماء .kachat.";
+"No .kachat names yet" = "لا توجد أسماء .kachat بعد";
+"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "تظهر هنا الأسماء التي تحصل عليها أو تشتريها. من هنا ستجعل أحدها اسمك في المحادثات أو تعرضه للبيع أو ترسله لشخص ما.";
+"Claim a Name" = "احصل على اسم";
+"Recent activity" = "النشاط الأخير";
+"Claims, listings and sales across the marketplace." = "الحصول على الأسماء والعروض والمبيعات في السوق كله.";
+"Activity appears here once .kachat names launch." = "سيظهر النشاط هنا عند إطلاق أسماء .kachat.";
+"How it works" = "كيف يعمل";
+"List" = "اعرض للبيع";
+"Trustless" = "بلا ثقة";
+"Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link." = "اختر اسمًا متاحًا وسجّله على Kaspa. إنه لك: اسمك في المحادثات، وملفك الشخصي، ورابطك.";
+"Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back." = "حدّد سعرًا. ينتظر الاسم في عقد على السلسلة - لا لدى KaChat ولا لدى أي أحد - حتى يشتريه أحد أو تسترده.";
+"Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "ادفع السعر المعروض. يصل الدفع إلى البائع والاسم إليك في المعاملة نفسها - إما أن يحدث الأمران أو لا يحدث أي منهما.";
+"No middleman and no escrow account: Kaspa's own rules enforce every sale." = "لا وسيط ولا حساب ضمان: قواعد Kaspa نفسها تضمن كل عملية بيع.";
+"Nothing here is live yet." = "لا شيء هنا يعمل بعد.";
+"How .kachat works" = "كيف يعمل .kachat";

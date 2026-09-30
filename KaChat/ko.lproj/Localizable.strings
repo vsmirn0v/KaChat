@@ -741,3 +741,33 @@
 "Switches this default room off. Turn it back on in Public Chats settings." = "이 기본 방을 끕니다. 공개 채팅 설정에서 다시 켤 수 있습니다.";
 "#%@ is off - turn it back on in Public Chats settings" = "#%@이(가) 꺼졌습니다. 공개 채팅 설정에서 다시 켜세요";
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "자동 검색은 사용 가능한 최적의 노드를 찾아 연결합니다. 특정 노드를 선택하면 다른 노드로 전환하지 않고 그 노드에만 연결합니다. 다른 탭의 인덱서, 도메인, 탐색기에는 영향이 없습니다. 여기서 선택하려면 아래 IP 주소록에 주소를 추가하세요.";
+
+/* 5.2: Kaspa Hub > .kachat marketplace */
+"Your name on KaChat" = "KaChat에서의 내 이름";
+"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = ".kachat 이름을 받거나 사람들끼리 직접 사고팔 수 있습니다. 이름과 결제는 Kaspa에서 함께 정산되며, 그 사이에 누구도 둘 중 무엇도 맡아 두지 않습니다.";
+"Find a name" = "이름 찾기";
+"Registration isn't open yet." = "아직 등록이 열리지 않았습니다.";
+"Claim" = "받기";
+"Marketplace" = "마켓";
+"My Names" = "내 이름";
+"Activity" = "활동";
+"Featured" = "추천";
+"Names their owners have put up for sale." = "소유자가 판매 중인 이름.";
+"Recently listed" = "최근 등록";
+"List a Name for Sale" = "이름 판매 등록";
+"Listings appear here once .kachat names launch." = ".kachat 이름이 출시되면 여기에 판매 목록이 표시됩니다.";
+"No .kachat names yet" = "아직 .kachat 이름이 없습니다";
+"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "받거나 구매한 이름이 여기에 표시됩니다. 여기서 채팅 이름으로 설정하거나, 판매 등록하거나, 다른 사람에게 보낼 수 있습니다.";
+"Claim a Name" = "이름 받기";
+"Recent activity" = "최근 활동";
+"Claims, listings and sales across the marketplace." = "마켓 전체의 등록, 판매 목록, 거래.";
+"Activity appears here once .kachat names launch." = ".kachat 이름이 출시되면 여기에 활동이 표시됩니다.";
+"How it works" = "작동 방식";
+"List" = "판매";
+"Trustless" = "신뢰 불필요";
+"Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link." = "사용 가능한 이름을 골라 Kaspa에 등록하세요. 그 이름은 당신의 것입니다: 채팅 이름, 프로필, 링크.";
+"Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back." = "가격을 정하세요. 이름은 KaChat이나 다른 누구가 아닌 온체인 코버넌트에서 누군가 구매하거나 당신이 회수할 때까지 기다립니다.";
+"Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "표시된 가격을 지불하세요. 결제는 판매자에게, 이름은 당신에게 같은 트랜잭션으로 전달됩니다. 둘 다 이루어지거나, 아무것도 이루어지지 않습니다.";
+"No middleman and no escrow account: Kaspa's own rules enforce every sale." = "중개인도 에스크로 계정도 없습니다. 모든 거래는 Kaspa 자체 규칙이 보장합니다.";
+"Nothing here is live yet." = "아직 여기서 작동하는 것은 없습니다.";
+"How .kachat works" = ".kachat 작동 방식";

@@ -741,3 +741,33 @@
 "Switches this default room off. Turn it back on in Public Chats settings." = "Mematikan ruang bawaan ini. Nyalakan lagi di pengaturan Obrolan Publik.";
 "#%@ is off - turn it back on in Public Chats settings" = "#%@ dimatikan - nyalakan lagi di pengaturan Obrolan Publik";
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Pemindaian Otomatis menemukan dan terhubung ke node terbaik yang tersedia. Memilih node tertentu hanya terhubung ke node itu, tanpa beralih ke yang lain. Tidak memengaruhi pengindeks, domain, atau penjelajah di tab lain. Tambahkan alamatmu ke Buku Alamat IP di bawah untuk memilihnya di sini.";
+
+/* 5.2: Kaspa Hub > .kachat marketplace */
+"Your name on KaChat" = "Namamu di KaChat";
+"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Klaim nama .kachat, atau jual beli nama langsung antarpengguna. Nama dan pembayaran diselesaikan bersamaan di Kaspa - tidak ada yang memegang keduanya di tengah-tengah.";
+"Find a name" = "Cari nama";
+"Registration isn't open yet." = "Pendaftaran belum dibuka.";
+"Claim" = "Klaim";
+"Marketplace" = "Pasar";
+"My Names" = "Namaku";
+"Activity" = "Aktivitas";
+"Featured" = "Unggulan";
+"Names their owners have put up for sale." = "Nama yang dijual oleh pemiliknya.";
+"Recently listed" = "Baru dijual";
+"List a Name for Sale" = "Jual Nama";
+"Listings appear here once .kachat names launch." = "Daftar jualan muncul di sini setelah nama .kachat diluncurkan.";
+"No .kachat names yet" = "Belum ada nama .kachat";
+"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Nama yang kamu klaim atau beli muncul di sini. Dari sini kamu bisa menjadikannya namamu di obrolan, menjualnya, atau mengirimnya ke seseorang.";
+"Claim a Name" = "Klaim Nama";
+"Recent activity" = "Aktivitas terbaru";
+"Claims, listings and sales across the marketplace." = "Klaim, jualan, dan penjualan di seluruh pasar.";
+"Activity appears here once .kachat names launch." = "Aktivitas muncul di sini setelah nama .kachat diluncurkan.";
+"How it works" = "Cara kerjanya";
+"List" = "Jual";
+"Trustless" = "Tanpa perantara";
+"Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link." = "Pilih nama yang tersedia dan daftarkan di Kaspa. Itu milikmu: namamu di obrolan, profilmu, tautanmu.";
+"Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back." = "Tentukan harga. Nama menunggu di covenant on-chain - bukan di KaChat atau siapa pun - sampai ada yang membelinya atau kamu menariknya kembali.";
+"Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Bayar harga yang tertera. Pembayaran sampai ke penjual dan nama sampai kepadamu dalam transaksi yang sama - keduanya terjadi, atau tidak sama sekali.";
+"No middleman and no escrow account: Kaspa's own rules enforce every sale." = "Tanpa perantara dan tanpa rekening escrow: aturan Kaspa sendiri yang menjamin setiap penjualan.";
+"Nothing here is live yet." = "Belum ada yang aktif di sini.";
+"How .kachat works" = "Cara kerja .kachat";
