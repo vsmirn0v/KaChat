@@ -20,6 +20,11 @@ struct AddContactView: View {
     @State private var resolvedAddress: String?
     @State private var resolvedDomain: String?
     @State private var knsError: String?
+    /// What the typed name points to on every name service (.kachat first), and which one the
+    /// chat will use - the priority answer until a different one is picked under "Other domains".
+    @State private var nameResolutions: [NameResolution] = []
+    @State private var selectedResolutionTLD: NameServiceTLD?
+    @State private var showOtherDomains = false
     /// The resolved address's KNS profile, once fetched - the preview card's source.
     @State private var previewProfile: KNSAddressProfileInfo?
     @State private var isLoadingPreview = false
@@ -72,7 +77,7 @@ struct AddContactView: View {
         var knsError: String?
 
         var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-        var looksLikeDomain: Bool { KNSService.looksLikeDomain(trimmedText) }
+        var looksLikeDomain: Bool { NameServicesClient.looksLikeName(trimmedText) }
 
         /// The actual address this row resolves to (resolved KNS owner address, or the raw
         /// typed/scanned address) - nil while a domain hasn't resolved yet.
@@ -164,7 +169,7 @@ struct AddContactView: View {
                 } else {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Kaspa Address or KNS Domain")
+                        Text("Kaspa Address or Domain")
                             .font(.caption)
                             .foregroundColor(.secondary)
 
@@ -182,7 +187,7 @@ struct AddContactView: View {
                                 HStack {
                                     ProgressView()
                                         .scaleEffect(0.8)
-                                    Text("Resolving KNS domain...")
+                                    Text("Looking up domain...")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
@@ -194,6 +199,7 @@ struct AddContactView: View {
                                         .font(.caption)
                                         .foregroundColor(.red)
                                 }
+                                otherDomainsDropdown
                             } else if let resolved = resolvedAddress {
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
@@ -208,6 +214,7 @@ struct AddContactView: View {
                                         .foregroundColor(.secondary)
                                         .lineLimit(1)
                                 }
+                                otherDomainsDropdown
                             } else {
                                 HStack {
                                     Image(systemName: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
@@ -634,6 +641,9 @@ struct AddContactView: View {
         knsError = nil
         error = nil
         isResolvingKNS = false
+        nameResolutions = []
+        selectedResolutionTLD = nil
+        showOtherDomains = false
 
         guard !trimmed.isEmpty else {
             isValidAddress = false
@@ -646,46 +656,98 @@ struct AddContactView: View {
             return
         }
 
-        // Check if it looks like a KNS domain
-        if KNSService.looksLikeDomain(trimmed) {
+        // A name on any service - .kachat, .kas, .k, .kaspa - typed with or without its ending.
+        if NameServicesClient.looksLikeName(trimmed) {
             isValidAddress = false
-            resolveKNSDomain(trimmed)
+            resolveName(trimmed)
         } else {
             isValidAddress = false
         }
     }
 
-    private func resolveKNSDomain(_ domain: String) {
+    /// Looks the name up on every service at once. The chat goes to the priority answer - the
+    /// ending the person typed, else .kachat, then .kas, .k, .kaspa - and the others are listed
+    /// under "Other domains" to pick instead.
+    private func resolveName(_ typed: String) {
         isResolvingKNS = true
 
         Task {
-            // Add small delay to debounce rapid typing
-            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+            // Debounce rapid typing.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard addressInput.trimmingCharacters(in: .whitespacesAndNewlines) == typed else { return }
 
-            // Check if input changed during delay
-            guard addressInput.trimmingCharacters(in: .whitespacesAndNewlines) == domain ||
-                  addressInput.trimmingCharacters(in: .whitespacesAndNewlines) + ".kas" == domain + ".kas" else {
-                return
-            }
-
-            if let resolution = await knsService.resolveDomain(domain) {
-                await MainActor.run {
-                    resolvedAddress = resolution.ownerAddress
-                    resolvedDomain = resolution.domain
-                    knsError = nil
-                    isResolvingKNS = false
-
-                    // Deliberately does NOT set a name. A contact is only ever named when the
-                    // user types one; display falls through to the KNS domain on its own.
-                }
-            } else {
-                await MainActor.run {
+            let results = await NameServicesClient.shared.resolveEverywhere(typed)
+            await MainActor.run {
+                guard addressInput.trimmingCharacters(in: .whitespacesAndNewlines) == typed else { return }
+                nameResolutions = results
+                isResolvingKNS = false
+                if let primary = NameServicesClient.primary(of: results, typed: typed) {
+                    applyResolution(primary)
+                } else {
                     resolvedAddress = nil
                     resolvedDomain = nil
-                    knsError = "KNS domain not found"
-                    isResolvingKNS = false
+                    // Deliberately does NOT set a name. A contact is only ever named when the
+                    // user types one; display falls through to the domain on its own.
+                    let explicit = NameServiceTLD.splitTypedName(typed).tld
+                    knsError = explicit.map { "No \($0.suffix) domain found" } ?? "No domain found"
+                    // Nothing resolved for the ending typed, but another service may have it.
+                    showOtherDomains = results.contains { $0.address != nil }
                 }
             }
+        }
+    }
+
+    private func applyResolution(_ resolution: NameResolution) {
+        guard let address = resolution.address else { return }
+        selectedResolutionTLD = resolution.tld
+        resolvedAddress = address
+        resolvedDomain = resolution.display
+        knsError = nil
+    }
+
+    /// "Other domains": what the same name points to on the other services, each selectable.
+    @ViewBuilder
+    private var otherDomainsDropdown: some View {
+        let others = nameResolutions.filter { $0.tld != selectedResolutionTLD }
+        if !others.isEmpty {
+            DisclosureGroup(isExpanded: $showOtherDomains) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(others) { resolution in
+                        Button {
+                            applyResolution(resolution)
+                            showOtherDomains = false
+                        } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(resolution.display)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundColor(resolution.address == nil ? .secondary : .primary)
+                                    Text(resolution.address
+                                         ?? (resolution.failed ? String(localized: "Couldn't check") : String(localized: "Not registered")))
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                Spacer(minLength: 0)
+                                if resolution.address != nil {
+                                    Image(systemName: "arrow.right.circle")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(resolution.address == nil)
+                    }
+                }
+                .padding(.top, 4)
+            } label: {
+                Text("Other domains")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.accentColor)
+            }
+            .tint(.accentColor)
         }
     }
 
@@ -1224,7 +1286,7 @@ struct AddContactView: View {
         groupAddressEntries[index].knsError = nil
         groupAddressEntries[index].isResolvingKNS = false
 
-        guard !trimmed.isEmpty, KNSService.looksLikeDomain(trimmed) else { return }
+        guard !trimmed.isEmpty, NameServicesClient.looksLikeName(trimmed) else { return }
 
         groupAddressEntries[index].isResolvingKNS = true
         Task {
@@ -1233,17 +1295,19 @@ struct AddContactView: View {
                   groupAddressEntries[currentIndex].trimmedText == trimmed else {
                 return
             }
-            if let resolution = await knsService.resolveDomain(trimmed) {
+            // Same priority as a 1:1 chat: the typed ending, else .kachat, .kas, .k, .kaspa.
+            let results = await NameServicesClient.shared.resolveEverywhere(trimmed)
+            if let resolution = NameServicesClient.primary(of: results, typed: trimmed), let address = resolution.address {
                 await MainActor.run {
                     guard let i = groupAddressEntries.firstIndex(where: { $0.id == id }) else { return }
-                    groupAddressEntries[i].resolvedAddress = resolution.ownerAddress
-                    groupAddressEntries[i].resolvedDomain = resolution.domain
+                    groupAddressEntries[i].resolvedAddress = address
+                    groupAddressEntries[i].resolvedDomain = resolution.display
                     groupAddressEntries[i].isResolvingKNS = false
                 }
             } else {
                 await MainActor.run {
                     guard let i = groupAddressEntries.firstIndex(where: { $0.id == id }) else { return }
-                    groupAddressEntries[i].knsError = "KNS domain not found"
+                    groupAddressEntries[i].knsError = "No domain found"
                     groupAddressEntries[i].isResolvingKNS = false
                 }
             }

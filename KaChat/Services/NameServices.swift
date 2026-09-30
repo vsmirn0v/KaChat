@@ -73,6 +73,95 @@ enum NameServiceTLD: String, CaseIterable, Identifiable {
     static var defaultTab: NameServiceTLD { NameServiceTLD.kachat.isLive ? .kachat : .kas }
 }
 
+/// Name normalization for the outside name services - adjudication-critical: a normalizer that
+/// disagrees with a service's own on one byte can resolve a typed name to the wrong owner.
+/// Each is a port of that service's SDK, checked against its published vectors (all of
+/// ~/kns-sdk/vectors/normalization.json and ~/dotk-sdk/src/generated/*/vectors.json `normalize`
+/// pass). Re-check them whenever an SDK's vectors change.
+enum NameNormalization {
+    /// `.k` (dotk, `@dotk/sdk` names.ts): trim Unicode White_Space, lowercase A-Z only, drop one
+    /// trailing ".k"; valid when 1...32 bytes of a-z, 0-9 and hyphen with no hyphen at either end.
+    static func dotkNormalize(_ input: String) -> String {
+        var scalars = Array(input.unicodeScalars)
+        while let first = scalars.first, first.properties.isWhitespace { scalars.removeFirst() }
+        while let last = scalars.last, last.properties.isWhitespace { scalars.removeLast() }
+        var lowered = String.UnicodeScalarView()
+        for scalar in scalars {
+            if scalar.value >= 0x41 && scalar.value <= 0x5A {
+                lowered.append(Unicode.Scalar(scalar.value + 0x20)!)
+            } else {
+                lowered.append(scalar)
+            }
+        }
+        let s = String(lowered)
+        return s.hasSuffix(".k") ? String(s.dropLast(2)) : s
+    }
+
+    static func dotkInvalidReason(_ name: String) -> String? {
+        let allowed = name.unicodeScalars.allSatisfy {
+            ($0.value >= 0x61 && $0.value <= 0x7A) || ($0.value >= 0x30 && $0.value <= 0x39) || $0.value == 0x2D
+        }
+        if !allowed { return "allowed characters: a-z, 0-9 and hyphen" }
+        let bytes = name.utf8.count
+        if bytes == 0 || bytes > 32 { return "name must be 1..=32 bytes on-chain" }
+        if name.hasPrefix("-") || name.hasSuffix("-") { return "name cannot start or end with a hyphen" }
+        return nil
+    }
+
+    /// The canonical `.k` name for typed input, or nil when it is not one.
+    static func dotkCanonical(_ input: String) -> String? {
+        let n = dotkNormalize(input)
+        return dotkInvalidReason(n) == nil ? n : nil
+    }
+
+    /// `.kaspa` (Kaspa Names, `@kronsdk/kaspa-names` normalize.ts): NFKC, printable ASCII only,
+    /// lowercase, drop one trailing ".kaspa"; valid when 1...32 of a-z, 0-9 and hyphen with no
+    /// hyphen at either end.
+    static func kaspaNamesCanonical(_ input: String) -> String? {
+        let nfkc = input.precomposedStringWithCompatibilityMapping
+        for unit in nfkc.utf16 where unit > 0x7E || unit < 0x21 { return nil }
+        var s = nfkc.lowercased()
+        if s.hasSuffix(".kaspa") { s = String(s.dropLast(6)) }
+        guard (1...32).contains(s.utf16.count) else { return nil }
+        guard s.unicodeScalars.allSatisfy({
+            ($0.value >= 0x61 && $0.value <= 0x7A) || ($0.value >= 0x30 && $0.value <= 0x39) || $0.value == 0x2D
+        }) else { return nil }
+        guard !s.hasPrefix("-"), !s.hasSuffix("-") else { return nil }
+        return s
+    }
+}
+
+/// What a typed name points to on one service.
+struct NameResolution: Identifiable, Equatable {
+    let tld: NameServiceTLD
+    /// The canonical name with its suffix, e.g. "bob.k".
+    let display: String
+    /// Where it points; nil when the name is not registered there (or has no address to pay).
+    let address: String?
+    /// The service could not be asked (network or server failure), so "not registered" is unknown.
+    let failed: Bool
+
+    var id: String { tld.rawValue }
+}
+
+extension NameServiceTLD {
+    /// The order a bare name ("bob") is tried in: KaChat's own .kachat always first, then KNS,
+    /// dotk and Kaspa Names. The first that resolves is the answer; the rest are offered as
+    /// "Other domains".
+    static let resolutionOrder: [NameServiceTLD] = [.kachat, .kas, .k, .kaspa]
+
+    /// Splits typed input into its label and the ending the person typed, if any. Longest endings
+    /// first, so "bob.kaspa" is not read as "bob.kas" + "pa".
+    static func splitTypedName(_ input: String) -> (label: String, tld: NameServiceTLD?) {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = trimmed.lowercased()
+        for tld in [NameServiceTLD.kachat, .kaspa, .kas, .k] where lowered.hasSuffix(tld.suffix) {
+            return (String(trimmed.dropLast(tld.suffix.count)), tld)
+        }
+        return (trimmed, nil)
+    }
+}
+
 /// One name an address owns on a service other than KNS.
 struct OwnedServiceName: Identifiable, Equatable {
     /// The bare canonical name, without the suffix.
@@ -199,6 +288,106 @@ final class NameServicesClient: ObservableObject {
                 )
             }
             .sorted { $0.name < $1.name }
+    }
+
+    // MARK: - Forward resolution (typed name -> address)
+
+    /// Whether typed input could be a name on any service (and is not an address): a bare label,
+    /// or a label with one of the known endings.
+    static func looksLikeName(_ input: String) -> Bool {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.hasPrefix("kaspa:"), !trimmed.hasPrefix("kaspatest:") else { return false }
+        let label = NameServiceTLD.splitTypedName(trimmed).label
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        return !label.isEmpty && label.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    /// What `input` points to on every live service, in `NameServiceTLD.resolutionOrder`.
+    /// A service whose own rules reject the label is left out. `.kachat` is skipped until it is
+    /// live. Each service normalizes with its own rule (`NameNormalization`).
+    func resolveEverywhere(_ input: String) async -> [NameResolution] {
+        let label = NameServiceTLD.splitTypedName(input).label
+        guard !label.isEmpty else { return [] }
+        let network = AppSettings.load().networkType
+        async let kas = resolveKas(label)
+        async let dotk = resolveDotk(label, network: network)
+        async let kaspaNames = resolveKaspaNames(label, network: network)
+        let byTLD: [NameServiceTLD: NameResolution] = Dictionary(
+            uniqueKeysWithValues: [await kas, await dotk, await kaspaNames].compactMap { $0 }.map { ($0.tld, $0) }
+        )
+        return NameServiceTLD.resolutionOrder.compactMap { byTLD[$0] }
+    }
+
+    /// The answer a typed name gets: the service the person named, if they typed an ending, else
+    /// the first in `resolutionOrder` that resolves.
+    static func primary(of results: [NameResolution], typed input: String) -> NameResolution? {
+        if let explicit = NameServiceTLD.splitTypedName(input).tld {
+            return results.first { $0.tld == explicit && $0.address != nil }
+        }
+        return results.first { $0.address != nil }
+    }
+
+    private func resolveKas(_ label: String) async -> NameResolution? {
+        guard let canonical = KNSService.shared.normalizeDomainLabel(label) else { return nil }
+        let display = "\(canonical).kas"
+        let resolution = await KNSService.shared.resolveDomain(canonical)
+        return NameResolution(tld: .kas, display: display, address: resolution?.ownerAddress, failed: false)
+    }
+
+    private struct DotkNameResponse: Decodable {
+        let address: String?
+    }
+
+    private func resolveDotk(_ label: String, network: NetworkType) async -> NameResolution? {
+        guard let canonical = NameNormalization.dotkCanonical(label),
+              let base = NameServiceTLD.k.apiBaseURL(for: network),
+              let url = URL(string: "\(base)/names/\(canonical)") else { return nil }
+        let display = "\(canonical).k"
+        let outcome: LookupOutcome<DotkNameResponse> = await getJSONOrMissing(url)
+        switch outcome {
+        case .found(let body): return NameResolution(tld: .k, display: display, address: body.address, failed: false)
+        case .missing: return NameResolution(tld: .k, display: display, address: nil, failed: false)
+        case .failed: return NameResolution(tld: .k, display: display, address: nil, failed: true)
+        }
+    }
+
+    private struct KaspaNamesResolveResponse: Decodable {
+        let address: String?
+    }
+
+    private func resolveKaspaNames(_ label: String, network: NetworkType) async -> NameResolution? {
+        guard let canonical = NameNormalization.kaspaNamesCanonical(label),
+              let base = NameServiceTLD.kaspa.apiBaseURL(for: network),
+              let url = URL(string: "\(base)/resolve/\(canonical)") else { return nil }
+        let display = "\(canonical).kaspa"
+        let outcome: LookupOutcome<KaspaNamesResolveResponse> = await getJSONOrMissing(url)
+        switch outcome {
+        case .found(let body): return NameResolution(tld: .kaspa, display: display, address: body.address, failed: false)
+        case .missing: return NameResolution(tld: .kaspa, display: display, address: nil, failed: false)
+        case .failed: return NameResolution(tld: .kaspa, display: display, address: nil, failed: true)
+        }
+    }
+
+    private enum LookupOutcome<T> {
+        case found(T)
+        case missing
+        case failed
+    }
+
+    /// A 404 is an answer ("not registered"), anything else that is not 2xx is a failure.
+    private func getJSONOrMissing<T: Decodable>(_ url: URL) async -> LookupOutcome<T> {
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return .failed }
+            if http.statusCode == 404 { return .missing }
+            guard (200..<300).contains(http.statusCode) else { return .failed }
+            return .found(try JSONDecoder().decode(T.self, from: data))
+        } catch {
+            AppLog.log("[NameServices] %@ lookup failed: %@", url.host ?? "?", error.localizedDescription)
+            return .failed
+        }
     }
 
     // MARK: - HTTP
