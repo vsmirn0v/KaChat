@@ -2714,7 +2714,6 @@ private struct KNSDomainsListView: View {
     let onTransferComplete: (KNSDomainTransferResult) -> Void
     let onRefresh: () async -> Void
 
-    @State private var showInscribeSheet = false
     /// Which name service's tab is showing. `.kas` is KNS, the rest come from `NameServicesClient`.
     @State private var selectedTLD: NameServiceTLD = .defaultTab
     @ObservedObject private var nameServices = NameServicesClient.shared
@@ -2749,11 +2748,27 @@ private struct KNSDomainsListView: View {
         }
         .navigationTitle("Your Domains")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showInscribeSheet) {
-            KNSDomainInscribeSheet(walletAddress: walletAddress) { result in
-                showInscribeSheet = false
-                onInscribeComplete(result)
+    }
+
+    /// "Get a .kas domain at knsdomains.org" - the pinned button under each outside service's
+    /// tab, opening that service's own site. KaChat creates only its own `.kachat` names; the
+    /// other services' names are registered with them. Same glass capsule with a teal outline
+    /// the in-app Inscribe button had (not the accent fill: the cards above are accent-filled).
+    @ViewBuilder
+    private func getNameButton(_ tld: NameServiceTLD) -> some View {
+        if let url = tld.websiteURL, let site = tld.websiteName {
+            Link(destination: url) {
+                Text("Get a \(tld.suffix) domain at \(site)")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.accentColor)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Capsule().fill(.regularMaterial))
+                    .overlay(Capsule().stroke(Color.accentColor, lineWidth: 1.5))
             }
+            .padding(.horizontal)
+            .padding(.bottom, 16)
         }
     }
 
@@ -2812,22 +2827,7 @@ private struct KNSDomainsListView: View {
             await onRefresh()
         }
         .safeAreaInset(edge: .bottom) {
-            Button {
-                showInscribeSheet = true
-            } label: {
-                // Deliberately NOT the accent fill - the domain cards above are accent-filled,
-                // so the action button gets a contrasting glass capsule with a teal outline.
-                Text("Inscribe New Domain")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .foregroundColor(.accentColor)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Capsule().fill(.regularMaterial))
-                    .overlay(Capsule().stroke(Color.accentColor, lineWidth: 1.5))
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 16)
+            getNameButton(.kas)
         }
     }
 
@@ -2850,12 +2850,6 @@ private struct KNSDomainsListView: View {
                             Text("No \(tld.suffix) names yet.")
                                 .foregroundColor(.secondary)
                         }
-                        if let url = tld.websiteURL {
-                            Link(destination: url) {
-                                Text("Get a \(tld.suffix) name at \(url.host ?? tld.serviceName)")
-                                    .font(.subheadline.weight(.semibold))
-                            }
-                        }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
@@ -2866,19 +2860,15 @@ private struct KNSDomainsListView: View {
                             badge: owned.isProvisional ? String(localized: "Settling") : nil
                         )
                     }
-                    if let url = tld.websiteURL {
-                        Link(destination: url) {
-                            Text("Manage on \(url.host ?? tld.serviceName)")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        .padding(.top, 4)
-                    }
                 }
             }
             .padding()
         }
         .refreshable {
             await nameServices.refresh(for: walletAddress)
+        }
+        .safeAreaInset(edge: .bottom) {
+            getNameButton(tld)
         }
     }
 

@@ -56,6 +56,16 @@ enum NameServiceTLD: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The site's name as people know it, for "Get a .kas domain at knsdomains.org".
+    var websiteName: String? {
+        switch self {
+        case .kas: return "knsdomains.org"
+        case .k: return "dotk.name"
+        case .kaspa: return "kaspaname.com"
+        case .kachat: return nil
+        }
+    }
+
     /// Whether the app can read this service yet.
     var isLive: Bool { self != .kachat }
 
