@@ -434,6 +434,10 @@ final class WalletManager: ObservableObject {
             ContactsManager.shared.deleteAllContacts()
         }
 
+        // Your chat with yourself is the first chat of every account, before any sync has
+        // anything to show (see `ChatService.ensureSelfConversation`).
+        ChatService.shared.ensureSelfConversation()
+
         // Ensure realtime sync/subscription starts even if UI lifecycle hooks
         // (e.g. MainTabView.onAppear) do not fire immediately after import.
         ChatService.shared.startPolling()

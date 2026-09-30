@@ -533,6 +533,12 @@ final class ContactsManager: ObservableObject {
     /// address so a future incoming message or handshake can't silently recreate the conversation.
     /// Matches Android's `ChatRepository.deleteChat` - not reversible, unlike the old archive.
     func deleteContact(_ contact: Contact) {
+        // Your own address is your chat with yourself, which cannot be deleted (see
+        // `ChatService.ensureSelfConversation`). A backstop behind the UI, which never offers it.
+        if let mine = WalletManager.shared.currentWallet?.publicAddress,
+           contact.address.lowercased() == mine.lowercased() {
+            return
+        }
         deletedAddresses.insert(contact.address)
         // Stamped in the indexer's BLOCK-TIME clock, not the wall clock, and the two are not
         // interchangeable. Mixing them is what Android hit first: a device whose clock runs ahead

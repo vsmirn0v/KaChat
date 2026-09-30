@@ -126,6 +126,9 @@ extension ChatService {
     // history took. Coalesces concurrent callers within `messageStoreReloadMinInterval` onto the
     // same pending Task instead of each doing its own separate reload.
     func loadMessagesFromStoreIfNeeded(onlyIfEmpty: Bool = true) async {
+        // Whatever the store held - nothing at all for a brand-new account - your chat with
+        // yourself is there once messages load.
+        defer { ensureSelfConversation() }
         if onlyIfEmpty {
             await _loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
             return

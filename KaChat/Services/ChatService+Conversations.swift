@@ -867,6 +867,18 @@ extension ChatService {
         return conversations.first { $0.contact.id == contact.id }
     }
 
+    /// Your chat with yourself - notes to self, and where messages from unknown senders land -
+    /// exists for every account from the start and cannot be deleted: created here if missing
+    /// (a new or freshly imported account has no messages to build it from), and any earlier
+    /// deletion of it is undone. The chat list pins it first.
+    func ensureSelfConversation() {
+        guard let mine = WalletManager.shared.currentWallet?.publicAddress, !mine.isEmpty,
+              isActiveWallet(mine) else { return }
+        contactsManager.clearDeletionTombstone(mine)
+        let contact = contactsManager.getOrCreateContact(address: mine)
+        _ = getOrCreateConversation(for: contact)
+    }
+
     func getOrCreateConversation(for contact: Contact) -> Conversation {
         if let existing = getConversation(for: contact) {
             return existing

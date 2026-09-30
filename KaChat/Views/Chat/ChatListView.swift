@@ -1145,6 +1145,11 @@ struct ChatListView: View {
     /// Your chat with yourself always sits first, whatever else was active more recently - it is
     /// the notes-to-self and landing spot for unknown senders, and should never have to be
     /// scrolled for. Everything else keeps its order.
+    private func isOwnChat(_ contact: Contact) -> Bool {
+        guard let mine = walletManager.currentWallet?.publicAddress.lowercased() else { return false }
+        return contact.address.lowercased() == mine
+    }
+
     private func pinningSelfChat(_ conversations: [Conversation]) -> [Conversation] {
         guard let mine = walletManager.currentWallet?.publicAddress.lowercased(),
               let index = conversations.firstIndex(where: { $0.contact.address.lowercased() == mine }),
@@ -1222,16 +1227,19 @@ struct ChatListView: View {
                 setSilent(!isSilent, for: conversation.contact)
             }
 
-            ActionSheetRow(
-                title: "Delete",
-                subtitle: "Removes this chat and its messages from this device.",
-                systemImage: "trash",
-                tint: .red
-            ) {
-                conversationActionTarget = nil
-                // One turn later: the confirmation alert cannot present while the sheet is
-                // still on its way out.
-                DispatchQueue.main.async { rowDeleteContact = conversation.contact }
+            // Your chat with yourself cannot be deleted - it is always there, first in the list.
+            if !isOwnChat(conversation.contact) {
+                ActionSheetRow(
+                    title: "Delete",
+                    subtitle: "Removes this chat and its messages from this device.",
+                    systemImage: "trash",
+                    tint: .red
+                ) {
+                    conversationActionTarget = nil
+                    // One turn later: the confirmation alert cannot present while the sheet is
+                    // still on its way out.
+                    DispatchQueue.main.async { rowDeleteContact = conversation.contact }
+                }
             }
 
             Spacer(minLength: 0)
@@ -1316,7 +1324,12 @@ struct ChatListView: View {
     /// Shared delete path for both Select-mode bulk deletes and single-row context-menu deletes
     /// (row swipes are gone) - per-contact cleanup with one resubscribe and toast at the end.
     private func deleteConversations(_ contacts: [Contact]) {
-        guard !contacts.isEmpty else { return }
+        // Your own chat is never deleted, even when it was part of a Select All.
+        let contacts = contacts.filter { !isOwnChat($0) }
+        guard !contacts.isEmpty else {
+            selectedContactIDs = []
+            return
+        }
         for contact in contacts {
             chatService.removeConversation(for: contact.address)
             contactsManager.deleteContact(contact)
