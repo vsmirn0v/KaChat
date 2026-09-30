@@ -2203,6 +2203,12 @@ struct AppSettings: Codable {
     /// purely a convenience list, never itself read by the node pool.
     var savedNodeAddresses: [SavedNodeAddress]
 
+    /// The connection settings of the network NOT in use, kept while it is switched away from
+    /// (keyed by `NetworkType.rawValue`). The fields above always hold the active network's
+    /// values; `switchNetwork(to:)` swaps them. Absent on older blobs - a network never used
+    /// starts from `ConnectionProfile.defaults(for:)`.
+    var connectionProfiles: [String: ConnectionProfile] = [:]
+
     // gRPC endpoint pool settings
     var grpcEndpointPool: [GrpcEndpoint]
     var discoverNewPeers: Bool           // Enable peer discovery from hot pool nodes
@@ -2254,6 +2260,39 @@ struct AppSettings: Codable {
             return AppSettings.defaultQuickReactionEmojis
         }
         return quickReactionEmojis
+    }
+
+    /// The active network's connection settings, as one value.
+    var currentConnectionProfile: ConnectionProfile {
+        ConnectionProfile(
+            indexerURL: indexerURL,
+            kaPostIndexerURL: kaPostIndexerURL,
+            publicChatIndexerURL: publicChatIndexerURL,
+            pushIndexerURL: pushIndexerURL,
+            translationServiceURL: translationServiceURL,
+            kaspaRestAPIURL: kaspaRestAPIURL,
+            trustedNodeAddress: trustedNodeAddress,
+            savedNodeAddresses: savedNodeAddresses
+        )
+    }
+
+    /// Mainnet <-> testnet. The current network's connection settings are kept aside, the other
+    /// network's come back (or its defaults, the first time), so each network remembers its own
+    /// indexers, node and explorer. The wallet address follows at the next launch (see
+    /// `WalletManager.walletOnCurrentNetwork`).
+    mutating func switchNetwork(to network: NetworkType) {
+        guard network != networkType else { return }
+        connectionProfiles[networkType.rawValue] = currentConnectionProfile
+        let next = connectionProfiles[network.rawValue] ?? .defaults(for: network)
+        indexerURL = next.indexerURL
+        kaPostIndexerURL = next.kaPostIndexerURL
+        publicChatIndexerURL = next.publicChatIndexerURL
+        pushIndexerURL = next.pushIndexerURL
+        translationServiceURL = next.translationServiceURL
+        kaspaRestAPIURL = next.kaspaRestAPIURL
+        trustedNodeAddress = next.trustedNodeAddress
+        savedNodeAddresses = next.savedNodeAddresses
+        networkType = network
     }
 
     static func defaultKNSURL(for network: NetworkType) -> String {
@@ -2383,6 +2422,7 @@ struct AppSettings: Codable {
         case kaspaExplorer
         case trustedNodeAddress
         case savedNodeAddresses
+        case connectionProfiles
         case grpcEndpointPool
         case discoverNewPeers
         case grpcPoolNetworkType
@@ -2516,11 +2556,9 @@ struct AppSettings: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         messageRetention = try container.decodeIfPresent(MessageRetention.self, forKey: .messageRetention) ?? .forever
-        // Testnet is no longer selectable anywhere in the app - always run mainnet. Installs
-        // that previously switched to testnet get migrated back (network-scoped URLs that
-        // still match the testnet defaults snap back to mainnet defaults below).
-        let storedNetworkType = try container.decodeIfPresent(NetworkType.self, forKey: .networkType) ?? .mainnet
-        networkType = .mainnet
+        // Settings > Connection Settings > Testnet (5.2) makes testnet selectable again; it had
+        // been forced to mainnet since August 2026.
+        networkType = try container.decodeIfPresent(NetworkType.self, forKey: .networkType) ?? .mainnet
         // Ignore persisted value and keep this feature always enabled.
         autoAddContacts = true
         syncSystemContacts = try container.decodeIfPresent(Bool.self, forKey: .syncSystemContacts) ?? true
@@ -2630,10 +2668,16 @@ struct AppSettings: Codable {
         // knsBaseURL is computed from networkType now, so any value in an existing blob - including
         // the empty string that broke it - is simply ignored.
         kaspaRestAPIURL = try container.decodeIfPresent(String.self, forKey: .kaspaRestAPIURL) ?? AppSettings.defaultKaspaRestURL(for: networkType)
-        if storedNetworkType == .testnet {
-            if kaspaRestAPIURL == AppSettings.defaultKaspaRestURL(for: .testnet) {
-                kaspaRestAPIURL = AppSettings.defaultKaspaRestURL(for: .mainnet)
-            }
+        connectionProfiles = try container.decodeIfPresent([String: ConnectionProfile].self, forKey: .connectionProfiles) ?? [:]
+        if networkType == .testnet {
+            // Testnet has no KaChat indexer infrastructure yet, so a blank field means "none" -
+            // not the mainnet default the migrations above substitute for a blank. Read the
+            // stored values as they are.
+            indexerURL = try container.decodeIfPresent(String.self, forKey: .indexerURL) ?? ""
+            kaPostIndexerURL = try container.decodeIfPresent(String.self, forKey: .kaPostIndexerURL) ?? ""
+            publicChatIndexerURL = try container.decodeIfPresent(String.self, forKey: .publicChatIndexerURL) ?? ""
+            pushIndexerURL = try container.decodeIfPresent(String.self, forKey: .pushIndexerURL) ?? ""
+            translationServiceURL = try container.decodeIfPresent(String.self, forKey: .translationServiceURL) ?? ""
         }
         kaspaExplorer = try container.decodeIfPresent(KaspaExplorer.self, forKey: .kaspaExplorer) ?? .default
         trustedNodeAddress = try container.decodeIfPresent(String.self, forKey: .trustedNodeAddress) ?? AppSettings.defaultTrustedNodeAddress
@@ -2707,6 +2751,7 @@ struct AppSettings: Codable {
         try container.encode(kaspaExplorer, forKey: .kaspaExplorer)
         try container.encode(trustedNodeAddress, forKey: .trustedNodeAddress)
         try container.encode(savedNodeAddresses, forKey: .savedNodeAddresses)
+        try container.encode(connectionProfiles, forKey: .connectionProfiles)
         try container.encode(grpcEndpointPool, forKey: .grpcEndpointPool)
         try container.encode(discoverNewPeers, forKey: .discoverNewPeers)
         try container.encodeIfPresent(grpcPoolNetworkType, forKey: .grpcPoolNetworkType)
@@ -2915,6 +2960,47 @@ enum EndpointOrigin: Int, Codable {
 
 /// A user-saved "host:port" node address, kept purely for quick copy/paste into the
 /// trusted-node field in Connection Settings - not itself used for connections.
+/// One network's connection settings - see `AppSettings.connectionProfiles`.
+struct ConnectionProfile: Codable, Equatable {
+    var indexerURL: String
+    var kaPostIndexerURL: String
+    var publicChatIndexerURL: String
+    var pushIndexerURL: String
+    var translationServiceURL: String
+    var kaspaRestAPIURL: String
+    var trustedNodeAddress: String
+    var savedNodeAddresses: [SavedNodeAddress]
+
+    /// What a network starts with. Testnet: the public testnet REST API and automatic node
+    /// discovery; KaChat's own indexers blank, because there is no testnet infrastructure yet.
+    static func defaults(for network: NetworkType) -> ConnectionProfile {
+        switch network {
+        case .mainnet:
+            return ConnectionProfile(
+                indexerURL: AppSettings.defaultIndexerURL,
+                kaPostIndexerURL: AppSettings.defaultKaPostIndexerURL,
+                publicChatIndexerURL: AppSettings.defaultPublicChatIndexerURL,
+                pushIndexerURL: AppSettings.defaultPushIndexerURL,
+                translationServiceURL: AppSettings.defaultTranslationServiceURL,
+                kaspaRestAPIURL: AppSettings.defaultKaspaMainnetURL,
+                trustedNodeAddress: AppSettings.defaultTrustedNodeAddress,
+                savedNodeAddresses: []
+            )
+        case .testnet:
+            return ConnectionProfile(
+                indexerURL: "",
+                kaPostIndexerURL: "",
+                publicChatIndexerURL: "",
+                pushIndexerURL: "",
+                translationServiceURL: "",
+                kaspaRestAPIURL: AppSettings.defaultKaspaTestnetURL,
+                trustedNodeAddress: "",
+                savedNodeAddresses: []
+            )
+        }
+    }
+}
+
 struct SavedNodeAddress: Codable, Identifiable, Equatable {
     let id: UUID
     var label: String

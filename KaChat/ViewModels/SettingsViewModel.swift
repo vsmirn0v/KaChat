@@ -262,8 +262,14 @@ final class SettingsViewModel: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let settingsKey = "kachat_app_settings"
 
+    /// The network the app started on. The node pool, the wallet address and every service are
+    /// set up for it at launch, so a switch in Connection Settings takes effect on the next
+    /// launch - this is what tells the Testnet tab to say so.
+    let launchNetworkType: NetworkType
+
     init() {
         self.settings = AppSettings.load()
+        self.launchNetworkType = settings.networkType
         // Account switches post .settingsDidChange with a nil object (see WalletManager) so the
         // new account's dock overlay takes effect immediately. Saves post WITH the settings
         // object - skipped here, this instance already holds those values.
@@ -299,6 +305,13 @@ final class SettingsViewModel: ObservableObject {
         let childModeEnabled = settings.childModeEnabled
         settings = .default
         settings.childModeEnabled = childModeEnabled
+        saveSettings()
+    }
+
+    /// Settings > Connection Settings > Testnet. Keeps each network's connection settings
+    /// (see `AppSettings.switchNetwork(to:)`) and saves.
+    func switchNetwork(to network: NetworkType) {
+        settings.switchNetwork(to: network)
         saveSettings()
     }
 

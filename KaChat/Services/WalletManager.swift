@@ -238,7 +238,7 @@ final class WalletManager: ObservableObject {
                     return
                 }
                 walletNeedingKeyRecovery = nil
-                let canonicalWallet = reconcileWalletWithLocalKeyMaterialIfNeeded(wallet)
+                let canonicalWallet = walletOnCurrentNetwork(reconcileWalletWithLocalKeyMaterialIfNeeded(wallet))
                 updateSavedAccounts(from: canonicalWallet)
                 snapshotStoredWalletIfPossible()
                 var updated = canonicalWallet
@@ -781,6 +781,30 @@ final class WalletManager: ObservableObject {
     /// Ensures the non-sensitive wallet record matches locally stored signing key material.
     /// If keychain sync returns a stale wallet record from another device/account, prefer
     /// local key material so message decryption and signing keep working on this device.
+    /// The same key's address on the network the app is running on. A wallet record keeps the
+    /// address it was saved with; after Settings > Connection Settings > Testnet switches the
+    /// network, the account must appear as its `kaspatest:` (or back to its `kaspa:`) address -
+    /// one key, one address per network. Not written back: the record stays as saved, and each
+    /// launch re-encodes for whichever network is active.
+    private func walletOnCurrentNetwork(_ wallet: Wallet) -> Wallet {
+        let expectedHRP = SettingsViewModel.loadSettings().networkType == .mainnet ? "kaspa" : "kaspatest"
+        guard let parsed = KaspaAddress(address: wallet.publicAddress), parsed.hrp != expectedHRP else {
+            return wallet
+        }
+        let converted = KaspaAddress(hrp: expectedHRP, type: parsed.type, payload: parsed.payload).address
+        guard !converted.isEmpty else { return wallet }
+        var networked = Wallet(
+            publicAddress: converted,
+            publicKey: wallet.publicKey,
+            alias: wallet.alias,
+            createdAt: wallet.createdAt
+        )
+        networked.balanceSompi = wallet.balanceSompi
+        networked.spendingAddressIndex = wallet.spendingAddressIndex
+        networked.maxSpendingAddressIndex = wallet.maxSpendingAddressIndex
+        return networked
+    }
+
     private func reconcileWalletWithLocalKeyMaterialIfNeeded(_ wallet: Wallet) -> Wallet {
         guard let localWallet = walletFromLocalKeyMaterial(alias: wallet.alias, createdAt: wallet.createdAt, storedAddress: wallet.publicAddress) else {
             return wallet
@@ -841,7 +865,12 @@ final class WalletManager: ObservableObject {
     private func updateSavedAccounts(from wallet: Wallet?) {
         if let wallet {
             let summary = SavedAccountSummary(wallet: wallet)
-            savedAccounts.removeAll { $0.publicAddress == summary.publicAddress }
+            // Same key = same account, on whichever network: switching to testnet re-encodes
+            // the address (`walletOnCurrentNetwork`) and must not list the account twice.
+            savedAccounts.removeAll {
+                $0.publicAddress == summary.publicAddress
+                    || (!summary.publicKey.isEmpty && $0.publicKey == summary.publicKey)
+            }
             savedAccounts.insert(summary, at: 0)
             persistSavedAccountsToStorage()
         }

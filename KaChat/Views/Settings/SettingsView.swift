@@ -776,7 +776,16 @@ struct ConnectionHubPage: View {
                 NavigationLink {
                     ConnectionSettingsView()
                 } label: {
-                    Label("Connection Settings", systemImage: "network")
+                    HStack {
+                        Label("Connection Settings", systemImage: "network")
+                        Spacer()
+                        // Testnet is easy to forget you switched on.
+                        if settingsViewModel.settings.networkType == .testnet {
+                            Text("Testnet")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.orange)
+                        }
+                    }
                 }
 
                 NavigationLink {
@@ -1934,7 +1943,7 @@ struct ConnectionSettingsView: View {
                 Text("Indexer URL")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField("https://kachat.duckdns.org", text: $indexerURL)
+                TextField(indexerPlaceholder(AppSettings.defaultIndexerURL), text: $indexerURL)
                     .font(.system(.body, design: .monospaced))
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
@@ -1952,7 +1961,7 @@ struct ConnectionSettingsView: View {
                 Text("KaPost Indexer URL")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField(AppSettings.defaultKaPostIndexerURL, text: $kaPostIndexerURL)
+                TextField(indexerPlaceholder(AppSettings.defaultKaPostIndexerURL), text: $kaPostIndexerURL)
                     .font(.system(.body, design: .monospaced))
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
@@ -1970,7 +1979,7 @@ struct ConnectionSettingsView: View {
                 Text("Public Chats Indexer URL")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField(AppSettings.defaultPublicChatIndexerURL, text: $publicChatIndexerURL)
+                TextField(indexerPlaceholder(AppSettings.defaultPublicChatIndexerURL), text: $publicChatIndexerURL)
                     .font(.system(.body, design: .monospaced))
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
@@ -1988,7 +1997,7 @@ struct ConnectionSettingsView: View {
                 Text("Push Indexer URL")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField(AppSettings.defaultPushIndexerURL, text: $pushIndexerURL)
+                TextField(indexerPlaceholder(AppSettings.defaultPushIndexerURL), text: $pushIndexerURL)
                     .font(.system(.body, design: .monospaced))
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
@@ -2010,7 +2019,10 @@ struct ConnectionSettingsView: View {
                 "Kaspa Node",
                 selection: Binding(get: { nodeChoiceSelection }, set: { applyNodeChoice($0) })
             ) {
-                Text("Default (Recommended)").tag(NodeChoice.defaultNode)
+                // The shipped default node is a mainnet node.
+                if settingsViewModel.settings.networkType == .mainnet || nodeChoiceSelection == .defaultNode {
+                    Text("Default (Recommended)").tag(NodeChoice.defaultNode)
+                }
                 Text("Automatic Scan").tag(NodeChoice.automatic)
                 ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
                     Text(entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.address : entry.label)
@@ -2122,7 +2134,7 @@ struct ConnectionSettingsView: View {
                 Text("Translation Service URL")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField(AppSettings.defaultTranslationServiceURL, text: $translationServiceURL)
+                TextField(indexerPlaceholder(AppSettings.defaultTranslationServiceURL), text: $translationServiceURL)
                     .font(.system(.body, design: .monospaced))
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
@@ -2194,7 +2206,7 @@ struct ConnectionSettingsView: View {
                 Text("Kaspa REST API URL")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField("https://api.kaspa.org", text: $kaspaRestAPIURL)
+                TextField(AppSettings.defaultKaspaRestURL(for: settingsViewModel.settings.networkType), text: $kaspaRestAPIURL)
                     .font(.system(.body, design: .monospaced))
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
@@ -2209,10 +2221,55 @@ struct ConnectionSettingsView: View {
 
     }
 
+    /// The field hint: the mainnet default, or - on testnet, where KaChat runs no indexers yet -
+    /// a note that the field is empty on purpose.
+    private func indexerPlaceholder(_ mainnetDefault: String) -> String {
+        settingsViewModel.settings.networkType == .mainnet
+            ? mainnetDefault
+            : String(localized: "No testnet indexer yet")
+    }
+
+    private var isTestnet: Bool { settingsViewModel.settings.networkType == .testnet }
+
+    @ViewBuilder
+    private var testnetSections: some View {
+        Section {
+            Toggle("Testnet", isOn: Binding(
+                get: { isTestnet },
+                set: { switchNetwork(to: $0 ? .testnet : .mainnet) }
+            ))
+            if settingsViewModel.settings.networkType != settingsViewModel.launchNetworkType {
+                Label {
+                    Text(isTestnet
+                         ? "Close KaChat completely and open it again to finish switching to Testnet."
+                         : "Close KaChat completely and open it again to finish switching back to Mainnet.")
+                } icon: {
+                    Image(systemName: "arrow.clockwise.circle.fill")
+                        .foregroundColor(.orange)
+                }
+                .font(.subheadline)
+            }
+        } header: {
+            Text("Network")
+        } footer: {
+            Text("For testing only - testnet KAS has no value. On testnet your account uses its kaspatest: address, with its own balance, chats and contacts, and the other tabs show testnet settings: the testnet explorer, automatic node discovery, and no KaChat indexers until testnet ones exist. Each network keeps its own settings, so switching back restores your mainnet ones.")
+        }
+    }
+
+    /// Saves the fields in front of you for the network you are leaving, then swaps every tab to
+    /// the other network's settings.
+    private func switchNetwork(to network: NetworkType) {
+        guard network != settingsViewModel.settings.networkType else { return }
+        guard saveSettings() else { return }
+        settingsViewModel.switchNetwork(to: network)
+        loadCurrentSettings()
+        Haptics.success()
+    }
+
     /// One tab per kind of connection, so the page stays short as the app talks to more
     /// services: indexers, the Kaspa node, translation, name services, the block explorer.
     private enum ConnectionTab: String, CaseIterable {
-        case indexer, node, translation, domains, explorer
+        case indexer, node, translation, domains, explorer, testnet
 
         var title: String {
             switch self {
@@ -2221,6 +2278,7 @@ struct ConnectionSettingsView: View {
             case .translation: return "Translation"
             case .domains: return "Domains"
             case .explorer: return "Explorer"
+            case .testnet: return "Testnet"
             }
         }
     }
@@ -2241,6 +2299,7 @@ struct ConnectionSettingsView: View {
                 case .translation: translationSections
                 case .domains: domainsSections
                 case .explorer: explorerSections
+                case .testnet: testnetSections
                 }
             }
         }
@@ -2341,19 +2400,17 @@ struct ConnectionSettingsView: View {
         // rest wrote "" straight through, and an empty base URL builds a scheme-less URL that
         // URLSession rejects with -1002 - which is exactly how the KNS endpoint got wiped, with
         // no error anywhere pointing at the setting that caused it.
-        let network = settingsViewModel.settings.networkType
-        settingsViewModel.settings.indexerURL = normalizedOrDefault(indexerURL, AppSettings.defaultIndexerURL)
-        settingsViewModel.settings.kaPostIndexerURL = normalizedOrDefault(kaPostIndexerURL, AppSettings.defaultKaPostIndexerURL)
-        // Blank falls back to the default rather than being written through - an empty base URL
-        // builds a request that fails as "unsupported URL" and reads as the server being down,
-        // which is exactly how the KNS field broke.
-        settingsViewModel.settings.translationServiceURL = normalizedOrDefault(translationServiceURL, AppSettings.defaultTranslationServiceURL)
-        settingsViewModel.settings.publicChatIndexerURL = normalizedOrDefault(publicChatIndexerURL, AppSettings.defaultPublicChatIndexerURL)
-        settingsViewModel.settings.pushIndexerURL = normalizedOrDefault(pushIndexerURL, AppSettings.defaultPushIndexerURL)
-        settingsViewModel.settings.kaspaRestAPIURL = normalizedOrDefault(
-            kaspaRestAPIURL,
-            AppSettings.defaultKaspaRestURL(for: network)
-        )
+        // Blank falls back to the network's default rather than being written through - an
+        // empty base URL builds a request that fails as "unsupported URL" and reads as the
+        // server being down, which is exactly how the KNS field broke. The exception is testnet,
+        // whose default for KaChat's own indexers IS blank: there are none yet.
+        let defaults = ConnectionProfile.defaults(for: settingsViewModel.settings.networkType)
+        settingsViewModel.settings.indexerURL = normalizedOrDefault(indexerURL, defaults.indexerURL)
+        settingsViewModel.settings.kaPostIndexerURL = normalizedOrDefault(kaPostIndexerURL, defaults.kaPostIndexerURL)
+        settingsViewModel.settings.translationServiceURL = normalizedOrDefault(translationServiceURL, defaults.translationServiceURL)
+        settingsViewModel.settings.publicChatIndexerURL = normalizedOrDefault(publicChatIndexerURL, defaults.publicChatIndexerURL)
+        settingsViewModel.settings.pushIndexerURL = normalizedOrDefault(pushIndexerURL, defaults.pushIndexerURL)
+        settingsViewModel.settings.kaspaRestAPIURL = normalizedOrDefault(kaspaRestAPIURL, defaults.kaspaRestAPIURL)
         settingsViewModel.saveSettings()
         return true
     }
@@ -2452,7 +2509,10 @@ struct KaspaNodeQuickAccessSections: View {
                 "Kaspa Node",
                 selection: Binding(get: { selection }, set: { apply($0) })
             ) {
-                Text("Default (Recommended)").tag(NodeChoice.defaultNode)
+                // The shipped default node is a mainnet node.
+                if settingsViewModel.settings.networkType == .mainnet || selection == .defaultNode {
+                    Text("Default (Recommended)").tag(NodeChoice.defaultNode)
+                }
                 Text("Automatic Scan").tag(NodeChoice.automatic)
                 ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
                     Text(entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.address : entry.label)
