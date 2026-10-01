@@ -812,3 +812,5 @@
 "Counting since %@" = "%@부터 집계";
 "Every KaChat action is its own Kaspa transaction. These totals come from KaChat's indexer, counting what it has seen on chain - nothing is read from your phone." = "KaChat의 모든 동작은 각각 하나의 Kaspa 트랜잭션입니다. 이 합계는 KaChat 인덱서가 체인에서 확인한 것을 센 값이며, 휴대폰에서는 아무것도 읽지 않습니다.";
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "1:1 메시지는 암호화되어 있어 음성 메모, 반응, 1:1 체스 수는 다이렉트 메시지로 집계됩니다. 인덱서를 포함해 누구도 이를 구분할 수 없습니다.";
+"All-time only" = "전체 기간만";
+"Kinds marked \"All-time only\" aren't in this total yet." = "'전체 기간만'으로 표시된 항목은 아직 이 합계에 포함되지 않습니다.";

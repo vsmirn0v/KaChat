@@ -338,6 +338,16 @@ struct KaChatStatsView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+            // A kind the indexer counts all time only has no number for 24 Hours / 7 Days, so
+            // the total above leaves it out - say so rather than let the total look complete.
+            if range != .all, let snapshot = model.snapshot,
+               reported(snapshot).contains(where: { $0.value == nil }) {
+                Text("Kinds marked \"All-time only\" aren't in this total yet.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 2)
+            }
         }
         .padding(.horizontal, 24)
         .padding(.top, 20)
@@ -388,6 +398,13 @@ struct KaChatStatsView: View {
                             Text(verbatim: "—")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundColor(.secondary)
+                            // Reported, but without this range - the indexer keeps an all-time
+                            // counter for it only (STATS_INDEXER.md).
+                            if range != .all {
+                                Text("All-time only")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
                 }

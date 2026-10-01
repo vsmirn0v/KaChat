@@ -812,3 +812,5 @@
 "Counting since %@" = "Contando desde %@";
 "Every KaChat action is its own Kaspa transaction. These totals come from KaChat's indexer, counting what it has seen on chain - nothing is read from your phone." = "Cada ação no KaChat é uma transação Kaspa própria. Estes totais vêm do indexador do KaChat, que conta o que viu na blockchain - nada é lido do seu telefone.";
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "As mensagens 1:1 são criptografadas, então mensagens de voz, reações e lances de xadrez 1:1 contam como mensagens diretas: ninguém, nem o indexador, consegue diferenciá-los.";
+"All-time only" = "Só no total";
+"Kinds marked \"All-time only\" aren't in this total yet." = "Os tipos marcados como “Só no total” ainda não entram neste total.";

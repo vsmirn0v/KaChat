@@ -812,3 +812,5 @@
 "Counting since %@" = "شمارش از %@";
 "Every KaChat action is its own Kaspa transaction. These totals come from KaChat's indexer, counting what it has seen on chain - nothing is read from your phone." = "هر کار در KaChat یک تراکنش جداگانه Kaspa است. این مجموع‌ها از ایندکسر KaChat می‌آیند که آنچه را روی زنجیره دیده می‌شمارد - هیچ چیزی از گوشی شما خوانده نمی‌شود.";
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "پیام‌های ۱:۱ رمزگذاری شده‌اند، پس پیام‌های صوتی، واکنش‌ها و حرکت‌های شطرنج ۱:۱ پیام مستقیم شمرده می‌شوند: هیچ‌کس، حتی ایندکسر، نمی‌تواند آن‌ها را از هم تشخیص دهد.";
+"All-time only" = "فقط کل زمان";
+"Kinds marked \"All-time only\" aren't in this total yet." = "انواعی که «فقط کل زمان» دارند هنوز در این مجموع نیستند.";

@@ -812,3 +812,5 @@
 "Counting since %@" = "Đếm từ %@";
 "Every KaChat action is its own Kaspa transaction. These totals come from KaChat's indexer, counting what it has seen on chain - nothing is read from your phone." = "Mỗi thao tác trong KaChat là một giao dịch Kaspa riêng. Các tổng số này đến từ indexer của KaChat, đếm những gì nó thấy trên chuỗi - không có gì được đọc từ điện thoại của bạn.";
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "Tin nhắn 1:1 được mã hóa, nên tin nhắn thoại, bày tỏ cảm xúc và nước cờ 1:1 được tính là tin nhắn trực tiếp: không ai, kể cả indexer, có thể phân biệt chúng.";
+"All-time only" = "Chỉ toàn thời gian";
+"Kinds marked \"All-time only\" aren't in this total yet." = "Các loại có nhãn “Chỉ toàn thời gian” chưa được tính vào tổng này.";
