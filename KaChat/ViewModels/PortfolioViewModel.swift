@@ -1204,9 +1204,11 @@ final class PortfolioViewModel: ObservableObject {
             return 0
         }
 
-        var lines = content.components(separatedBy: .newlines)
-        guard !lines.isEmpty else { return 0 }
-        let header = lines.removeFirst()
+        // Whole records, not lines: a note can hold line breaks, which the export writes inside
+        // its quotes. Splitting the file on every newline first cut such a row in two.
+        var records = Self.parseCsvRecords(content)
+        guard !records.isEmpty else { return 0 }
+        let header = records.removeFirst().joined(separator: ",")
         let dateFormatter = Self.makeDateFormatter(timeZone: Self.parseHeaderUTCOffset(header))
 
         var indexByTimestamp: [Date: Int] = [:]
@@ -1215,9 +1217,7 @@ final class PortfolioViewModel: ObservableObject {
         }
 
         var imported = 0
-        for line in lines {
-            if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
-            let fields = Self.parseCsvLine(line)
+        for fields in records {
             guard fields.count >= 6 else { continue }
 
             let token = fields[1].trimmingCharacters(in: .whitespaces)
@@ -1274,7 +1274,12 @@ final class PortfolioViewModel: ObservableObject {
             imported += 1
         }
 
-        if imported > 0 { persist() }
+        if imported > 0 {
+            persist()
+            // A re-imported export can carry rows whose price was still loading when it was
+            // written - price them by their date like any other.
+            startPriceBackfillIfNeeded()
+        }
         return imported
     }
 
@@ -1322,7 +1327,7 @@ final class PortfolioViewModel: ObservableObject {
     // MARK: - Background price backfill
 
     private var hasPendingPriceRows: Bool {
-        transactions.contains { PortfolioAddressImporter.isPricePending($0.notes) && $0.sourceTxId != nil }
+        transactions.contains { PortfolioAddressImporter.isPricePending($0.notes) }
             || fees.contains { $0.fiatValue == nil }
     }
 
@@ -1354,7 +1359,9 @@ final class PortfolioViewModel: ObservableObject {
 
     private func runPriceBackfillPass(wallet: String?) async {
         let currency = currentCurrency
-        let pending = transactions.filter { PortfolioAddressImporter.isPricePending($0.notes) && $0.sourceTxId != nil }
+        // Any row still waiting on its price - from an address import, or a CSV re-import of
+        // one (which carries the marker but not the on-chain source). Only the date is needed.
+        let pending = transactions.filter { PortfolioAddressImporter.isPricePending($0.notes) }
         let pendingFees = fees.filter { $0.fiatValue == nil }
         guard !pending.isEmpty || !pendingFees.isEmpty else { return }
         let days = Array(Set(
@@ -1378,7 +1385,7 @@ final class PortfolioViewModel: ObservableObject {
         var changed = false
         for index in transactions.indices {
             let tx = transactions[index]
-            guard PortfolioAddressImporter.isPricePending(tx.notes), tx.sourceTxId != nil,
+            guard PortfolioAddressImporter.isPricePending(tx.notes),
                   let price = prices[PortfolioAddressImporter.utcDay(for: tx.timestamp)] else { continue }
             transactions[index].fiatValue = tx.amountKas * price
             transactions[index].notes = nil
@@ -1394,30 +1401,52 @@ final class PortfolioViewModel: ObservableObject {
         if feesChanged { persistFees() }
     }
 
-    /// Splits on commas outside double quotes, unescapes "" back to " within a quoted field.
-    private static func parseCsvLine(_ line: String) -> [String] {
+    /// Splits a CSV document into records of fields (RFC 4180): commas and line breaks inside
+    /// double quotes belong to the field, "" inside quotes is one literal quote, and a line break
+    /// outside quotes - LF, CRLF or CR - ends the record. Blank lines yield no record.
+    static func parseCsvRecords(_ content: String) -> [[String]] {
+        var records: [[String]] = []
         var fields: [String] = []
         var current = ""
         var inQuotes = false
-        let chars = Array(line)
+        let chars = Array(content)
         var i = 0
+        func endRecord() {
+            fields.append(current)
+            if !(fields.count == 1 && fields[0].trimmingCharacters(in: .whitespaces).isEmpty) {
+                records.append(fields)
+            }
+            fields = []
+            current = ""
+        }
         while i < chars.count {
             let c = chars[i]
-            if inQuotes, c == "\"", i + 1 < chars.count, chars[i + 1] == "\"" {
-                current.append("\"")
-                i += 1
+            if inQuotes {
+                if c == "\"" {
+                    if i + 1 < chars.count, chars[i + 1] == "\"" {
+                        current.append("\"")
+                        i += 1
+                    } else {
+                        inQuotes = false
+                    }
+                } else {
+                    current.append(c)
+                }
             } else if c == "\"" {
-                inQuotes.toggle()
-            } else if c == ",", !inQuotes {
+                inQuotes = true
+            } else if c == "," {
                 fields.append(current)
                 current = ""
+            } else if c == "\n" || c == "\r\n" || c == "\r" {
+                // "\r\n" is a single Character in Swift, so all three line endings land here.
+                endRecord()
             } else {
                 current.append(c)
             }
             i += 1
         }
-        fields.append(current)
-        return fields
+        if !current.isEmpty || !fields.isEmpty { endRecord() }
+        return records
     }
 
     // MARK: - Pure functions
