@@ -876,3 +876,6 @@
 "Import from Nextcloud failed: %@" = "Impor dari Nextcloud gagal: %@";
 "All Files" = "Semua File";
 "This folder is empty." = "Folder ini kosong.";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts, Obrolan Publik, dan Kaspa Websites muncul di sini saat tidak ada di dock-mu. Kelola di Pengaturan > Customization > Customize Dock.";

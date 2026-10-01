@@ -876,3 +876,6 @@
 "Import from Nextcloud failed: %@" = "Nextcloud에서 가져오지 못했습니다: %@";
 "All Files" = "모든 파일";
 "This folder is empty." = "이 폴더는 비어 있습니다.";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts, 공개 채팅, Kaspa Websites는 독에 없을 때 여기에 표시됩니다. 설정 > Customization > Customize Dock에서 관리하세요.";

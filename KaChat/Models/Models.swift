@@ -1784,6 +1784,14 @@ enum AppCurrency: String, Codable, CaseIterable {
 /// the reorderable preview strip on Settings > Customization > Menu. `tag` is a fixed identifier
 /// per case (not tied to display position) so the app's existing tag-based navigation (e.g.
 /// jumping to Chats on a notification tap) keeps working no matter what order the user picks.
+/// ChangeNOW Swap, off for now. App Review (Guideline 3.1.5(iii), October 2026) treats an in-app
+/// crypto exchange - a third-party one like ChangeNOW included - as needing exchange licensing in
+/// every country the app ships to, so Swap is hidden everywhere through `AppTab.isEnabled` (dock,
+/// Kaspa Hub, Customize Dock). The code stays, so turning it back on is this one line.
+enum SwapFeature {
+    static let enabled = false
+}
+
 enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case portfolio
     case coldStorage
@@ -1959,7 +1967,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         switch self {
         case .portfolio: return !settings.hidePortfolioTab
         case .coldStorage: return !settings.hideColdStorageTab
-        case .swap: return !settings.hideSwapTab
+        // Off app-wide for now (`SwapFeature`) - this is the choke point, so the dock, Kaspa
+        // Hub and Customize Dock all drop it.
+        case .swap: return SwapFeature.enabled && !settings.hideSwapTab
         case .kaposts: return !settings.hideKaPostsTab
         // Public Chats (the public chat rooms) moved INTO the Chats screen as its third tab in
         // 5.0. The case stays so saved dock/hub blobs still decode; it never renders on its own.

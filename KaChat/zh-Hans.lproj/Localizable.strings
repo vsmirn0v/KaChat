@@ -876,3 +876,6 @@
 "Import from Nextcloud failed: %@" = "从 Nextcloud 导入失败：%@";
 "All Files" = "所有文件";
 "This folder is empty." = "此文件夹为空。";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts、公共聊天和 Kaspa Websites 不在程序坞中时会显示在这里。可在 设置 > Customization > Customize Dock 中管理。";

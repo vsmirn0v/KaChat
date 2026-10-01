@@ -876,3 +876,6 @@
 "Import from Nextcloud failed: %@" = "Nhập từ Nextcloud thất bại: %@";
 "All Files" = "Tất cả tệp";
 "This folder is empty." = "Thư mục này trống.";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts, Trò chuyện công khai và Kaspa Websites xuất hiện ở đây khi không có trong dock. Quản lý chúng trong Cài đặt > Customization > Customize Dock.";

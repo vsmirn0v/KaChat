@@ -876,3 +876,6 @@
 "Import from Nextcloud failed: %@" = "Nextcloud からの読み込みに失敗しました：%@";
 "All Files" = "すべてのファイル";
 "This folder is empty." = "このフォルダは空です。";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts、パブリックチャット、Kaspa Websites は、ドックにないときここに表示されます。設定 > Customization > Customize Dock で管理できます。";
