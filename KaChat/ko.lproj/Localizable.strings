@@ -891,3 +891,17 @@
 "Already has this transaction." = "이미 이 거래가 있습니다.";
 "Move this transaction here." = "이 거래를 여기로 옮깁니다.";
 "Moved to %@." = "%@(으)로 이동했습니다.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "채팅 주소 추가";
+"Your chatting address's buys and sells, and every network fee it has paid." = "채팅 주소의 매수·매도와 지불한 모든 네트워크 수수료.";
+". Network fees counted: %lld" = ". 집계한 네트워크 수수료: %lld";
+"No sells yet this year." = "올해는 아직 매도가 없습니다.";
+"Sells: %lld. Oldest buys first (FIFO)." = "매도: %lld건. 오래된 매수부터(FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "매수 기록 없이 매도된 %@, 원가 0으로 계산했습니다.";
+"Some prices are still loading." = "일부 가격을 아직 불러오는 중입니다.";
+"Realized P&L %@" = "실현 손익 %@";
+"Fees Spent" = "지불한 수수료";
+"Add your chatting address with + to count the network fees it has paid." = "+로 채팅 주소를 추가하면 지불한 네트워크 수수료를 집계합니다.";
+"Transactions: %lld. Some prices are still loading." = "거래: %lld건. 일부 가격을 아직 불러오는 중입니다.";
+"Transactions: %lld, at each day's price." = "거래: %lld건, 각 날짜의 가격 기준.";

@@ -891,3 +891,17 @@
 "Already has this transaction." = "इसमें यह लेन-देन पहले से है।";
 "Move this transaction here." = "यह लेन-देन यहाँ ले जाएँ।";
 "Moved to %@." = "%@ में ले जाया गया।";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "चैट पता जोड़ें";
+"Your chatting address's buys and sells, and every network fee it has paid." = "आपके चैट पते की खरीद-बिक्री और उसका चुकाया हर नेटवर्क शुल्क।";
+". Network fees counted: %lld" = ". गिने गए नेटवर्क शुल्क: %lld";
+"No sells yet this year." = "इस साल अभी कोई बिक्री नहीं।";
+"Sells: %lld. Oldest buys first (FIFO)." = "बिक्री: %lld. सबसे पुरानी खरीद पहले (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "%@ बिना दर्ज खरीद के बेचे गए, शून्य लागत पर गिने गए।";
+"Some prices are still loading." = "कुछ कीमतें अभी लोड हो रही हैं।";
+"Realized P&L %@" = "वास्तविक लाभ/हानि %@";
+"Fees Spent" = "चुकाए गए शुल्क";
+"Add your chatting address with + to count the network fees it has paid." = "चुकाए गए नेटवर्क शुल्क गिनने के लिए + से अपना चैट पता जोड़ें।";
+"Transactions: %lld. Some prices are still loading." = "लेन-देन: %lld. कुछ कीमतें अभी लोड हो रही हैं।";
+"Transactions: %lld, at each day's price." = "लेन-देन: %lld, हर दिन की कीमत पर।";

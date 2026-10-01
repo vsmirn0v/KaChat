@@ -891,3 +891,17 @@
 "Already has this transaction." = "این تراکنش را از قبل دارد.";
 "Move this transaction here." = "انتقال این تراکنش به اینجا.";
 "Moved to %@." = "به %@ منتقل شد.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "افزودن نشانی گفتگو";
+"Your chatting address's buys and sells, and every network fee it has paid." = "خریدها و فروش‌های نشانی گفتگوی شما و همه کارمزدهای شبکه‌ای که پرداخته است.";
+". Network fees counted: %lld" = ". کارمزدهای شبکه شمرده‌شده: %lld";
+"No sells yet this year." = "امسال هنوز فروشی نداشته‌اید.";
+"Sells: %lld. Oldest buys first (FIFO)." = "فروش‌ها: %lld. قدیمی‌ترین خریدها اول (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "%@ بدون خرید ثبت‌شده فروخته شد و با هزینه صفر محاسبه شد.";
+"Some prices are still loading." = "برخی قیمت‌ها هنوز در حال بارگذاری‌اند.";
+"Realized P&L %@" = "سود/زیان تحقق‌یافته %@";
+"Fees Spent" = "کارمزدهای پرداختی";
+"Add your chatting address with + to count the network fees it has paid." = "نشانی گفتگوی خود را با + اضافه کنید تا کارمزدهای شبکه‌ای که پرداخته شمرده شوند.";
+"Transactions: %lld. Some prices are still loading." = "تراکنش‌ها: %lld. برخی قیمت‌ها هنوز در حال بارگذاری‌اند.";
+"Transactions: %lld, at each day's price." = "تراکنش‌ها: %lld، با قیمت هر روز.";

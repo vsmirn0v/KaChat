@@ -891,3 +891,17 @@
 "Already has this transaction." = "এই লেনদেনটি আগে থেকেই আছে।";
 "Move this transaction here." = "এই লেনদেনটি এখানে সরান।";
 "Moved to %@." = "%@-এ সরানো হয়েছে।";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "চ্যাট ঠিকানা যোগ করুন";
+"Your chatting address's buys and sells, and every network fee it has paid." = "আপনার চ্যাট ঠিকানার কেনা-বেচা এবং এর দেওয়া প্রতিটি নেটওয়ার্ক ফি।";
+". Network fees counted: %lld" = ". গণনা করা নেটওয়ার্ক ফি: %lld";
+"No sells yet this year." = "এ বছর এখনো কোনো বিক্রি নেই।";
+"Sells: %lld. Oldest buys first (FIFO)." = "বিক্রি: %lld। পুরোনো কেনা আগে (FIFO)।";
+"%@ sold with no buy on record, counted at zero cost." = "%@ কোনো রেকর্ড করা কেনা ছাড়াই বিক্রি হয়েছে, শূন্য খরচে গণনা করা হয়েছে।";
+"Some prices are still loading." = "কিছু দাম এখনো লোড হচ্ছে।";
+"Realized P&L %@" = "বাস্তবায়িত লাভ/ক্ষতি %@";
+"Fees Spent" = "দেওয়া ফি";
+"Add your chatting address with + to count the network fees it has paid." = "দেওয়া নেটওয়ার্ক ফি গণনা করতে + দিয়ে আপনার চ্যাট ঠিকানা যোগ করুন।";
+"Transactions: %lld. Some prices are still loading." = "লেনদেন: %lld। কিছু দাম এখনো লোড হচ্ছে।";
+"Transactions: %lld, at each day's price." = "লেনদেন: %lld, প্রতিদিনের দামে।";

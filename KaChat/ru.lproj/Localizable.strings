@@ -891,3 +891,17 @@
 "Already has this transaction." = "Уже содержит эту транзакцию.";
 "Move this transaction here." = "Переместить транзакцию сюда.";
 "Moved to %@." = "Перемещено в %@.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "Добавить адрес чата";
+"Your chatting address's buys and sells, and every network fee it has paid." = "Покупки и продажи вашего адреса чата и все сетевые комиссии, которые он заплатил.";
+". Network fees counted: %lld" = ". Учтено сетевых комиссий: %lld";
+"No sells yet this year." = "В этом году продаж пока нет.";
+"Sells: %lld. Oldest buys first (FIFO)." = "Продаж: %lld. Сначала самые ранние покупки (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "%@ продано без записанной покупки, учтено по нулевой стоимости.";
+"Some prices are still loading." = "Некоторые цены ещё загружаются.";
+"Realized P&L %@" = "Реализованная П/У %@";
+"Fees Spent" = "Уплаченные комиссии";
+"Add your chatting address with + to count the network fees it has paid." = "Добавьте адрес чата через +, чтобы учесть уплаченные им сетевые комиссии.";
+"Transactions: %lld. Some prices are still loading." = "Транзакций: %lld. Некоторые цены ещё загружаются.";
+"Transactions: %lld, at each day's price." = "Транзакций: %lld, по цене каждого дня.";

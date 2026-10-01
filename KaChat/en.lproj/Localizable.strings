@@ -892,3 +892,17 @@
 "Already has this transaction." = "Already has this transaction.";
 "Move this transaction here." = "Move this transaction here.";
 "Moved to %@." = "Moved to %@.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "Add Chatting Address";
+"Your chatting address's buys and sells, and every network fee it has paid." = "Your chatting address's buys and sells, and every network fee it has paid.";
+". Network fees counted: %lld" = ". Network fees counted: %lld";
+"No sells yet this year." = "No sells yet this year.";
+"Sells: %lld. Oldest buys first (FIFO)." = "Sells: %lld. Oldest buys first (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "%@ sold with no buy on record, counted at zero cost.";
+"Some prices are still loading." = "Some prices are still loading.";
+"Realized P&L %@" = "Realized P&L %@";
+"Fees Spent" = "Fees Spent";
+"Add your chatting address with + to count the network fees it has paid." = "Add your chatting address with + to count the network fees it has paid.";
+"Transactions: %lld. Some prices are still loading." = "Transactions: %lld. Some prices are still loading.";
+"Transactions: %lld, at each day's price." = "Transactions: %lld, at each day's price.";

@@ -891,3 +891,17 @@
 "Already has this transaction." = "已包含此交易。";
 "Move this transaction here." = "将此交易移到这里。";
 "Moved to %@." = "已移至 %@。";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "添加聊天地址";
+"Your chatting address's buys and sells, and every network fee it has paid." = "你的聊天地址的买入、卖出，以及它支付过的每笔网络费用。";
+". Network fees counted: %lld" = "。已统计网络费用：%lld";
+"No sells yet this year." = "今年还没有卖出。";
+"Sells: %lld. Oldest buys first (FIFO)." = "卖出：%lld 笔。最早的买入优先（FIFO）。";
+"%@ sold with no buy on record, counted at zero cost." = "卖出的 %@ 没有对应的买入记录，按零成本计算。";
+"Some prices are still loading." = "部分价格仍在加载。";
+"Realized P&L %@" = "已实现盈亏 %@";
+"Fees Spent" = "已付费用";
+"Add your chatting address with + to count the network fees it has paid." = "用 + 添加你的聊天地址，即可统计它支付过的网络费用。";
+"Transactions: %lld. Some prices are still loading." = "交易：%lld 笔。部分价格仍在加载。";
+"Transactions: %lld, at each day's price." = "交易：%lld 笔，按当日价格计算。";

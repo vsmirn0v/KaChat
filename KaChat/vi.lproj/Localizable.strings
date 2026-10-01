@@ -891,3 +891,17 @@
 "Already has this transaction." = "Đã có giao dịch này.";
 "Move this transaction here." = "Chuyển giao dịch này vào đây.";
 "Moved to %@." = "Đã chuyển sang %@.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "Thêm địa chỉ trò chuyện";
+"Your chatting address's buys and sells, and every network fee it has paid." = "Các lần mua, bán của địa chỉ trò chuyện và mọi phí mạng nó đã trả.";
+". Network fees counted: %lld" = ". Phí mạng đã tính: %lld";
+"No sells yet this year." = "Chưa có lần bán nào trong năm nay.";
+"Sells: %lld. Oldest buys first (FIFO)." = "Lần bán: %lld. Lần mua cũ nhất trước (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "%@ đã bán mà không có lần mua được ghi, tính với giá vốn bằng 0.";
+"Some prices are still loading." = "Một số giá vẫn đang tải.";
+"Realized P&L %@" = "Lãi/lỗ đã thực hiện %@";
+"Fees Spent" = "Phí đã trả";
+"Add your chatting address with + to count the network fees it has paid." = "Thêm địa chỉ trò chuyện bằng + để tính các phí mạng nó đã trả.";
+"Transactions: %lld. Some prices are still loading." = "Giao dịch: %lld. Một số giá vẫn đang tải.";
+"Transactions: %lld, at each day's price." = "Giao dịch: %lld, theo giá từng ngày.";

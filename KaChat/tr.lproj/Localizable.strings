@@ -891,3 +891,17 @@
 "Already has this transaction." = "Bu işlem zaten var.";
 "Move this transaction here." = "Bu işlemi buraya taşı.";
 "Moved to %@." = "%@ portföyüne taşındı.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "Sohbet Adresini Ekle";
+"Your chatting address's buys and sells, and every network fee it has paid." = "Sohbet adresinin alımları, satımları ve ödediği tüm ağ ücretleri.";
+". Network fees counted: %lld" = ". Sayılan ağ ücretleri: %lld";
+"No sells yet this year." = "Bu yıl henüz satış yok.";
+"Sells: %lld. Oldest buys first (FIFO)." = "Satışlar: %lld. Önce en eski alımlar (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "%@ kayıtlı alımı olmadan satıldı, sıfır maliyetle sayıldı.";
+"Some prices are still loading." = "Bazı fiyatlar hâlâ yükleniyor.";
+"Realized P&L %@" = "Gerçekleşen K/Z %@";
+"Fees Spent" = "Ödenen Ücretler";
+"Add your chatting address with + to count the network fees it has paid." = "Ödediği ağ ücretlerini saymak için sohbet adresini + ile ekle.";
+"Transactions: %lld. Some prices are still loading." = "İşlemler: %lld. Bazı fiyatlar hâlâ yükleniyor.";
+"Transactions: %lld, at each day's price." = "İşlemler: %lld, her günün fiyatıyla.";

@@ -891,3 +891,17 @@
 "Already has this transaction." = "העסקה הזו כבר קיימת בו.";
 "Move this transaction here." = "העבירו את העסקה לכאן.";
 "Moved to %@." = "הועבר ל-%@.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "הוספת כתובת הצ'אט";
+"Your chatting address's buys and sells, and every network fee it has paid." = "הקניות והמכירות של כתובת הצ'אט שלכם, וכל עמלת רשת ששילמה.";
+". Network fees counted: %lld" = ". עמלות רשת שנספרו: %lld";
+"No sells yet this year." = "עדיין אין מכירות השנה.";
+"Sells: %lld. Oldest buys first (FIFO)." = "מכירות: %lld. הקניות הוותיקות ראשונות (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "%@ נמכרו ללא קנייה רשומה, נספרו בעלות אפס.";
+"Some prices are still loading." = "חלק מהמחירים עדיין נטענים.";
+"Realized P&L %@" = "רווח/הפסד ממומש %@";
+"Fees Spent" = "עמלות ששולמו";
+"Add your chatting address with + to count the network fees it has paid." = "הוסיפו את כתובת הצ'אט עם + כדי לספור את עמלות הרשת ששילמה.";
+"Transactions: %lld. Some prices are still loading." = "עסקאות: %lld. חלק מהמחירים עדיין נטענים.";
+"Transactions: %lld, at each day's price." = "עסקאות: %lld, לפי מחיר כל יום.";

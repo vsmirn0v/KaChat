@@ -891,3 +891,17 @@
 "Already has this transaction." = "تحتوي هذه المعاملة بالفعل.";
 "Move this transaction here." = "انقل هذه المعاملة إلى هنا.";
 "Moved to %@." = "تم النقل إلى %@.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "إضافة عنوان المحادثة";
+"Your chatting address's buys and sells, and every network fee it has paid." = "عمليات شراء وبيع عنوان المحادثة الخاص بك، وكل رسوم شبكة دفعها.";
+". Network fees counted: %lld" = ". رسوم الشبكة المحسوبة: %lld";
+"No sells yet this year." = "لا توجد مبيعات هذا العام بعد.";
+"Sells: %lld. Oldest buys first (FIFO)." = "المبيعات: %lld. أقدم المشتريات أولًا (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "تم بيع %@ دون شراء مسجل، وحُسبت بتكلفة صفرية.";
+"Some prices are still loading." = "لا تزال بعض الأسعار قيد التحميل.";
+"Realized P&L %@" = "الربح/الخسارة المحققة %@";
+"Fees Spent" = "الرسوم المدفوعة";
+"Add your chatting address with + to count the network fees it has paid." = "أضف عنوان المحادثة عبر + لاحتساب رسوم الشبكة التي دفعها.";
+"Transactions: %lld. Some prices are still loading." = "المعاملات: %lld. لا تزال بعض الأسعار قيد التحميل.";
+"Transactions: %lld, at each day's price." = "المعاملات: %lld، بسعر كل يوم.";

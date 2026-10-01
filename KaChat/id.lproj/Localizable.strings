@@ -891,3 +891,17 @@
 "Already has this transaction." = "Sudah memiliki transaksi ini.";
 "Move this transaction here." = "Pindahkan transaksi ini ke sini.";
 "Moved to %@." = "Dipindahkan ke %@.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "Tambah Alamat Obrolan";
+"Your chatting address's buys and sells, and every network fee it has paid." = "Pembelian dan penjualan alamat obrolanmu, serta setiap biaya jaringan yang telah dibayarnya.";
+". Network fees counted: %lld" = ". Biaya jaringan dihitung: %lld";
+"No sells yet this year." = "Belum ada penjualan tahun ini.";
+"Sells: %lld. Oldest buys first (FIFO)." = "Penjualan: %lld. Pembelian tertua lebih dulu (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "%@ terjual tanpa catatan pembelian, dihitung dengan biaya nol.";
+"Some prices are still loading." = "Beberapa harga masih dimuat.";
+"Realized P&L %@" = "L/R terealisasi %@";
+"Fees Spent" = "Biaya Dibayar";
+"Add your chatting address with + to count the network fees it has paid." = "Tambahkan alamat obrolanmu dengan + untuk menghitung biaya jaringan yang telah dibayarnya.";
+"Transactions: %lld. Some prices are still loading." = "Transaksi: %lld. Beberapa harga masih dimuat.";
+"Transactions: %lld, at each day's price." = "Transaksi: %lld, dengan harga tiap hari.";

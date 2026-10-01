@@ -891,3 +891,17 @@
 "Already has this transaction." = "この取引はすでにあります。";
 "Move this transaction here." = "この取引をここへ移動します。";
 "Moved to %@." = "%@ に移動しました。";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "チャットアドレスを追加";
+"Your chatting address's buys and sells, and every network fee it has paid." = "チャットアドレスの購入・売却と、支払ったすべてのネットワーク手数料。";
+". Network fees counted: %lld" = "。集計したネットワーク手数料：%lld";
+"No sells yet this year." = "今年はまだ売却がありません。";
+"Sells: %lld. Oldest buys first (FIFO)." = "売却：%lld 件。古い購入から順に（FIFO）。";
+"%@ sold with no buy on record, counted at zero cost." = "購入記録のない %@ が売却され、取得原価ゼロとして計算しました。";
+"Some prices are still loading." = "一部の価格はまだ読み込み中です。";
+"Realized P&L %@" = "実現損益 %@";
+"Fees Spent" = "支払った手数料";
+"Add your chatting address with + to count the network fees it has paid." = "+ からチャットアドレスを追加すると、支払ったネットワーク手数料を集計できます。";
+"Transactions: %lld. Some prices are still loading." = "取引：%lld 件。一部の価格はまだ読み込み中です。";
+"Transactions: %lld, at each day's price." = "取引：%lld 件、各日の価格で計算。";

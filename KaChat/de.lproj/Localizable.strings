@@ -838,3 +838,17 @@
 "Already has this transaction." = "Enthält diese Transaktion bereits.";
 "Move this transaction here." = "Transaktion hierher verschieben.";
 "Moved to %@." = "Nach %@ verschoben.";
+
+/* 5.2: Portfolio realized P&L, fees, chatting address */
+"Add Chatting Address" = "Chat-Adresse hinzufügen";
+"Your chatting address's buys and sells, and every network fee it has paid." = "Käufe und Verkäufe deiner Chat-Adresse und jede Netzwerkgebühr, die sie bezahlt hat.";
+". Network fees counted: %lld" = ". Gezählte Netzwerkgebühren: %lld";
+"No sells yet this year." = "Dieses Jahr noch keine Verkäufe.";
+"Sells: %lld. Oldest buys first (FIFO)." = "Verkäufe: %lld. Älteste Käufe zuerst (FIFO).";
+"%@ sold with no buy on record, counted at zero cost." = "%@ ohne erfassten Kauf verkauft, mit Kosten von null gezählt.";
+"Some prices are still loading." = "Einige Preise werden noch geladen.";
+"Realized P&L %@" = "Realisierter G/V %@";
+"Fees Spent" = "Gezahlte Gebühren";
+"Add your chatting address with + to count the network fees it has paid." = "Füge deine Chat-Adresse über + hinzu, um die bezahlten Netzwerkgebühren zu zählen.";
+"Transactions: %lld. Some prices are still loading." = "Transaktionen: %lld. Einige Preise werden noch geladen.";
+"Transactions: %lld, at each day's price." = "Transaktionen: %lld, zum jeweiligen Tagespreis.";
