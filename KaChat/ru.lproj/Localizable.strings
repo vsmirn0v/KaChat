@@ -937,3 +937,4 @@
 "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "Ваше первое сообщение придёт как запрос на переписку. Включите «Приватный чат», если не хотите оставлять связь между вами в блокчейне.";
 "New message request" = "Новый запрос на переписку";
 "%@ wants to chat with you." = "%@ хочет пообщаться с вами.";
+"No new requests" = "Новых запросов нет";

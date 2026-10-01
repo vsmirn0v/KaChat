@@ -833,11 +833,12 @@ struct ChatListView: View {
             displayed = filtered
         }
 
-        let requestCount = searchText.isEmpty && editMode != .active ? chatService.messageRequests.count : 0
+        let showsRequestsRow = searchText.isEmpty && editMode != .active
+        let requestCount = showsRequestsRow ? chatService.messageRequests.count : 0
         return List(selection: $selectedContactIDs) {
-            // People who wrote first and haven't been accepted - one row, right above your own
-            // chat (NO_HANDSHAKE_MESSAGING.md).
-            if requestCount > 0 {
+            // People who wrote first and haven't been accepted - one row, always there, right
+            // above your own chat (NO_HANDSHAKE_MESSAGING.md).
+            if showsRequestsRow {
                 Button {
                     Haptics.impact(.light)
                     showMessageRequests = true
@@ -2017,18 +2018,20 @@ private struct MessageRequestsRow: View {
                 Text("Message Requests")
                     .font(.headline)
                     .foregroundColor(.primary)
-                Text("People who wrote to you first")
+                Text(count > 0 ? "People who wrote to you first" : "No new requests")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text(verbatim: "\(count)")
-                .font(.caption.weight(.bold))
-                .foregroundColor(.black)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Capsule().fill(Color.accentColor))
+            if count > 0 {
+                Text(verbatim: "\(count)")
+                    .font(.caption.weight(.bold))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.accentColor))
+            }
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
                 .foregroundColor(Color(.tertiaryLabel))

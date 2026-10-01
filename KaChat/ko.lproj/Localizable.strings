@@ -937,3 +937,4 @@
 "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "첫 메시지는 메시지 요청으로 전달됩니다. 체인에 두 사람의 연결을 남기고 싶지 않다면 비공개 채팅을 켜세요.";
 "New message request" = "새 메시지 요청";
 "%@ wants to chat with you." = "%@ 님이 채팅을 원합니다.";
+"No new requests" = "새 요청이 없습니다";

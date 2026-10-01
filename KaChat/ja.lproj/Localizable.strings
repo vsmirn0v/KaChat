@@ -937,3 +937,4 @@
 "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "最初のメッセージはメッセージリクエストとして届きます。チェーン上に二人のつながりを残したくない場合はプライベートチャットをオンにしてください。";
 "New message request" = "新しいメッセージリクエスト";
 "%@ wants to chat with you." = "%@ があなたとチャットしたいようです。";
+"No new requests" = "新しいリクエストはありません";

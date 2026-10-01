@@ -937,3 +937,4 @@
 "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "你的第一条消息会以消息请求的形式送达。如果不想在链上留下你们之间的任何关联，请开启私密聊天。";
 "New message request" = "新的消息请求";
 "%@ wants to chat with you." = "%@ 想和你聊天。";
+"No new requests" = "没有新请求";

@@ -937,3 +937,4 @@
 "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "Recibirá tu primer mensaje como solicitud de mensaje. Activa Chat privado si prefieres no dejar ningún vínculo entre vosotros en la cadena.";
 "New message request" = "Nueva solicitud de mensaje";
 "%@ wants to chat with you." = "%@ quiere chatear contigo.";
+"No new requests" = "No hay solicitudes nuevas";

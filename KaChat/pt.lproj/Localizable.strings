@@ -937,3 +937,4 @@
 "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "Sua primeira mensagem chega como solicitação de mensagem. Ative Chat privado se preferir não deixar nenhuma ligação entre vocês na blockchain.";
 "New message request" = "Nova solicitação de mensagem";
 "%@ wants to chat with you." = "%@ quer conversar com você.";
+"No new requests" = "Nenhuma solicitação nova";

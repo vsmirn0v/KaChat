@@ -937,3 +937,4 @@
 "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "আপনার প্রথম মেসেজ মেসেজ অনুরোধ হিসেবে যাবে। চেইনে আপনাদের মধ্যে কোনো যোগসূত্র রাখতে না চাইলে প্রাইভেট চ্যাট চালু করুন।";
 "New message request" = "নতুন মেসেজ অনুরোধ";
 "%@ wants to chat with you." = "%@ আপনার সঙ্গে চ্যাট করতে চান।";
+"No new requests" = "নতুন কোনো অনুরোধ নেই";
