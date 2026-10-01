@@ -3,14 +3,24 @@ import SwiftUI
 struct CreateWalletView: View {
     @EnvironmentObject var walletManager: WalletManager
 
-    @State private var alias = "My Account"
+    /// Both start empty on purpose: the name and the seed length are the user's choice, and
+    /// Generate Account stays disabled until both are made (`canGenerate`).
+    @State private var alias = ""
     @State private var generatedSeedPhrase: SeedPhrase?
     @State private var isCreating = false
     @State private var showSeedPhrase = false
     @State private var hasConfirmedBackup = false
     @State private var showPassphraseStep = false
     @State private var error: String?
-    @State private var wordCount: Int = 24
+    @State private var wordCount: Int?
+
+    private var trimmedAlias: String {
+        alias.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canGenerate: Bool {
+        !isCreating && !trimmedAlias.isEmpty && wordCount != nil
+    }
 
     var body: some View {
         ScrollView {
@@ -72,9 +82,10 @@ struct CreateWalletView: View {
                 Text("Seed Phrase Length")
                     .font(.headline)
 
+                // No segment is selected until the user picks one.
                 Picker("Seed Phrase Length", selection: $wordCount) {
-                    Text("12 words").tag(12)
-                    Text("24 words").tag(24)
+                    Text("12 words").tag(Optional(12))
+                    Text("24 words").tag(Optional(24))
                 }
                 .pickerStyle(.segmented)
             }
@@ -108,8 +119,10 @@ struct CreateWalletView: View {
                 .background(Color.accentColor)
                 .foregroundColor(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                // A custom background doesn't dim on its own when the button is disabled.
+                .opacity(canGenerate || isCreating ? 1 : 0.4)
             }
-            .disabled(isCreating || alias.isEmpty)
+            .disabled(!canGenerate)
         }
     }
 
@@ -206,6 +219,7 @@ struct CreateWalletView: View {
     }
 
     private func createWallet() {
+        guard let wordCount, !trimmedAlias.isEmpty else { return }
         isCreating = true
 
         Task {
@@ -233,7 +247,7 @@ struct CreateWalletView: View {
         // has nothing to sync, but the hold keeps both paths identical and the release honest.
         ChatService.shared.holdSyncForOnboarding()
         do {
-            _ = try await walletManager.commitCreatedWallet(seedPhrase: seedPhrase, passphrase: passphrase, alias: alias)
+            _ = try await walletManager.commitCreatedWallet(seedPhrase: seedPhrase, passphrase: passphrase, alias: trimmedAlias)
         } catch {
             walletManager.justCreatedNewWallet = false
             ChatService.shared.releaseSyncForOnboarding()
