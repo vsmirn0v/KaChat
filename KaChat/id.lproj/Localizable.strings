@@ -938,3 +938,8 @@
 "New message request" = "Permintaan pesan baru";
 "%@ wants to chat with you." = "%@ ingin mengobrol denganmu.";
 "No new requests" = "Tidak ada permintaan baru";
+
+/* Welcome Guide: .kachat and Message Requests */
+"To chat with someone, press Create Chat and enter their Kaspa address or .kachat name. Your first message reaches them as a Message Request they can accept. For the most privacy, turn on Private Chat: nothing links you on chain, and they see your messages once they start a private chat with you too." = "Untuk mengobrol dengan seseorang, tekan Buat Obrolan dan masukkan alamat Kaspa atau nama .kachat mereka. Pesan pertamamu sampai sebagai Permintaan Pesan yang bisa mereka terima. Untuk privasi maksimal, aktifkan Obrolan Privat: tidak ada yang menghubungkan kalian di chain, dan mereka melihat pesanmu setelah juga memulai obrolan privat denganmu.";
+"50 Kaspa is recommended to get started - enough to claim a .kachat name and chat for a while. 5 Kaspa is enough for about 2500 messages." = "Disarankan 50 Kaspa untuk memulai - cukup untuk mengklaim nama .kachat dan mengobrol untuk sementara. 5 Kaspa cukup untuk sekitar 2500 pesan.";
+"Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "Identitas pesan publikmu. Isi dengan sedikit dana untuk membayar biaya pesan dan nama .kachat-mu - jangan pernah mengirim uang ke sini yang ingin kamu belanjakan.";

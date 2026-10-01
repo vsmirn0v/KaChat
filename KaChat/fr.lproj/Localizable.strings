@@ -939,3 +939,8 @@
 "New message request" = "Nouvelle demande de message";
 "%@ wants to chat with you." = "%@ veut discuter avec vous.";
 "No new requests" = "Aucune nouvelle demande";
+
+/* Welcome Guide: .kachat and Message Requests */
+"To chat with someone, press Create Chat and enter their Kaspa address or .kachat name. Your first message reaches them as a Message Request they can accept. For the most privacy, turn on Private Chat: nothing links you on chain, and they see your messages once they start a private chat with you too." = "Pour discuter avec quelqu'un, touchez Créer une discussion et saisissez son adresse Kaspa ou son nom .kachat. Votre premier message lui arrive comme une demande de message qu'il peut accepter. Pour un maximum de confidentialité, activez Discussion privée : rien ne vous relie sur la chaîne, et il verra vos messages dès qu'il ouvrira lui aussi une discussion privée avec vous.";
+"50 Kaspa is recommended to get started - enough to claim a .kachat name and chat for a while. 5 Kaspa is enough for about 2500 messages." = "50 Kaspa sont recommandés pour commencer - assez pour réclamer un nom .kachat et discuter un moment. 5 Kaspa suffisent pour environ 2500 messages.";
+"Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "Votre identité publique de messagerie. Approvisionnez-la d'un petit montant pour payer les frais des messages et votre nom .kachat - n'envoyez jamais ici de l'argent que vous comptez dépenser.";

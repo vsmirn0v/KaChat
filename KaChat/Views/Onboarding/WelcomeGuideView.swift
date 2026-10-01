@@ -214,7 +214,7 @@ struct WelcomeGuideView: View {
             scaffold(
                 icon: "bubble.left.and.bubble.right.fill",
                 title: "Starting a Conversation",
-                body: "To chat with someone, press Create Chat and enter their Kaspa address or KNS domain. If you send a message, they will not see it unless you send a handshake first, or you both decide to message each other around the same time - doing the latter increases your privacy.",
+                body: "To chat with someone, press Create Chat and enter their Kaspa address or .kachat name. Your first message reaches them as a Message Request they can accept. For the most privacy, turn on Private Chat: nothing links you on chain, and they see your messages once they start a private chat with you too.",
                 buttonTitle: "Next",
                 extra: { EmptyView() }
             ) { step = .paymentPrivacy }
@@ -715,7 +715,7 @@ struct WelcomeGuideView: View {
         scaffold(
             icon: "qrcode",
             title: "Fund Your Chatting Address",
-            body: "50 Kaspa is recommended to get started to be able to create a KNS profile and chat for a while. 5 Kaspa is enough for about 2500 messages",
+            body: "50 Kaspa is recommended to get started - enough to claim a .kachat name and chat for a while. 5 Kaspa is enough for about 2500 messages.",
             buttonTitle: "Next",
             extra: {
                 VStack(spacing: 12) {
@@ -747,7 +747,7 @@ struct WelcomeGuideView: View {
                     // presenter-supplied onboarding context AND the import-only marker
                     // (justImportedWallet is never set by the create flow, is in-memory only so
                     // it cannot survive a relaunch into a later replay, and is cleared on
-                    // Finish). An imported seed may hold its real identity - KNS domains, a
+                    // Finish). An imported seed may hold its real identity - domains (.kas, .k, .kaspa), a
                     // funded chatting balance - at a nonzero derivation index. Pushes the
                     // scanner INSIDE the wizard's NavigationStack; after a switch it pops back
                     // here and this step re-renders with the new address automatically
@@ -922,7 +922,7 @@ struct WelcomeGuideView: View {
                             icon: "bubble.left.and.bubble.right.fill",
                             title: "Chatting Address",
                             address: chattingAddress,
-                            caption: "Your public messaging identity. Fund it with a small amount to pay message fees and KNS profile creation fees - never send money here that you intend to spend."
+                            caption: "Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend."
                         )
                         addressMockRow(
                             icon: "dollarsign.circle.fill",

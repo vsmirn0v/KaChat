@@ -938,3 +938,8 @@
 "New message request" = "Yeni mesaj isteği";
 "%@ wants to chat with you." = "%@ seninle sohbet etmek istiyor.";
 "No new requests" = "Yeni istek yok";
+
+/* Welcome Guide: .kachat and Message Requests */
+"To chat with someone, press Create Chat and enter their Kaspa address or .kachat name. Your first message reaches them as a Message Request they can accept. For the most privacy, turn on Private Chat: nothing links you on chain, and they see your messages once they start a private chat with you too." = "Biriyle sohbet etmek için Sohbet Oluştur'a dokun ve Kaspa adresini ya da .kachat adını gir. İlk mesajın ona kabul edebileceği bir Mesaj İsteği olarak ulaşır. En fazla gizlilik için Özel Sohbet'i aç: zincirde sizi hiçbir şey bağlamaz ve o da seninle özel sohbet başlattığında mesajlarını görür.";
+"50 Kaspa is recommended to get started - enough to claim a .kachat name and chat for a while. 5 Kaspa is enough for about 2500 messages." = "Başlamak için 50 Kaspa önerilir - bir .kachat adı almaya ve bir süre sohbet etmeye yeter. 5 Kaspa yaklaşık 2500 mesaja yeter.";
+"Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "Herkese açık mesajlaşma kimliğin. Mesaj ücretleri ve .kachat adın için küçük bir miktar yükle - harcamayı düşündüğün parayı asla buraya gönderme.";

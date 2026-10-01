@@ -938,3 +938,8 @@
 "New message request" = "새 메시지 요청";
 "%@ wants to chat with you." = "%@ 님이 채팅을 원합니다.";
 "No new requests" = "새 요청이 없습니다";
+
+/* Welcome Guide: .kachat and Message Requests */
+"To chat with someone, press Create Chat and enter their Kaspa address or .kachat name. Your first message reaches them as a Message Request they can accept. For the most privacy, turn on Private Chat: nothing links you on chain, and they see your messages once they start a private chat with you too." = "누군가와 채팅하려면 채팅 만들기를 누르고 상대의 Kaspa 주소나 .kachat 이름을 입력하세요. 첫 메시지는 상대가 수락할 수 있는 메시지 요청으로 전달됩니다. 개인정보를 최대한 지키려면 비공개 채팅을 켜세요. 체인에서 두 사람을 연결하는 것이 없으며, 상대도 나와 비공개 채팅을 시작하면 메시지를 볼 수 있습니다.";
+"50 Kaspa is recommended to get started - enough to claim a .kachat name and chat for a while. 5 Kaspa is enough for about 2500 messages." = "시작하려면 50 Kaspa를 권장합니다. .kachat 이름을 받고 한동안 채팅하기에 충분합니다. 5 Kaspa면 약 2500개의 메시지를 보낼 수 있습니다.";
+"Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "공개 메시지 신원입니다. 메시지 수수료와 .kachat 이름 비용으로 소액을 넣어 두세요. 쓸 돈은 절대 여기로 보내지 마세요.";

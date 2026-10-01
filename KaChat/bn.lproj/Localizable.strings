@@ -938,3 +938,8 @@
 "New message request" = "নতুন মেসেজ অনুরোধ";
 "%@ wants to chat with you." = "%@ আপনার সঙ্গে চ্যাট করতে চান।";
 "No new requests" = "নতুন কোনো অনুরোধ নেই";
+
+/* Welcome Guide: .kachat and Message Requests */
+"To chat with someone, press Create Chat and enter their Kaspa address or .kachat name. Your first message reaches them as a Message Request they can accept. For the most privacy, turn on Private Chat: nothing links you on chain, and they see your messages once they start a private chat with you too." = "কারও সঙ্গে চ্যাট করতে চ্যাট তৈরি করুন চাপুন এবং তাদের Kaspa ঠিকানা বা .kachat নাম লিখুন। আপনার প্রথম মেসেজ তাদের কাছে মেসেজ অনুরোধ হিসেবে যায়, যা তারা গ্রহণ করতে পারে। সর্বোচ্চ গোপনীয়তার জন্য প্রাইভেট চ্যাট চালু করুন: চেইনে আপনাদের কিছুই যুক্ত করে না, আর তারাও আপনার সঙ্গে প্রাইভেট চ্যাট শুরু করলে আপনার মেসেজ দেখতে পাবে।";
+"50 Kaspa is recommended to get started - enough to claim a .kachat name and chat for a while. 5 Kaspa is enough for about 2500 messages." = "শুরু করতে ৫০ Kaspa সুপারিশ করা হয় - একটি .kachat নাম নেওয়া ও কিছুদিন চ্যাট করার জন্য যথেষ্ট। ৫ Kaspa দিয়ে প্রায় ২৫০০ মেসেজ পাঠানো যায়।";
+"Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "আপনার পাবলিক মেসেজিং পরিচয়। মেসেজ ফি ও আপনার .kachat নামের জন্য অল্প কিছু টাকা রাখুন - যে টাকা খরচ করতে চান তা কখনো এখানে পাঠাবেন না।";

@@ -938,3 +938,8 @@
 "New message request" = "Новый запрос на переписку";
 "%@ wants to chat with you." = "%@ хочет пообщаться с вами.";
 "No new requests" = "Новых запросов нет";
+
+/* Welcome Guide: .kachat and Message Requests */
+"To chat with someone, press Create Chat and enter their Kaspa address or .kachat name. Your first message reaches them as a Message Request they can accept. For the most privacy, turn on Private Chat: nothing links you on chain, and they see your messages once they start a private chat with you too." = "Чтобы написать кому-то, нажмите «Создать чат» и введите его адрес Kaspa или имя .kachat. Ваше первое сообщение придёт ему как запрос на переписку, который можно принять. Для максимальной приватности включите «Приватный чат»: в блокчейне вас ничто не связывает, а ваши сообщения станут видны, когда собеседник тоже начнёт приватный чат с вами.";
+"50 Kaspa is recommended to get started - enough to claim a .kachat name and chat for a while. 5 Kaspa is enough for about 2500 messages." = "Для начала рекомендуется 50 Kaspa — этого хватит, чтобы получить имя .kachat и какое-то время общаться. 5 Kaspa хватает примерно на 2500 сообщений.";
+"Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "Ваша публичная личность для переписки. Пополните её небольшой суммой на комиссии за сообщения и на имя .kachat — никогда не отправляйте сюда деньги, которые собираетесь тратить.";
