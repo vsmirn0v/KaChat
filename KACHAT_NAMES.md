@@ -118,7 +118,7 @@ name has expired; expiry is enforced by who reads the name, and by `reclaim`:
 | Grace (`expiresAt <= now < expiresAt + GRACE`) | everything still works; nobody can take it | the name **stops resolving**; only the owner is shown "Expired - renew to keep it" |
 | Lapsed (`now >= expiresAt + GRACE`) | anyone may `reclaim`, returning the bond to the old owner and reopening the gap; the owner can still renew until someone does | the name shows as available; claiming it is reclaim + the usual commit/register |
 
-`GRACE` proposal: 30 days. A renewal during or after grace counts from the old expiry, so lapsed
+`GRACE`: **10 days** (decided). A renewal during or after grace counts from the old expiry, so lapsed
 time is paid for (no free gap years). Anyone wanting a lapsed name can commit before the reclaim,
 so a dropping name is a fair race between people who already committed - the same as a fresh one.
 
@@ -253,7 +253,7 @@ A `names` module in kachat-indexer (it already sees every block):
 
 1. **Renewal price**: same tiers as registration (35 / 250 / 1000 / 2000 / 4000 KAS per year) is
    assumed; a lower renewal tier is a separate parameter if wanted.
-2. **`GRACE`**: 30 days proposed. **`MAX_YEARS`**: 5 per transaction proposed.
+2. **`GRACE`**: 10 days (decided). **`MAX_YEARS`**: 5 per transaction proposed.
 3. **`T_COMMIT`**: 600 DAA (~1 min) proposed.
 4. **Bond / gap value**: 1 KAS each proposed (refunded on release or reclaim; storage-mass floor
    is 0.2 KAS).
