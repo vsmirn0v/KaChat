@@ -151,6 +151,7 @@
 		KFPOLICY000100010001 /* KaspaFeePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = KFPOLICY000100010002 /* KaspaFeePolicy.swift */; };
 		KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNAV000100010000000001 /* KNSAvatarView.swift */; };
 		KNSPROB0000000000000001 /* KNSCreateProfileFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */; };
+		KSG0001B000000000000001 /* KachatSetupGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KSG0001A000000000000001 /* KachatSetupGuideView.swift */; };
 		KP0001B0000000000000001 /* KaPostsNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */; };
 		KP0002B0000000000000001 /* KaPostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0002A0000000000000001 /* KaPostsView.swift */; };
 		KP0009B0000000000000001 /* KaPostsSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0009A0000000000000001 /* KaPostsSearchView.swift */; };
@@ -417,6 +418,7 @@
 		KFPOLICY000100010002 /* KaspaFeePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaFeePolicy.swift; sourceTree = "<group>"; };
 		KNAV000100010000000001 /* KNSAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSAvatarView.swift; sourceTree = "<group>"; };
 		KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSCreateProfileFlowView.swift; sourceTree = "<group>"; };
+		KSG0001A000000000000001 /* KachatSetupGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatSetupGuideView.swift; sourceTree = "<group>"; };
 		KP0001A0000000000000001 /* KaPostsNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsNotificationCenter.swift; sourceTree = "<group>"; };
 		KP0002A0000000000000001 /* KaPostsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsView.swift; sourceTree = "<group>"; };
 		KP0009A0000000000000001 /* KaPostsSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsSearchView.swift; sourceTree = "<group>"; };
@@ -885,6 +887,7 @@
 				E81000322D4C00010000001A /* AddContactView.swift */,
 				SA0001A0000000000000001 /* ManageAddressesView.swift */,
 				KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */,
+				KSG0001A000000000000001 /* KachatSetupGuideView.swift */,
 			);
 			path = Contacts;
 			sourceTree = "<group>";
@@ -1380,6 +1383,7 @@
 				4D3D20042F72000400000002 /* ChatImageAttachmentLoader.swift in Sources */,
 				E810001B2D4C00010000000E /* ContactsView.swift in Sources */,
 				KNSPROB0000000000000001 /* KNSCreateProfileFlowView.swift in Sources */,
+				KSG0001B000000000000001 /* KachatSetupGuideView.swift in Sources */,
 				LPRVB0000000000000001 /* LinkPreviewService.swift in Sources */,
 				LPRVD0000000000000001 /* LinkPreviewCardView.swift in Sources */,
 				NC0002B0000000000000001 /* NextcloudPickerView.swift in Sources */,

@@ -1395,7 +1395,7 @@ struct KNSWizardBottomBar: View {
             .opacity(onBack == nil ? 0.35 : 1)
 
             Button { onNext?() } label: {
-                Text(nextTitle)
+                Text(LocalizedStringKey(nextTitle))
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)

@@ -47,6 +47,7 @@ struct ProfileView: View {
     @State private var showAvatarPreview = false
     @State private var showKNSEditor = false
     @State private var showCreateKNSProfileFlow = false
+    @State private var showKachatSetupGuide = false
     @State private var settingPrimaryDomainId: String?
     /// Result of the last "Set as Primary" tap, shown by the editor sheet itself.
     @State private var setPrimaryMessage: KNSSetPrimaryMessage?
@@ -254,11 +255,6 @@ struct ProfileView: View {
                             await refreshKNSData(for: target.info.address)
                         }
                     },
-                    onSetupGuideCompleted: {
-                        Task {
-                            await refreshKNSData(for: target.info.address)
-                        }
-                    },
                     onRefreshDomains: {
                         await refreshKNSDomainsOnly(for: target.info.address)
                     }
@@ -294,6 +290,9 @@ struct ProfileView: View {
                     fallbackText: editedAlias,
                     title: knsProfileInfo?.domainName ?? editedAlias
                 )
+            }
+            .fullScreenCover(isPresented: $showKachatSetupGuide) {
+                KachatSetupGuideView { showKachatSetupGuide = false }
             }
             .fullScreenCover(isPresented: $showWelcomeGuideReplay) {
                 WelcomeGuideView(onFinished: { showWelcomeGuideReplay = false })
@@ -534,7 +533,7 @@ struct ProfileView: View {
         NavigationLink {
             ProfileHelpView(
                 onWelcomeGuide: { showWelcomeGuideReplay = true },
-                onKNSSetupGuide: { showCreateKNSProfileFlow = true }
+                onKNSSetupGuide: { showKachatSetupGuide = true }
             )
         } label: {
             HStack {
@@ -2165,7 +2164,6 @@ private struct KNSProfileEditorSheet: View {
     let onSetPrimary: (KNSDomain) -> Void
     let onInscribeComplete: (KNSDomainInscribeResult) -> Void
     let onTransferComplete: (KNSDomainTransferResult) -> Void
-    let onSetupGuideCompleted: () -> Void
     let onRefreshDomains: () async -> Void
 
     @EnvironmentObject private var walletManager: WalletManager
@@ -2175,7 +2173,6 @@ private struct KNSProfileEditorSheet: View {
     /// and details are in effect - and `profileInfo` is the snapshot taken when the sheet opened,
     /// which would keep showing the old domain's until the sheet was closed and reopened.
     @ObservedObject private var knsService = KNSService.shared
-    @State private var showSetupGuide = false
     @State private var showSaveConfirmation = false
     /// Identity of the profile the editable fields were last seeded from, so a refresh that
     /// returns the SAME profile never overwrites what the user is part-way through typing.
@@ -2214,7 +2211,6 @@ private struct KNSProfileEditorSheet: View {
         onSetPrimary: @escaping (KNSDomain) -> Void,
         onInscribeComplete: @escaping (KNSDomainInscribeResult) -> Void,
         onTransferComplete: @escaping (KNSDomainTransferResult) -> Void,
-        onSetupGuideCompleted: @escaping () -> Void,
         onRefreshDomains: @escaping () async -> Void,
         onSave: @escaping (KNSProfileEditorSubmission) -> Void
     ) {
@@ -2226,7 +2222,6 @@ private struct KNSProfileEditorSheet: View {
         self.onSetPrimary = onSetPrimary
         self.onInscribeComplete = onInscribeComplete
         self.onTransferComplete = onTransferComplete
-        self.onSetupGuideCompleted = onSetupGuideCompleted
         self.onRefreshDomains = onRefreshDomains
         self.onSave = onSave
 
@@ -2330,25 +2325,9 @@ private struct KNSProfileEditorSheet: View {
 
     var body: some View {
         NavigationStack {
+            // No setup guide here since 5.2: the guide is .kachat's, in Edit .kachat Profile
+            // (`KachatSetupGuideView`). A .kas profile is edited field by field below.
             Form {
-                if walletManager.showSetupGuides {
-                    Section {
-                        Button {
-                            showSetupGuide = true
-                        } label: {
-                            Text("Setup Guide")
-                        }
-                    } footer: {
-                        // Re-enters the same guided wizard used to create a profile from scratch -
-                        // it already knows (via `existingProfile`) to offer skipping domain
-                        // registration and pre-fill the banner/avatar/detail steps with whatever's
-                        // already inscribed, so this is a safe re-entry point regardless of how much
-                        // of a profile already exists. Lives here (rather than next to "KNS Profile"
-                        // on the Profile tab) since that spot sits directly beside the banner image,
-                        // which made it untappable whenever a banner was set.
-                        Text("Walk through setting up your domain, banner, avatar, and details step by step.")
-                    }
-                }
 
                 Section("Avatar") {
                     HStack(spacing: 12) {
@@ -2590,21 +2569,6 @@ private struct KNSProfileEditorSheet: View {
                 guard let newValue else { return }
                 Task {
                     await loadPickedImage(newValue, kind: .banner)
-                }
-            }
-            .fullScreenCover(isPresented: $showSetupGuide) {
-                KNSCreateProfileFlowView(walletAddress: profileInfo.address, existingProfile: profileInfo) { wroteSomething in
-                    showSetupGuide = false
-                    // Closing the guide without having inscribed anything just returns to the
-                    // editor, which is where it was opened from and where its own unsaved edits
-                    // still are.
-                    guard wroteSomething else { return }
-                    // Once the wizard HAS written, the editor has to go: its @State
-                    // (bio/avatarUrl/etc.) was seeded when it opened, so staying would show
-                    // stale values, and its own Save could then silently overwrite what the
-                    // wizard just wrote. Refresh through onSetupGuideCompleted and close.
-                    onSetupGuideCompleted()
-                    dismiss()
                 }
             }
         }
@@ -5518,8 +5482,8 @@ struct ProfileHelpView: View {
                 }
                 helpRow(
                     icon: "person.text.rectangle",
-                    title: "KNS Profile Setup Guide",
-                    subtitle: "Set up your KNS domain, avatar, banner and bio step by step."
+                    title: ".kachat Profile Setup Guide",
+                    subtitle: "Claim your .kachat name and set up your avatar, banner and bio step by step."
                 ) {
                     onKNSSetupGuide()
                 }
@@ -5542,10 +5506,10 @@ struct ProfileHelpView: View {
                     .foregroundColor(.accentColor)
                     .frame(width: 30)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
+                    Text(LocalizedStringKey(title))
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.primary)
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -5776,10 +5740,26 @@ private struct DomainProfileEditTarget: Identifiable {
 /// the profile the whole app shows, ahead of any other name service's.
 struct KaChatProfileEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var walletManager = WalletManager.shared
+    @State private var showSetupGuide = false
 
     var body: some View {
         NavigationStack {
             Form {
+                // The setup guide lives here since 5.2 - .kachat is the name KaChat sets up for
+                // you; .kas profiles are edited field by field in Your Domains.
+                if walletManager.showSetupGuides {
+                    Section {
+                        Button {
+                            showSetupGuide = true
+                        } label: {
+                            Text("Setup Guide")
+                        }
+                    } footer: {
+                        Text("Walk through claiming your .kachat name and setting up your avatar, banner and details step by step.")
+                    }
+                }
+
                 Section {
                     Label {
                         Text(".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere.")
@@ -5822,6 +5802,9 @@ struct KaChatProfileEditorSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .fullScreenCover(isPresented: $showSetupGuide) {
+                KachatSetupGuideView { showSetupGuide = false }
             }
         }
     }

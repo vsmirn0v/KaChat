@@ -154,7 +154,7 @@ final class WalletManager: ObservableObject {
     @Published var justImportedWallet = false
 
     /// Per-wallet ("account") toggle for whether the "Setup Guide" re-entry points (the Profile
-    /// tab's "Welcome Guide" row and the "Edit KNS Profile" screen's "Setup Guide" button) are
+    /// tab's "Welcome Guide" row and the "Edit .kachat Profile" screen's "Setup Guide" button) are
     /// shown - scoped to `currentWallet?.publicAddress` rather than global `AppSettings`, mirroring
     /// `spendingDefaultsKey` in `WalletManager+SpendingAddresses.swift`, so switching to a
     /// different account on the same device doesn't carry the choice over. Defaults to `true`
