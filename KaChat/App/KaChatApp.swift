@@ -757,7 +757,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 return
             }
 
-            if sender == ourAddress || ((isActiveConversation || isActiveGroup || isActivePublicChat) && UIApplication.shared.applicationState == .active) {
+            // Message Requests: the extension already decided (one "New message request", then
+            // silence; nothing from a blocked address) - a push it emptied must not surface as a
+            // blank banner, and a pending request's or blocked sender's message never rings.
+            let content = notification.request.content
+            let emptiedByExtension = content.title.isEmpty && content.body.isEmpty
+            let fromRequestOrBlocked = contactAddress.map { address in
+                ChatService.shared.isChatBlocked(address)
+                    || ChatService.shared.conversations.contains { $0.contact.address == address && ChatService.shared.isMessageRequest($0) }
+            } ?? false
+            if emptiedByExtension || (fromRequestOrBlocked && content.threadIdentifier != "message_requests") {
+                completionHandler([])
+            } else if sender == ourAddress || ((isActiveConversation || isActiveGroup || isActivePublicChat) && UIApplication.shared.applicationState == .active) {
                 completionHandler([])
             } else if !settings.shouldDeliverIncomingNotification(for: contact) {
                 completionHandler([])

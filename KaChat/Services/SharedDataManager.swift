@@ -59,6 +59,22 @@ final class SharedDataManager {
         static let kaspaRestAPIURL = "shared_kaspa_rest_api_url"
         static let groupOwnTxIds = "shared_group_own_txids"
         static let ownPrimaryKNSDomain = "shared_own_kns_domain"
+        // Message Requests (NO_HANDSHAKE_MESSAGING.md), for the notification extension.
+        static let chatRequestAddresses = "chat_request_addresses"
+        static let chatBlockedAddresses = "chat_blocked_addresses"
+        static let chatRequestsWallet = "chat_requests_wallet"
+    }
+
+    // MARK: - Message Requests
+
+    /// Who is a pending Message Request and who is blocked, lowercased, for the notification
+    /// extension: a request's later messages, and anything from a blocked address, stay silent.
+    /// Stamped with the wallet, written after the lists (same rule as the contacts).
+    @MainActor
+    static func syncChatRequestsForExtension(requests: [String], blocked: [String]) {
+        sharedDefaults?.set(requests.map { $0.lowercased() }, forKey: Keys.chatRequestAddresses)
+        sharedDefaults?.set(blocked.map { $0.lowercased() }, forKey: Keys.chatBlockedAddresses)
+        sharedDefaults?.set(WalletManager.shared.currentWallet?.publicAddress, forKey: Keys.chatRequestsWallet)
     }
 
     // MARK: - Contact Sync

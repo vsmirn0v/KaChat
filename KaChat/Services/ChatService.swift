@@ -563,6 +563,8 @@ final class ChatService: ObservableObject {
 
     var rpcReconnectObserver: NSObjectProtocol?
     var conversationCountCancellable: AnyCancellable?
+    /// Keeps the notification extension's Message Requests lists current.
+    var chatRequestsShareCancellable: AnyCancellable?
 
     private init() {
         lastPollTime = UInt64(userDefaults.integer(forKey: lastPollTimeKey))
@@ -632,6 +634,21 @@ final class ChatService: ObservableObject {
             .sink { [weak self] _ in
                 self?.checkAndResubscribeIfNeeded()
             }
+        // A chat arriving, or an accept / reject / private change, can move someone in or out
+        // of Message Requests - the extension decides from these lists whether to ring.
+        chatRequestsShareCancellable = $conversations.map { _ in () }
+            .merge(with: $chatRequestsRevision.map { _ in () })
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.shareChatRequestsWithExtension()
+            }
+    }
+
+    func shareChatRequestsWithExtension() {
+        SharedDataManager.syncChatRequestsForExtension(
+            requests: messageRequests.map(\.contact.address),
+            blocked: Array(chatRequestState().blocked)
+        )
     }
 
     /// Observe NodePoolService ping latency for real-time latency updates.

@@ -161,6 +161,30 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
 
+        // Message Requests (NO_HANDSHAKE_MESSAGING.md): one "New message request" per new sender,
+        // then nothing from them until the app has accepted them; nothing at all from a blocked
+        // address. Payments land in your own chat and ring as before.
+        if messageType != "payment", let decision = messageRequestDecision(for: senderAddress) {
+            switch decision {
+            case .silent:
+                content.title = ""
+                content.body = ""
+                content.sound = nil
+                content.badge = nil
+                content.interruptionLevel = .passive
+            case .newRequest:
+                content.title = NSLocalizedString("New message request", comment: "Push title for the first message from someone you haven't accepted")
+                content.body = String(
+                    format: NSLocalizedString("%@ wants to chat with you.", comment: "Push body for a new message request"),
+                    formatAddress(senderAddress)
+                )
+                content.threadIdentifier = "message_requests"
+                content.sound = .default
+            }
+            contentHandler(content)
+            return
+        }
+
         let sharedContact = getSharedContact(address: senderAddress)
         let senderName = sharedContact?.alias ?? formatAddress(senderAddress)
         content.title = senderName
@@ -669,6 +693,29 @@ class NotificationService: UNNotificationServiceExtension {
     /// account - someone else's name on a stranger's message. The app stamps the blob with the
     /// wallet it wrote it for; a mismatch reads as "no contacts", so the push falls back to the
     /// address, which is less friendly rather than wrong.
+    private enum MessageRequestDecision { case silent, newRequest }
+
+    /// What a 1:1 push from `sender` should do under Message Requests, or nil for a normal
+    /// notification. Lists come from the app (`SharedDataManager.syncChatRequestsForExtension`);
+    /// `chat_request_notified` is this extension's own record of whom it has rung once.
+    /// Accepted contacts are checked before that record, so accepting someone restores them.
+    private func messageRequestDecision(for sender: String) -> MessageRequestDecision? {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+              let wallet = getWalletAddress() else { return nil }
+        // Lists written for another account don't apply to this one.
+        if let listsWallet = defaults.string(forKey: "chat_requests_wallet"), listsWallet != wallet { return nil }
+        let address = sender.lowercased()
+        if Set(defaults.stringArray(forKey: "chat_blocked_addresses") ?? []).contains(address) { return .silent }
+        if Set(defaults.stringArray(forKey: "chat_request_addresses") ?? []).contains(address) { return .silent }
+        // Someone the app already knows and hasn't listed as a request: an ordinary chat.
+        if getSharedContact(address: sender) != nil { return nil }
+        var notified = Set(defaults.stringArray(forKey: "chat_request_notified") ?? [])
+        if notified.contains(address) { return .silent }
+        notified.insert(address)
+        defaults.set(Array(notified), forKey: "chat_request_notified")
+        return .newRequest
+    }
+
     private func getSharedContact(address: String) -> SharedContact? {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
               let data = defaults.data(forKey: "shared_contacts") else {
