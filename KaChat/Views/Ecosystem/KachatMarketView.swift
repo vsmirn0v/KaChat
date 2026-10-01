@@ -762,3 +762,28 @@ private struct KachatComingSoonPill: View {
             .background(Capsule().fill(Color.accentColor.opacity(0.15)))
     }
 }
+
+// MARK: - An address's .kachat names
+
+/// The ".kachat Domains" tab of every screen that shows an address's history - Manage Addresses,
+/// Cold Storage and the chatting address: the .kachat names that address holds. It replaced the
+/// KNS Domains tab (5.2), and is empty until .kachat names launch.
+struct KachatAddressDomainsList: View {
+    var body: some View {
+        List {
+            VStack(spacing: 10) {
+                KachatTabIcon.view(side: 40)
+                Text("No .kachat names on this address")
+                    .font(.headline)
+                Text("Names this address claims or buys show here once .kachat names launch.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .listRowBackground(Color.clear)
+        }
+        .listStyle(.insetGrouped)
+    }
+}

@@ -2148,7 +2148,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
     private enum Tab: String, CaseIterable {
         case transactions = "History"
         case utxos = "UTXOs"
-        case knsDomains = "KNS Domains"
+        case kachatDomains = ".kachat Domains"
     }
 
     @State private var selectedTab: Tab = .transactions
@@ -2162,9 +2162,6 @@ private struct ColdStorageAddressTransactionHistoryView: View {
     @State private var isLoadingUtxos = false
     /// See `CoinControlView.loadError`.
     @State private var utxoLoadError: String?
-    @State private var knsDomains: [KNSDomain] = []
-    @State private var isLoadingDomains = false
-    @State private var domainsLoadFailed = false
     @State private var showReceiveSheet = false
     @State private var showSendSheet = false
     @State private var showCompoundSheet = false
@@ -2176,11 +2173,13 @@ private struct ColdStorageAddressTransactionHistoryView: View {
         "\(utxo.outpoint.transactionId):\(utxo.outpoint.index)"
     }
 
+    /// Translated here, since the count makes each title a string with no key of its own.
+    /// .kachat Domains shows no count until .kachat names exist - it could only ever say 0.
     private func tabLabel(_ tab: Tab) -> String {
+        let title = AppLocalization.string(tab.rawValue)
         switch tab {
-        case .transactions: return tab.rawValue
-        case .utxos: return "\(tab.rawValue) (\(utxos.count))"
-        case .knsDomains: return "\(tab.rawValue) (\(knsDomains.count))"
+        case .transactions, .kachatDomains: return title
+        case .utxos: return "\(title) (\(utxos.count))"
         }
     }
 
@@ -2195,23 +2194,20 @@ private struct ColdStorageAddressTransactionHistoryView: View {
             }
             .padding(.top, 12)
 
-            Picker("", selection: $selectedTab) {
-                ForEach(Tab.allCases, id: \.self) { tab in
-                    Text(tabLabel(tab)).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            // The app's tab look (Chats / Group Chats / Public Chats), not a segmented control.
+            UnderlineTabBar(
+                tabs: Tab.allCases.map { (tab: $0, title: tabLabel($0)) },
+                selection: $selectedTab
+            )
+            .padding(.top, 4)
 
             switch selectedTab {
             case .transactions:
                 transactionsList
             case .utxos:
                 utxosList
-            case .knsDomains:
-                knsDomainsList
+            case .kachatDomains:
+                KachatAddressDomainsList()
             }
         }
         .navigationTitle(entry.displayLabel)
@@ -2290,63 +2286,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
             utxoLabels = ColdStorageManager.shared.loadUtxoLabels(address: entry.address)
             await loadTransactions()
             await loadUtxos()
-            await loadDomains()
         }
-    }
-
-    /// KNS domains owned by this cold storage address (same assets-by-owner lookup and teal
-    /// KNSDomainCard rows as the spending-address KNS Domains tab). Deliberately watch-only:
-    /// a KNS domain transfer is a commit/reveal inscription pair whose reveal input spends a
-    /// P2SH redeem script, and the KSPT QR format KaChat and the KasSigner exchange only
-    /// carries plain single-sig Schnorr inputs (KsptCodec rejects redeem-script payloads), so
-    /// no send flow is offered here — see the footer note shown to the user.
-    private var knsDomainsList: some View {
-        List {
-            if isLoadingDomains && knsDomains.isEmpty {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-            } else if domainsLoadFailed && knsDomains.isEmpty {
-                Text("Could not load KNS domains. Pull to retry.")
-                    .foregroundColor(.secondary)
-            } else if knsDomains.isEmpty {
-                Text("No KNS domains on this address.")
-                    .foregroundColor(.secondary)
-            } else {
-                Section {
-                    ForEach(knsDomains, id: \.inscriptionId) { domain in
-                        KNSDomainCard(domain: domain)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                    }
-                } footer: {
-                    Text("Sending domains from a cold storage address requires signing on the KasSigner, which doesn't support inscription transactions yet.")
-                        .padding(.horizontal, 4)
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .refreshable {
-            await loadDomains()
-        }
-    }
-
-    private func loadDomains() async {
-        isLoadingDomains = true
-        // Forced: this is a pull-to-refresh, the one gesture that means "ask again". fetchInfo
-        // is cache-first now, and a pull that returned the cached list would look like nothing
-        // happened.
-        if let info = await KNSService.shared.fetchInfo(for: entry.address, force: true) {
-            knsDomains = info.allDomains
-            domainsLoadFailed = false
-        } else {
-            knsDomains = []
-            domainsLoadFailed = true
-        }
-        isLoadingDomains = false
     }
 
     private var transactionsList: some View {

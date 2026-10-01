@@ -3782,6 +3782,7 @@ struct ChattingAddressManageView: View {
     private enum Tab: String, CaseIterable {
         case transactions = "Transaction History"
         case utxos = "UTXOs"
+        case kachatDomains = ".kachat Domains"
     }
 
     @State private var selectedTab: Tab = .transactions
@@ -3814,10 +3815,13 @@ struct ChattingAddressManageView: View {
         "\(utxo.outpoint.transactionId):\(utxo.outpoint.index)"
     }
 
+    /// Translated here, since the count makes each title a string with no key of its own.
+    /// .kachat Domains shows no count until .kachat names exist - it could only ever say 0.
     private func tabLabel(_ tab: Tab) -> String {
+        let title = AppLocalization.string(tab.rawValue)
         switch tab {
-        case .transactions: return tab.rawValue
-        case .utxos: return "\(tab.rawValue) (\(utxos.count))"
+        case .transactions, .kachatDomains: return title
+        case .utxos: return "\(title) (\(utxos.count))"
         }
     }
 
@@ -3832,15 +3836,6 @@ struct ChattingAddressManageView: View {
             }
             .padding(.top, 12)
 
-            Picker("", selection: $selectedTab) {
-                ForEach(Tab.allCases, id: \.self) { tab in
-                    Text(tabLabel(tab)).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
 
             // What used to be two unlabelled glyphs in the navigation bar. A pair of icons has
             // room for no words at all, so neither said what it did, and there was nowhere to put
@@ -3859,13 +3854,22 @@ struct ChattingAddressManageView: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal)
+            .padding(.top, 12)
             .padding(.bottom, 8)
+
+            // Right above what it switches, the way Chats has it.
+            UnderlineTabBar(
+                tabs: Tab.allCases.map { (tab: $0, title: tabLabel($0)) },
+                selection: $selectedTab
+            )
 
             switch selectedTab {
             case .transactions:
                 transactionsList
             case .utxos:
                 utxosList
+            case .kachatDomains:
+                KachatAddressDomainsList()
             }
         }
         .navigationTitle("Chatting Address")

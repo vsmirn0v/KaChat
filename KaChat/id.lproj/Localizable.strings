@@ -879,3 +879,8 @@
 
 /* Kaspa Hub empty state (Swap off) */
 "KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts, Obrolan Publik, dan Kaspa Websites muncul di sini saat tidak ada di dock-mu. Kelola di Pengaturan > Customization > Customize Dock.";
+
+/* 5.2: an address's .kachat Domains tab */
+".kachat Domains" = "Domain .kachat";
+"No .kachat names on this address" = "Tidak ada nama .kachat di alamat ini";
+"Names this address claims or buys show here once .kachat names launch." = "Nama yang diklaim atau dibeli alamat ini muncul di sini setelah nama .kachat diluncurkan.";

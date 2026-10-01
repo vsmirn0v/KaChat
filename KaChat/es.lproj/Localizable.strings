@@ -879,3 +879,8 @@
 
 /* Kaspa Hub empty state (Swap off) */
 "KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts, Chats públicos y Kaspa Websites aparecen aquí cuando no están en tu dock. Gestiónalos en Ajustes > Customization > Customize Dock.";
+
+/* 5.2: an address's .kachat Domains tab */
+".kachat Domains" = "Dominios .kachat";
+"No .kachat names on this address" = "No hay nombres .kachat en esta dirección";
+"Names this address claims or buys show here once .kachat names launch." = "Los nombres que esta dirección reclame o compre aparecerán aquí cuando lleguen los nombres .kachat.";
