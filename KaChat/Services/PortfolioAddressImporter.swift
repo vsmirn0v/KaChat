@@ -23,6 +23,9 @@ enum PortfolioAddressImporter {
     }
 
     struct ImportResult {
+        /// Network fees this address paid on transactions it sent (see `feeSompi(of:paidBy:)`),
+        /// for the Fees Spent card. Separate from `imported`, which are buy/sell rows.
+        var fees: [PortfolioFeeRecord] = []
         let imported: [PortfolioTransaction]
         /// How many of `imported` couldn't be priced synchronously — still imported with
         /// `fiatValue: 0` rather than dropped, and picked up by the background price backfill
@@ -252,6 +255,7 @@ enum PortfolioAddressImporter {
         _ address: String,
         portfolioId: UUID,
         existingTxIds: Set<String>,
+        existingFeeTxIds: Set<String> = [],
         currency: AppCurrency,
         onProgress: @escaping (String) -> Void
     ) async -> Result<ImportResult, ImportError> {
@@ -276,8 +280,24 @@ enum PortfolioAddressImporter {
             let day: Date
         }
 
+        struct FeeCandidate {
+            let txId: String
+            let sompi: UInt64
+            let timestamp: Date
+            let day: Date
+        }
+
         var candidates: [Candidate] = []
+        var feeCandidates: [FeeCandidate] = []
         for tx in history.transactions {
+            // Fees first and on their own terms: a message to yourself has no buy or sell in it
+            // (`direction` is nil) but it still paid a fee.
+            if !existingFeeTxIds.contains(tx.transactionId),
+               let blockTime = tx.blockTime,
+               let fee = feeSompi(of: tx, paidBy: trimmed) {
+                let timestamp = Date(timeIntervalSince1970: Double(blockTime) / 1000)
+                feeCandidates.append(FeeCandidate(txId: tx.transactionId, sompi: fee, timestamp: timestamp, day: utcDay(for: timestamp)))
+            }
             // No usable block time means we can't date (and therefore can't price) the row —
             // and it's already excluded from re-import if its txId is in existingTxIds.
             guard !existingTxIds.contains(tx.transactionId),
@@ -289,7 +309,7 @@ enum PortfolioAddressImporter {
             )
         }
 
-        guard !candidates.isEmpty else {
+        guard !candidates.isEmpty || !feeCandidates.isEmpty else {
             return .failure(history.complete ? .noTransactions : .historyFetchFailed)
         }
 
@@ -297,7 +317,7 @@ enum PortfolioAddressImporter {
         // (see resolveDailyPrices) — not the old paced per-day burst. Anything still unpriced
         // is imported anyway and handed to the background backfill.
         onProgress("Fetching prices…")
-        let uniqueDays = Array(Set(candidates.map { $0.day }))
+        let uniqueDays = Array(Set(candidates.map { $0.day } + feeCandidates.map { $0.day }))
         let priceByDay = await resolveDailyPrices(for: uniqueDays, currency: currency)
 
         // Every candidate is imported regardless of whether its day's price could be fetched —
@@ -324,6 +344,37 @@ enum PortfolioAddressImporter {
             )
         }
 
-        return .success(ImportResult(imported: imported, missingPriceCount: missingPriceCount, historyComplete: history.complete))
+        let fees = feeCandidates.map { candidate in
+            PortfolioFeeRecord(
+                txId: candidate.txId,
+                portfolioId: portfolioId,
+                sourceAddress: trimmed,
+                amountSompi: Int64(candidate.sompi),
+                timestamp: candidate.timestamp,
+                fiatValue: priceByDay[candidate.day].map { Double(candidate.sompi) / 100_000_000.0 * $0 }
+            )
+        }
+
+        var result = ImportResult(imported: imported, missingPriceCount: missingPriceCount, historyComplete: history.complete)
+        result.fees = fees
+        return .success(result)
+    }
+
+    /// The network fee `address` paid on `tx`: everything its inputs spent minus everything its
+    /// outputs paid out. Only for a transaction `address` sent - one of its coins is an input -
+    /// and only when every input's amount is known (the REST API resolves them), since a
+    /// missing amount would make any difference a guess. Nil otherwise, or when nothing was
+    /// paid. The whole fee goes to `address`: KaChat's sends spend one address's coins.
+    static func feeSompi(of tx: KaspaFullTransactionResponse, paidBy address: String) -> UInt64? {
+        let inputs = tx.inputs ?? []
+        guard inputs.contains(where: { $0.previousOutpointAddress == address }) else { return nil }
+        var spent: UInt64 = 0
+        for input in inputs {
+            guard let amount = input.previousOutpointAmount else { return nil }
+            spent += amount
+        }
+        let paidOut = tx.outputs.reduce(UInt64(0)) { $0 + $1.amount }
+        guard spent > paidOut else { return nil }
+        return spent - paidOut
     }
 }

@@ -108,6 +108,48 @@ enum PortfolioNumber {
     }
 }
 
+/// A network fee one of a portfolio's imported addresses paid on a transaction it sent -
+/// messages, handshakes and payments alike. Recorded by `PortfolioAddressImporter` beside the
+/// buy/sell rows and totalled on the Fees Spent card. `fiatValue` is the fee at that day's KAS
+/// price, nil until that price is known (the background backfill fills it in like a row's).
+struct PortfolioFeeRecord: Codable, Identifiable, Equatable {
+    let txId: String
+    let portfolioId: UUID
+    let sourceAddress: String
+    let amountSompi: Int64
+    let timestamp: Date
+    var fiatValue: Double?
+
+    var id: String { "\(portfolioId.uuidString):\(txId)" }
+    var amountKas: Double { Double(amountSompi) / 100_000_000.0 }
+}
+
+/// The Fees Spent card's numbers for one portfolio.
+struct PortfolioFeeSummary: Equatable {
+    var totalKas: Double = 0
+    /// Only fees whose day's price is known; `unpricedCount` says how many are still missing.
+    var totalFiat: Double = 0
+    var count = 0
+    var unpricedCount = 0
+}
+
+/// Realized profit and loss for one calendar year: every sell dated in that year, against the
+/// cost of the KAS it sold, taken from the oldest buys first (FIFO). Buys from earlier years
+/// still count as lots - only the sells are limited to the year.
+struct RealizedPL: Equatable {
+    var year: Int
+    var proceeds: Double = 0
+    var costBasis: Double = 0
+    var sellCount = 0
+    /// KAS those sells sold beyond every buy on record - counted at zero cost, so it adds to the
+    /// gain. Usually KAS that came in from somewhere the portfolio doesn't track.
+    var uncoveredKas: Double = 0
+    /// Rows in the calculation whose price is still loading (they count as 0 until it lands).
+    var pendingPriceCount = 0
+
+    var amount: Double { proceeds - costBasis }
+}
+
 struct Portfolio: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String

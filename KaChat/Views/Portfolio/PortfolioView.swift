@@ -55,6 +55,20 @@ struct PortfolioView: View {
                 .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
+
+                Section {
+                    realizedPLCard
+                }
+                .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+                Section {
+                    feesCard
+                }
+                .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
             .navigationTitle("Portfolio")
             .navigationBarTitleDisplayMode(.large)
@@ -162,6 +176,120 @@ struct PortfolioView: View {
         }
         .buttonStyle(.plain)
         .task { await networkStats.refreshIfNeeded() }
+    }
+
+    // MARK: - Realized P&L and fees
+
+    private func localizedFormat(_ key: String, _ args: CVarArg...) -> String {
+        String(format: AppLocalization.string(key), locale: AppLocalization.locale, arguments: args)
+    }
+
+    /// This calendar year's realized profit or loss in the active portfolio: this year's sells
+    /// against the cost of the KAS they sold, oldest buys first (FIFO -
+    /// `PortfolioViewModel.computeRealizedPL`).
+    private var realizedPLCard: some View {
+        let pl = viewModel.realizedPLThisYear
+        let hidden = viewModel.valuesHidden
+        var notes: [String] = []
+        if pl.sellCount == 0 {
+            notes.append(AppLocalization.string("No sells yet this year."))
+        } else {
+            notes.append(localizedFormat("Sells: %lld. Oldest buys first (FIFO).", pl.sellCount))
+            if pl.uncoveredKas > 0 {
+                notes.append(localizedFormat(
+                    "%@ sold with no buy on record, counted at zero cost.",
+                    hidden ? PortfolioFormat.masked : PortfolioFormat.kas(pl.uncoveredKas)
+                ))
+            }
+        }
+        if pl.pendingPriceCount > 0 {
+            notes.append(AppLocalization.string("Some prices are still loading."))
+        }
+        let valueText = hidden
+            ? PortfolioFormat.masked
+            : (pl.amount > 0 ? "+" : "") + PortfolioFormat.currency(pl.amount, currency)
+        let valueColor: Color = hidden || pl.sellCount == 0 ? .primary : (pl.amount >= 0 ? .green : .red)
+
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "checkmark.seal")
+                .font(.scaled(size: 20, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 30)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(localizedFormat("Realized P&L %@", String(pl.year)))
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                Text(valueText)
+                    .font(.scaled(size: 20, weight: .bold))
+                    .foregroundColor(valueColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(notes.joined(separator: " "))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(portfolioGlassBackground(cornerRadius: 18))
+    }
+
+    /// Network fees the active portfolio's imported addresses paid - in KAS, and in the app
+    /// currency at each day's price. Fed by Add Chatting Address (and Add Kaspa Address).
+    private var feesCard: some View {
+        let fees = viewModel.feeSummary
+        let hidden = viewModel.valuesHidden
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "fuelpump")
+                .font(.scaled(size: 20, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 30)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Fees Spent")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                if fees.count == 0 {
+                    Text(verbatim: "—")
+                        .font(.scaled(size: 20, weight: .bold))
+                    Text("Add your chatting address with + to count the network fees it has paid.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(hidden ? PortfolioFormat.masked : Self.feeKas(fees.totalKas))
+                        .font(.scaled(size: 20, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text(hidden ? PortfolioFormat.masked : PortfolioFormat.currency(fees.totalFiat, currency))
+                        .font(.subheadline.weight(.semibold))
+                    Text(fees.unpricedCount > 0
+                         ? localizedFormat("Transactions: %lld. Some prices are still loading.", fees.count)
+                         : localizedFormat("Transactions: %lld, at each day's price.", fees.count))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(portfolioGlassBackground(cornerRadius: 18))
+    }
+
+    /// Fees are fractions of a KAS - up to eight places, so a month of messages doesn't read 0.
+    private static func feeKas(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 8
+        formatter.locale = Locale(identifier: "en_US")
+        return (formatter.string(from: NSNumber(value: value)) ?? String(format: "%.8f", value)) + " KAS"
     }
 
     private var priceSquare: some View {

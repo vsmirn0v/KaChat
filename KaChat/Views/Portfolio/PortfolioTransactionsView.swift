@@ -38,6 +38,8 @@ struct PortfolioTransactionsView<Header: View>: View {
     @State private var showAddChooser = false
     @State private var showImportExport = false
     @State private var showCsvImporter = false
+    /// Set for "Add Chatting Address": the address sheet imports this one straight away.
+    @State private var addAddressPreset: String?
     /// The transaction a long press is moving to another portfolio, while its sheet is up.
     @State private var movingTransaction: PortfolioTransaction?
     @ObservedObject private var portfolioManager = PortfolioManager.shared
@@ -132,10 +134,13 @@ struct PortfolioTransactionsView<Header: View>: View {
         .sheet(isPresented: $showImportExport) { importExportSheet }
         .sheet(item: $movingTransaction) { tx in moveSheet(tx) }
         .sheet(isPresented: $showAddAddressSheet) {
-            AddPortfolioAddressSheet(viewModel: viewModel) { result in
+            AddPortfolioAddressSheet(viewModel: viewModel, presetAddress: addAddressPreset) { result in
                 switch result {
                 case .success(let importResult):
                     var message = "Imported \(importResult.imported.count) transaction\(importResult.imported.count == 1 ? "" : "s")"
+                    if !importResult.fees.isEmpty {
+                        message += localizedFormat(". Network fees counted: %lld", importResult.fees.count)
+                    }
                     if importResult.missingPriceCount > 0 {
                         message += ". Prices for \(importResult.missingPriceCount) are still loading and will fill in automatically"
                     }
@@ -487,14 +492,28 @@ struct PortfolioTransactionsView<Header: View>: View {
                 systemImage: "arrow.left.arrow.right"
             ) {
                 showAddChooser = false
+                addAddressPreset = nil
                 DispatchQueue.main.async { showAddAddressSheet = true }
+            }
+            // One tap for the address KaChat itself spends from: its buys and sells, and every
+            // network fee it paid (messages, handshakes, payments) for the Fees Spent card.
+            if let chattingAddress = WalletManager.shared.currentWallet?.publicAddress {
+                ActionSheetRow(
+                    title: "Add Chatting Address",
+                    subtitle: "Your chatting address's buys and sells, and every network fee it has paid.",
+                    systemImage: "bubble.left.and.bubble.right"
+                ) {
+                    showAddChooser = false
+                    addAddressPreset = chattingAddress
+                    DispatchQueue.main.async { showAddAddressSheet = true }
+                }
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(280)])
+        .presentationDetents([.height(370)])
         .presentationDragIndicator(.visible)
     }
 
@@ -606,6 +625,9 @@ private struct PortfolioCsvShareSheet: UIViewControllerRepresentable {
 /// stored (rows dedupe/group purely by `sourceAddress`).
 private struct AddPortfolioAddressSheet: View {
     @ObservedObject var viewModel: PortfolioViewModel
+    /// "Add Chatting Address": no field to fill - the import of this address starts as the
+    /// sheet opens, and the sheet shows only its progress.
+    var presetAddress: String? = nil
     let onCompletion: (Result<PortfolioAddressImporter.ImportResult, PortfolioAddressImporter.ImportError>) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -644,7 +666,7 @@ private struct AddPortfolioAddressSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                if isImporting {
+                if isImporting || presetAddress != nil {
                     Section {
                         HStack(spacing: 12) {
                             ProgressView()
@@ -686,19 +708,25 @@ private struct AddPortfolioAddressSheet: View {
                     }
                 }
             }
-            .navigationTitle("Add Kaspa Address")
+            .navigationTitle(presetAddress == nil ? "Add Kaspa Address" : "Add Chatting Address")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .disabled(isImporting)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Import") {
-                        startImport()
+                if presetAddress == nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Import") {
+                            startImport()
+                        }
+                        .disabled(!canImport || isImporting)
                     }
-                    .disabled(!canImport || isImporting)
                 }
+            }
+            .task {
+                guard let presetAddress, !isImporting else { return }
+                startImport(address: presetAddress)
             }
             // A half sheet, and it STAYS one while the import runs - the progress replaces the
             // field in place rather than handing off to another screen. Expandable because the
@@ -807,9 +835,9 @@ private struct AddPortfolioAddressSheet: View {
         addressText = address
     }
 
-    private func startImport() {
+    private func startImport(address preset: String? = nil) {
         isImporting = true
-        let address = effectiveAddress
+        let address = preset ?? effectiveAddress
         Task {
             let result = await viewModel.importAddress(address) { text in
                 Task { @MainActor in

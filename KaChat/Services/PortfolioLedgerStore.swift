@@ -15,6 +15,7 @@ enum PortfolioLedgerStore {
     private static let keyPrefix = "kachat_portfolio_transactions_"
     private static let portfoliosKeyPrefix = "kachat_portfolios_"
     private static let activePortfolioKeyPrefix = "kachat_active_portfolio_"
+    private static let feesKeyPrefix = "kachat_portfolio_fees_"
 
     private static func sanitize(_ walletAddress: String) -> String {
         walletAddress.replacingOccurrences(of: ":", with: "_")
@@ -92,6 +93,24 @@ enum PortfolioLedgerStore {
         save(remaining, walletAddress: walletAddress, userDefaults: userDefaults)
     }
 
+    // MARK: - Fees
+
+    private static func feesKey(forNormalizedWalletAddress walletAddress: String) -> String {
+        "\(feesKeyPrefix)\(sanitize(walletAddress))"
+    }
+
+    static func loadFees(walletAddress: String?, userDefaults: UserDefaults = .standard) -> [PortfolioFeeRecord] {
+        guard let walletAddress,
+              let data = userDefaults.data(forKey: feesKey(forNormalizedWalletAddress: walletAddress)),
+              let fees = try? JSONDecoder().decode([PortfolioFeeRecord].self, from: data) else { return [] }
+        return fees
+    }
+
+    static func saveFees(_ fees: [PortfolioFeeRecord], walletAddress: String?, userDefaults: UserDefaults = .standard) {
+        guard let walletAddress, let data = try? JSONEncoder().encode(fees) else { return }
+        userDefaults.set(data, forKey: feesKey(forNormalizedWalletAddress: walletAddress))
+    }
+
     // MARK: - Portfolio list
 
     static func loadPortfolios(walletAddress: String?, userDefaults: UserDefaults = .standard) -> [Portfolio] {
@@ -135,5 +154,6 @@ enum PortfolioLedgerStore {
         userDefaults.removeObject(forKey: key(forNormalizedWalletAddress: walletAddress))
         userDefaults.removeObject(forKey: portfoliosKey(forNormalizedWalletAddress: walletAddress))
         userDefaults.removeObject(forKey: activePortfolioKey(forNormalizedWalletAddress: walletAddress))
+        userDefaults.removeObject(forKey: feesKey(forNormalizedWalletAddress: walletAddress))
     }
 }

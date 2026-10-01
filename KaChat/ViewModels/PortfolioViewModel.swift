@@ -14,6 +14,8 @@ final class PortfolioViewModel: ObservableObject {
     static let shared = PortfolioViewModel()
 
     @Published private(set) var transactions: [PortfolioTransaction] = []
+    /// Network fees imported addresses paid, every portfolio's (see `PortfolioFeeRecord`).
+    @Published private(set) var fees: [PortfolioFeeRecord] = []
     /// Current KAS price in whatever `AppSettings.currency` is selected (not necessarily USD
     /// despite the name - kept as-is to minimize churn across the many call sites already reading
     /// it; see `currentCurrency` for the currency it's actually denominated in).
@@ -90,6 +92,26 @@ final class PortfolioViewModel: ObservableObject {
     var scopedTransactions: [PortfolioTransaction] {
         guard let activeId = PortfolioManager.shared.activePortfolioId else { return [] }
         return transactions.filter { $0.portfolioId == activeId }
+    }
+
+    /// The active portfolio's fees, for the Fees Spent card.
+    var feeSummary: PortfolioFeeSummary {
+        guard let activeId = PortfolioManager.shared.activePortfolioId else { return PortfolioFeeSummary() }
+        var summary = PortfolioFeeSummary()
+        for fee in fees where fee.portfolioId == activeId {
+            summary.totalKas += fee.amountKas
+            summary.count += 1
+            if let fiat = fee.fiatValue { summary.totalFiat += fiat } else { summary.unpricedCount += 1 }
+        }
+        return summary
+    }
+
+    /// The active portfolio's realized profit and loss for the current calendar year.
+    var realizedPLThisYear: RealizedPL {
+        Self.computeRealizedPL(
+            transactions: scopedTransactions,
+            year: Calendar.current.component(.year, from: Date())
+        )
     }
 
     var transactionsDescending: [PortfolioTransaction] {
@@ -502,9 +524,11 @@ final class PortfolioViewModel: ObservableObject {
         priceBackfillTask = nil
         guard let normalizedAddress, let defaultPortfolioId = PortfolioManager.shared.portfolios.first?.id else {
             transactions = []
+            fees = []
             return
         }
         transactions = PortfolioLedgerStore.load(walletAddress: normalizedAddress, defaultPortfolioId: defaultPortfolioId)
+        fees = PortfolioLedgerStore.loadFees(walletAddress: normalizedAddress)
         // Rows left unpriced by an import the app was killed/backgrounded during (or by an older
         // build with no backfill at all) resume pricing here.
         startPriceBackfillIfNeeded()
@@ -1053,13 +1077,29 @@ final class PortfolioViewModel: ObservableObject {
         PortfolioLedgerStore.save(transactions, walletAddress: activeWalletAddress)
     }
 
+    private func persistFees() {
+        PortfolioLedgerStore.saveFees(fees, walletAddress: activeWalletAddress)
+    }
+
+    /// A deleted portfolio's rows and fees, out of memory as well as off disk - otherwise the
+    /// next save of everything else wrote them straight back, under a portfolio that no longer
+    /// exists.
+    func forgetPortfolio(_ portfolioId: UUID) {
+        transactions.removeAll { $0.portfolioId == portfolioId }
+        fees.removeAll { $0.portfolioId == portfolioId }
+        persist()
+        persistFees()
+    }
+
     /// Permanently deletes this wallet's portfolio ledger, used when a saved account is
     /// removed from the device entirely. Mirrors ColdStorageManager.clearAllLocalData.
     func clearAllLocalData() {
         priceBackfillTask?.cancel()
         priceBackfillTask = nil
         PortfolioLedgerStore.save([], walletAddress: activeWalletAddress)
+        PortfolioLedgerStore.saveFees([], walletAddress: activeWalletAddress)
         transactions = []
+        fees = []
     }
 
     // MARK: - CSV (CoinMarketCap "Transaction History" format)
@@ -1247,16 +1287,22 @@ final class PortfolioViewModel: ObservableObject {
                 .filter { $0.sourceAddress == normalizedAddress }
                 .compactMap { $0.sourceTxId }
         )
+        let existingFeeTxIds = Set(fees.filter { $0.portfolioId == activePortfolioId }.map(\.txId))
         let result = await PortfolioAddressImporter.importAddress(
             address,
             portfolioId: activePortfolioId,
             existingTxIds: existingTxIds,
+            existingFeeTxIds: existingFeeTxIds,
             currency: currentCurrency,
             onProgress: onProgress
         )
         if case .success(let importResult) = result {
             transactions.append(contentsOf: importResult.imported)
             persist()
+            if !importResult.fees.isEmpty {
+                fees.append(contentsOf: importResult.fees)
+                persistFees()
+            }
             // Rows the synchronous batched pricing couldn't cover land immediately with the
             // right balance and a "price loading" note — the backfill fills their prices in
             // behind, so the import never blocks (or fails) on CoinGecko's rate limit.
@@ -1269,6 +1315,7 @@ final class PortfolioViewModel: ObservableObject {
 
     private var hasPendingPriceRows: Bool {
         transactions.contains { PortfolioAddressImporter.isPricePending($0.notes) && $0.sourceTxId != nil }
+            || fees.contains { $0.fiatValue == nil }
     }
 
     /// Prices auto-imported rows the import itself couldn't price (batch range call failed, or
@@ -1300,8 +1347,12 @@ final class PortfolioViewModel: ObservableObject {
     private func runPriceBackfillPass(wallet: String?) async {
         let currency = currentCurrency
         let pending = transactions.filter { PortfolioAddressImporter.isPricePending($0.notes) && $0.sourceTxId != nil }
-        guard !pending.isEmpty else { return }
-        let days = Array(Set(pending.map { PortfolioAddressImporter.utcDay(for: $0.timestamp) }))
+        let pendingFees = fees.filter { $0.fiatValue == nil }
+        guard !pending.isEmpty || !pendingFees.isEmpty else { return }
+        let days = Array(Set(
+            pending.map { PortfolioAddressImporter.utcDay(for: $0.timestamp) }
+                + pendingFees.map { PortfolioAddressImporter.utcDay(for: $0.timestamp) }
+        ))
 
         var prices = await PortfolioAddressImporter.resolveDailyPrices(for: days, currency: currency)
         // Days the batched range couldn't cover: paced per-day fallback, newest first, capped
@@ -1326,6 +1377,13 @@ final class PortfolioViewModel: ObservableObject {
             changed = true
         }
         if changed { persist() }
+        var feesChanged = false
+        for index in fees.indices where fees[index].fiatValue == nil {
+            guard let price = prices[PortfolioAddressImporter.utcDay(for: fees[index].timestamp)] else { continue }
+            fees[index].fiatValue = fees[index].amountKas * price
+            feesChanged = true
+        }
+        if feesChanged { persistFees() }
     }
 
     /// Splits on commas outside double quotes, unescapes "" back to " within a quoted field.
@@ -1355,6 +1413,51 @@ final class PortfolioViewModel: ObservableObject {
     }
 
     // MARK: - Pure functions
+
+    /// FIFO realized profit and loss for the sells dated in `year`. Every buy, from any year,
+    /// is a lot; each sell, from any year, takes from the oldest lots first - so a sale this year
+    /// is matched against whatever was still held - but only this year's sells add to the
+    /// result. Same timestamp: the buy goes first. A sell larger than the lots left counts the
+    /// rest at zero cost (`uncoveredKas`).
+    static func computeRealizedPL(
+        transactions: [PortfolioTransaction],
+        year: Int,
+        calendar: Calendar = .current
+    ) -> RealizedPL {
+        var result = RealizedPL(year: year)
+        var lots: [(sompi: Int64, costPerSompi: Double)] = []
+        var lotStart = 0
+        var uncoveredSompi: Int64 = 0
+        let ordered = transactions.sorted {
+            $0.timestamp == $1.timestamp ? ($0.type == .buy && $1.type == .sell) : $0.timestamp < $1.timestamp
+        }
+        for tx in ordered {
+            switch tx.type {
+            case .buy:
+                guard tx.amountSompi > 0 else { continue }
+                lots.append((tx.amountSompi, tx.fiatValue / Double(tx.amountSompi)))
+                if PortfolioAddressImporter.isPricePending(tx.notes) { result.pendingPriceCount += 1 }
+            case .sell:
+                var remaining = tx.amountSompi
+                var cost = 0.0
+                while remaining > 0, lotStart < lots.count {
+                    let take = min(remaining, lots[lotStart].sompi)
+                    cost += Double(take) * lots[lotStart].costPerSompi
+                    lots[lotStart].sompi -= take
+                    remaining -= take
+                    if lots[lotStart].sompi == 0 { lotStart += 1 }
+                }
+                guard calendar.component(.year, from: tx.timestamp) == year else { continue }
+                result.proceeds += tx.fiatValue
+                result.costBasis += cost
+                result.sellCount += 1
+                uncoveredSompi += max(remaining, 0)
+                if PortfolioAddressImporter.isPricePending(tx.notes) { result.pendingPriceCount += 1 }
+            }
+        }
+        result.uncoveredKas = Double(uncoveredSompi) / 100_000_000.0
+        return result
+    }
 
     static func computeSummary(transactions: [PortfolioTransaction], currentPriceUsd: Double) -> PortfolioSummary {
         var holdingsSompi: Int64 = 0

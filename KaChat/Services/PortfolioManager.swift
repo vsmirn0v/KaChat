@@ -107,6 +107,9 @@ final class PortfolioManager: ObservableObject {
         portfolios = Self.normalizingSortOrder(portfolios.filter { $0.id != id })
         persist()
         PortfolioLedgerStore.deleteTransactions(portfolioId: id, walletAddress: activeWalletAddress)
+        // The view model holds every portfolio's rows (and fees) in memory and saves them all;
+        // without this its next save restored the deleted portfolio's.
+        PortfolioViewModel.shared.forgetPortfolio(id)
         if activePortfolioId == id {
             setActivePortfolio(portfolios.first?.id)
         }
