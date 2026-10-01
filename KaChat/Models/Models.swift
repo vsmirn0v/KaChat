@@ -593,11 +593,27 @@ struct ChatRequestState: Codable, Equatable {
     var privateChats: Set<String> = []
     /// Rejected: ignored until the user writes to them.
     var blocked: Set<String> = []
+    /// Addresses we have already sent our one inbox-tagged first message to - only the first
+    /// message carries the tag. Optional-decoded (`decodeIfPresent` via the default) for state
+    /// saved before this field.
+    var inboxTagged: Set<String> = []
     /// Newest inbox message seen, for the next lookup.
     var inboxCursor: UInt64 = 0
     /// When this wallet first ran with Message Requests. A chat whose first message is older is
     /// an ordinary chat - nothing that existed before becomes a request.
     var startedAt = Date()
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accepted = try container.decodeIfPresent(Set<String>.self, forKey: .accepted) ?? []
+        privateChats = try container.decodeIfPresent(Set<String>.self, forKey: .privateChats) ?? []
+        blocked = try container.decodeIfPresent(Set<String>.self, forKey: .blocked) ?? []
+        inboxTagged = try container.decodeIfPresent(Set<String>.self, forKey: .inboxTagged) ?? []
+        inboxCursor = try container.decodeIfPresent(UInt64.self, forKey: .inboxCursor) ?? 0
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt) ?? Date()
+    }
 }
 
 struct ContextualMessageResponse: Codable {

@@ -1770,6 +1770,10 @@ extension ChatService {
             }
 
             AppLog.log("%@", "[ChatService] Transaction submitted: \(txId) via \(endpoint)")
+            // The one tagged first message is out - nothing after it to this address is tagged.
+            if inboxTag != nil {
+                updateChatRequests { $0.inboxTagged.insert(contact.address.lowercased()) }
+            }
 
             reserveMessageOutpoints(spentUtxos)
             consumePendingUtxos(spentUtxos)
@@ -3720,12 +3724,17 @@ extension ChatService {
         return answer
     }
 
-    /// The inbox tag for a message to `address`, or nil to send it untagged: only while they have
-    /// never written to us, never in a Private chat, and only when the indexer files `dm` -
-    /// an indexer that doesn't know it drops the transaction from its index altogether.
+    /// The inbox tag for a message to `address`, or nil to send it untagged. Only the FIRST
+    /// message carries it - one tagged message tells the recipient who wrote, and their app
+    /// fetches everything after it by sender and alias, unlinked; tagging more would show how
+    /// often you wrote. So: not once a tagged message has gone out to them (`inboxTagged`, set on
+    /// a successful submit, so a failed one doesn't use it up), not once they have written to us,
+    /// never in a Private chat, and only when the indexer files `dm` - one that doesn't know it
+    /// drops the transaction from its index altogether.
     func firstContactInboxTag(for address: String) async -> String? {
         let me = WalletManager.shared.currentWallet?.publicAddress.lowercased()
-        guard address.lowercased() != me, !isPrivateChat(address) else { return nil }
+        guard address.lowercased() != me, !isPrivateChat(address),
+              !chatRequestState().inboxTagged.contains(address.lowercased()) else { return nil }
         let heardFrom = conversations.first { $0.contact.address == address }?
             .messages.contains { !$0.isOutgoing } ?? false
         guard !heardFrom, await inboxSupported() else { return nil }

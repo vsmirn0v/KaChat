@@ -12,15 +12,16 @@ recipient can only fetch messages from someone whose address they already know. 
 was the one thing addressed to the recipient (it pays them 0.2 KAS and is indexed by receiver),
 which is how a stranger got found.
 
-The replacement: while the recipient has never written back, the sender's messages carry an
-**inbox tag** derived from the recipient's address, and the indexer files them by that tag too.
+The replacement: the sender's **first** message carries an **inbox tag** derived from the
+recipient's address, and the indexer files it by that tag too.
 The recipient asks the indexer for its own tag and learns who wrote. From then on everything
 works as it already does: the sender's address and the deterministic aliases (see
 `DETERMINISTIC_ALIASES.md`, `Utilities/DeterministicAlias.swift`) give the full history.
 
 Privacy is the same as the handshake's. A handshake shows on chain that A started a
-conversation with B; a tagged message shows the same to anyone who knows B's address. Tagging
-stops at B's first reply, so the ongoing conversation stays unlinkable, exactly as today.
+conversation with B; the one tagged message shows the same to anyone who knows B's address.
+Every message after it is untagged, so the ongoing conversation stays unlinkable, exactly as
+today.
 
 What goes away: the 0.2 KAS handshake transfer, the "Send handshake" step, the "Request to
 communicate" bubble, and the response handshake on accept.
@@ -50,14 +51,19 @@ kchat:1:dm:<inboxTag>:<alias>:<sealed>
 
 ## 3. Sender rule (every client)
 
-For a 1:1 text/audio/payment-note message to address B, use `dm` when **both** hold:
+Only the **first** message to B carries the tag. Use `dm` when **all** hold:
 
-1. B has never sent us anything we can see (no incoming message, payment or handshake from B in
-   this conversation), and
-2. the configured indexer supports inbox lookups (section 5's endpoint answers; probe once per
+1. no tagged message to B has been submitted yet (record B once the `dm` transaction is
+   accepted by the node - a failed send does not use up the tag),
+2. B has never sent us anything we can see (no incoming message, payment or handshake), and
+3. the configured indexer supports inbox lookups (section 5's endpoint answers; probe once per
    indexer URL and cache).
 
 Otherwise send `comm` as today. Never send a handshake for a new chat.
+
+One tagged message is enough: it tells B who wrote, and B's client then fetches everything else
+from that sender by sender + alias, which nobody can link to B. Tagging more messages would
+reveal how often the sender wrote before getting an answer.
 
 If the indexer does not support inbox lookups yet, behave as before this change (send `comm`;
 the recipient finds it once they know the sender). **Never send `dm` to an indexer that does
