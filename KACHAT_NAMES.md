@@ -107,7 +107,7 @@ entry also pins the continuation's value and uses `OpAuthOutputIdx`, since
 
 A name is paid for by the year, in the same tiers and to the same place (miners) as registration.
 
-- **Registration** pays for 1 to `MAX_YEARS` years up front (proposal: 5).
+- **Registration** pays for 1 to `MAX_YEARS` years up front (`MAX_YEARS` = **2**, decided).
 - **Renewal** (`renew`) adds 1 to `MAX_YEARS` years to the current expiry, as often as anyone
   likes - there is no practical cap on how far ahead a name can be paid (the script refuses
   past ~3 million years, only to rule out integer overflow). Anyone can renew any name (a gift
@@ -259,19 +259,19 @@ A `names` module in kachat-indexer (it already sees every block):
 
 ## 10. Open points
 
-1. **Renewal price**: same tiers as registration (35 / 250 / 1000 / 2000 / 4000 KAS per year) is
-   assumed; a lower renewal tier is a separate parameter if wanted.
-2. **`GRACE`**: 10 days (decided). **`MAX_YEARS`**: 5 per transaction proposed.
+1. **Renewal price**: the same tiers as registration (35 / 250 / 1000 / 2000 / 4000 KAS per
+   year) - decided. (Kept as a separate contract parameter, set equal.)
+2. **`GRACE`**: 10 days (decided). **`MAX_YEARS`**: 2 per transaction (decided).
 3. **`T_COMMIT`**: 600 DAA (~1 min) proposed.
 4. **Bond / gap value**: 1 KAS each proposed (refunded on release or reclaim; storage-mass floor
    is 0.2 KAS).
 5. **Miner self-dealing**: a pool registering or renewing in its own block gets the price back -
    accepted.
-6. **Large-fee transactions**: confirm on TN10 that nodes relay a transaction paying 35-20,000 KAS
-   in fee (4000 × 5 years), and how the mempool treats the time-locked ones.
+6. **Large-fee transactions**: confirm on TN10 that nodes relay a transaction paying 35-8,000 KAS
+   in fee (4000 × 2 years), and how the mempool treats the time-locked ones.
 7. From the contract build (`~/kachat-names/README.md`, "OPEN ISSUES"): register/renew are limited
    to 8 inputs and 8 outputs (the wallet consolidates first); the app must validate owner keys
-   (an invalid key locks the name until it lapses); a registration is ~125-160k grams of storage
+   (an invalid key locks the name until it lapses); a registration is ~125-155k grams of storage
    mass; anyone may match a listing with a higher offer and keep at most 0.02 KAS (the app warns);
    offers follow the name, so a re-registered name's new owner can accept old offers; the
    manifest's genesis binding must be verified by app and indexer.
