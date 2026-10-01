@@ -235,6 +235,50 @@ final class NameServicesClient: ObservableObject {
         }
     }
 
+    // MARK: - Any address (account discovery)
+
+    /// Names `address` owns on .k and .kaspa, for scanning many addresses - it leaves `owned`
+    /// (Your Domains' address) alone. A failed lookup counts as no names.
+    func ownedNames(of address: String) async -> [OwnedServiceName] {
+        let address = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !address.isEmpty else { return [] }
+        let network = AppSettings.load().networkType
+        async let dotk = fetchDotk(address: address, network: network)
+        async let kaspaNames = fetchKaspaNames(address: address, network: network)
+        let (k, kaspa) = await (dotk, kaspaNames)
+        return (k ?? []) + (kaspa ?? [])
+    }
+
+    /// `ownedNames(of:)` for many addresses, a few lookups at a time rather than one burst of
+    /// two requests per address against services that rate-limit.
+    func ownedNames(of addresses: [String], concurrency: Int = 6) async -> [String: [OwnedServiceName]] {
+        var result: [String: [OwnedServiceName]] = [:]
+        var start = 0
+        while start < addresses.count {
+            let slice = addresses[start..<min(start + concurrency, addresses.count)]
+            await withTaskGroup(of: (String, [OwnedServiceName]).self) { group in
+                for address in slice {
+                    group.addTask { (address, await self.ownedNames(of: address)) }
+                }
+                for await (address, names) in group where !names.isEmpty {
+                    result[address] = names
+                }
+            }
+            start += concurrency
+        }
+        return result
+    }
+
+    /// Whether `address` owns a name on any service KaChat reads - .kas, .k and .kaspa today.
+    /// Account discovery asks this so an address that holds only a name, and no KAS, is still
+    /// found. .kachat joins here once its registry is live (`NameServiceTLD.isLive`).
+    func ownsAnyName(_ address: String) async -> Bool {
+        async let kas = KNSService.shared.ownsAnyDomain(address)
+        async let others = ownedNames(of: address)
+        let (hasKas, otherNames) = await (kas, others)
+        return hasKas || !otherNames.isEmpty
+    }
+
     // MARK: - .k (dotk)
 
     private struct DotkOwnerResponse: Decodable {

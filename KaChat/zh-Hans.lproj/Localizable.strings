@@ -917,3 +917,7 @@
 /* Receive / chatting address QR text */
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "一个全新的、从未使用过的地址。发送到这里的 Kaspa 会进入此账户，并计入你的可支出总额。除聊天以外的所有用途都请使用这个地址。";
 "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "这个地址用于聊天。存入约 50 Kaspa 就足够长时间发送消息。";
+
+/* 5.2: name discovery across services */
+"If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "如果这个助记词已在另一个地址上持有你的身份——一个域名（.kas、.k 或 .kaspa）或有余额的聊天地址——请在这里选择。只显示有余额或域名的地址。";
+".k and .kaspa Names (%lld)" = ".k 和 .kaspa 名称（%lld）";

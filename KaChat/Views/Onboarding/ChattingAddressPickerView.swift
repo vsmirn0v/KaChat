@@ -5,8 +5,9 @@ import SwiftUI
 /// derivation chain of the wallet's source family (standard m/44'/111111'/0'/0/<index>, or the
 /// family chosen at import - legacy 972, OneKey; single-address families like Chainge have only
 /// index 0 and no further scanning) in batches of 50, checking every derived address
-/// in batch for KAS balance (one pooled `getUtxosByAddresses` call) and KNS domains (the
-/// `KNSService.refreshIfNeeded` capped batch lookup), then lists only the interesting slots:
+/// in batch for KAS balance (one pooled `getUtxosByAddresses` call), KNS domains (the
+/// `KNSService.refreshIfNeeded` capped batch lookup) and .k / .kaspa names
+/// (`NameServicesClient.ownedNames(of:)`, a few at a time), then lists only the interesting slots:
 /// nonzero balance or at least one domain, plus always index 0. Tapping a row opens a detail
 /// sheet with the full address, balance and domain cards, and a "Set as Chatting Address" button
 /// that performs the clean identity switch (`WalletManager.setChattingAddress`) and pops back to
@@ -43,7 +44,7 @@ struct ChattingAddressPickerView: View {
 
     private var visibleCandidates: [ChattingAddressCandidate] {
         candidates.filter {
-            $0.balanceSompi > 0 || !$0.domains.isEmpty || $0.index == 0 || $0.index == currentIndex
+            $0.balanceSompi > 0 || $0.nameCount > 0 || $0.index == 0 || $0.index == currentIndex
         }
     }
 
@@ -57,7 +58,7 @@ struct ChattingAddressPickerView: View {
                     Text("Choose Your Chatting Address")
                         .font(.title3.weight(.bold))
                         .multilineTextAlignment(.center)
-                    Text("If this seed already holds your identity at a different address - a KNS domain or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown.")
+                    Text("If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -151,10 +152,8 @@ struct ChattingAddressPickerView: View {
                         Text("\(formatKas(candidate.balanceSompi)) KAS")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        if !candidate.domains.isEmpty {
-                            Text(candidate.domains.count == 1
-                                 ? candidate.domains[0].fullName
-                                 : "\(candidate.domains.count) domains")
+                        if candidate.nameCount > 0 {
+                            Text(candidate.onlyName ?? "\(candidate.nameCount) domains")
                                 .font(.caption2.weight(.bold))
                                 .foregroundColor(.black)
                                 .padding(.horizontal, 7)
@@ -264,6 +263,20 @@ struct ChattingAddressDetailView: View {
                     .padding(12)
                     .background(Color(.systemGray6))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    if !candidate.otherNames.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(".k and .kaspa Names (\(candidate.otherNames.count))")
+                                .font(.subheadline.weight(.semibold))
+                            ForEach(candidate.otherNames) { name in
+                                DomainNameCardView(
+                                    title: name.display,
+                                    badge: name.isProvisional ? String(localized: "Settling") : nil
+                                )
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
 
                     if !candidate.domains.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {

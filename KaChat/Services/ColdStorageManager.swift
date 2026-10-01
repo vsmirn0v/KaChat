@@ -298,7 +298,7 @@ final class ColdStorageManager: ObservableObject {
             if !knsCandidates.isEmpty {
                 domainOwners = await withTaskGroup(of: String?.self) { group -> Set<String> in
                     for (_, address) in knsCandidates {
-                        group.addTask { await KNSService.shared.ownsAnyDomain(address) ? address : nil }
+                        group.addTask { await NameServicesClient.shared.ownsAnyName(address) ? address : nil }
                     }
                     var owners: Set<String> = []
                     for await owner in group { if let owner { owners.insert(owner) } }
@@ -345,7 +345,7 @@ final class ColdStorageManager: ObservableObject {
                     if funded.contains(address) {
                         matches = true
                     } else if i < Self.knsProbeDepth {
-                        matches = await KNSService.shared.ownsAnyDomain(address)
+                        matches = await NameServicesClient.shared.ownsAnyName(address)
                     } else {
                         matches = false
                     }

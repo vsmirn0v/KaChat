@@ -918,3 +918,7 @@
 /* Receive / chatting address QR text */
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Une adresse neuve, jamais utilisée. Les Kaspa envoyés ici arrivent sur ce compte et s'ajoutent à votre total disponible. Utilisez cette adresse pour tout ce qui ne concerne pas les discussions.";
 "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Cette adresse sert aux discussions. Environ 50 Kaspa suffisent pour envoyer des messages pendant longtemps.";
+
+/* 5.2: name discovery across services */
+"If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Si cette phrase de récupération porte déjà votre identité à une autre adresse - un domaine (.kas, .k ou .kaspa) ou un solde de discussion -, choisissez-la ici. Seules les adresses avec un solde ou des domaines sont affichées.";
+".k and .kaspa Names (%lld)" = "Noms .k et .kaspa (%lld)";

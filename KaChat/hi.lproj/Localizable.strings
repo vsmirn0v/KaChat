@@ -917,3 +917,7 @@
 /* Receive / chatting address QR text */
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "एक नया पता, जिसका पहले कभी उपयोग नहीं हुआ। यहाँ भेजे गए Kaspa इस खाते में आते हैं और आपके खर्च योग्य कुल में दिखते हैं। चैट से जुड़ी चीज़ों को छोड़कर बाकी सब के लिए यह पता इस्तेमाल करें।";
 "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "यह पता चैट के लिए है। लगभग 50 Kaspa लंबे समय तक मैसेज भेजने के लिए काफ़ी हैं।";
+
+/* 5.2: name discovery across services */
+"If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "अगर यह सीड आपकी पहचान किसी दूसरे पते पर पहले से रखता है - कोई डोमेन (.kas, .k या .kaspa) या बैलेंस वाला चैट पता - तो उसे यहाँ चुनें। सिर्फ़ बैलेंस या डोमेन वाले पते दिखाए जाते हैं।";
+".k and .kaspa Names (%lld)" = ".k और .kaspa नाम (%lld)";

@@ -917,3 +917,7 @@
 /* Receive / chatting address QR text */
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Một địa chỉ mới, chưa từng dùng. Kaspa gửi đến đây sẽ vào tài khoản này và hiện trong tổng số có thể chi tiêu. Dùng địa chỉ này cho mọi việc không liên quan đến trò chuyện.";
 "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Địa chỉ này dùng để trò chuyện. Khoảng 50 Kaspa là đủ để gửi tin nhắn trong thời gian dài.";
+
+/* 5.2: name discovery across services */
+"If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Nếu cụm từ khôi phục này đã giữ danh tính của bạn ở địa chỉ khác - một tên miền (.kas, .k hoặc .kaspa) hoặc số dư trò chuyện - hãy chọn ở đây. Chỉ hiện các địa chỉ có số dư hoặc tên miền.";
+".k and .kaspa Names (%lld)" = "Tên .k và .kaspa (%lld)";

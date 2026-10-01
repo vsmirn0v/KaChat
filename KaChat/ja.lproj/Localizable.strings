@@ -917,3 +917,7 @@
 /* Receive / chatting address QR text */
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "一度も使われていない新しいアドレスです。ここに送られた Kaspa はこのアカウントに入り、支出用の合計に表示されます。チャット以外のすべての用途にはこのアドレスを使ってください。";
 "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "このアドレスはチャット用です。50 Kaspa ほど入れておけば、長い間メッセージを送れます。";
+
+/* 5.2: name discovery across services */
+"If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "このシードが別のアドレスですでにあなたの ID（.kas・.k・.kaspa のドメイン、または残高のあるチャットアドレス）を持っている場合は、ここで選んでください。残高かドメインのあるアドレスだけが表示されます。";
+".k and .kaspa Names (%lld)" = ".k と .kaspa の名前（%lld）";

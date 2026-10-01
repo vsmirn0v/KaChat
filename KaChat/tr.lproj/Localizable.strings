@@ -917,3 +917,7 @@
 /* Receive / chatting address QR text */
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Hiç kullanılmamış yeni bir adres. Buraya gönderilen Kaspa bu hesaba gelir ve harcanabilir toplamında görünür. Bu adresi sohbet dışındaki her şey için kullan.";
 "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Bu adres sohbet içindir. Yaklaşık 50 Kaspa, uzun süre mesaj göndermeye yeter.";
+
+/* 5.2: name discovery across services */
+"If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Bu tohum kimliğini zaten başka bir adreste tutuyorsa - bir alan adı (.kas, .k veya .kaspa) ya da bakiyeli bir sohbet adresi - onu burada seç. Yalnızca bakiyesi veya alan adı olan adresler gösterilir.";
+".k and .kaspa Names (%lld)" = ".k ve .kaspa Adları (%lld)";

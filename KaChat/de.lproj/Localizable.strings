@@ -864,3 +864,7 @@
 /* Receive / chatting address QR text */
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Eine frische, noch nie benutzte Adresse. Hierher gesendete Kaspa landen in diesem Konto und zählen zu deinem Ausgabenguthaben. Nutze diese Adresse für alles, was nicht mit dem Chatten zu tun hat.";
 "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Diese Adresse ist zum Chatten. Mit etwa 50 Kaspa darauf kannst du lange Zeit Nachrichten senden.";
+
+/* 5.2: name discovery across services */
+"If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Falls diese Seed deine Identität schon an einer anderen Adresse hat - eine Domain (.kas, .k oder .kaspa) oder ein Chat-Guthaben -, wähle sie hier. Es werden nur Adressen mit Guthaben oder Domains angezeigt.";
+".k and .kaspa Names (%lld)" = ".k- und .kaspa-Namen (%lld)";

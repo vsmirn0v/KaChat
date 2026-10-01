@@ -90,8 +90,18 @@ struct ChattingAddressCandidate: Identifiable, Equatable {
     let balanceSompi: UInt64
     let domains: [KNSDomain]
     let primaryDomain: String?
+    /// Names on the other services (.k, .kaspa; .kachat once live).
+    var otherNames: [OwnedServiceName] = []
 
     var id: Int { index }
+
+    var nameCount: Int { domains.count + otherNames.count }
+
+    /// The one name to show on the row when there is exactly one.
+    var onlyName: String? {
+        guard nameCount == 1 else { return nil }
+        return domains.first?.fullName ?? otherNames.first?.display
+    }
 
     var shortAddress: String {
         guard address.count > 16 else { return address }
@@ -1486,6 +1496,9 @@ final class WalletManager: ObservableObject {
 
         let network = SettingsViewModel.loadSettings().networkType
         await KNSService.shared.refreshIfNeeded(for: addresses, network: network)
+        // .k and .kaspa too: an identity can live at an address whose only trace is a name on
+        // one of them.
+        let otherNamesByAddress = await NameServicesClient.shared.ownedNames(of: addresses)
 
         return derived.map { entry in
             let info = KNSService.shared.domainCache[entry.address]
@@ -1494,7 +1507,8 @@ final class WalletManager: ObservableObject {
                 address: entry.address,
                 balanceSompi: balanceByAddress[entry.address] ?? 0,
                 domains: info?.allDomains ?? [],
-                primaryDomain: info?.primaryDomain
+                primaryDomain: info?.primaryDomain,
+                otherNames: otherNamesByAddress[entry.address] ?? []
             )
         }
     }
