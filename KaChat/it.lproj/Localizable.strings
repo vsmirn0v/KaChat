@@ -913,3 +913,7 @@
 /* 5.2: Portfolio transfers */
 "Value at the Time" = "Valore in quel momento";
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "KAS spostati tra i tuoi indirizzi - inviati e poi recuperati, o da un wallet all'altro. Non cambia i tuoi possedimenti, il costo o il profitto.";
+
+/* Receive / chatting address QR text */
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Un indirizzo nuovo, mai usato. I Kaspa inviati qui arrivano su questo account e compaiono nel totale spendibile. Usa questo indirizzo per tutto ciò che non riguarda le chat.";
+"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Questo indirizzo serve per chattare. Circa 50 Kaspa bastano per inviare messaggi a lungo.";

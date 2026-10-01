@@ -1040,7 +1040,7 @@ struct ProfileView: View {
                     ChattingAddressQRView(
                         address: address,
                         balanceSompi: balanceSompi,
-                        subtitle: "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or KNS profile creation."
+                        subtitle: "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting."
                     )
                 } else if resolving {
                     ProgressView("Preparing a fresh address")
@@ -4477,7 +4477,7 @@ private struct ChattingAddressPublicKeyView: View {
 struct ChattingAddressQRView: View {
     let address: String
     let balanceSompi: UInt64?
-    var subtitle: String = "This address is for chatting and KNS profile creation. Funding it with around 50 Kaspa is enough to create a KNS profile and send messages for a long time."
+    var subtitle: String = "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time."
 
     @State private var qrImage: UIImage?
     @State private var toastMessage: String?
@@ -4520,7 +4520,8 @@ struct ChattingAddressQRView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 28)
 
-                    Text(subtitle)
+                    // Looked up, not shown verbatim - it read English in every language.
+                    Text(LocalizedStringKey(subtitle))
                         .font(.subheadline)
                         .foregroundColor(Color.black.opacity(0.6))
                         .multilineTextAlignment(.center)
