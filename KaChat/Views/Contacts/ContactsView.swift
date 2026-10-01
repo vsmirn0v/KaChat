@@ -562,8 +562,9 @@ struct ProfileView: View {
         showToast("Account renamed.")
     }
 
-    /// KaPosts-style hero: KNS banner (gradient fallback), overlapping avatar, display name
-    /// (primary KNS domain, with its .kas, else the account name) and bio.
+    /// KaPosts-style hero: KNS banner (gradient fallback), overlapping avatar, display name and
+    /// bio. The name is what other people see you as: your domain name, else your short address
+    /// ("kaspa:xxxx....xxxx") - never the account name, which is only your own label for it.
     private func profileHeroSection(_ wallet: Wallet) -> some View {
         let displayName: String = {
             // Your .kas name is yours to manage in Your Domains, but not your name here since 5.2
@@ -573,7 +574,7 @@ struct ProfileView: View {
                !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return KaPostsView.displayKasName(domain)
             }
-            return wallet.alias
+            return Contact.generateDefaultAlias(from: wallet.publicAddress)
         }()
         return VStack(alignment: .leading, spacing: 0) {
             Group {
