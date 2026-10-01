@@ -814,3 +814,22 @@
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "1:1 消息是加密的，因此语音、回应和 1:1 国际象棋着法都计为私信：任何人，包括索引器，都无法区分它们。";
 "All-time only" = "仅全部时间";
 "Kinds marked \"All-time only\" aren't in this total yet." = "标有“仅全部时间”的类别尚未计入此总数。";
+
+/* 5.2: .kachat setup guide */
+"Claim your .kachat name" = "领取你的 .kachat 名称";
+"It's the name people see you as across KaChat - in chats, on posts and on your profile link. Without one, people see your address." = "这是你在 KaChat 各处显示的名字——聊天、帖子和个人资料链接中都会用到。没有名称时，别人看到的是你的地址。";
+"Add a profile photo" = "添加头像";
+"Your avatar shows next to your name everywhere in KaChat." = "你的头像会在 KaChat 各处显示在名字旁边。";
+"Add a banner" = "添加横幅";
+"A wide image across the top of your profile." = "显示在个人资料顶部的宽幅图片。";
+"Tell people about you" = "介绍一下你自己";
+"A short bio and your links. All of it is optional." = "简短的简介和你的链接，全部可选。";
+"That's the whole setup" = "设置就这些";
+".kachat names are coming soon. When they launch, this guide claims your name and saves your profile in one go." = ".kachat 名称即将推出。上线后，本指南会一次性领取你的名称并保存你的资料。";
+"Walk through claiming your .kachat name and setting up your avatar, banner and details step by step." = "逐步领取你的 .kachat 名称，并设置头像、横幅和详细信息。";
+".kachat Profile Setup Guide" = ".kachat 资料设置指南";
+"Claim your .kachat name and set up your avatar, banner and bio step by step." = "领取你的 .kachat 名称，并逐步设置头像、横幅和简介。";
+"The full first-run tour: wallet, chats, payments and more." = "完整的新手导览：钱包、聊天、付款等。";
+"Previous" = "上一步";
+"Email" = "电子邮件";
+"Help" = "帮助";

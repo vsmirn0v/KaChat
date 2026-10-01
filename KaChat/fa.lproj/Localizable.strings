@@ -814,3 +814,22 @@
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "پیام‌های ۱:۱ رمزگذاری شده‌اند، پس پیام‌های صوتی، واکنش‌ها و حرکت‌های شطرنج ۱:۱ پیام مستقیم شمرده می‌شوند: هیچ‌کس، حتی ایندکسر، نمی‌تواند آن‌ها را از هم تشخیص دهد.";
 "All-time only" = "فقط کل زمان";
 "Kinds marked \"All-time only\" aren't in this total yet." = "انواعی که «فقط کل زمان» دارند هنوز در این مجموع نیستند.";
+
+/* 5.2: .kachat setup guide */
+"Claim your .kachat name" = "نام ‎.kachat خود را بگیرید";
+"It's the name people see you as across KaChat - in chats, on posts and on your profile link. Without one, people see your address." = "این نامی است که دیگران شما را در سراسر KaChat با آن می‌بینند - در گفتگوها، پست‌ها و پیوند نمایه‌تان. بدون آن، نشانی شما دیده می‌شود.";
+"Add a profile photo" = "عکس نمایه اضافه کنید";
+"Your avatar shows next to your name everywhere in KaChat." = "آواتار شما در همه جای KaChat کنار نامتان نمایش داده می‌شود.";
+"Add a banner" = "بنر اضافه کنید";
+"A wide image across the top of your profile." = "تصویری عریض در بالای نمایه شما.";
+"Tell people about you" = "درباره خودتان بگویید";
+"A short bio and your links. All of it is optional." = "یک بیوگرافی کوتاه و پیوندهایتان. همه اختیاری است.";
+"That's the whole setup" = "راه‌اندازی همین بود";
+".kachat names are coming soon. When they launch, this guide claims your name and saves your profile in one go." = "نام‌های ‎.kachat به‌زودی می‌آیند. پس از راه‌اندازی، این راهنما نام شما را می‌گیرد و نمایه‌تان را یکجا ذخیره می‌کند.";
+"Walk through claiming your .kachat name and setting up your avatar, banner and details step by step." = "نام ‎.kachat خود را بگیرید و آواتار، بنر و جزئیات را گام‌به‌گام تنظیم کنید.";
+".kachat Profile Setup Guide" = "راهنمای راه‌اندازی نمایه ‎.kachat";
+"Claim your .kachat name and set up your avatar, banner and bio step by step." = "نام ‎.kachat خود را بگیرید و آواتار، بنر و بیوگرافی را گام‌به‌گام تنظیم کنید.";
+"The full first-run tour: wallet, chats, payments and more." = "معرفی کامل شروع کار: کیف پول، گفتگوها، پرداخت‌ها و بیشتر.";
+"Previous" = "قبلی";
+"Email" = "ایمیل";
+"Help" = "راهنما";

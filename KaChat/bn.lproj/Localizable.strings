@@ -814,3 +814,22 @@
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "1:1 বার্তা এনক্রিপ্ট করা, তাই ভয়েস নোট, প্রতিক্রিয়া ও 1:1 দাবার চাল সরাসরি বার্তা হিসেবে গোনা হয়: ইনডেক্সারসহ কেউই এগুলো আলাদা করতে পারে না।";
 "All-time only" = "শুধু সর্বকাল";
 "Kinds marked \"All-time only\" aren't in this total yet." = "“শুধু সর্বকাল” চিহ্নিত ধরনগুলো এখনো এই মোটে নেই।";
+
+/* 5.2: .kachat setup guide */
+"Claim your .kachat name" = "আপনার .kachat নাম নিন";
+"It's the name people see you as across KaChat - in chats, on posts and on your profile link. Without one, people see your address." = "এই নামেই মানুষ আপনাকে পুরো KaChat-এ দেখে - চ্যাটে, পোস্টে ও আপনার প্রোফাইল লিংকে। না থাকলে মানুষ আপনার ঠিকানা দেখে।";
+"Add a profile photo" = "প্রোফাইল ছবি যোগ করুন";
+"Your avatar shows next to your name everywhere in KaChat." = "আপনার অবতার KaChat-এর সব জায়গায় আপনার নামের পাশে দেখা যায়।";
+"Add a banner" = "ব্যানার যোগ করুন";
+"A wide image across the top of your profile." = "আপনার প্রোফাইলের উপরে একটি চওড়া ছবি।";
+"Tell people about you" = "নিজের সম্পর্কে বলুন";
+"A short bio and your links. All of it is optional." = "ছোট একটি বায়ো ও আপনার লিংক। সবই ঐচ্ছিক।";
+"That's the whole setup" = "সেটআপ এটুকুই";
+".kachat names are coming soon. When they launch, this guide claims your name and saves your profile in one go." = ".kachat নাম শিগগিরই আসছে। চালু হলে এই গাইড একবারে আপনার নাম নেবে ও প্রোফাইল সংরক্ষণ করবে।";
+"Walk through claiming your .kachat name and setting up your avatar, banner and details step by step." = "ধাপে ধাপে আপনার .kachat নাম নিন এবং অবতার, ব্যানার ও বিবরণ সেট করুন।";
+".kachat Profile Setup Guide" = ".kachat প্রোফাইল সেটআপ গাইড";
+"Claim your .kachat name and set up your avatar, banner and bio step by step." = "আপনার .kachat নাম নিন এবং ধাপে ধাপে অবতার, ব্যানার ও বায়ো সেট করুন।";
+"The full first-run tour: wallet, chats, payments and more." = "শুরুর সম্পূর্ণ পরিচিতি: ওয়ালেট, চ্যাট, পেমেন্ট ও আরও অনেক কিছু।";
+"Previous" = "আগের";
+"Email" = "ইমেইল";
+"Help" = "সাহায্য";

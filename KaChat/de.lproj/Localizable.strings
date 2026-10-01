@@ -761,3 +761,22 @@
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "1:1-Nachrichten sind verschlüsselt, daher zählen Sprachnachrichten, Reaktionen und 1:1-Schachzüge als Direktnachrichten: Niemand, auch nicht der Indexer, kann sie unterscheiden.";
 "All-time only" = "Nur gesamt";
 "Kinds marked \"All-time only\" aren't in this total yet." = "Mit „Nur gesamt“ markierte Arten sind noch nicht in dieser Summe enthalten.";
+
+/* 5.2: .kachat setup guide */
+"Claim your .kachat name" = "Sichere dir deinen .kachat-Namen";
+"It's the name people see you as across KaChat - in chats, on posts and on your profile link. Without one, people see your address." = "Unter diesem Namen sehen dich andere überall in KaChat - in Chats, bei Beiträgen und über deinen Profillink. Ohne ihn sehen andere deine Adresse.";
+"Add a profile photo" = "Profilfoto hinzufügen";
+"Your avatar shows next to your name everywhere in KaChat." = "Dein Avatar erscheint überall in KaChat neben deinem Namen.";
+"Add a banner" = "Banner hinzufügen";
+"A wide image across the top of your profile." = "Ein breites Bild oben in deinem Profil.";
+"Tell people about you" = "Erzähl etwas über dich";
+"A short bio and your links. All of it is optional." = "Eine kurze Bio und deine Links. Alles davon ist optional.";
+"That's the whole setup" = "Das ist die ganze Einrichtung";
+".kachat names are coming soon. When they launch, this guide claims your name and saves your profile in one go." = ".kachat-Namen kommen bald. Sobald sie starten, sichert diese Anleitung deinen Namen und speichert dein Profil in einem Schritt.";
+"Walk through claiming your .kachat name and setting up your avatar, banner and details step by step." = "Sichere Schritt für Schritt deinen .kachat-Namen und richte Avatar, Banner und Details ein.";
+".kachat Profile Setup Guide" = ".kachat-Profil-Einrichtung";
+"Claim your .kachat name and set up your avatar, banner and bio step by step." = "Sichere deinen .kachat-Namen und richte Schritt für Schritt Avatar, Banner und Bio ein.";
+"The full first-run tour: wallet, chats, payments and more." = "Die komplette Einführung: Wallet, Chats, Zahlungen und mehr.";
+"Previous" = "Zurück";
+"Email" = "E-Mail";
+"Help" = "Hilfe";

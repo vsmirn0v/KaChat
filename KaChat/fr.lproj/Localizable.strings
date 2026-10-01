@@ -815,3 +815,22 @@
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "Les messages 1:1 sont chiffrés : les messages vocaux, les réactions et les coups d'échecs 1:1 comptent donc comme messages directs. Personne, pas même l'indexeur, ne peut les distinguer.";
 "All-time only" = "Total seulement";
 "Kinds marked \"All-time only\" aren't in this total yet." = "Les catégories marquées « Total seulement » ne sont pas encore dans ce total.";
+
+/* 5.2: .kachat setup guide */
+"Claim your .kachat name" = "Réclamez votre nom .kachat";
+"It's the name people see you as across KaChat - in chats, on posts and on your profile link. Without one, people see your address." = "C'est le nom sous lequel on vous voit partout dans KaChat : dans les discussions, sur les publications et sur le lien de votre profil. Sans lui, on voit votre adresse.";
+"Add a profile photo" = "Ajoutez une photo de profil";
+"Your avatar shows next to your name everywhere in KaChat." = "Votre avatar apparaît à côté de votre nom partout dans KaChat.";
+"Add a banner" = "Ajoutez une bannière";
+"A wide image across the top of your profile." = "Une image large en haut de votre profil.";
+"Tell people about you" = "Parlez de vous";
+"A short bio and your links. All of it is optional." = "Une courte bio et vos liens. Tout est facultatif.";
+"That's the whole setup" = "C'est toute la configuration";
+".kachat names are coming soon. When they launch, this guide claims your name and saves your profile in one go." = "Les noms .kachat arrivent bientôt. À leur lancement, ce guide réclamera votre nom et enregistrera votre profil en une seule fois.";
+"Walk through claiming your .kachat name and setting up your avatar, banner and details step by step." = "Réclamez votre nom .kachat et configurez votre avatar, votre bannière et vos informations étape par étape.";
+".kachat Profile Setup Guide" = "Guide de configuration du profil .kachat";
+"Claim your .kachat name and set up your avatar, banner and bio step by step." = "Réclamez votre nom .kachat et configurez votre avatar, votre bannière et votre bio étape par étape.";
+"The full first-run tour: wallet, chats, payments and more." = "La visite complète de démarrage : portefeuille, discussions, paiements et plus.";
+"Previous" = "Précédent";
+"Email" = "E-mail";
+"Help" = "Aide";

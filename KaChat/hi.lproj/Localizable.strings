@@ -814,3 +814,22 @@
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "1:1 मैसेज एन्क्रिप्टेड होते हैं, इसलिए वॉइस नोट, प्रतिक्रियाएँ और 1:1 शतरंज की चालें डायरेक्ट मैसेज में गिनी जाती हैं: इंडेक्सर समेत कोई भी इन्हें अलग नहीं कर सकता।";
 "All-time only" = "सिर्फ़ अब तक";
 "Kinds marked \"All-time only\" aren't in this total yet." = "“सिर्फ़ अब तक” वाले प्रकार अभी इस कुल में शामिल नहीं हैं।";
+
+/* 5.2: .kachat setup guide */
+"Claim your .kachat name" = "अपना .kachat नाम लें";
+"It's the name people see you as across KaChat - in chats, on posts and on your profile link. Without one, people see your address." = "यह वह नाम है जिससे लोग आपको पूरे KaChat में देखते हैं - चैट में, पोस्ट पर और आपके प्रोफ़ाइल लिंक में। इसके बिना लोग आपका पता देखते हैं।";
+"Add a profile photo" = "प्रोफ़ाइल फ़ोटो जोड़ें";
+"Your avatar shows next to your name everywhere in KaChat." = "आपका अवतार KaChat में हर जगह आपके नाम के साथ दिखता है।";
+"Add a banner" = "बैनर जोड़ें";
+"A wide image across the top of your profile." = "आपकी प्रोफ़ाइल के ऊपर एक चौड़ी तस्वीर।";
+"Tell people about you" = "अपने बारे में बताएँ";
+"A short bio and your links. All of it is optional." = "छोटा बायो और आपके लिंक। सब वैकल्पिक है।";
+"That's the whole setup" = "बस इतना ही सेटअप है";
+".kachat names are coming soon. When they launch, this guide claims your name and saves your profile in one go." = ".kachat नाम जल्द आ रहे हैं। लॉन्च होने पर यह गाइड आपका नाम लेगा और आपकी प्रोफ़ाइल एक साथ सहेज देगा।";
+"Walk through claiming your .kachat name and setting up your avatar, banner and details step by step." = "अपना .kachat नाम लें और अवतार, बैनर व विवरण चरण-दर-चरण सेट करें।";
+".kachat Profile Setup Guide" = ".kachat प्रोफ़ाइल सेटअप गाइड";
+"Claim your .kachat name and set up your avatar, banner and bio step by step." = "अपना .kachat नाम लें और अवतार, बैनर व बायो चरण-दर-चरण सेट करें।";
+"The full first-run tour: wallet, chats, payments and more." = "शुरुआत का पूरा परिचय: वॉलेट, चैट, भुगतान और बहुत कुछ।";
+"Previous" = "पिछला";
+"Email" = "ईमेल";
+"Help" = "सहायता";

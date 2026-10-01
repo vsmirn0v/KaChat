@@ -814,3 +814,22 @@
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "I messaggi 1:1 sono cifrati, quindi messaggi vocali, reazioni e mosse di scacchi 1:1 contano come messaggi diretti: nessuno, nemmeno l'indexer, può distinguerli.";
 "All-time only" = "Solo totale";
 "Kinds marked \"All-time only\" aren't in this total yet." = "I tipi segnati «Solo totale» non sono ancora in questo totale.";
+
+/* 5.2: .kachat setup guide */
+"Claim your .kachat name" = "Rivendica il tuo nome .kachat";
+"It's the name people see you as across KaChat - in chats, on posts and on your profile link. Without one, people see your address." = "È il nome con cui ti vedono in tutto KaChat: nelle chat, nei post e nel link del tuo profilo. Senza, vedono il tuo indirizzo.";
+"Add a profile photo" = "Aggiungi una foto profilo";
+"Your avatar shows next to your name everywhere in KaChat." = "Il tuo avatar compare accanto al tuo nome ovunque in KaChat.";
+"Add a banner" = "Aggiungi un banner";
+"A wide image across the top of your profile." = "Un'immagine ampia in cima al tuo profilo.";
+"Tell people about you" = "Racconta qualcosa di te";
+"A short bio and your links. All of it is optional." = "Una breve bio e i tuoi link. È tutto facoltativo.";
+"That's the whole setup" = "Ecco tutta la configurazione";
+".kachat names are coming soon. When they launch, this guide claims your name and saves your profile in one go." = "I nomi .kachat arriveranno presto. Al lancio, questa guida rivendicherà il tuo nome e salverà il tuo profilo in un colpo solo.";
+"Walk through claiming your .kachat name and setting up your avatar, banner and details step by step." = "Rivendica il tuo nome .kachat e configura avatar, banner e dettagli passo dopo passo.";
+".kachat Profile Setup Guide" = "Guida al profilo .kachat";
+"Claim your .kachat name and set up your avatar, banner and bio step by step." = "Rivendica il tuo nome .kachat e configura avatar, banner e bio passo dopo passo.";
+"The full first-run tour: wallet, chats, payments and more." = "Il tour iniziale completo: wallet, chat, pagamenti e altro.";
+"Previous" = "Indietro";
+"Email" = "Email";
+"Help" = "Aiuto";

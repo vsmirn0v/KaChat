@@ -814,3 +814,22 @@
 "1:1 messages are encrypted, so voice notes, reactions and 1:1 chess moves count as direct messages: nobody, the indexer included, can tell them apart." = "1:1 메시지는 암호화되어 있어 음성 메모, 반응, 1:1 체스 수는 다이렉트 메시지로 집계됩니다. 인덱서를 포함해 누구도 이를 구분할 수 없습니다.";
 "All-time only" = "전체 기간만";
 "Kinds marked \"All-time only\" aren't in this total yet." = "'전체 기간만'으로 표시된 항목은 아직 이 합계에 포함되지 않습니다.";
+
+/* 5.2: .kachat setup guide */
+"Claim your .kachat name" = ".kachat 이름 받기";
+"It's the name people see you as across KaChat - in chats, on posts and on your profile link. Without one, people see your address." = "KaChat 어디서나 사람들이 보는 이름입니다. 채팅, 게시물, 프로필 링크에 표시됩니다. 이름이 없으면 주소가 표시됩니다.";
+"Add a profile photo" = "프로필 사진 추가";
+"Your avatar shows next to your name everywhere in KaChat." = "아바타는 KaChat 어디서나 이름 옆에 표시됩니다.";
+"Add a banner" = "배너 추가";
+"A wide image across the top of your profile." = "프로필 상단에 표시되는 넓은 이미지입니다.";
+"Tell people about you" = "자신을 소개하세요";
+"A short bio and your links. All of it is optional." = "짧은 소개와 링크. 모두 선택 사항입니다.";
+"That's the whole setup" = "설정은 여기까지입니다";
+".kachat names are coming soon. When they launch, this guide claims your name and saves your profile in one go." = ".kachat 이름이 곧 출시됩니다. 출시되면 이 가이드가 이름을 받고 프로필을 한 번에 저장합니다.";
+"Walk through claiming your .kachat name and setting up your avatar, banner and details step by step." = ".kachat 이름을 받고 아바타, 배너, 세부 정보를 단계별로 설정하세요.";
+".kachat Profile Setup Guide" = ".kachat 프로필 설정 가이드";
+"Claim your .kachat name and set up your avatar, banner and bio step by step." = ".kachat 이름을 받고 아바타, 배너, 소개를 단계별로 설정하세요.";
+"The full first-run tour: wallet, chats, payments and more." = "처음 사용자를 위한 전체 안내: 지갑, 채팅, 결제 등.";
+"Previous" = "이전";
+"Email" = "이메일";
+"Help" = "도움말";
