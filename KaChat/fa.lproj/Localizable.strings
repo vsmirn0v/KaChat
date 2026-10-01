@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "اگر این عبارت بازیابی هویت شما را در نشانی دیگری دارد - یک دامنه (.kas، .k یا .kaspa) یا موجودی گفتگو - آن را اینجا انتخاب کنید. فقط نشانی‌های دارای موجودی یا دامنه نمایش داده می‌شوند.";
 ".k and .kaspa Names (%lld)" = "نام‌های .k و .kaspa (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "درخواست‌های پیام";
+"People who wrote to you first" = "کسانی که اول به شما پیام دادند";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "یک درخواست را باز کنید تا بخوانید. پذیرفتن برای پاسخ و انتقال به گفتگوها؛ رد کردن آن را حذف می‌کند و تا وقتی خودتان پیام ندهید، آن نشانی نمی‌تواند به شما پیام دهد.";
+"No message requests" = "درخواست پیامی نیست";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ می‌خواهد گفتگو کند. برای پاسخ بپذیرید - تا وقتی پاسخ ندهید چیزی ارسال نمی‌شود.";
+"Reject" = "رد کردن";
+"Reject this request?" = "این درخواست رد شود؟";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "پیام‌هایش از این دستگاه حذف می‌شود و این نشانی تا وقتی خودتان پیام ندهید نمی‌تواند دوباره به شما پیام دهد.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "گفتگوی خصوصی - روی زنجیره چیزی شما دو نفر را به هم مرتبط نمی‌کند، پس %@ مطلع نمی‌شود. وقتی او هم با نشانی شما گفتگوی خصوصی شروع کند، پیام‌هایتان را می‌بیند.";
+"Private Chat" = "گفتگوی خصوصی";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "روی زنجیره چیزی شما را به هم مرتبط نمی‌کند - حتی اینکه چه کسی اول پیام داد. طرف مقابل مطلع نمی‌شود: وقتی با نشانی شما گفتگوی خصوصی شروع کند پیام‌ها را می‌بیند، پس از قبل جای دیگری هماهنگ کنید.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "پیام اول شما به‌صورت درخواست پیام می‌رسد. اگر نمی‌خواهید روی زنجیره پیوندی بینتان بماند، گفتگوی خصوصی را روشن کنید.";
+"New message request" = "درخواست پیام جدید";
+"%@ wants to chat with you." = "%@ می‌خواهد با شما گفتگو کند.";

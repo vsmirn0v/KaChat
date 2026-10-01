@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "এই সিড যদি আগে থেকেই অন্য কোনো ঠিকানায় আপনার পরিচয় রাখে - একটি ডোমেইন (.kas, .k বা .kaspa) বা ব্যালেন্সসহ চ্যাট ঠিকানা - তবে এখানে বেছে নিন। শুধু ব্যালেন্স বা ডোমেইন থাকা ঠিকানা দেখানো হয়।";
 ".k and .kaspa Names (%lld)" = ".k ও .kaspa নাম (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "মেসেজ অনুরোধ";
+"People who wrote to you first" = "যারা আপনাকে আগে লিখেছেন";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "পড়তে একটি অনুরোধ খুলুন। উত্তর দিতে ও চ্যাটে নিতে গ্রহণ করুন; প্রত্যাখ্যান সেটি মুছে দেয় এবং আপনি না লেখা পর্যন্ত ওই ঠিকানা আপনাকে লিখতে পারে না।";
+"No message requests" = "কোনো মেসেজ অনুরোধ নেই";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ চ্যাট করতে চান। উত্তর দিতে গ্রহণ করুন - আপনি উত্তর না দেওয়া পর্যন্ত কিছুই পাঠানো হয় না।";
+"Reject" = "প্রত্যাখ্যান";
+"Reject this request?" = "এই অনুরোধ প্রত্যাখ্যান করবেন?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "তাদের মেসেজ এই ডিভাইস থেকে মুছে যায়, এবং আপনি না লেখা পর্যন্ত এই ঠিকানা আবার আপনাকে লিখতে পারবে না।";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "প্রাইভেট চ্যাট - চেইনে আপনাদের দুজনকে কিছুই যুক্ত করে না, তাই %@ কোনো বিজ্ঞপ্তি পান না। তিনিও আপনার ঠিকানা দিয়ে প্রাইভেট চ্যাট শুরু করলে আপনার মেসেজ দেখতে পাবেন।";
+"Private Chat" = "প্রাইভেট চ্যাট";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "চেইনে আপনাদের কিছুই যুক্ত করে না - কে আগে লিখেছে সেটাও না। অপর পক্ষ বিজ্ঞপ্তি পান না: আপনার ঠিকানা দিয়ে প্রাইভেট চ্যাট শুরু করলে তবেই মেসেজ দেখবেন, তাই আগে অন্য কোথাও ঠিক করে নিন।";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "আপনার প্রথম মেসেজ মেসেজ অনুরোধ হিসেবে যাবে। চেইনে আপনাদের মধ্যে কোনো যোগসূত্র রাখতে না চাইলে প্রাইভেট চ্যাট চালু করুন।";
+"New message request" = "নতুন মেসেজ অনুরোধ";
+"%@ wants to chat with you." = "%@ আপনার সঙ্গে চ্যাট করতে চান।";

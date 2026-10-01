@@ -324,3 +324,7 @@
 "Send Anyway" = "Yine de Gönder";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "0,1 KAS'tan az göndermek, ağın dust koruma limiti nedeniyle başarısız olabilir.";
 "You were added to \"%@\"" = "\"%@\" grubuna eklendiniz";
+
+/* 5.2: Message Requests, Private chats */
+"New message request" = "Yeni mesaj isteği";
+"%@ wants to chat with you." = "%@ seninle sohbet etmek istiyor.";

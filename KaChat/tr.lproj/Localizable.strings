@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Bu tohum kimliğini zaten başka bir adreste tutuyorsa - bir alan adı (.kas, .k veya .kaspa) ya da bakiyeli bir sohbet adresi - onu burada seç. Yalnızca bakiyesi veya alan adı olan adresler gösterilir.";
 ".k and .kaspa Names (%lld)" = ".k ve .kaspa Adları (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "Mesaj İstekleri";
+"People who wrote to you first" = "Sana önce yazan kişiler";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "Okumak için bir isteği aç. Yanıtlamak ve sohbetlerine taşımak için Kabul Et; Reddet onu siler ve sen yazana kadar o adresin sana ulaşmasını engeller.";
+"No message requests" = "Mesaj isteği yok";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ sohbet etmek istiyor. Yanıtlamak için kabul et - sen yazana kadar hiçbir şey gönderilmez.";
+"Reject" = "Reddet";
+"Reject this request?" = "Bu isteği reddet?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "Mesajları bu cihazdan silinir ve sen yazana kadar bu adres sana tekrar ulaşamaz.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "Özel sohbet - zincirde ikinizi hiçbir şey bağlamıyor, bu yüzden %@ bildirim almaz. O da adresinle özel bir sohbet başlattığında mesajlarını görür.";
+"Private Chat" = "Özel Sohbet";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "Zincirde ikinizi hiçbir şey bağlamaz - ilk kimin yazdığı bile. Karşı taraf bildirim almaz: adresinle özel sohbet başlattığında mesajlarını görür, bu yüzden bunu önceden başka yerde konuşun.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "İlk mesajın bir Mesaj İsteği olarak gider. Zincirde aranızda bağ kalmasın istiyorsan Özel Sohbet'i aç.";
+"New message request" = "Yeni mesaj isteği";
+"%@ wants to chat with you." = "%@ seninle sohbet etmek istiyor.";

@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "如果这个助记词已在另一个地址上持有你的身份——一个域名（.kas、.k 或 .kaspa）或有余额的聊天地址——请在这里选择。只显示有余额或域名的地址。";
 ".k and .kaspa Names (%lld)" = ".k 和 .kaspa 名称（%lld）";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "消息请求";
+"People who wrote to you first" = "先给你发消息的人";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "打开请求即可阅读。接受即可回复并移到你的聊天中；拒绝会删除它，并在你主动发消息前阻止该地址联系你。";
+"No message requests" = "没有消息请求";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ 想和你聊天。接受后即可回复——在你回复之前不会发送任何内容。";
+"Reject" = "拒绝";
+"Reject this request?" = "拒绝此请求？";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "对方的消息将从此设备删除，在你主动发消息之前，该地址无法再联系你。";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "私密聊天——链上没有任何东西把你们联系在一起，所以 %@ 不会收到通知。对方也用你的地址开始私密聊天后，就能看到你的消息。";
+"Private Chat" = "私密聊天";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "链上没有任何东西把你们联系在一起——连谁先发消息也看不出。对方不会收到通知：要等对方也用你的地址开始私密聊天才能看到你的消息，所以请先在别处约好。";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "你的第一条消息会以消息请求的形式送达。如果不想在链上留下你们之间的任何关联，请开启私密聊天。";
+"New message request" = "新的消息请求";
+"%@ wants to chat with you." = "%@ 想和你聊天。";

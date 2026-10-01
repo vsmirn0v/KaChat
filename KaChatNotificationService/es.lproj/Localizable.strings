@@ -324,3 +324,7 @@
 "Send Anyway" = "Enviar de todos modos";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "Enviar menos de 0.1 KAS puede fallar debido al límite de protección contra polvo de la red.";
 "You were added to \"%@\"" = "Fuiste agregado a \"%@\"";
+
+/* 5.2: Message Requests, Private chats */
+"New message request" = "Nueva solicitud de mensaje";
+"%@ wants to chat with you." = "%@ quiere chatear contigo.";

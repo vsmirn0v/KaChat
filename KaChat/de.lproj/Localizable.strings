@@ -868,3 +868,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Falls diese Seed deine Identität schon an einer anderen Adresse hat - eine Domain (.kas, .k oder .kaspa) oder ein Chat-Guthaben -, wähle sie hier. Es werden nur Adressen mit Guthaben oder Domains angezeigt.";
 ".k and .kaspa Names (%lld)" = ".k- und .kaspa-Namen (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "Nachrichtenanfragen";
+"People who wrote to you first" = "Leute, die dir zuerst geschrieben haben";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "Öffne eine Anfrage, um sie zu lesen. Annehmen, um zu antworten und sie in deine Chats zu verschieben; Ablehnen löscht sie und hält diese Adresse fern, bis du ihr schreibst.";
+"No message requests" = "Keine Nachrichtenanfragen";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ möchte chatten. Nimm an, um zu antworten - nichts wird gesendet, bis du zurückschreibst.";
+"Reject" = "Ablehnen";
+"Reject this request?" = "Diese Anfrage ablehnen?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "Die Nachrichten werden von diesem Gerät gelöscht, und diese Adresse kann dich erst wieder erreichen, wenn du ihr schreibst.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "Privater Chat - nichts verbindet euch beide on-chain, daher wird %@ nicht benachrichtigt. Deine Nachrichten werden sichtbar, sobald auch dort ein privater Chat mit deiner Adresse gestartet wird.";
+"Private Chat" = "Privater Chat";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "Nichts verbindet euch on-chain - nicht einmal, wer zuerst geschrieben hat. Die andere Person wird nicht benachrichtigt: Sie sieht deine Nachrichten, sobald sie ebenfalls einen privaten Chat mit deiner Adresse startet. Sprecht das also vorher woanders ab.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "Deine erste Nachricht kommt als Nachrichtenanfrage an. Aktiviere Privater Chat, wenn on-chain keine Verbindung zwischen euch entstehen soll.";
+"New message request" = "Neue Nachrichtenanfrage";
+"%@ wants to chat with you." = "%@ möchte mit dir chatten.";

@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "אם הסיד הזה כבר מחזיק את הזהות שלכם בכתובת אחרת - דומיין (.kas, .k או .kaspa) או יתרת צ'אט - בחרו אותה כאן. מוצגות רק כתובות עם יתרה או דומיינים.";
 ".k and .kaspa Names (%lld)" = "שמות .k ו-.kaspa (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "בקשות הודעה";
+"People who wrote to you first" = "אנשים שכתבו לכם ראשונים";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "פתחו בקשה כדי לקרוא אותה. אישור כדי להשיב ולהעביר אותה לצ'אטים; דחייה מוחקת אותה ומונעת מהכתובת לפנות אליכם עד שתכתבו לה.";
+"No message requests" = "אין בקשות הודעה";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ רוצה לשוחח. אשרו כדי להשיב - שום דבר לא נשלח עד שתענו.";
+"Reject" = "דחייה";
+"Reject this request?" = "לדחות את הבקשה?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "ההודעות שלו יימחקו מהמכשיר הזה, והכתובת הזו לא תוכל לפנות אליכם שוב עד שתכתבו לה.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "צ'אט פרטי - שום דבר לא מקשר ביניכם בשרשרת, לכן %@ לא מקבל התראה. ההודעות שלכם יוצגו לו כשגם הוא יפתח צ'אט פרטי עם הכתובת שלכם.";
+"Private Chat" = "צ'אט פרטי";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "שום דבר לא מקשר ביניכם בשרשרת - אפילו לא מי כתב ראשון. הצד השני לא מקבל התראה: הוא יראה את ההודעות כשיפתח צ'אט פרטי עם הכתובת שלכם, אז תאמו זאת קודם במקום אחר.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "ההודעה הראשונה שלכם תגיע כבקשת הודעה. הפעילו צ'אט פרטי אם אתם לא רוצים להשאיר קשר ביניכם בשרשרת.";
+"New message request" = "בקשת הודעה חדשה";
+"%@ wants to chat with you." = "%@ רוצה לשוחח איתך.";

@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Nếu cụm từ khôi phục này đã giữ danh tính của bạn ở địa chỉ khác - một tên miền (.kas, .k hoặc .kaspa) hoặc số dư trò chuyện - hãy chọn ở đây. Chỉ hiện các địa chỉ có số dư hoặc tên miền.";
 ".k and .kaspa Names (%lld)" = "Tên .k và .kaspa (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "Yêu cầu nhắn tin";
+"People who wrote to you first" = "Những người nhắn cho bạn trước";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "Mở một yêu cầu để đọc. Chấp nhận để trả lời và chuyển vào cuộc trò chuyện; Từ chối sẽ xóa và chặn địa chỉ đó liên lạc với bạn cho đến khi bạn nhắn cho họ.";
+"No message requests" = "Không có yêu cầu nhắn tin";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ muốn trò chuyện. Chấp nhận để trả lời - không có gì được gửi cho đến khi bạn nhắn lại.";
+"Reject" = "Từ chối";
+"Reject this request?" = "Từ chối yêu cầu này?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "Tin nhắn của họ bị xóa khỏi thiết bị này và địa chỉ này không thể liên lạc lại với bạn cho đến khi bạn nhắn cho họ.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "Trò chuyện riêng tư - không có gì liên kết hai bạn trên chuỗi, nên %@ không được thông báo. Họ sẽ thấy tin nhắn của bạn khi cũng bắt đầu một cuộc trò chuyện riêng tư với địa chỉ của bạn.";
+"Private Chat" = "Trò chuyện riêng tư";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "Không có gì liên kết hai bạn trên chuỗi - kể cả ai nhắn trước. Người kia không được thông báo: họ sẽ thấy tin nhắn khi bắt đầu trò chuyện riêng tư với địa chỉ của bạn, vì vậy hãy thống nhất trước ở nơi khác.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "Tin nhắn đầu tiên của bạn sẽ đến dưới dạng Yêu cầu nhắn tin. Bật Trò chuyện riêng tư nếu bạn không muốn để lại liên kết nào giữa hai người trên chuỗi.";
+"New message request" = "Yêu cầu nhắn tin mới";
+"%@ wants to chat with you." = "%@ muốn trò chuyện với bạn.";

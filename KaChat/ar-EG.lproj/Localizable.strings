@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "إذا كانت عبارة الاسترداد هذه تحمل هويتك بالفعل في عنوان آخر - نطاق (.kas أو .k أو .kaspa) أو رصيد محادثة - فاختره هنا. تظهر فقط العناوين التي لديها رصيد أو نطاقات.";
 ".k and .kaspa Names (%lld)" = "أسماء .k و.kaspa (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "طلبات الرسائل";
+"People who wrote to you first" = "أشخاص راسلوك أولًا";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "افتح الطلب لقراءته. اقبل للرد ونقله إلى محادثاتك؛ الرفض يحذفه ويمنع هذا العنوان من مراسلتك حتى تراسله أنت.";
+"No message requests" = "لا توجد طلبات رسائل";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "يريد %@ الدردشة. اقبل للرد - لن يُرسل شيء حتى ترد.";
+"Reject" = "رفض";
+"Reject this request?" = "رفض هذا الطلب؟";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "تُحذف رسائله من هذا الجهاز، ولن يتمكن هذا العنوان من مراسلتك مجددًا حتى تراسله أنت.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "محادثة خاصة - لا شيء يربطكما على السلسلة، لذا لا يتلقى %@ إشعارًا. سيرى رسائلك عندما يبدأ هو أيضًا محادثة خاصة مع عنوانك.";
+"Private Chat" = "محادثة خاصة";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "لا شيء يربطكما على السلسلة - ولا حتى من كتب أولًا. لن يتلقى الطرف الآخر إشعارًا: سيرى رسائلك عندما يبدأ محادثة خاصة مع عنوانك، لذا اتفقا على ذلك مسبقًا في مكان آخر.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "ستصل رسالتك الأولى كطلب رسالة. فعّل المحادثة الخاصة إذا كنت تفضّل ألا يبقى أي رابط بينكما على السلسلة.";
+"New message request" = "طلب رسالة جديد";
+"%@ wants to chat with you." = "يريد %@ الدردشة معك.";

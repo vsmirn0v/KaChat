@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Если эта сид-фраза уже хранит вашу личность на другом адресе — домен (.kas, .k или .kaspa) или баланс для чата, — выберите его здесь. Показаны только адреса с балансом или доменами.";
 ".k and .kaspa Names (%lld)" = "Имена .k и .kaspa (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "Запросы на переписку";
+"People who wrote to you first" = "Те, кто написал вам первым";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "Откройте запрос, чтобы прочитать его. «Принять» — ответить и перенести в чаты; «Отклонить» — удалить и запретить этому адресу писать вам, пока вы сами ему не напишете.";
+"No message requests" = "Нет запросов на переписку";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ хочет пообщаться. Примите, чтобы ответить, — ничего не отправится, пока вы не напишете.";
+"Reject" = "Отклонить";
+"Reject this request?" = "Отклонить этот запрос?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "Сообщения будут удалены с этого устройства, и этот адрес не сможет связаться с вами, пока вы сами ему не напишете.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "Приватный чат — в блокчейне вас ничто не связывает, поэтому %@ не получает уведомления. Ваши сообщения станут видны, когда собеседник тоже начнёт приватный чат с вашим адресом.";
+"Private Chat" = "Приватный чат";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "В блокчейне вас ничто не связывает — даже то, кто написал первым. Собеседник не получит уведомления: он увидит ваши сообщения, когда тоже начнёт приватный чат с вашим адресом, так что договоритесь об этом заранее.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "Ваше первое сообщение придёт как запрос на переписку. Включите «Приватный чат», если не хотите оставлять связь между вами в блокчейне.";
+"New message request" = "Новый запрос на переписку";
+"%@ wants to chat with you." = "%@ хочет пообщаться с вами.";

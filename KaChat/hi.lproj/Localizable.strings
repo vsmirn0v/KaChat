@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "अगर यह सीड आपकी पहचान किसी दूसरे पते पर पहले से रखता है - कोई डोमेन (.kas, .k या .kaspa) या बैलेंस वाला चैट पता - तो उसे यहाँ चुनें। सिर्फ़ बैलेंस या डोमेन वाले पते दिखाए जाते हैं।";
 ".k and .kaspa Names (%lld)" = ".k और .kaspa नाम (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "मैसेज अनुरोध";
+"People who wrote to you first" = "जिन लोगों ने आपको पहले लिखा";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "पढ़ने के लिए अनुरोध खोलें। जवाब देने और चैट में ले जाने के लिए स्वीकारें; अस्वीकारें उसे हटा देता है और जब तक आप न लिखें, वह पता आप तक नहीं पहुँच सकता।";
+"No message requests" = "कोई मैसेज अनुरोध नहीं";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ चैट करना चाहते हैं। जवाब देने के लिए स्वीकारें - आपके जवाब देने तक कुछ नहीं भेजा जाता।";
+"Reject" = "अस्वीकारें";
+"Reject this request?" = "यह अनुरोध अस्वीकारें?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "उनके मैसेज इस डिवाइस से हटा दिए जाते हैं, और जब तक आप उन्हें न लिखें, यह पता आप तक दोबारा नहीं पहुँच सकता।";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "प्राइवेट चैट - चेन पर आप दोनों को कुछ भी नहीं जोड़ता, इसलिए %@ को सूचना नहीं मिलती। जब वे भी आपके पते के साथ प्राइवेट चैट शुरू करेंगे, तब आपके मैसेज देख पाएँगे।";
+"Private Chat" = "प्राइवेट चैट";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "चेन पर आप दोनों को कुछ नहीं जोड़ता - यह भी नहीं कि पहले किसने लिखा। सामने वाले को सूचना नहीं मिलती: वे आपके पते के साथ प्राइवेट चैट शुरू करने पर ही मैसेज देखेंगे, इसलिए पहले कहीं और तय कर लें।";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "आपका पहला मैसेज मैसेज अनुरोध के रूप में पहुँचेगा। अगर आप चेन पर अपने बीच कोई लिंक नहीं छोड़ना चाहते, तो प्राइवेट चैट चालू करें।";
+"New message request" = "नया मैसेज अनुरोध";
+"%@ wants to chat with you." = "%@ आपसे चैट करना चाहते हैं।";

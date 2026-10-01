@@ -922,3 +922,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Si cette phrase de récupération porte déjà votre identité à une autre adresse - un domaine (.kas, .k ou .kaspa) ou un solde de discussion -, choisissez-la ici. Seules les adresses avec un solde ou des domaines sont affichées.";
 ".k and .kaspa Names (%lld)" = "Noms .k et .kaspa (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "Demandes de message";
+"People who wrote to you first" = "Les personnes qui vous ont écrit en premier";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "Ouvrez une demande pour la lire. Acceptez pour répondre et la déplacer dans vos discussions ; Refuser la supprime et empêche cette adresse de vous joindre jusqu'à ce que vous lui écriviez.";
+"No message requests" = "Aucune demande de message";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ veut discuter. Acceptez pour répondre - rien n'est envoyé tant que vous ne répondez pas.";
+"Reject" = "Refuser";
+"Reject this request?" = "Refuser cette demande ?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "Ses messages sont supprimés de cet appareil, et cette adresse ne pourra plus vous joindre tant que vous ne lui écrivez pas.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "Discussion privée - rien ne vous relie sur la chaîne, donc %@ n'est pas averti. Vos messages lui apparaîtront dès qu'il ouvrira lui aussi une discussion privée avec votre adresse.";
+"Private Chat" = "Discussion privée";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "Rien ne vous relie sur la chaîne - pas même qui a écrit en premier. L'autre personne n'est pas avertie : elle verra vos messages dès qu'elle ouvrira une discussion privée avec votre adresse, alors convenez-en ailleurs avant.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "Votre premier message lui arrivera comme demande de message. Activez Discussion privée si vous ne voulez laisser aucun lien entre vous sur la chaîne.";
+"New message request" = "Nouvelle demande de message";
+"%@ wants to chat with you." = "%@ veut discuter avec vous.";

@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "このシードが別のアドレスですでにあなたの ID（.kas・.k・.kaspa のドメイン、または残高のあるチャットアドレス）を持っている場合は、ここで選んでください。残高かドメインのあるアドレスだけが表示されます。";
 ".k and .kaspa Names (%lld)" = ".k と .kaspa の名前（%lld）";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "メッセージリクエスト";
+"People who wrote to you first" = "先にメッセージを送ってきた人";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "リクエストを開いて読めます。「承認」で返信できるようになりチャットに移動します。「拒否」で削除し、あなたからメッセージを送るまでそのアドレスからは届かなくなります。";
+"No message requests" = "メッセージリクエストはありません";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ がチャットを希望しています。承認すると返信できます。あなたが返信するまで何も送信されません。";
+"Reject" = "拒否";
+"Reject this request?" = "このリクエストを拒否しますか？";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "メッセージはこのデバイスから削除され、あなたからメッセージを送るまでこのアドレスからは届かなくなります。";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "プライベートチャット - チェーン上で二人を結ぶものはないため、%@ には通知されません。相手もあなたのアドレスとプライベートチャットを始めると、メッセージが見えるようになります。";
+"Private Chat" = "プライベートチャット";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "チェーン上で二人を結ぶものは何もありません（どちらが先に送ったかも）。相手には通知されず、相手があなたのアドレスとプライベートチャットを始めたときにメッセージが見えます。事前に別の方法で伝えておいてください。";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "最初のメッセージはメッセージリクエストとして届きます。チェーン上に二人のつながりを残したくない場合はプライベートチャットをオンにしてください。";
+"New message request" = "新しいメッセージリクエスト";
+"%@ wants to chat with you." = "%@ があなたとチャットしたいようです。";

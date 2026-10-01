@@ -922,3 +922,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown.";
 ".k and .kaspa Names (%lld)" = ".k and .kaspa Names (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "Message Requests";
+"People who wrote to you first" = "People who wrote to you first";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them.";
+"No message requests" = "No message requests";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ wants to chat. Accept to reply - nothing is sent until you write back.";
+"Reject" = "Reject";
+"Reject this request?" = "Reject this request?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "Their messages are deleted from this device, and this address can't reach you again until you write to them.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too.";
+"Private Chat" = "Private Chat";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain.";
+"New message request" = "New message request";
+"%@ wants to chat with you." = "%@ wants to chat with you.";

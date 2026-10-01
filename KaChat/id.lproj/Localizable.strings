@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Jika seed ini sudah menyimpan identitasmu di alamat lain - domain (.kas, .k, atau .kaspa) atau saldo obrolan - pilih di sini. Hanya alamat dengan saldo atau domain yang ditampilkan.";
 ".k and .kaspa Names (%lld)" = "Nama .k dan .kaspa (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "Permintaan Pesan";
+"People who wrote to you first" = "Orang yang lebih dulu menulis kepadamu";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "Buka permintaan untuk membacanya. Terima untuk membalas dan memindahkannya ke obrolanmu; Tolak menghapusnya dan mencegah alamat itu menghubungimu sampai kamu menulis kepadanya.";
+"No message requests" = "Tidak ada permintaan pesan";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ ingin mengobrol. Terima untuk membalas - tidak ada yang dikirim sampai kamu membalas.";
+"Reject" = "Tolak";
+"Reject this request?" = "Tolak permintaan ini?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "Pesannya dihapus dari perangkat ini, dan alamat ini tidak bisa menghubungimu lagi sampai kamu menulis kepadanya.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "Obrolan privat - tidak ada yang menghubungkan kalian di chain, jadi %@ tidak diberi tahu. Ia akan melihat pesanmu setelah juga memulai obrolan privat dengan alamatmu.";
+"Private Chat" = "Obrolan Privat";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "Tidak ada yang menghubungkan kalian di chain - bahkan siapa yang menulis duluan. Ia tidak diberi tahu: ia akan melihat pesanmu setelah memulai obrolan privat dengan alamatmu, jadi sepakati dulu di tempat lain.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "Pesan pertamamu akan diterima sebagai Permintaan Pesan. Aktifkan Obrolan Privat jika kamu tidak ingin ada tautan di antara kalian di chain.";
+"New message request" = "Permintaan pesan baru";
+"%@ wants to chat with you." = "%@ ingin mengobrol denganmu.";

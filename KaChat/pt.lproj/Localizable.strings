@@ -921,3 +921,19 @@
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Se esta semente já guarda sua identidade em outro endereço - um domínio (.kas, .k ou .kaspa) ou um saldo de chat - escolha-o aqui. Só aparecem endereços com saldo ou domínios.";
 ".k and .kaspa Names (%lld)" = "Nomes .k e .kaspa (%lld)";
+
+/* 5.2: Message Requests, Private chats */
+"Message Requests" = "Solicitações de mensagem";
+"People who wrote to you first" = "Pessoas que escreveram para você primeiro";
+"Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them." = "Abra uma solicitação para ler. Aceite para responder e movê-la para seus chats; Recusar a apaga e impede esse endereço de falar com você até você escrever para ele.";
+"No message requests" = "Nenhuma solicitação de mensagem";
+"%@ wants to chat. Accept to reply - nothing is sent until you write back." = "%@ quer conversar. Aceite para responder - nada é enviado até você responder.";
+"Reject" = "Recusar";
+"Reject this request?" = "Recusar esta solicitação?";
+"Their messages are deleted from this device, and this address can't reach you again until you write to them." = "As mensagens são apagadas deste dispositivo, e este endereço não poderá falar com você de novo até você escrever para ele.";
+"Private chat - nothing links you two on chain, so %@ isn't notified. They'll see your messages once they start a private chat with your address too." = "Chat privado - nada liga vocês dois na blockchain, então %@ não é notificado. Ele verá suas mensagens quando também iniciar um chat privado com seu endereço.";
+"Private Chat" = "Chat privado";
+"Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first." = "Nada liga vocês na blockchain - nem quem escreveu primeiro. A outra pessoa não é notificada: verá suas mensagens quando iniciar um chat privado com seu endereço, então combinem isso antes por outro meio.";
+"They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain." = "Sua primeira mensagem chega como solicitação de mensagem. Ative Chat privado se preferir não deixar nenhuma ligação entre vocês na blockchain.";
+"New message request" = "Nova solicitação de mensagem";
+"%@ wants to chat with you." = "%@ quer conversar com você.";
