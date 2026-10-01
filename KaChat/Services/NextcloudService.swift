@@ -1532,6 +1532,56 @@ final class NextcloudService: ObservableObject {
         return try await createPublicShareLink(for: "\(Self.mediaFolderPath)/\(storedName)")
     }
 
+    // MARK: - Plain files in the KaChat folder (Portfolio CSV export / import)
+
+    /// Uploads `data` as `filename` into the KaChat folder (`backupFolderPath` - the same folder
+    /// the chat backup lives in), creating the folder chain if it isn't there yet, and returns
+    /// the stored path. A file of the same name is replaced - exports carry a timestamp in their
+    /// name, so in practice each one is a new file.
+    func uploadToKaChatFolder(data: Data, filename: String, contentType: String) async throws -> String {
+        guard let account, let server = account.serverURL else { throw NextcloudError.badCredentials }
+        let folder = backupFolderPath
+        var folderURL = server.appendingPathComponent("remote.php/dav/files/\(account.username)")
+        // Level by level: MKCOL is not recursive, and 405 means the level already exists.
+        for part in folder.split(separator: "/") {
+            folderURL.appendPathComponent(String(part))
+            var mkcol = URLRequest(url: folderURL)
+            mkcol.httpMethod = "MKCOL"
+            applyAuth(&mkcol, account: account)
+            let (_, mkcolResponse) = try await URLSession.shared.data(for: mkcol)
+            if let http = mkcolResponse as? HTTPURLResponse {
+                if http.statusCode == 401 { throw NextcloudError.badCredentials }
+                guard (200..<300).contains(http.statusCode) || http.statusCode == 405 else {
+                    throw NextcloudError.httpError(http.statusCode)
+                }
+            }
+        }
+
+        let storedName = Self.sanitizedMediaFilename(filename)
+        var put = URLRequest(url: folderURL.appendingPathComponent(storedName))
+        put.httpMethod = "PUT"
+        put.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        applyAuth(&put, account: account)
+        put.httpBody = data
+        let (_, putResponse) = try await URLSession.shared.data(for: put)
+        guard let http = putResponse as? HTTPURLResponse else { throw NextcloudError.malformedResponse }
+        if http.statusCode == 401 { throw NextcloudError.badCredentials }
+        guard (200..<300).contains(http.statusCode) else { throw NextcloudError.httpError(http.statusCode) }
+        return folder.isEmpty ? storedName : "\(folder)/\(storedName)"
+    }
+
+    /// A file's bytes, for importing it. Unlike `fileData` (the thumbnail fallbacks, where a miss
+    /// is just "no preview"), every failure here throws so the caller can say what went wrong.
+    func downloadFile(_ path: String, maxBytes: Int = 10_000_000) async throws -> Data {
+        guard let request = authenticatedFileRequest(for: path) else { throw NextcloudError.badCredentials }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw NextcloudError.malformedResponse }
+        if http.statusCode == 401 { throw NextcloudError.badCredentials }
+        guard (200..<300).contains(http.statusCode) else { throw NextcloudError.httpError(http.statusCode) }
+        guard data.count <= maxBytes else { throw NextcloudError.malformedResponse }
+        return data
+    }
+
     /// Keeps stored filenames WebDAV/URL-safe: alphanumerics, dot, dash and underscore survive;
     /// everything else becomes "_". The extension must survive intact — Nextcloud derives the
     /// Content-Type it serves (and thus the recipient's media-kind detection) from it.

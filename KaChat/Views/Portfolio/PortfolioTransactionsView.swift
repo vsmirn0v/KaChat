@@ -38,6 +38,9 @@ struct PortfolioTransactionsView<Header: View>: View {
     @State private var showAddChooser = false
     @State private var showImportExport = false
     @State private var showCsvImporter = false
+    /// Export to / Import from Nextcloud - offered only while an account is connected.
+    @ObservedObject private var nextcloud = NextcloudService.shared
+    @State private var showNextcloudImporter = false
     @State private var csvExport: PortfolioCsvExport?
     @State private var toastMessage: String?
     @State private var toastStyle: ToastStyle = .success
@@ -144,6 +147,11 @@ struct PortfolioTransactionsView<Header: View>: View {
         .sheet(item: $csvExport) { export in
             PortfolioCsvShareSheet(fileURL: export.url)
         }
+        .sheet(isPresented: $showNextcloudImporter) {
+            NextcloudFileSelectView(allowedExtensions: ["csv", "txt"]) { file in
+                importFromNextcloud(file)
+            }
+        }
         .fileImporter(isPresented: $showCsvImporter, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
             switch result {
             case .success(let url):
@@ -211,6 +219,58 @@ struct PortfolioTransactionsView<Header: View>: View {
             return
         }
         csvExport = PortfolioCsvExport(url: url)
+    }
+
+    private func localizedFormat(_ key: String, _ args: CVarArg...) -> String {
+        String(format: AppLocalization.string(key), locale: AppLocalization.locale, arguments: args)
+    }
+
+    /// Same CSV as Export CSV, uploaded into the KaChat folder of the connected Nextcloud
+    /// instead of handed to a share sheet.
+    private func exportToNextcloud() {
+        guard !viewModel.scopedTransactions.isEmpty else {
+            showToast("Nothing to export yet. Add a transaction first", style: .error)
+            return
+        }
+        guard let url = viewModel.exportCsvURL(), let data = try? Data(contentsOf: url) else {
+            showToast("Export failed. Couldn't write the CSV file", style: .error)
+            return
+        }
+        Task {
+            do {
+                let path = try await NextcloudService.shared.uploadToKaChatFolder(
+                    data: data,
+                    filename: url.lastPathComponent,
+                    contentType: "text/csv"
+                )
+                showToast(localizedFormat("Saved to %@ in Nextcloud.", path))
+            } catch {
+                showToast(localizedFormat("Export to Nextcloud failed: %@", UserFacingError.message(for: error)), style: .error)
+            }
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// Downloads the picked file to a temporary copy and runs it through the same CSV import as
+    /// a file from the Files app.
+    private func importFromNextcloud(_ file: NextcloudFile) {
+        Task {
+            do {
+                let data = try await NextcloudService.shared.downloadFile(file.path)
+                let dir = FileManager.default.temporaryDirectory.appendingPathComponent("portfolio_imports", isDirectory: true)
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let local = dir.appendingPathComponent(UUID().uuidString + "-" + file.name)
+                try data.write(to: local, options: .atomic)
+                defer { try? FileManager.default.removeItem(at: local) }
+                let count = viewModel.importCsv(from: local)
+                showToast(
+                    count > 0 ? "Imported \(count) transaction\(count == 1 ? "" : "s")" : "Import failed. Check the CSV format",
+                    style: count > 0 ? .success : .error
+                )
+            } catch {
+                showToast(localizedFormat("Import from Nextcloud failed: %@", UserFacingError.message(for: error)), style: .error)
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -411,12 +471,30 @@ struct PortfolioTransactionsView<Header: View>: View {
                 showImportExport = false
                 exportCsv()
             }
+            if nextcloud.isConnected {
+                ActionSheetRow(
+                    title: "Import from Nextcloud",
+                    subtitle: "Pick a CSV file from your Nextcloud.",
+                    systemImage: "icloud.and.arrow.down"
+                ) {
+                    showImportExport = false
+                    DispatchQueue.main.async { showNextcloudImporter = true }
+                }
+                ActionSheetRow(
+                    title: "Export to Nextcloud",
+                    subtitle: "Save the CSV to the KaChat folder in your Nextcloud.",
+                    systemImage: "icloud.and.arrow.up"
+                ) {
+                    showImportExport = false
+                    exportToNextcloud()
+                }
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(280)])
+        .presentationDetents([.height(nextcloud.isConnected ? 450 : 280)])
         .presentationDragIndicator(.visible)
     }
 
