@@ -833,3 +833,35 @@
 "Previous" = "আগের";
 "Email" = "ইমেইল";
 "Help" = "সাহায্য";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "অফার";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "আপনার দেওয়া অফার এবং আপনার নামে আসা অফার। এখান থেকেই একটি গ্রহণ করুন বা আপনারটি তুলে নিন।";
+"No offers yet." = "এখনো কোনো অফার নেই।";
+"Offer" = "অফার";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "নিজের দাম বলুন। বিক্রেতা গ্রহণ না করা, আপনি অফার তুলে না নেওয়া বা মেয়াদ শেষ না হওয়া পর্যন্ত আপনার KAS চেইনে অপেক্ষা করে - আর আগে বিক্রেতাকে মেসেজও করতে পারেন।";
+"Listing" = "তালিকা";
+"Price" = "দাম";
+"Buy Now" = "এখনই কিনুন";
+"Make an Offer" = "অফার দিন";
+"Seller" = "বিক্রেতা";
+"Ask about the name, or agree on a price before you offer." = "অফার দেওয়ার আগে নামটি সম্পর্কে জিজ্ঞেস করুন বা দাম ঠিক করে নিন।";
+"Open offers on this name, highest first. The seller can accept any of them." = "এই নামে খোলা অফার, সবচেয়ে বেশি আগে। বিক্রেতা যেকোনোটি গ্রহণ করতে পারেন।";
+"History" = "ইতিহাস";
+"Buying pays the seller and moves the name to you in one transaction." = "কিনলে একটি লেনদেনেই বিক্রেতা টাকা পান এবং নামটি আপনার কাছে আসে।";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "অফার আপনার KAS চেইনে লক করে রাখে, যতক্ষণ না বিক্রেতা গ্রহণ করেন, আপনি তুলে নেন বা মেয়াদ শেষ হয়।";
+"Messages go to the seller like any KaChat chat." = "মেসেজ বিক্রেতার কাছে যেকোনো KaChat চ্যাটের মতোই যায়।";
+"Network fee" = "নেটওয়ার্ক ফি";
+"Confirm Purchase" = "কেনা নিশ্চিত করুন";
+"Buying opens when .kachat names launch." = ".kachat নাম চালু হলে কেনা খুলবে।";
+"Buy Name" = "নাম কিনুন";
+"1 Day" = "১ দিন";
+"3 Days" = "৩ দিন";
+"30 Days" = "৩০ দিন";
+"Listed at" = "তালিকাভুক্ত দাম";
+"Your offer" = "আপনার অফার";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "বিক্রেতা গ্রহণ না করা, আপনি অফার তুলে না নেওয়া বা মেয়াদ শেষ না হওয়া পর্যন্ত আপনার KAS চেইনে লক থাকে। আর কেউ এতে হাত দিতে পারে না।";
+"Expires" = "মেয়াদ";
+"Expires after" = "মেয়াদ শেষ হবে";
+"Send Offer" = "অফার পাঠান";
+"Offers open when .kachat names launch." = ".kachat নাম চালু হলে অফার খুলবে।";

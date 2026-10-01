@@ -833,3 +833,35 @@
 "Previous" = "Sebelumnya";
 "Email" = "Email";
 "Help" = "Bantuan";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "Penawaran";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Penawaran yang kamu buat dan penawaran untuk namamu. Terima salah satunya atau tarik penawaranmu di sini.";
+"No offers yet." = "Belum ada penawaran.";
+"Offer" = "Penawaran";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Tentukan hargamu sendiri. KAS-mu menunggu di chain sampai penjual menerima, kamu menarik penawaran, atau penawaran kedaluwarsa - dan kamu bisa mengirim pesan ke penjual dulu.";
+"Listing" = "Daftar Jual";
+"Price" = "Harga";
+"Buy Now" = "Beli Sekarang";
+"Make an Offer" = "Buat Penawaran";
+"Seller" = "Penjual";
+"Ask about the name, or agree on a price before you offer." = "Tanyakan soal nama ini atau sepakati harga sebelum menawar.";
+"Open offers on this name, highest first. The seller can accept any of them." = "Penawaran terbuka untuk nama ini, yang tertinggi lebih dulu. Penjual bisa menerima yang mana saja.";
+"History" = "Riwayat";
+"Buying pays the seller and moves the name to you in one transaction." = "Membeli membayar penjual dan memindahkan nama kepadamu dalam satu transaksi.";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "Penawaran mengunci KAS-mu di chain sampai penjual menerimanya, kamu menariknya, atau kedaluwarsa.";
+"Messages go to the seller like any KaChat chat." = "Pesan sampai ke penjual seperti obrolan KaChat biasa.";
+"Network fee" = "Biaya jaringan";
+"Confirm Purchase" = "Konfirmasi Pembelian";
+"Buying opens when .kachat names launch." = "Pembelian dibuka saat nama .kachat diluncurkan.";
+"Buy Name" = "Beli Nama";
+"1 Day" = "1 Hari";
+"3 Days" = "3 Hari";
+"30 Days" = "30 Hari";
+"Listed at" = "Harga jual";
+"Your offer" = "Penawaranmu";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS-mu tetap terkunci di chain sampai penjual menerima, kamu menarik penawaran, atau kedaluwarsa. Tidak ada orang lain yang bisa menyentuhnya.";
+"Expires" = "Kedaluwarsa";
+"Expires after" = "Kedaluwarsa setelah";
+"Send Offer" = "Kirim Penawaran";
+"Offers open when .kachat names launch." = "Penawaran dibuka saat nama .kachat diluncurkan.";

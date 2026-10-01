@@ -833,3 +833,35 @@
 "Previous" = "Anterior";
 "Email" = "E-mail";
 "Help" = "Ajuda";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "Ofertas";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Ofertas que você fez e ofertas pelos seus nomes. Aceite uma ou retire a sua por aqui.";
+"No offers yet." = "Nenhuma oferta ainda.";
+"Offer" = "Oferta";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Proponha seu preço. Seus KAS ficam na blockchain até o vendedor aceitar, você retirar a oferta ou ela expirar - e você pode mandar mensagem ao vendedor antes.";
+"Listing" = "Anúncio";
+"Price" = "Preço";
+"Buy Now" = "Comprar agora";
+"Make an Offer" = "Fazer uma oferta";
+"Seller" = "Vendedor";
+"Ask about the name, or agree on a price before you offer." = "Pergunte sobre o nome ou combinem um preço antes de ofertar.";
+"Open offers on this name, highest first. The seller can accept any of them." = "Ofertas abertas neste nome, a maior primeiro. O vendedor pode aceitar qualquer uma.";
+"History" = "Histórico";
+"Buying pays the seller and moves the name to you in one transaction." = "Comprar paga o vendedor e transfere o nome para você em uma única transação.";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "Uma oferta bloqueia seus KAS na blockchain até o vendedor aceitar, você retirar ou ela expirar.";
+"Messages go to the seller like any KaChat chat." = "As mensagens chegam ao vendedor como qualquer chat do KaChat.";
+"Network fee" = "Taxa de rede";
+"Confirm Purchase" = "Confirmar compra";
+"Buying opens when .kachat names launch." = "A compra abre quando os nomes .kachat forem lançados.";
+"Buy Name" = "Comprar nome";
+"1 Day" = "1 dia";
+"3 Days" = "3 dias";
+"30 Days" = "30 dias";
+"Listed at" = "Preço anunciado";
+"Your offer" = "Sua oferta";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "Seus KAS ficam bloqueados na blockchain até o vendedor aceitar, você retirar a oferta ou ela expirar. Ninguém mais pode mexer neles.";
+"Expires" = "Expira";
+"Expires after" = "Expira após";
+"Send Offer" = "Enviar oferta";
+"Offers open when .kachat names launch." = "As ofertas abrem quando os nomes .kachat forem lançados.";

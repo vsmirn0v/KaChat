@@ -833,3 +833,35 @@
 "Previous" = "قبلی";
 "Email" = "ایمیل";
 "Help" = "راهنما";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "پیشنهادها";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "پیشنهادهایی که داده‌اید و پیشنهادها برای نام‌های شما. از اینجا یکی را بپذیرید یا پیشنهاد خود را پس بگیرید.";
+"No offers yet." = "هنوز پیشنهادی نیست.";
+"Offer" = "پیشنهاد";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "قیمت خودتان را بدهید. KAS شما روی زنجیره منتظر می‌ماند تا فروشنده بپذیرد، پیشنهاد را پس بگیرید یا منقضی شود - و می‌توانید اول به فروشنده پیام بدهید.";
+"Listing" = "آگهی";
+"Price" = "قیمت";
+"Buy Now" = "خرید فوری";
+"Make an Offer" = "ارائه پیشنهاد";
+"Seller" = "فروشنده";
+"Ask about the name, or agree on a price before you offer." = "پیش از پیشنهاد، درباره نام بپرسید یا روی قیمت توافق کنید.";
+"Open offers on this name, highest first. The seller can accept any of them." = "پیشنهادهای باز برای این نام، بالاترین اول. فروشنده می‌تواند هر کدام را بپذیرد.";
+"History" = "سابقه";
+"Buying pays the seller and moves the name to you in one transaction." = "خرید، مبلغ را به فروشنده می‌پردازد و نام را در یک تراکنش به شما منتقل می‌کند.";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "پیشنهاد، KAS شما را روی زنجیره قفل می‌کند تا فروشنده بپذیرد، پس بگیرید یا منقضی شود.";
+"Messages go to the seller like any KaChat chat." = "پیام‌ها مثل هر گفتگوی KaChat به فروشنده می‌رسند.";
+"Network fee" = "کارمزد شبکه";
+"Confirm Purchase" = "تأیید خرید";
+"Buying opens when .kachat names launch." = "خرید با راه‌اندازی نام‌های ‎.kachat باز می‌شود.";
+"Buy Name" = "خرید نام";
+"1 Day" = "۱ روز";
+"3 Days" = "۳ روز";
+"30 Days" = "۳۰ روز";
+"Listed at" = "قیمت آگهی";
+"Your offer" = "پیشنهاد شما";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS شما روی زنجیره قفل می‌ماند تا فروشنده بپذیرد، پیشنهاد را پس بگیرید یا منقضی شود. هیچ‌کس دیگری نمی‌تواند به آن دست بزند.";
+"Expires" = "انقضا";
+"Expires after" = "انقضا پس از";
+"Send Offer" = "ارسال پیشنهاد";
+"Offers open when .kachat names launch." = "پیشنهادها با راه‌اندازی نام‌های ‎.kachat باز می‌شوند.";

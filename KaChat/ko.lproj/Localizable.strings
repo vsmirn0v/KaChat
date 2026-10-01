@@ -833,3 +833,35 @@
 "Previous" = "이전";
 "Email" = "이메일";
 "Help" = "도움말";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "제안";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "내가 한 제안과 내 이름에 들어온 제안입니다. 여기서 제안을 수락하거나 내 제안을 철회할 수 있습니다.";
+"No offers yet." = "아직 제안이 없습니다.";
+"Offer" = "제안";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "원하는 가격을 제시하세요. KAS는 판매자가 수락하거나, 제안을 철회하거나, 만료될 때까지 체인에서 대기합니다. 먼저 판매자에게 메시지를 보낼 수도 있습니다.";
+"Listing" = "판매 목록";
+"Price" = "가격";
+"Buy Now" = "지금 구매";
+"Make an Offer" = "제안하기";
+"Seller" = "판매자";
+"Ask about the name, or agree on a price before you offer." = "제안하기 전에 이름에 대해 묻거나 가격을 협의하세요.";
+"Open offers on this name, highest first. The seller can accept any of them." = "이 이름에 대한 열린 제안, 높은 순. 판매자는 어느 것이든 수락할 수 있습니다.";
+"History" = "기록";
+"Buying pays the seller and moves the name to you in one transaction." = "구매하면 하나의 트랜잭션으로 판매자에게 대금이 지급되고 이름이 이전됩니다.";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "제안은 판매자가 수락하거나, 철회하거나, 만료될 때까지 KAS를 체인에 잠가 둡니다.";
+"Messages go to the seller like any KaChat chat." = "메시지는 일반 KaChat 채팅처럼 판매자에게 전달됩니다.";
+"Network fee" = "네트워크 수수료";
+"Confirm Purchase" = "구매 확인";
+"Buying opens when .kachat names launch." = ".kachat 이름이 출시되면 구매할 수 있습니다.";
+"Buy Name" = "이름 구매";
+"1 Day" = "1일";
+"3 Days" = "3일";
+"30 Days" = "30일";
+"Listed at" = "판매 가격";
+"Your offer" = "내 제안";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS는 판매자가 수락하거나, 제안을 철회하거나, 만료될 때까지 체인에 잠겨 있습니다. 다른 누구도 손댈 수 없습니다.";
+"Expires" = "만료";
+"Expires after" = "만료 기간";
+"Send Offer" = "제안 보내기";
+"Offers open when .kachat names launch." = ".kachat 이름이 출시되면 제안할 수 있습니다.";

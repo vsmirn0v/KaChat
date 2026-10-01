@@ -833,3 +833,35 @@
 "Previous" = "Geri";
 "Email" = "E-posta";
 "Help" = "Yardım";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "Teklifler";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Yaptığın teklifler ve adlarına gelen teklifler. Buradan birini kabul edebilir ya da kendi teklifini geri çekebilirsin.";
+"No offers yet." = "Henüz teklif yok.";
+"Offer" = "Teklif";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Kendi fiyatını belirle. KAS'ın satıcı kabul edene, teklifi geri çekene ya da süresi dolana kadar zincirde bekler - önce satıcıya mesaj da atabilirsin.";
+"Listing" = "İlan";
+"Price" = "Fiyat";
+"Buy Now" = "Hemen Al";
+"Make an Offer" = "Teklif Ver";
+"Seller" = "Satıcı";
+"Ask about the name, or agree on a price before you offer." = "Teklif vermeden önce adı sor ya da fiyatta anlaş.";
+"Open offers on this name, highest first. The seller can accept any of them." = "Bu ada açık teklifler, en yükseği önce. Satıcı herhangi birini kabul edebilir.";
+"History" = "Geçmiş";
+"Buying pays the seller and moves the name to you in one transaction." = "Satın alma, satıcıya ödemeyi ve adın sana geçişini tek işlemde yapar.";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "Teklif, satıcı kabul edene, sen geri çekene ya da süresi dolana kadar KAS'ını zincirde kilitler.";
+"Messages go to the seller like any KaChat chat." = "Mesajlar satıcıya her KaChat sohbeti gibi gider.";
+"Network fee" = "Ağ ücreti";
+"Confirm Purchase" = "Satın Almayı Onayla";
+"Buying opens when .kachat names launch." = "Satın alma .kachat adları başlayınca açılacak.";
+"Buy Name" = "Adı Satın Al";
+"1 Day" = "1 Gün";
+"3 Days" = "3 Gün";
+"30 Days" = "30 Gün";
+"Listed at" = "İlan fiyatı";
+"Your offer" = "Teklifin";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS'ın satıcı kabul edene, teklifi geri çekene ya da süresi dolana kadar zincirde kilitli kalır. Başka kimse dokunamaz.";
+"Expires" = "Süre";
+"Expires after" = "Süre sonu";
+"Send Offer" = "Teklifi Gönder";
+"Offers open when .kachat names launch." = "Teklifler .kachat adları başlayınca açılacak.";

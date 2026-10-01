@@ -833,3 +833,35 @@
 "Previous" = "Назад";
 "Email" = "Эл. почта";
 "Help" = "Помощь";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "Предложения";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Ваши предложения и предложения на ваши имена. Здесь можно принять предложение или отозвать своё.";
+"No offers yet." = "Пока нет предложений.";
+"Offer" = "Предложение";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Назовите свою цену. Ваши KAS ждут в блокчейне, пока продавец не примет предложение, вы его не отзовёте или оно не истечёт, а продавцу можно сначала написать.";
+"Listing" = "Объявление";
+"Price" = "Цена";
+"Buy Now" = "Купить сейчас";
+"Make an Offer" = "Сделать предложение";
+"Seller" = "Продавец";
+"Ask about the name, or agree on a price before you offer." = "Спросите об имени или договоритесь о цене перед предложением.";
+"Open offers on this name, highest first. The seller can accept any of them." = "Открытые предложения на это имя, сначала самые высокие. Продавец может принять любое.";
+"History" = "История";
+"Buying pays the seller and moves the name to you in one transaction." = "Покупка оплачивает продавцу и передаёт вам имя одной транзакцией.";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "Предложение блокирует ваши KAS в блокчейне, пока продавец его не примет, вы его не отзовёте или оно не истечёт.";
+"Messages go to the seller like any KaChat chat." = "Сообщения приходят продавцу, как любой чат KaChat.";
+"Network fee" = "Комиссия сети";
+"Confirm Purchase" = "Подтвердить покупку";
+"Buying opens when .kachat names launch." = "Покупка откроется с запуском имён .kachat.";
+"Buy Name" = "Купить имя";
+"1 Day" = "1 день";
+"3 Days" = "3 дня";
+"30 Days" = "30 дней";
+"Listed at" = "Цена продажи";
+"Your offer" = "Ваше предложение";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "Ваши KAS заблокированы в блокчейне, пока продавец не примет предложение, вы его не отзовёте или оно не истечёт. Больше никто не может их тронуть.";
+"Expires" = "Истекает";
+"Expires after" = "Истекает через";
+"Send Offer" = "Отправить предложение";
+"Offers open when .kachat names launch." = "Предложения откроются с запуском имён .kachat.";

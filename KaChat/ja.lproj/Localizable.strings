@@ -833,3 +833,35 @@
 "Previous" = "戻る";
 "Email" = "メール";
 "Help" = "ヘルプ";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "オファー";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "あなたが出したオファーと、あなたの名前へのオファー。ここで承諾したり、自分のオファーを取り下げたりできます。";
+"No offers yet." = "オファーはまだありません。";
+"Offer" = "オファー";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "希望の価格を提示できます。KAS は売り手が承諾するか、取り下げるか、期限が切れるまでオンチェーンで待機します。事前に売り手にメッセージも送れます。";
+"Listing" = "出品";
+"Price" = "価格";
+"Buy Now" = "今すぐ購入";
+"Make an Offer" = "オファーする";
+"Seller" = "売り手";
+"Ask about the name, or agree on a price before you offer." = "オファーの前に名前について質問したり、価格を相談したりできます。";
+"Open offers on this name, highest first. The seller can accept any of them." = "この名前へのオファー（高い順）。売り手はどれでも承諾できます。";
+"History" = "履歴";
+"Buying pays the seller and moves the name to you in one transaction." = "購入すると、1つのトランザクションで売り手への支払いとあなたへの名前の移転が行われます。";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "オファーは、売り手が承諾するか、取り下げるか、期限が切れるまで KAS をオンチェーンでロックします。";
+"Messages go to the seller like any KaChat chat." = "メッセージは通常の KaChat チャットと同じように売り手に届きます。";
+"Network fee" = "ネットワーク手数料";
+"Confirm Purchase" = "購入を確定";
+"Buying opens when .kachat names launch." = ".kachat 名が始まると購入できるようになります。";
+"Buy Name" = "名前を購入";
+"1 Day" = "1日";
+"3 Days" = "3日";
+"30 Days" = "30日";
+"Listed at" = "出品価格";
+"Your offer" = "あなたのオファー";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS は売り手が承諾するか、オファーを取り下げるか、期限が切れるまでオンチェーンでロックされます。他の誰も触れられません。";
+"Expires" = "期限";
+"Expires after" = "期限";
+"Send Offer" = "オファーを送信";
+"Offers open when .kachat names launch." = ".kachat 名が始まるとオファーできるようになります。";

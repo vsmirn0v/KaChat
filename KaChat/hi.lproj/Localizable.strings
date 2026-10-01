@@ -833,3 +833,35 @@
 "Previous" = "पिछला";
 "Email" = "ईमेल";
 "Help" = "सहायता";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "ऑफ़र";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "आपके दिए ऑफ़र और आपके नामों पर आए ऑफ़र। यहीं से कोई ऑफ़र स्वीकारें या अपना वापस लें।";
+"No offers yet." = "अभी कोई ऑफ़र नहीं।";
+"Offer" = "ऑफ़र";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "अपनी कीमत तय करें। आपके KAS चेन पर तब तक रुके रहते हैं जब तक विक्रेता स्वीकार न करे, आप ऑफ़र वापस न लें या वह समाप्त न हो - और आप पहले विक्रेता को मैसेज कर सकते हैं।";
+"Listing" = "लिस्टिंग";
+"Price" = "कीमत";
+"Buy Now" = "अभी खरीदें";
+"Make an Offer" = "ऑफ़र दें";
+"Seller" = "विक्रेता";
+"Ask about the name, or agree on a price before you offer." = "ऑफ़र देने से पहले नाम के बारे में पूछें या कीमत तय करें।";
+"Open offers on this name, highest first. The seller can accept any of them." = "इस नाम पर खुले ऑफ़र, सबसे ऊँचा पहले। विक्रेता इनमें से कोई भी स्वीकार कर सकता है।";
+"History" = "इतिहास";
+"Buying pays the seller and moves the name to you in one transaction." = "खरीदने पर एक ही लेन-देन में विक्रेता को भुगतान होता है और नाम आपको मिल जाता है।";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "ऑफ़र आपके KAS को चेन पर लॉक करता है जब तक विक्रेता उसे स्वीकार न करे, आप उसे वापस न लें या वह समाप्त न हो।";
+"Messages go to the seller like any KaChat chat." = "मैसेज विक्रेता तक किसी भी KaChat चैट की तरह पहुँचते हैं।";
+"Network fee" = "नेटवर्क शुल्क";
+"Confirm Purchase" = "खरीद की पुष्टि करें";
+"Buying opens when .kachat names launch." = ".kachat नाम शुरू होने पर खरीद खुलेगी।";
+"Buy Name" = "नाम खरीदें";
+"1 Day" = "1 दिन";
+"3 Days" = "3 दिन";
+"30 Days" = "30 दिन";
+"Listed at" = "लिस्टेड कीमत";
+"Your offer" = "आपका ऑफ़र";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "आपके KAS चेन पर लॉक रहते हैं जब तक विक्रेता स्वीकार न करे, आप ऑफ़र वापस न लें या वह समाप्त न हो। कोई और उन्हें छू नहीं सकता।";
+"Expires" = "समाप्ति";
+"Expires after" = "इसके बाद समाप्त";
+"Send Offer" = "ऑफ़र भेजें";
+"Offers open when .kachat names launch." = ".kachat नाम शुरू होने पर ऑफ़र खुलेंगे।";

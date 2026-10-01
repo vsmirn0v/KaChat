@@ -834,3 +834,35 @@
 "Previous" = "Previous";
 "Email" = "Email";
 "Help" = "Help";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "Offers";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here.";
+"No offers yet." = "No offers yet.";
+"Offer" = "Offer";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first.";
+"Listing" = "Listing";
+"Price" = "Price";
+"Buy Now" = "Buy Now";
+"Make an Offer" = "Make an Offer";
+"Seller" = "Seller";
+"Ask about the name, or agree on a price before you offer." = "Ask about the name, or agree on a price before you offer.";
+"Open offers on this name, highest first. The seller can accept any of them." = "Open offers on this name, highest first. The seller can accept any of them.";
+"History" = "History";
+"Buying pays the seller and moves the name to you in one transaction." = "Buying pays the seller and moves the name to you in one transaction.";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires.";
+"Messages go to the seller like any KaChat chat." = "Messages go to the seller like any KaChat chat.";
+"Network fee" = "Network fee";
+"Confirm Purchase" = "Confirm Purchase";
+"Buying opens when .kachat names launch." = "Buying opens when .kachat names launch.";
+"Buy Name" = "Buy Name";
+"1 Day" = "1 Day";
+"3 Days" = "3 Days";
+"30 Days" = "30 Days";
+"Listed at" = "Listed at";
+"Your offer" = "Your offer";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it.";
+"Expires" = "Expires";
+"Expires after" = "Expires after";
+"Send Offer" = "Send Offer";
+"Offers open when .kachat names launch." = "Offers open when .kachat names launch.";

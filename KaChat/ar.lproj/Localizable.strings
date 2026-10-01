@@ -833,3 +833,35 @@
 "Previous" = "السابق";
 "Email" = "البريد الإلكتروني";
 "Help" = "المساعدة";
+
+/* 5.2: .kachat listing, buy and offer */
+"Offers" = "العروض";
+"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "العروض التي قدمتها والعروض على أسمائك. اقبل عرضًا أو اسحب عرضك من هنا.";
+"No offers yet." = "لا توجد عروض بعد.";
+"Offer" = "عرض";
+"Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "حدّد سعرك. تنتظر KAS الخاصة بك على السلسلة حتى يقبل البائع أو تسحب العرض أو تنتهي صلاحيته - ويمكنك مراسلة البائع أولًا.";
+"Listing" = "إعلان البيع";
+"Price" = "السعر";
+"Buy Now" = "اشترِ الآن";
+"Make an Offer" = "قدّم عرضًا";
+"Seller" = "البائع";
+"Ask about the name, or agree on a price before you offer." = "اسأل عن الاسم أو اتفقا على سعر قبل تقديم العرض.";
+"Open offers on this name, highest first. The seller can accept any of them." = "العروض المفتوحة على هذا الاسم، الأعلى أولًا. يمكن للبائع قبول أي منها.";
+"History" = "السجل";
+"Buying pays the seller and moves the name to you in one transaction." = "الشراء يدفع للبائع وينقل الاسم إليك في معاملة واحدة.";
+"An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires." = "العرض يقفل KAS الخاصة بك على السلسلة حتى يقبله البائع أو تسحبه أو تنتهي صلاحيته.";
+"Messages go to the seller like any KaChat chat." = "تصل الرسائل إلى البائع مثل أي محادثة في KaChat.";
+"Network fee" = "رسوم الشبكة";
+"Confirm Purchase" = "تأكيد الشراء";
+"Buying opens when .kachat names launch." = "يُفتح الشراء عند إطلاق أسماء ‎.kachat.";
+"Buy Name" = "شراء الاسم";
+"1 Day" = "يوم واحد";
+"3 Days" = "3 أيام";
+"30 Days" = "30 يومًا";
+"Listed at" = "سعر العرض";
+"Your offer" = "عرضك";
+"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "تبقى KAS الخاصة بك مقفلة على السلسلة حتى يقبل البائع أو تسحب العرض أو تنتهي صلاحيته. لا يمكن لأحد غيرك لمسها.";
+"Expires" = "تنتهي";
+"Expires after" = "تنتهي بعد";
+"Send Offer" = "إرسال العرض";
+"Offers open when .kachat names launch." = "تُفتح العروض عند إطلاق أسماء ‎.kachat.";
