@@ -706,3 +706,6 @@
 "Share" = "Paylaş";
 "Back to the text as it was sent." = "Gönderildiği hâliyle metne dön.";
 "The translated text again." = "Yine çevrilmiş metin.";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts, Herkese Açık Sohbetler ve Kaspa Websites, dock'unda olmadıklarında burada görünür. Bunları Ayarlar > Customization > Customize Dock bölümünden yönet.";

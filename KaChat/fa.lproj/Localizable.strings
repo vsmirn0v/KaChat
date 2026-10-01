@@ -706,3 +706,6 @@
 "Share" = "اشتراک‌گذاری";
 "Back to the text as it was sent." = "بازگشت به متن همان‌طور که فرستاده شد.";
 "The translated text again." = "دوباره متن ترجمه‌شده.";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts، گفتگوهای عمومی و Kaspa Websites وقتی در داک شما نباشند اینجا نمایش داده می‌شوند. آن‌ها را در تنظیمات > Customization > Customize Dock مدیریت کنید.";

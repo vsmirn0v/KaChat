@@ -707,3 +707,6 @@
 "Share" = "Partager";
 "Back to the text as it was sent." = "Revenir au texte tel qu'il a été envoyé.";
 "The translated text again." = "De nouveau le texte traduit.";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts, Discussions publiques et Kaspa Websites apparaissent ici lorsqu'ils ne sont pas dans votre dock. Gérez-les dans Réglages > Customization > Customize Dock.";

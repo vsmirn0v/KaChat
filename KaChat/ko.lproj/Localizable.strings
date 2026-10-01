@@ -706,3 +706,6 @@
 "Share" = "공유";
 "Back to the text as it was sent." = "보낸 그대로의 텍스트로 돌아갑니다.";
 "The translated text again." = "번역된 텍스트를 다시 봅니다.";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts, 공개 채팅, Kaspa Websites는 독에 없을 때 여기에 표시됩니다. 설정 > Customization > Customize Dock에서 관리하세요.";

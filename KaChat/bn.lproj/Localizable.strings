@@ -706,3 +706,6 @@
 "Share" = "শেয়ার করুন";
 "Back to the text as it was sent." = "যেভাবে পাঠানো হয়েছিল সেই লেখায় ফিরুন।";
 "The translated text again." = "আবার অনূদিত লেখা।";
+
+/* Kaspa Hub empty state (Swap off) */
+"KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock." = "KaPosts, পাবলিক চ্যাট ও Kaspa Websites আপনার ডকে না থাকলে এখানে দেখা যায়। সেটিংস > Customization > Customize Dock থেকে এগুলো পরিচালনা করুন।";

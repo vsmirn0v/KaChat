@@ -235,7 +235,7 @@ struct EcosystemView: View {
                 .opacity(0.5)
             Text("Nothing here right now")
                 .font(.headline)
-            Text("KaPosts, Public Chats, ChangeNOW Swap and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock.")
+            Text("KaPosts, Public Chats and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
