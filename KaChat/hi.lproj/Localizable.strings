@@ -865,3 +865,14 @@
 "Expires after" = "इसके बाद समाप्त";
 "Send Offer" = "ऑफ़र भेजें";
 "Offers open when .kachat names launch." = ".kachat नाम शुरू होने पर ऑफ़र खुलेंगे।";
+
+/* 5.2: Portfolio export/import with Nextcloud */
+"Import from Nextcloud" = "Nextcloud से इम्पोर्ट करें";
+"Pick a CSV file from your Nextcloud." = "अपने Nextcloud से एक CSV फ़ाइल चुनें।";
+"Export to Nextcloud" = "Nextcloud में एक्सपोर्ट करें";
+"Save the CSV to the KaChat folder in your Nextcloud." = "CSV को आपके Nextcloud के KaChat फ़ोल्डर में सहेजता है।";
+"Saved to %@ in Nextcloud." = "Nextcloud में %@ पर सहेजा गया।";
+"Export to Nextcloud failed: %@" = "Nextcloud में एक्सपोर्ट विफल: %@";
+"Import from Nextcloud failed: %@" = "Nextcloud से इम्पोर्ट विफल: %@";
+"All Files" = "सभी फ़ाइलें";
+"This folder is empty." = "यह फ़ोल्डर खाली है।";

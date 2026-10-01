@@ -865,3 +865,14 @@
 "Expires after" = "有效期";
 "Send Offer" = "发送出价";
 "Offers open when .kachat names launch." = ".kachat 名称上线后即可出价。";
+
+/* 5.2: Portfolio export/import with Nextcloud */
+"Import from Nextcloud" = "从 Nextcloud 导入";
+"Pick a CSV file from your Nextcloud." = "从你的 Nextcloud 选择一个 CSV 文件。";
+"Export to Nextcloud" = "导出到 Nextcloud";
+"Save the CSV to the KaChat folder in your Nextcloud." = "将 CSV 保存到你 Nextcloud 中的 KaChat 文件夹。";
+"Saved to %@ in Nextcloud." = "已保存到 Nextcloud 的 %@。";
+"Export to Nextcloud failed: %@" = "导出到 Nextcloud 失败：%@";
+"Import from Nextcloud failed: %@" = "从 Nextcloud 导入失败：%@";
+"All Files" = "所有文件";
+"This folder is empty." = "此文件夹为空。";

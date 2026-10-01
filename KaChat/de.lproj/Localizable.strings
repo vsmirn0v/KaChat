@@ -812,3 +812,14 @@
 "Expires after" = "Läuft ab nach";
 "Send Offer" = "Angebot senden";
 "Offers open when .kachat names launch." = "Angebote sind möglich, sobald .kachat-Namen starten.";
+
+/* 5.2: Portfolio export/import with Nextcloud */
+"Import from Nextcloud" = "Aus Nextcloud importieren";
+"Pick a CSV file from your Nextcloud." = "Wähle eine CSV-Datei aus deiner Nextcloud.";
+"Export to Nextcloud" = "In Nextcloud exportieren";
+"Save the CSV to the KaChat folder in your Nextcloud." = "Speichert die CSV im KaChat-Ordner deiner Nextcloud.";
+"Saved to %@ in Nextcloud." = "In Nextcloud unter %@ gespeichert.";
+"Export to Nextcloud failed: %@" = "Export in Nextcloud fehlgeschlagen: %@";
+"Import from Nextcloud failed: %@" = "Import aus Nextcloud fehlgeschlagen: %@";
+"All Files" = "Alle Dateien";
+"This folder is empty." = "Dieser Ordner ist leer.";

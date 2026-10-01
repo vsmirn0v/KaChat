@@ -865,3 +865,14 @@
 "Expires after" = "Истекает через";
 "Send Offer" = "Отправить предложение";
 "Offers open when .kachat names launch." = "Предложения откроются с запуском имён .kachat.";
+
+/* 5.2: Portfolio export/import with Nextcloud */
+"Import from Nextcloud" = "Импорт из Nextcloud";
+"Pick a CSV file from your Nextcloud." = "Выберите CSV-файл в вашем Nextcloud.";
+"Export to Nextcloud" = "Экспорт в Nextcloud";
+"Save the CSV to the KaChat folder in your Nextcloud." = "Сохраняет CSV в папку KaChat вашего Nextcloud.";
+"Saved to %@ in Nextcloud." = "Сохранено в %@ в Nextcloud.";
+"Export to Nextcloud failed: %@" = "Не удалось экспортировать в Nextcloud: %@";
+"Import from Nextcloud failed: %@" = "Не удалось импортировать из Nextcloud: %@";
+"All Files" = "Все файлы";
+"This folder is empty." = "Эта папка пуста.";

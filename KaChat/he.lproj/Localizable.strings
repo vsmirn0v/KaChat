@@ -865,3 +865,14 @@
 "Expires after" = "פג תוקף אחרי";
 "Send Offer" = "שליחת הצעה";
 "Offers open when .kachat names launch." = "ההצעות ייפתחו עם השקת שמות ‎.kachat.";
+
+/* 5.2: Portfolio export/import with Nextcloud */
+"Import from Nextcloud" = "ייבוא מ-Nextcloud";
+"Pick a CSV file from your Nextcloud." = "בחרו קובץ CSV מה-Nextcloud שלכם.";
+"Export to Nextcloud" = "ייצוא ל-Nextcloud";
+"Save the CSV to the KaChat folder in your Nextcloud." = "שומר את קובץ ה-CSV בתיקיית KaChat ב-Nextcloud שלכם.";
+"Saved to %@ in Nextcloud." = "נשמר ב-%@ ב-Nextcloud.";
+"Export to Nextcloud failed: %@" = "הייצוא ל-Nextcloud נכשל: %@";
+"Import from Nextcloud failed: %@" = "הייבוא מ-Nextcloud נכשל: %@";
+"All Files" = "כל הקבצים";
+"This folder is empty." = "התיקייה הזו ריקה.";

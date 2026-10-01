@@ -865,3 +865,14 @@
 "Expires after" = "Süre sonu";
 "Send Offer" = "Teklifi Gönder";
 "Offers open when .kachat names launch." = "Teklifler .kachat adları başlayınca açılacak.";
+
+/* 5.2: Portfolio export/import with Nextcloud */
+"Import from Nextcloud" = "Nextcloud'dan İçe Aktar";
+"Pick a CSV file from your Nextcloud." = "Nextcloud'undan bir CSV dosyası seç.";
+"Export to Nextcloud" = "Nextcloud'a Dışa Aktar";
+"Save the CSV to the KaChat folder in your Nextcloud." = "CSV'yi Nextcloud'undaki KaChat klasörüne kaydeder.";
+"Saved to %@ in Nextcloud." = "Nextcloud'da %@ konumuna kaydedildi.";
+"Export to Nextcloud failed: %@" = "Nextcloud'a dışa aktarma başarısız: %@";
+"Import from Nextcloud failed: %@" = "Nextcloud'dan içe aktarma başarısız: %@";
+"All Files" = "Tüm Dosyalar";
+"This folder is empty." = "Bu klasör boş.";

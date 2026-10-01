@@ -865,3 +865,14 @@
 "Expires after" = "Hết hạn sau";
 "Send Offer" = "Gửi đề nghị";
 "Offers open when .kachat names launch." = "Đề nghị sẽ mở khi tên .kachat ra mắt.";
+
+/* 5.2: Portfolio export/import with Nextcloud */
+"Import from Nextcloud" = "Nhập từ Nextcloud";
+"Pick a CSV file from your Nextcloud." = "Chọn một tệp CSV từ Nextcloud của bạn.";
+"Export to Nextcloud" = "Xuất sang Nextcloud";
+"Save the CSV to the KaChat folder in your Nextcloud." = "Lưu tệp CSV vào thư mục KaChat trên Nextcloud của bạn.";
+"Saved to %@ in Nextcloud." = "Đã lưu vào %@ trên Nextcloud.";
+"Export to Nextcloud failed: %@" = "Xuất sang Nextcloud thất bại: %@";
+"Import from Nextcloud failed: %@" = "Nhập từ Nextcloud thất bại: %@";
+"All Files" = "Tất cả tệp";
+"This folder is empty." = "Thư mục này trống.";

@@ -865,3 +865,14 @@
 "Expires after" = "期限";
 "Send Offer" = "オファーを送信";
 "Offers open when .kachat names launch." = ".kachat 名が始まるとオファーできるようになります。";
+
+/* 5.2: Portfolio export/import with Nextcloud */
+"Import from Nextcloud" = "Nextcloud から読み込む";
+"Pick a CSV file from your Nextcloud." = "Nextcloud から CSV ファイルを選びます。";
+"Export to Nextcloud" = "Nextcloud に書き出す";
+"Save the CSV to the KaChat folder in your Nextcloud." = "CSV を Nextcloud の KaChat フォルダに保存します。";
+"Saved to %@ in Nextcloud." = "Nextcloud の %@ に保存しました。";
+"Export to Nextcloud failed: %@" = "Nextcloud への書き出しに失敗しました：%@";
+"Import from Nextcloud failed: %@" = "Nextcloud からの読み込みに失敗しました：%@";
+"All Files" = "すべてのファイル";
+"This folder is empty." = "このフォルダは空です。";
