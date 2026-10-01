@@ -66,7 +66,7 @@ The app uses MVVM architecture with global singleton services injected via Swift
 ### Network Communication
 
 - **Kaspa Node (gRPC)**: Managed by `NodePoolService` (`NodePool/*`) for UTXO subscriptions, transaction submission, and peer discovery
-- **Kaspa REST API**: Configurable via Settings (default: `api.kaspa.org` mainnet / `api-tn11.kaspa.org` testnet) for fetching transaction history, payments, and UTXO fallback
+- **Kaspa REST API**: Configurable via Settings (default: `api.kaspa.org` mainnet / `api-tn10.kaspa.org` testnet - testnet means testnet-10, where the covenants and the node pool's testnet seeds are; the retired TN11 default migrates forward) for fetching transaction history, payments, and UTXO fallback
 - **Kasia Indexer (REST)**: Configurable via Settings (default: `indexer.kasia.fyi`) for message indexing and retrieval
 - **KNS API**: Configurable via Settings (default: `api.knsdomains.org`) for Kaspa Name Service domain resolution
 

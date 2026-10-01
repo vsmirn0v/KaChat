@@ -195,7 +195,7 @@ struct EWMA: Codable {
 /// Cached capabilities and network info for a node
 struct NodeProfile: Codable {
     // From GetCurrentNetwork / GetBlockDagInfo
-    var networkName: String?              // "kaspa-mainnet" or "kaspa-testnet-11"
+    var networkName: String?              // "kaspa-mainnet" or "kaspa-testnet-10"
     var virtualDaaScore: UInt64?          // Current DAA score
     var pruningPointHash: String?         // For consensus validation
 

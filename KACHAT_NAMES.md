@@ -18,7 +18,7 @@ Decisions this rests on (from the user):
 Research behind this: dotk's live `.k` registry, reverse-specified from its compiled covenant
 bytecode, and Silverscript v1.0.0 (`~/silverscript`, builds and compiles on this Mac). Covenants
 (Toccata: KIP-16/17/20/21) are live on **mainnet** since DAA 474,165,565 (~2026-06-30) and on
-**testnet-10**. KaChat's testnet profile currently points at TN11; names test on **TN10**.
+**testnet-10**. KaChat's testnet mode runs on TN10 (since 2026-10-01), where names are tested.
 
 ## 1. How uniqueness works (the registry)
 

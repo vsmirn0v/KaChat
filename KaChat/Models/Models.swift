@@ -2312,7 +2312,12 @@ struct AppSettings: Codable {
     static let defaultKNSMainnetURL = "https://api.knsdomains.org/mainnet/api/v1"
     static let defaultKNSTestnetURL = "https://api.knsdomains.org/tn10/api/v1"
     static let defaultKaspaMainnetURL = "https://api.kaspa.org"
-    static let defaultKaspaTestnetURL = "https://api-tn11.kaspa.org"
+    /// Testnet means testnet-10: it carries the Toccata covenants (`.kachat` names test there)
+    /// and is where the node pool's testnet DNS seeds (port 16210) already point.
+    static let defaultKaspaTestnetURL = "https://api-tn10.kaspa.org"
+    /// The previous testnet default, testnet-11 (retired - the API answers 503). Migrated forward
+    /// to `defaultKaspaTestnetURL` when settings decode.
+    static let legacyDefaultKaspaTestnetURL = "https://api-tn11.kaspa.org"
     /// KaChat ships pinned to this node out of the box, rather than defaulting to full
     /// seed/DNS/peer-gossip discovery - the "Use Default" button in Connection Settings resets
     /// back to this same address after a user has typed something else. This is Kaspium's own
@@ -2742,6 +2747,14 @@ struct AppSettings: Codable {
         // the empty string that broke it - is simply ignored.
         kaspaRestAPIURL = try container.decodeIfPresent(String.self, forKey: .kaspaRestAPIURL) ?? AppSettings.defaultKaspaRestURL(for: networkType)
         connectionProfiles = try container.decodeIfPresent([String: ConnectionProfile].self, forKey: .connectionProfiles) ?? [:]
+        // Testnet moved from the retired testnet-11 to testnet-10: carry the old default forward,
+        // both live and in the stashed testnet profile. A custom URL is left alone.
+        if kaspaRestAPIURL == AppSettings.legacyDefaultKaspaTestnetURL {
+            kaspaRestAPIURL = AppSettings.defaultKaspaTestnetURL
+        }
+        if connectionProfiles[NetworkType.testnet.rawValue]?.kaspaRestAPIURL == AppSettings.legacyDefaultKaspaTestnetURL {
+            connectionProfiles[NetworkType.testnet.rawValue]?.kaspaRestAPIURL = AppSettings.defaultKaspaTestnetURL
+        }
         if networkType == .testnet {
             // Testnet has no KaChat indexer infrastructure yet, so a blank field means "none" -
             // not the mainnet default the migrations above substitute for a blank. Read the
