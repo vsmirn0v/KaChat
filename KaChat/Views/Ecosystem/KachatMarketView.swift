@@ -765,7 +765,7 @@ private struct KachatComingSoonPill: View {
 
 // MARK: - An address's .kachat names
 
-/// The ".kachat Domains" tab of every screen that shows an address's history - Manage Addresses,
+/// The ".kachat" tab of every screen that shows an address's history - Manage Addresses,
 /// Cold Storage and the chatting address: the .kachat names that address holds. It replaced the
 /// KNS Domains tab (5.2), and is empty until .kachat names launch.
 struct KachatAddressDomainsList: View {

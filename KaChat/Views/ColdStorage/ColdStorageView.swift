@@ -2148,7 +2148,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
     private enum Tab: String, CaseIterable {
         case transactions = "History"
         case utxos = "UTXOs"
-        case kachatDomains = ".kachat Domains"
+        case kachatDomains = ".kachat"
     }
 
     @State private var selectedTab: Tab = .transactions
@@ -2173,14 +2173,9 @@ private struct ColdStorageAddressTransactionHistoryView: View {
         "\(utxo.outpoint.transactionId):\(utxo.outpoint.index)"
     }
 
-    /// Translated here, since the count makes each title a string with no key of its own.
-    /// .kachat Domains shows no count until .kachat names exist - it could only ever say 0.
+    /// Plain names - History, UTXOs, .kachat - the way the user asked for them.
     private func tabLabel(_ tab: Tab) -> String {
-        let title = AppLocalization.string(tab.rawValue)
-        switch tab {
-        case .transactions, .kachatDomains: return title
-        case .utxos: return "\(title) (\(utxos.count))"
-        }
+        tab.rawValue
     }
 
     var body: some View {
