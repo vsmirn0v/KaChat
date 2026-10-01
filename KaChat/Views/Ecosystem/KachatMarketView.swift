@@ -594,7 +594,8 @@ struct KachatListingDetailView: View {
     }
 }
 
-/// Buy at the listed price: what you pay, then one confirmation. Disabled until names launch.
+/// Buy at the listed price: what you pay, then one confirmation. Opens full height with Cancel
+/// top left, the same as the offer sheet. Disabled until names launch.
 struct KachatBuySheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -629,7 +630,6 @@ struct KachatBuySheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
     }
 
     private func summaryRow(_ title: LocalizedStringKey, value: String, bold: Bool = false) -> some View {
