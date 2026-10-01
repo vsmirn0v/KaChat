@@ -5551,7 +5551,9 @@ struct ProfileAppsView: View {
         EcosystemApp(name: "KasMedia", icon: "doc.text.image", usesKaspaLogo: false, url: URL(string: "https://kasmedia.com")!),
         EcosystemApp(name: "Kaspalytics", icon: "chart.bar", usesKaspaLogo: false, url: URL(string: "https://www.kaspalytics.com")!),
         EcosystemApp(name: "Kas-Smiths", icon: "hammer", usesKaspaLogo: false, url: URL(string: "https://kas-smiths.org")!),
-        EcosystemApp(name: "Kaspa Core R&D", icon: "atom", usesKaspaLogo: false, url: URL(string: "https://t.me/kasparnd")!)
+        EcosystemApp(name: "Kaspa Core R&D", icon: "atom", usesKaspaLogo: false, url: URL(string: "https://t.me/kasparnd")!),
+        // Free testnet-10 KAS for the app's testnet mode (Settings > Testnet uses TN10).
+        EcosystemApp(name: "TN10 Faucet", icon: "drop.fill", usesKaspaLogo: false, url: URL(string: "https://faucet-tn10.kaspanet.io")!)
     ]
 
     @State private var browserURL: URL?
