@@ -163,7 +163,10 @@ struct KachatMarketView: View {
             sectionHeader("Featured", detail: "Names their owners have put up for sale.")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(0..<4, id: \.self) { _ in featuredPlaceholder }
+                    ForEach(0..<4, id: \.self) { _ in
+                        NavigationLink { KachatListingDetailView() } label: { featuredPlaceholder }
+                            .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 16)
             }
@@ -171,7 +174,8 @@ struct KachatMarketView: View {
             sectionHeader("Recently listed", detail: nil)
             VStack(spacing: 0) {
                 ForEach(0..<5, id: \.self) { index in
-                    listingPlaceholderRow
+                    NavigationLink { KachatListingDetailView() } label: { listingPlaceholderRow.contentShape(Rectangle()) }
+                        .buttonStyle(.plain)
                     if index < 4 { Divider().padding(.leading, 16) }
                 }
             }
@@ -250,6 +254,9 @@ struct KachatMarketView: View {
             Text("000 KAS")
                 .font(.subheadline.weight(.semibold))
                 .redacted(reason: .placeholder)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(Color(.tertiaryLabel))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -279,6 +286,18 @@ struct KachatMarketView: View {
             .disabled(true)
             .padding(.horizontal, 32)
             .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader("Offers", detail: "Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here.")
+                Text("No offers yet.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+                    .padding(.horizontal, 16)
+            }
+            .padding(.top, 20)
         }
         .padding(.top, 24)
     }
@@ -344,6 +363,11 @@ struct KachatMarketView: View {
                         detail: "Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does."
                     )
                     howItWorksRow(
+                        icon: "hand.raised",
+                        title: "Offer",
+                        detail: "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first."
+                    )
+                    howItWorksRow(
                         icon: "checkmark.shield",
                         title: "Trustless",
                         detail: "No middleman and no escrow account: Kaspa's own rules enforce every sale."
@@ -375,5 +399,366 @@ struct KachatMarketView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Listing
+
+/// One listing in the .kachat marketplace: the name and its price, the three ways to act on it
+/// - buy it at the listed price, make an offer, or message the seller first - the offers already
+/// on it, and its history.
+///
+/// UI only, like the rest of the marketplace: no listing exists yet, so the name, price, seller
+/// and offers are redacted shapes and every final action is disabled. Buy and Make an Offer still
+/// open their sheets so the flow can be looked at. `sellerAddress` is where a real listing hands
+/// in its seller - Message Seller opens a 1:1 chat with it.
+struct KachatListingDetailView: View {
+    var sellerAddress: String? = nil
+
+    @State private var showBuy = false
+    @State private var showOffer = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                nameCard
+                actionButtons
+                sellerCard
+                offersSection
+                historySection
+                notes
+            }
+            .padding(.vertical, 16)
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Listing")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showBuy) { KachatBuySheet() }
+        .sheet(isPresented: $showOffer) { KachatOfferSheet() }
+    }
+
+    private var nameCard: some View {
+        VStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.accentColor)
+                .frame(height: 120)
+                .overlay(
+                    Text(verbatim: "name.kachat")
+                        .font(.title2.weight(.heavy))
+                        .foregroundColor(.black)
+                        .redacted(reason: .placeholder)
+                )
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Price")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(verbatim: "000 KAS")
+                        .font(.title3.weight(.bold))
+                        .redacted(reason: .placeholder)
+                }
+                Spacer()
+                Text(verbatim: "listed 1h ago")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .redacted(reason: .placeholder)
+            }
+            KachatComingSoonPill()
+        }
+        .padding(14)
+        .background(KachatCardBackground())
+        .padding(.horizontal, 16)
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 12) {
+            Button { showBuy = true } label: {
+                Label("Buy Now", systemImage: "cart")
+                    .font(.subheadline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+
+            Button { showOffer = true } label: {
+                Label("Make an Offer", systemImage: "hand.raised")
+                    .font(.subheadline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var sellerCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            KachatSectionHeader(title: "Seller", detail: nil)
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.25))
+                    .frame(width: 40, height: 40)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: sellerAddress.map(Contact.generateDefaultAlias(from:)) ?? "kaspa:xxxx....xxxx")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .redacted(reason: sellerAddress == nil ? .placeholder : [])
+                    Text("Ask about the name, or agree on a price before you offer.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer(minLength: 8)
+                Button {} label: {
+                    Label("Message", systemImage: "bubble.left.and.bubble.right")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                // Opens a 1:1 chat with `sellerAddress` once listings are real.
+                .disabled(true)
+            }
+            .padding(14)
+            .background(KachatCardBackground())
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private var offersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            KachatSectionHeader(title: "Offers", detail: "Open offers on this name, highest first. The seller can accept any of them.")
+            VStack(spacing: 0) {
+                ForEach(0..<3, id: \.self) { index in
+                    HStack(spacing: 12) {
+                        Image(systemName: "hand.raised")
+                            .foregroundColor(.accentColor)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(verbatim: "kaspa:xxxx....xxxx")
+                                .font(.subheadline.weight(.semibold))
+                            Text(verbatim: "expires in 2d")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .redacted(reason: .placeholder)
+                        Spacer()
+                        Text(verbatim: "000 KAS")
+                            .font(.subheadline.weight(.semibold))
+                            .redacted(reason: .placeholder)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    if index < 2 { Divider().padding(.leading, 50) }
+                }
+            }
+            .background(KachatCardBackground())
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private var historySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            KachatSectionHeader(title: "History", detail: nil)
+            VStack(spacing: 0) {
+                ForEach(0..<3, id: \.self) { index in
+                    HStack(spacing: 12) {
+                        Image(systemName: ["tag", "arrow.left.arrow.right", "at.badge.plus"][index])
+                            .foregroundColor(.accentColor)
+                            .frame(width: 24)
+                        Text(verbatim: "listed by kaspa:xxxx")
+                            .font(.subheadline)
+                            .redacted(reason: .placeholder)
+                        Spacer()
+                        Text(verbatim: "3d ago")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .redacted(reason: .placeholder)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    if index < 2 { Divider().padding(.leading, 50) }
+                }
+            }
+            .background(KachatCardBackground())
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private var notes: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Buying pays the seller and moves the name to you in one transaction.", systemImage: "cart")
+            Label("An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires.", systemImage: "lock")
+            Label("Messages go to the seller like any KaChat chat.", systemImage: "bubble.left.and.bubble.right")
+        }
+        .font(.footnote)
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 20)
+    }
+}
+
+/// Buy at the listed price: what you pay, then one confirmation. Disabled until names launch.
+struct KachatBuySheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    summaryRow("Name", value: "name.kachat")
+                    summaryRow("Price", value: "000 KAS")
+                    summaryRow("Network fee", value: "0.0000 KAS")
+                    summaryRow("Total", value: "000 KAS", bold: true)
+                } footer: {
+                    Text("The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does.")
+                }
+
+                Section {
+                    Button {} label: {
+                        Text("Confirm Purchase")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(true)
+                } footer: {
+                    Text("Buying opens when .kachat names launch.")
+                }
+            }
+            .navigationTitle("Buy Name")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func summaryRow(_ title: LocalizedStringKey, value: String, bold: Bool = false) -> some View {
+        HStack {
+            Text(title).fontWeight(bold ? .semibold : .regular)
+            Spacer()
+            Text(verbatim: value)
+                .fontWeight(bold ? .semibold : .regular)
+                .redacted(reason: .placeholder)
+        }
+    }
+}
+
+/// Make an offer: an amount, how long it stands, and what happens to the KAS meanwhile. The
+/// amount and expiry can be set so the form can be tried; sending is disabled until names launch.
+struct KachatOfferSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var amount = ""
+    @State private var expiry: Expiry = .threeDays
+
+    private enum Expiry: String, CaseIterable, Hashable {
+        case oneDay, threeDays, sevenDays, thirtyDays
+
+        var title: LocalizedStringKey {
+            switch self {
+            case .oneDay: return "1 Day"
+            case .threeDays: return "3 Days"
+            case .sevenDays: return "7 Days"
+            case .thirtyDays: return "30 Days"
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack {
+                        Text("Name")
+                        Spacer()
+                        Text(verbatim: "name.kachat").redacted(reason: .placeholder)
+                    }
+                    HStack {
+                        Text("Listed at")
+                        Spacer()
+                        Text(verbatim: "000 KAS").redacted(reason: .placeholder)
+                    }
+                }
+
+                Section {
+                    HStack {
+                        TextField("0", text: $amount)
+                            .keyboardType(.decimalPad)
+                            .font(.title3.weight(.semibold))
+                        Text(verbatim: "KAS")
+                            .foregroundColor(.secondary)
+                    }
+                } header: {
+                    Text("Your offer")
+                } footer: {
+                    Text("Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it.")
+                }
+
+                Section {
+                    Picker("Expires", selection: $expiry) {
+                        ForEach(Expiry.allCases, id: \.self) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Expires after")
+                }
+
+                Section {
+                    Button {} label: {
+                        Text("Send Offer")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(true)
+                } footer: {
+                    Text("Offers open when .kachat names launch.")
+                }
+            }
+            .navigationTitle("Make an Offer")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Shared pieces
+
+private struct KachatSectionHeader: View {
+    let title: LocalizedStringKey
+    let detail: LocalizedStringKey?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.headline)
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+}
+
+private struct KachatCardBackground: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(Color(.secondarySystemGroupedBackground))
+    }
+}
+
+private struct KachatComingSoonPill: View {
+    var body: some View {
+        Text("Coming soon")
+            .font(.caption.weight(.bold))
+            .foregroundColor(.accentColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
     }
 }
