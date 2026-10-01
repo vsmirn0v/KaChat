@@ -53,11 +53,18 @@ dictionary name from it and race the registration. `.kachat` closes that:
      (`owner = ownerKey`, unlisted, `expiresAt = now + years × 1 year`), output 3.. change.
 
    The gap checks: `lo < key < hi`; the name's characters and length; that input 1's script is
-   exactly the commit script for `(name, ownerKey, salt)`; that input 1 was created at least
-   `T_COMMIT` ago (`tx.daa >= OpTxInputDaaScore(1) + T_COMMIT`); `1 <= years <= MAX_YEARS`;
+   exactly the commit script for `(name, ownerKey, salt)`; that input 1 carries a relative
+   sequence lock of at least `T_COMMIT` (so consensus only accepts the transaction once the block
+   DAA is `>= commitDaa + T_COMMIT`); `1 <= years <= MAX_YEARS`;
    `tx.time >= now` (the transaction's time lock proves `now` is not in the future); the exact
    outputs and values; and that **inputs - outputs >= price(len(name)) × years** - the price is
    the miner fee.
+
+   Lock time and sequences: `lockTime = now`, input 1 `sequence = T_COMMIT`, input 0
+   `sequence = 0`. Maturity is a sequence lock rather than a DAA lock-time check because a
+   transaction has one lock time and it is already spent on `now` (time domain); the two units
+   can't share it. `now` is checked against the block's median time, which lags the clock by
+   ~2.2 minutes, so the app sends `now = wall clock - 3 min`.
 
 A front-runner who sees the register transaction knows the name, but registering it needs a
 commit for *their* key that is already `T_COMMIT` old. Two people who both committed the same
@@ -88,7 +95,7 @@ Value: `BOND` (proposal 1 KAS, returned on release). Entries:
 | `buy(newOwner)` | anyone | requires the output right after the name's continuation to pay `price` to P2PK(owner); new owner = `newOwner`; price reset; expiry unchanged |
 | `renew(years)` | anyone | `expiresAt += years × 1 year`; requires `1 <= years <= MAX_YEARS` and **inputs - outputs >= renewPrice(len) × years** as miner fee |
 | `release(sig)` | owner | the exit: with `merge`/`absorbed` on the two gaps, destroys the name and returns `BOND` |
-| `reclaim()` | anyone | the expired exit: once `tx.time >= expiresAt + GRACE`, destroys the name like `release`, and pays `BOND` back to P2PK(owner) at a pinned output |
+| `reclaim()` | anyone | the expired exit: once `tx.time >= expiresAt + GRACE`, destroys the name like `release`, pays `BOND` back to P2PK(owner) at output 1, and the caller keeps the freed gap value (less the network fee) at output 2 as a bounty |
 
 `buy` needs no seller signature; the buyer's own SIGHASH_ALL signature on their funding commits
 to the continuation (so to `newOwner`), and the payout index is pinned to the name's own output,
@@ -102,7 +109,8 @@ A name is paid for by the year, in the same tiers and to the same place (miners)
 
 - **Registration** pays for 1 to `MAX_YEARS` years up front (proposal: 5).
 - **Renewal** (`renew`) adds 1 to `MAX_YEARS` years to the current expiry, as often as anyone
-  likes - there is no cap on how far ahead a name can be paid. Anyone can renew any name (a gift
+  likes - there is no practical cap on how far ahead a name can be paid (the script refuses
+  past ~3 million years, only to rule out integer overflow). Anyone can renew any name (a gift
   needs no signature); the owner does not change.
 - **Expiry only ever moves forward.** No entry shortens it, so the expiry a buyer sees on a
   listing or an offer is the least they get.
@@ -260,12 +268,21 @@ A `names` module in kachat-indexer (it already sees every block):
 5. **Miner self-dealing**: a pool registering or renewing in its own block gets the price back -
    accepted.
 6. **Large-fee transactions**: confirm on TN10 that nodes relay a transaction paying 35-20,000 KAS
-   in fee (4000 × 5 years).
+   in fee (4000 × 5 years), and how the mempool treats the time-locked ones.
+7. From the contract build (`~/kachat-names/README.md`, "OPEN ISSUES"): register/renew are limited
+   to 8 inputs and 8 outputs (the wallet consolidates first); the app must validate owner keys
+   (an invalid key locks the name until it lapses); a registration is ~125-160k grams of storage
+   mass; anyone may match a listing with a higher offer and keep at most 0.02 KAS (the app warns);
+   offers follow the name, so a re-registered name's new owner can accept old offers; the
+   manifest's genesis binding must be verified by app and indexer.
 
 ## 11. Plan
 
 1. Contracts + a Rust test harness running every entry through the consensus script engine
-   (new repo `kachat-names`, local until approved).
+   (new repo `kachat-names`, local until approved). **Done 2026-10-01**: `KachatGap` /
+   `KachatName` / `KachatOffer` compile (3965 / 2002 / 897 bytes), 120 tests through rusty-kaspa's
+   own `TransactionValidator` pass, and a mutation check deletes each of 37 security checks and
+   confirms a test catches it.
 2. TN10 genesis + manifest; register / renew / transfer / list / buy / offer / reclaim end to end
    on testnet.
 3. Indexer `names` + profiles module (handoff to the indexer AI, like the other indexer docs).
