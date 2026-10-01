@@ -309,7 +309,7 @@ struct KaPostsSearchView: View {
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.displayKasName(domain)
         }
-        if let domain = knsService.domainCache[address]?.primaryDomain,
+        if let domain = knsService.identityInfo(for: address)?.primaryDomain,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.displayKasName(domain)
         }

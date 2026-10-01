@@ -152,7 +152,7 @@ final class GlobalNotificationCenter: ObservableObject {
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
             return KaPostsView.displayKasName(assigned)
         }
-        if let domain = KNSService.shared.domainCache[address]?.primaryDomain,
+        if let domain = KNSService.shared.identityInfo(for: address)?.primaryDomain,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.displayKasName(domain)
         }
@@ -161,7 +161,7 @@ final class GlobalNotificationCenter: ObservableObject {
 
     /// The current wallet's own KNS domains, bare (no .kas), lowercased.
     private static func bareDomains(for address: String) -> Set<String> {
-        guard let info = KNSService.shared.domainCache[address] else { return [] }
+        guard let info = KNSService.shared.identityInfo(for: address) else { return [] }
         var out = Set<String>()
         if let primary = info.primaryDomain { out.insert(bare(primary)) }
         for domain in info.allDomains { out.insert(bare(domain.fullName)) }

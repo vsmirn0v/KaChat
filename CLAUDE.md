@@ -82,13 +82,20 @@ Settings are stored in `AppSettings` struct with network-specific defaults and l
 
 ### KNS (Kaspa Name Service) Integration
 
-The app integrates with KNS to provide human-readable domain names for contacts:
+Since 5.2 a `.kas` name is NOT anyone's identity in the app: a person is shown by the name you
+gave them, else their address (their `.kachat` name, once that exists). `KNSService
+.showsDomainNamesAsIdentity = false` gates it - profile lookups answer nil without a request,
+`identityInfo(for:)` is the domain read for display, contact sweeps don't run, and a one-time
+migration (`ContactsManager.clearKasDomainAliasesOnce`) un-names contacts whose name was just
+their `.kas` domain. What KNS still does:
 
 **Features:**
-- Resolve KNS domains (e.g., `alice.kas`) to Kaspa addresses when adding contacts
-- Display KNS domains on contact cards in chat list
-- Show all domains owned by a contact in Chat Info view
-- Auto-set contact alias to primary KNS domain when not manually set
+- Resolve a typed name (e.g., `alice.kas`) to an address when adding a contact or sending
+  (`NameServicesClient.resolveEverywhere` - `.kachat` first, the others under "Other domains")
+- Your Domains: list, transfer, set primary and customize the profile of your OWN `.kas` names
+  (reads `fetchInfo`/`domainCache` directly, never through the identity gate)
+- Your own addresses (Manage Addresses, Cold Storage, saved accounts, the chatting-address
+  picker) still note which of them hold a domain
 
 **API Endpoints:**
 - `GET /api/v1/{domain}/owner` - Resolve domain to owner address (forward lookup)

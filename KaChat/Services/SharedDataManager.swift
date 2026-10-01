@@ -230,6 +230,8 @@ final class SharedDataManager {
     static func syncOwnKNSDomainForExtension() {
         guard let address = WalletManager.shared.currentWallet?.publicAddress,
               KNSService.shared.domainCache[address] != nil else { return }
+        // `barePrimaryDomain` is nil while .kas names aren't shown as names (5.2), so this clears
+        // a domain shared before the update rather than leaving it for the extension.
         if let domain = KNSService.shared.barePrimaryDomain(for: address) {
             sharedDefaults?.set(domain, forKey: Keys.ownPrimaryKNSDomain)
         } else {

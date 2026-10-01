@@ -566,7 +566,10 @@ struct ProfileView: View {
     /// (primary KNS domain, with its .kas, else the account name) and bio.
     private func profileHeroSection(_ wallet: Wallet) -> some View {
         let displayName: String = {
-            if let domain = knsPrimaryDomain ?? knsProfileInfo?.domainName,
+            // Your .kas name is yours to manage in Your Domains, but not your name here since 5.2
+            // (KNSService.showsDomainNamesAsIdentity) - that will be your .kachat name.
+            if KNSService.showsDomainNamesAsIdentity,
+               let domain = knsPrimaryDomain ?? knsProfileInfo?.domainName,
                !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return KaPostsView.displayKasName(domain)
             }
@@ -1477,7 +1480,7 @@ struct ProfileView: View {
             // (`preview` only titles the share sheet; it is not part of what gets pasted.)
             ShareLink(
                 item: url,
-                preview: SharePreview(knsPrimaryDomain ?? "My KaChat profile", image: Image("KaspaLogo"))
+                preview: SharePreview((KNSService.showsDomainNamesAsIdentity ? knsPrimaryDomain : nil) ?? "My KaChat profile", image: Image("KaspaLogo"))
             ) {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 17, weight: .semibold))

@@ -190,6 +190,9 @@ final class ContactsManager: ObservableObject {
     ///
     /// `force` is for the pull-to-refresh paths, where the user has explicitly asked.
     func fetchKNSDomainsForAllContacts(network: NetworkType = .mainnet, force: Bool = false) async {
+        // Every result of this sweep is a .kas name to show for a contact, which 5.2 stopped
+        // doing (`KNSService.showsDomainNamesAsIdentity`), so it no longer asks KNS at all.
+        guard KNSService.showsDomainNamesAsIdentity else { return }
         guard !contacts.isEmpty else { return }
         guard !isFetchingKNS else { return }
         if !force, let last = lastFullKNSSweepAt,
@@ -271,12 +274,12 @@ final class ContactsManager: ObservableObject {
 
     /// Get KNS info for a contact
     func getKNSInfo(for contact: Contact) -> KNSAddressInfo? {
-        return knsService.domainCache[contact.address]
+        knsService.identityInfo(for: contact.address)
     }
 
     /// Get KNS domains for a contact
     func getKNSDomains(for contact: Contact) -> [KNSDomain] {
-        return knsService.domainCache[contact.address]?.allDomains ?? []
+        knsService.identityInfo(for: contact.address)?.allDomains ?? []
     }
 
     /// Get selected KNS profile for a contact address (primary domain if available).
@@ -286,7 +289,8 @@ final class ContactsManager: ObservableObject {
 
     /// Fetch KNS info for a specific contact
     func fetchKNSInfo(for contact: Contact, network: NetworkType = .mainnet) async -> KNSAddressInfo? {
-        await knsService.fetchInfo(for: contact.address, network: network)
+        guard KNSService.showsDomainNamesAsIdentity else { return nil }
+        return await knsService.fetchInfo(for: contact.address, network: network)
     }
 
     /// Fetch selected KNS profile for a specific contact.
@@ -381,7 +385,8 @@ final class ContactsManager: ObservableObject {
 
         if let scopedData = userDefaults.data(forKey: contactsKey),
            let decodedContacts = try? JSONDecoder().decode([Contact].self, from: scopedData) {
-            contacts = sortContacts(migrateLegacyDefaultAliases(decodedContacts, contactsKey: contactsKey))
+            let migrated = migrateLegacyDefaultAliases(decodedContacts, contactsKey: contactsKey)
+            contacts = sortContacts(clearKasDomainAliasesOnce(migrated, contactsKey: contactsKey))
             return
         }
 
@@ -440,6 +445,37 @@ final class ContactsManager: ObservableObject {
             userDefaults.set(data, forKey: contactsKey)
         }
         return migrated
+    }
+
+    /// 5.2, once per account: a contact whose name is just a .kas domain - which is how every
+    /// automatically named contact got its name before - goes back to unnamed, so it shows as
+    /// its address like everyone without a .kachat name (`KNSService.showsDomainNamesAsIdentity`).
+    /// A name linked from the Contacts app is left alone. Flagged per account rather than
+    /// re-checked every launch, so a .kas-looking name typed after the update stays.
+    private func clearKasDomainAliasesOnce(_ input: [Contact], contactsKey: String) -> [Contact] {
+        guard !KNSService.showsDomainNamesAsIdentity else { return input }
+        let flagKey = "kachat_kas_alias_reset_v1.\(contactsKey)"
+        guard !userDefaults.bool(forKey: flagKey) else { return input }
+        var didClear = false
+        let cleared = input.map { contact -> Contact in
+            let alias = contact.alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard alias.count > 4, alias.hasSuffix(".kas"),
+                  !alias.contains(where: \.isWhitespace),
+                  !(contact.systemContactId != nil && contact.alias == contact.systemDisplayNameSnapshot) else {
+                return contact
+            }
+            var updated = contact
+            updated.alias = Contact.generateDefaultAlias(from: contact.address)
+            didClear = true
+            return updated
+        }
+        if didClear, let data = try? JSONEncoder().encode(cleared) {
+            userDefaults.set(data, forKey: contactsKey)
+            // The notification extension names senders from its own copy - refresh it too.
+            scheduleSharedSync()
+        }
+        userDefaults.set(true, forKey: flagKey)
+        return cleared
     }
 
     func addContact(address: String, alias: String = "", isAutoAdded: Bool = false) throws -> Contact {
@@ -584,7 +620,9 @@ final class ContactsManager: ObservableObject {
     /// The one display-name rule for any Kaspa address, used everywhere a person is named:
     /// the name the user assigned this contact, else their KNS domain, else the short address.
     /// Nothing auto-populates a contact's name, so an address with a domain shows the domain
-    /// until the user deliberately renames it.
+    /// until the user deliberately renames it. Since 5.2 the KNS step is always empty
+    /// (`KNSService.showsDomainNamesAsIdentity`): no assigned name means the address, until
+    /// .kachat names exist.
     func displayName(for address: String) -> String {
         if let assigned = getContact(byAddress: address)?.assignedName { return assigned }
         if let domain = KNSService.shared.profileCache[address]?.domainName, !domain.isEmpty { return domain }
@@ -651,18 +689,20 @@ final class ContactsManager: ObservableObject {
             await refreshSystemContactLinks(promptIfNeeded: false, force: false)
         }
 
-        // Fetch KNS info in background
-        Task {
-            if let knsInfo = await knsService.fetchInfo(for: address),
-               let primaryDomain = knsInfo.primaryDomain {
-                // If alias is auto-generated AND no system contact linked, update to KNS domain.
-                // iCloud contact name takes priority over KNS domain.
-                let autoAlias = Contact.generateDefaultAlias(from: address)
-                if let index = contacts.firstIndex(where: { $0.address == address }),
-                   contacts[index].alias == autoAlias,
-                   contacts[index].systemContactId == nil {
-                    contacts[index].alias = primaryDomain
-                    saveContacts(publishContacts: true)
+        // Fetch KNS info in background - only while .kas names are shown as names at all.
+        if KNSService.showsDomainNamesAsIdentity {
+            Task {
+                if let knsInfo = await knsService.fetchInfo(for: address),
+                   let primaryDomain = knsInfo.primaryDomain {
+                    // If alias is auto-generated AND no system contact linked, update to KNS domain.
+                    // iCloud contact name takes priority over KNS domain.
+                    let autoAlias = Contact.generateDefaultAlias(from: address)
+                    if let index = contacts.firstIndex(where: { $0.address == address }),
+                       contacts[index].alias == autoAlias,
+                       contacts[index].systemContactId == nil {
+                        contacts[index].alias = primaryDomain
+                        saveContacts(publishContacts: true)
+                    }
                 }
             }
         }

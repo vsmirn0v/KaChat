@@ -323,11 +323,15 @@ struct ChatInfoView: View {
                         systemImage: "qrcode"
                     ) { activeSheet = .address }
 
-                    infoCard(
-                        "KNS Domains",
-                        systemImage: "at"
-                    ) { activeSheet = .domains }
-                    .disabled(knsDomains.isEmpty)
+                    // Someone's .kas names aren't shown since 5.2 (KNSService
+                    // .showsDomainNamesAsIdentity) - the card would only ever be disabled.
+                    if KNSService.showsDomainNamesAsIdentity {
+                        infoCard(
+                            "KNS Domains",
+                            systemImage: "at"
+                        ) { activeSheet = .domains }
+                        .disabled(knsDomains.isEmpty)
+                    }
 
                     // Per-contact settings: the chat's aliases, the Contacts-app link,
                     // notification/photo/call choices and message stats. None of them has
@@ -426,7 +430,9 @@ struct ChatInfoView: View {
                 // This ensures profile selection is anchored to the latest primary domain metadata.
                 // ONE forced round per open: `fetchInfo` is the forced call, and the profile
                 // fetch after it reuses the info it just landed rather than asking again.
-                _ = await KNSService.shared.fetchInfo(for: contact.address, force: true)
+                if KNSService.showsDomainNamesAsIdentity {
+                    _ = await KNSService.shared.fetchInfo(for: contact.address, force: true)
+                }
                 // The Domains section stops showing its loading row once the lookup has
                 // answered, whether or not it found anything.
                 knsDomainsLoaded = true

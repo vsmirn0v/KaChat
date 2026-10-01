@@ -207,6 +207,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     /// yet. Used by the group mentions-only notification gate to recognize Android-composed
     /// `@{primaryKNSDomain}` mention tokens.
     func barePrimaryDomain(for address: String) -> String? {
+        guard Self.showsDomainNamesAsIdentity else { return nil }
         guard let raw = domainCache[address]?.explicitPrimaryDomain?
             .trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !raw.isEmpty else { return nil }
         return raw.hasSuffix(".kas") ? String(raw.dropLast(4)) : raw
@@ -444,6 +445,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
     /// Get cached/fetched KNS profile for an address.
     func getProfile(for address: String, network: NetworkType = .mainnet) async -> KNSAddressProfileInfo? {
+        guard Self.showsDomainNamesAsIdentity else { return nil }
         if let cached = profileCache[address], !shouldRefetchEmptyProfile(cached) {
             return cached
         }
@@ -458,7 +460,9 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     /// Concurrent callers for the same address share one in-flight request; failed lookups are
     /// throttled by a short exponential cooldown rather than refetched on every call.
     func fetchProfile(for address: String, network: NetworkType = .mainnet, force: Bool = false) async -> KNSAddressProfileInfo? {
-        guard !address.isEmpty else { return nil }
+        // The profile only ever carried the .kas name since 5.2, and that name is no longer
+        // shown for anyone (`showsDomainNamesAsIdentity`), so there is nothing to ask KNS for.
+        guard Self.showsDomainNamesAsIdentity, !address.isEmpty else { return nil }
         if let existing = inFlightProfileFetches[address] {
             return await existing.value
         }
@@ -493,6 +497,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     ///
     /// Falls back to the cached entry's `fetchedAt` on a cold start - see `refreshIfNeeded`.
     func refreshProfilesIfNeeded(for addresses: [String], network: NetworkType = .mainnet) async {
+        guard Self.showsDomainNamesAsIdentity else { return }
         let now = Date()
         let eligible = addresses.filter { address in
             guard inFlightProfileFetches[address] == nil else { return false }
@@ -993,6 +998,21 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     /// app. Off since 5.2 - only the domain name is resolved; see `fetchProfileInternal`.
     static let loadsDomainProfiles = false
 
+    /// Whether an ADDRESS is shown by its .kas name anywhere in the app - contacts, chat rows,
+    /// User Info, group and public chat senders, KaPosts authors, chess players, calls. Off since
+    /// 5.2: someone without a .kachat name is shown by their address (or the name you gave
+    /// them). The profile lookups that carried the name (`fetchProfile`, `getProfile`,
+    /// `refreshProfilesIfNeeded`) answer nil without asking KNS, and `identityInfo(for:)` is
+    /// the domain-list read for display. Your Domains (managing your own .kas names) and typing
+    /// a name to resolve it are unaffected - they use `fetchInfo`/`domainCache` directly.
+    static let showsDomainNamesAsIdentity = false
+
+    /// `address`'s .kas domains for showing as its name - nil while `showsDomainNamesAsIdentity`
+    /// is off. Use this, not `domainCache`, anywhere the result labels a person.
+    func identityInfo(for address: String) -> KNSAddressInfo? {
+        Self.showsDomainNamesAsIdentity ? domainCache[address] : nil
+    }
+
     /// One .kas domain's profile, for editing it in Your Domains. Deliberately NOT cached or
     /// shown elsewhere (`loadsDomainProfiles`). Nil when it has none or the lookup failed.
     func fetchDomainProfileForEditing(assetId: String) async -> KNSDomainProfile? {
@@ -1191,6 +1211,8 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     }
 
     private func updateProfileCache(_ info: KNSAddressProfileInfo, address: String) {
+        // A profile write from Your Domains lands here too; nothing may read it back as a name.
+        guard Self.showsDomainNamesAsIdentity else { return }
         profileCache[address] = info
         // Checked out here: handing a @Published dictionary over `inout` publishes it even when
         // the trim does nothing, a second re-render of every avatar/name reader per fetch.
@@ -1451,6 +1473,12 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     }
 
     private func loadProfileCache() {
+        // Saved profiles exist only to put a .kas name on an address, which 5.2 stopped doing:
+        // drop them so no reader shows a name from before the update.
+        guard Self.showsDomainNamesAsIdentity else {
+            UserDefaults.standard.removeObject(forKey: profileCacheKey)
+            return
+        }
         guard let data = UserDefaults.standard.data(forKey: profileCacheKey),
               let decoded = try? JSONDecoder().decode([String: KNSAddressProfileInfo].self, from: data) else {
             return

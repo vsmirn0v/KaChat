@@ -1251,7 +1251,7 @@ struct KaChatInternalLinkCardView: View {
         case .publicChatRoom(let channel):
             return "#\(channel)"
         case .profile(let address):
-            if let domain = KNSService.shared.domainCache[address]?.primaryDomain {
+            if let domain = KNSService.shared.identityInfo(for: address)?.primaryDomain {
                 return domain
             }
             return ContactsManager.shared.displayName(for: address)

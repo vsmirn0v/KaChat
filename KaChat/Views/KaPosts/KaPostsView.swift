@@ -1917,7 +1917,7 @@ struct KaPostsView: View {
         var out: [(domain: String, pubkey: String)] = []
         var seen = Set<String>()
         for contact in ContactsManager.shared.activeContacts {
-            guard let raw = KNSService.shared.domainCache[contact.address]?.primaryDomain else { continue }
+            guard let raw = KNSService.shared.identityInfo(for: contact.address)?.primaryDomain else { continue }
             let bare = KaPostsView.bareKasName(raw)
             guard !bare.isEmpty, !seen.contains(bare),
                   let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: contact.address) else { continue }
@@ -6460,7 +6460,7 @@ private struct KaPostMentionSuggestionBar: View {
         var seen = Set<String>()
         var out: [String] = []
         for contact in ContactsManager.shared.activeContacts {
-            guard let raw = knsService.domainCache[contact.address]?.primaryDomain else { continue }
+            guard let raw = knsService.identityInfo(for: contact.address)?.primaryDomain else { continue }
             let bare = KaPostsView.bareKasName(raw)
             guard !bare.isEmpty, !seen.contains(bare),
                   query.isEmpty || bare.hasPrefix(query) else { continue }
@@ -7232,7 +7232,7 @@ private struct KaPostComposerMentionBar: View {
         var out: [String] = []
         for contact in ContactsManager.shared.activeContacts {
             // Read through the OBSERVED service so rows appear live as lookups land.
-            guard let raw = knsService.domainCache[contact.address]?.primaryDomain else { continue }
+            guard let raw = knsService.identityInfo(for: contact.address)?.primaryDomain else { continue }
             let bare = KaPostsView.bareKasName(raw)
             guard !bare.isEmpty, !seen.contains(bare),
                   query.isEmpty || bare.hasPrefix(query) else { continue }

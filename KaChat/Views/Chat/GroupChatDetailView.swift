@@ -804,7 +804,9 @@ struct GroupChatDetailView: View {
             }
             // Warm every member's explicit-primary-KNS status before the user starts typing, so
             // the @mention autocomplete doesn't come up empty on a freshly-opened thread.
-            await knsService.refreshIfNeeded(for: group.members.map(\.address))
+            if KNSService.showsDomainNamesAsIdentity {
+                await knsService.refreshIfNeeded(for: group.members.map(\.address))
+            }
         }
         .onDisappear {
             chatService.setDraft(draft, for: "group:\(group.id)")
@@ -1185,7 +1187,7 @@ struct GroupChatDetailView: View {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return group.members.compactMap { member -> (member: GroupMember, domain: String)? in
             guard member.address != myAddress,
-                  let domain = knsService.domainCache[member.address]?.explicitPrimaryDomain,
+                  let domain = knsService.identityInfo(for: member.address)?.explicitPrimaryDomain,
                   !domain.isEmpty else {
                 return nil
             }
@@ -1638,7 +1640,7 @@ struct GroupChatDetailView: View {
         // show something sensible. A member with no explicit primary returns "" here, which
         // GroupMentionCodec.encodeForSending already skips.
         return GroupMentionCodec.encodeForSending(text, members: group.members) { address in
-            knsService.domainCache[address]?.explicitPrimaryDomain ?? ""
+            knsService.identityInfo(for: address)?.explicitPrimaryDomain ?? ""
         }
     }
 
@@ -2460,7 +2462,7 @@ private struct GroupMessageBubbleRow: View {
     /// Label to show for a mention: the person's KNS domain (what the user asked to see), else the
     /// friendly display name. Read from the synchronous KNS cache.
     private func mentionLabel(for address: String) -> String {
-        if let domain = knsService.domainCache[address]?.explicitPrimaryDomain, !domain.isEmpty { return domain }
+        if let domain = knsService.identityInfo(for: address)?.explicitPrimaryDomain, !domain.isEmpty { return domain }
         return resolveDisplayName(for: address)
     }
 
