@@ -186,6 +186,11 @@ final class PushNotificationManager: ObservableObject {
             return
         }
 
+        // Ask iOS for the current token on every refresh too (Apple's advice: once per launch).
+        // A saved token can be stale - reissued with a reinstall or an environment switch - and
+        // `didRegisterForRemoteNotifications` re-registers in full when the answer differs.
+        UIApplication.shared.registerForRemoteNotifications()
+
         if shouldDeferRegistrationForWalletBindingConflict() {
             return
         }
@@ -1275,6 +1280,12 @@ final class PushNotificationManager: ObservableObject {
                        ApnsEnvironment.current.rawValue)
             isRegistered = false
             persistRegistrationStatus(false)
+            // The saved token belongs to the OTHER environment - it lives in the Keychain, which
+            // survives installing an Xcode build over TestFlight (or back). Registering it again
+            // labelled with the new environment sent every push to the wrong APNs host with a
+            // token that host rejects. Drop it, so the next refresh asks iOS for this build's
+            // token and registers that.
+            deviceToken = nil
         }
 
         // Same on a new build. The "registered" flag survives an app update, but whether the
