@@ -172,6 +172,8 @@
             <li><strong>Recovery phrases and passphrases</strong> are stored only in your browser, encrypted with your wallet password (PBKDF2-SHA256 with 600,000 rounds, then AES-256-GCM). They are never sent anywhere. The password itself is never stored.</li>
             <li><strong>While the wallet is unlocked</strong>, the decryption key is kept in the browser's session memory, which is cleared when the wallet locks (automatically after a period you choose) or when the browser closes.</li>
             <li><strong>Account names, derived public addresses, settings, the websites you have connected, and cached public data</strong> (balances, KNS domain names, prices) are stored in the extension's local storage in your browser.</li>
+            <li><strong>Cold Storage</strong> keeps the extended public keys (kpub) you import - watch-only, they cannot spend - and your address labels. <strong>Portfolio</strong> keeps the buys and sells you record. Both stay in your browser.</li>
+            <li><strong>The camera</strong> is used only while you scan a QR code (a kpub, an address, or a signed transaction from your KasSigner). Camera images are read in the browser and never stored or sent anywhere.</li>
           </ul>
         </div>
 
@@ -183,7 +185,7 @@
             <li><strong>Kaspa REST API</strong> (api.kaspa.org by default, or one you set): transaction history and whether an address has been used.</li>
             <li><strong>KNS API</strong> (api.knsdomains.org): the .kas domain names your address owns, name lookups when you type a name, and the signed request when you set a primary domain.</li>
             <li><strong>dotk</strong> (api.dotk.name) and <strong>Kaspa Names</strong> (kaspaname.com): the .k and .kaspa names your address owns, and name lookups when you type a name. KaChat Wallet only reads these services; it never registers names with them.</li>
-            <li><strong>CoinGecko</strong> (api.coingecko.com): the Kaspa price in your chosen currency. No address is sent.</li>
+            <li><strong>CoinGecko</strong> (api.coingecko.com), with <strong>Gate.io</strong> (api.gateio.ws) as a fallback for long price history, and <strong>Yahoo Finance</strong> (query1.finance.yahoo.com) for the comparison charts (VOO, gold, silver): prices for the Portfolio. No address is sent.</li>
             <li><strong>Block explorer</strong> (explorer.kaspa.org or kaspa.stream): only when you open a "view in explorer" link.</li>
           </ul>
           <p>These services are run by third parties and have their own privacy practices. Like any web request, they can see your IP address.</p>
