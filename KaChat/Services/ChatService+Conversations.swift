@@ -376,6 +376,9 @@ extension ChatService {
             return .failed
         }
         if Task.isCancelled { return .skipped }
+        // People writing to us for the first time, without a handshake (Message Requests).
+        await syncInbox()
+        if Task.isCancelled { return .skipped }
 
         let targets = nextForegroundSweepWindow(excluding: activeConversationAddress)
         guard !targets.isEmpty else { return .succeeded }
@@ -681,6 +684,11 @@ extension ChatService {
             outgoing = []
             allPhasesSucceeded = false
             AppLog.log("%@", "[ChatService] Outgoing handshake phase skipped this cycle - continuing with remaining phases")
+        }
+
+        // First contact without a handshake (Message Requests) - its own cursor, its own phase.
+        if activeAddress == nil {
+            await syncInbox()
         }
 
         var inPayments: [PaymentResponse] = []
@@ -1306,6 +1314,8 @@ extension ChatService {
     func sendMessage(to contact: Contact, content: String, messageType: ChatMessage.MessageType = .contextual, feeOverride: UInt64? = nil) async throws {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // Writing to someone is consent: their chat is accepted, and a block on them lifts.
+        acceptChat(contact.address)
         guard let wallet = WalletManager.shared.currentWallet else {
             throw KasiaError.walletNotFound
         }
@@ -1540,6 +1550,8 @@ extension ChatService {
         // Ensure routing state exists, then get our alias (deterministic preferred)
         ensureRoutingState(for: contact.address, privateKey: privateKey)
         let alias = outgoingAlias(for: contact.address)
+        // First contact carries their inbox tag so they can find it (NO_HANDSHAKE_MESSAGING.md).
+        let inboxTag = await firstContactInboxTag(for: contact.address)
 
         if hadNoRelationship {
             let recoveryAddress = contact.address
@@ -1633,7 +1645,8 @@ extension ChatService {
                     senderPrivateKey: privateKey,
                     recipientPublicKey: recipientPublicKey,
                     utxos: candidateUtxos,
-                    feeOverride: feeOverride
+                    feeOverride: feeOverride,
+                    inboxTag: inboxTag
                 )
             }
 
@@ -2290,7 +2303,9 @@ extension ChatService {
         pendingTxId: String? = nil,
         extraFeeSompi: UInt64 = 0
     ) async throws -> String? {
-        try await enqueueOutgoingTxOperation {
+        // Paying someone is reaching out to them, like writing to them.
+        acceptChat(contact.address)
+        return try await enqueueOutgoingTxOperation {
             try await self.sendPaymentInternal(
                 to: contact,
                 amountSompi: amountSompi,
@@ -3576,8 +3591,178 @@ extension ChatService {
         }
     }
 
+    /// The chat list: not declined, not blocked, and not a Message Request (those sit behind
+    /// the list's Message Requests row).
     func isConversationVisibleInChatList(_ conversation: Conversation, settings: AppSettings? = nil) -> Bool {
         !isConversationDeclined(conversation.contact.address)
+            && !isChatBlocked(conversation.contact.address)
+            && !isMessageRequest(conversation)
+    }
+
+    // MARK: - Message Requests (NO_HANDSHAKE_MESSAGING.md)
+
+    private func chatRequestsKey(_ wallet: String) -> String {
+        "kachat_chat_requests_v1.\(wallet.lowercased())"
+    }
+
+    /// The active wallet's Message Requests state, loaded (or started) on first use. Safe to
+    /// read from a view's body: the cache is not published - changes go through
+    /// `updateChatRequests`, which bumps `chatRequestsRevision`.
+    func chatRequestState() -> ChatRequestState {
+        guard let wallet = WalletManager.shared.currentWallet?.publicAddress.lowercased() else {
+            return ChatRequestState()
+        }
+        if let cached = chatRequestCache[wallet] { return cached }
+        let key = chatRequestsKey(wallet)
+        let state: ChatRequestState
+        if let data = userDefaults.data(forKey: key),
+           let decoded = try? JSONDecoder().decode(ChatRequestState.self, from: data) {
+            state = decoded
+        } else {
+            // First run with Message Requests: everything already here stays an ordinary chat.
+            state = ChatRequestState()
+            if let data = try? JSONEncoder().encode(state) { userDefaults.set(data, forKey: key) }
+        }
+        chatRequestCache[wallet] = state
+        return state
+    }
+
+    func updateChatRequests(_ change: (inout ChatRequestState) -> Void) {
+        guard let wallet = WalletManager.shared.currentWallet?.publicAddress.lowercased() else { return }
+        var state = chatRequestState()
+        change(&state)
+        chatRequestCache[wallet] = state
+        if let data = try? JSONEncoder().encode(state) {
+            userDefaults.set(data, forKey: chatRequestsKey(wallet))
+        }
+        chatRequestsRevision &+= 1
+    }
+
+    func isChatBlocked(_ address: String) -> Bool {
+        chatRequestState().blocked.contains(address.lowercased())
+    }
+
+    func isPrivateChat(_ address: String) -> Bool {
+        chatRequestState().privateChats.contains(address.lowercased())
+    }
+
+    /// A conversation someone else started that the user hasn't accepted. Writing to them, a
+    /// manually added contact, an explicit Accept, or a chat that already existed when Message
+    /// Requests arrived (its first message predates `startedAt`) all make it an ordinary chat.
+    func isMessageRequest(_ conversation: Conversation) -> Bool {
+        let address = conversation.contact.address.lowercased()
+        if address == WalletManager.shared.currentWallet?.publicAddress.lowercased() { return false }
+        let state = chatRequestState()
+        if state.accepted.contains(address) || state.privateChats.contains(address) || state.blocked.contains(address) {
+            return false
+        }
+        let contact = contactsManager.getContact(byAddress: conversation.contact.address) ?? conversation.contact
+        guard contact.isAutoAdded, !contact.hasSentOutgoingMessage else { return false }
+        if conversation.messages.contains(where: { $0.isOutgoing }) { return false }
+        guard let first = conversation.messages.lazy.map(\.timestamp).min() else { return false }
+        return first >= state.startedAt
+    }
+
+    /// Message Requests, newest first.
+    var messageRequests: [Conversation] {
+        conversations
+            .filter { isMessageRequest($0) }
+            .sorted { ($0.lastMessage?.timestamp ?? .distantPast) > ($1.lastMessage?.timestamp ?? .distantPast) }
+    }
+
+    /// Accept: the chat joins the chat list. Nothing is sent on chain. Also what writing to
+    /// someone does - and it lifts a block, since messaging them is consent.
+    func acceptChat(_ address: String) {
+        let key = address.lowercased()
+        let state = chatRequestState()
+        if state.accepted.contains(key), !state.blocked.contains(key), !declinedContacts.contains(address) { return }
+        updateChatRequests {
+            $0.accepted.insert(key)
+            $0.blocked.remove(key)
+        }
+        clearDeclined(address)
+    }
+
+    /// Reject: their messages are deleted from this device and the address is blocked - ignored
+    /// by discovery, fetching and notifications until the user writes to them.
+    func rejectChat(_ contact: Contact) {
+        let key = contact.address.lowercased()
+        updateChatRequests {
+            $0.blocked.insert(key)
+            $0.accepted.remove(key)
+            $0.privateChats.remove(key)
+        }
+        Task { await messageStore.deleteConversation(contactAddress: contact.address) }
+        removeConversation(for: contact.address)
+        contactsManager.deleteContact(contact)
+    }
+
+    /// Starting a chat as Private: it never carries the inbox tag, so nothing on chain links the
+    /// two people. The other side isn't notified; they see it once they start a private chat
+    /// with this address too (NO_HANDSHAKE_MESSAGING.md §3.1).
+    func setPrivateChat(_ address: String, _ isPrivate: Bool) {
+        let key = address.lowercased()
+        updateChatRequests {
+            if isPrivate { $0.privateChats.insert(key) } else { $0.privateChats.remove(key) }
+            $0.accepted.insert(key)
+            $0.blocked.remove(key)
+        }
+        clearDeclined(address)
+    }
+
+    /// Whether the configured indexer answers inbox lookups - probed once per indexer URL; an
+    /// unreachable indexer is asked again next time.
+    func inboxSupported() async -> Bool {
+        let base = apiClient.currentBaseURL ?? ""
+        if let known = inboxSupportByIndexer[base] { return known }
+        guard let answer = await apiClient.probeInboxSupport() else { return false }
+        inboxSupportByIndexer[base] = answer
+        return answer
+    }
+
+    /// The inbox tag for a message to `address`, or nil to send it untagged: only while they have
+    /// never written to us, never in a Private chat, and only when the indexer files `dm` -
+    /// an indexer that doesn't know it drops the transaction from its index altogether.
+    func firstContactInboxTag(for address: String) async -> String? {
+        let me = WalletManager.shared.currentWallet?.publicAddress.lowercased()
+        guard address.lowercased() != me, !isPrivateChat(address) else { return nil }
+        let heardFrom = conversations.first { $0.contact.address == address }?
+            .messages.contains { !$0.isOutgoing } ?? false
+        guard !heardFrom, await inboxSupported() else { return nil }
+        return InboxTag.compute(for: address)
+    }
+
+    /// Finds people who wrote to this wallet first: asks the indexer for our inbox tag, then pulls
+    /// each new sender's whole history the normal way (sender + alias). Blocked senders are
+    /// skipped. Their chat lands in Message Requests (`isMessageRequest`).
+    func syncInbox() async {
+        guard !inboxSyncInFlight,
+              let wallet = WalletManager.shared.currentWallet?.publicAddress,
+              await inboxSupported() else { return }
+        inboxSyncInFlight = true
+        defer { inboxSyncInFlight = false }
+        let since = chatRequestState().inboxCursor
+        guard let found = try? await apiClient.getContextualMessagesByInbox(
+            tag: InboxTag.compute(for: wallet),
+            blockTime: since
+        ), isActiveWallet(wallet) else { return }
+        if let newest = found.compactMap(\.blockTime).max(), newest > since {
+            updateChatRequests { $0.inboxCursor = newest }
+        }
+        var senders: [String] = []
+        for message in found {
+            let sender = message.sender
+            guard !sender.isEmpty, sender.lowercased() != wallet.lowercased(),
+                  !isChatBlocked(sender), !senders.contains(sender) else { continue }
+            senders.append(sender)
+        }
+        // Someone already known is fetched by the ordinary sweep (it has their aliases); only a
+        // new sender needs their whole history pulled once.
+        for sender in senders where routingStates[sender] == nil {
+            guard isActiveWallet(wallet) else { return }
+            _ = contactsManager.getOrCreateContact(address: sender)
+            await syncContactHistoryFromGenesis(sender)
+        }
     }
 
     func pushEligibleConversationAddresses(settings: AppSettings? = nil) -> [String] {

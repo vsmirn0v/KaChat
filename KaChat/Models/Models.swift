@@ -585,6 +585,21 @@ struct HandshakeResponse: Codable {
     }
 }
 
+/// One wallet's Message Requests state (NO_HANDSHAKE_MESSAGING.md), stored per wallet by
+/// ChatService. Addresses are lowercased.
+struct ChatRequestState: Codable, Equatable {
+    var accepted: Set<String> = []
+    /// Chats started as Private: never sent with the inbox tag.
+    var privateChats: Set<String> = []
+    /// Rejected: ignored until the user writes to them.
+    var blocked: Set<String> = []
+    /// Newest inbox message seen, for the next lookup.
+    var inboxCursor: UInt64 = 0
+    /// When this wallet first ran with Message Requests. A chat whose first message is older is
+    /// an ordinary chat - nothing that existed before becomes a request.
+    var startedAt = Date()
+}
+
 struct ContextualMessageResponse: Codable {
     let txId: String
     let sender: String

@@ -47,6 +47,14 @@ final class ChatService: ObservableObject {
     @Published var isLoading = false
     @Published var error: KasiaError?
     @Published var declinedContacts: Set<String> = []
+    /// Message Requests state per wallet (`ChatRequestState`), loaded on first use - see the
+    /// Message Requests section of ChatService+Conversations.swift.
+    var chatRequestCache: [String: ChatRequestState] = [:]
+    /// Bumped on every accept / reject / private / block change, so lists re-filter.
+    @Published var chatRequestsRevision = 0
+    /// Whether each indexer answers inbox lookups (`KasiaAPIClient.probeInboxSupport`).
+    var inboxSupportByIndexer: [String: Bool] = [:]
+    var inboxSyncInFlight = false
     @Published var replyingTo: ChatMessage?
     /// The message whose text the composer is editing (the user's own) - see `sendEdit`.
     @Published var editingMessage: ChatMessage?

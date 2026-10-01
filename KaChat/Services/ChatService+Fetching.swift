@@ -542,6 +542,11 @@ extension ChatService {
                 contactsManager.clearDeletionTombstone(contactAddress)
             }
 
+            // A rejected (blocked) address stays blocked: a handshake from them is ignored, not
+            // a way back in. Only the user writing to them lifts it (`acceptChat`).
+            if !isOutgoing, isChatBlocked(contactAddress) {
+                continue
+            }
             if !isOutgoing {
                 clearDeclined(contactAddress)
             }
@@ -2832,6 +2837,10 @@ extension ChatService {
         // same reason the handshake gate is: a message mined AFTER the deletion is new traffic,
         // not the indexer re-serving history.
         if contactsManager.isDeletedAsOf(contactAddress, txId: message.txId, blockTime: Int64(message.blockTime)) {
+            return
+        }
+        // Rejected in Message Requests: nothing they send is kept, until the user writes to them.
+        if !message.isOutgoing, isChatBlocked(contactAddress) {
             return
         }
 
