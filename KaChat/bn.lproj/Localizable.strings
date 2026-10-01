@@ -905,3 +905,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "দেওয়া নেটওয়ার্ক ফি গণনা করতে + দিয়ে আপনার চ্যাট ঠিকানা যোগ করুন।";
 "Transactions: %lld. Some prices are still loading." = "লেনদেন: %lld। কিছু দাম এখনো লোড হচ্ছে।";
 "Transactions: %lld, at each day's price." = "লেনদেন: %lld, প্রতিদিনের দামে।";
+
+/* Day labels (message times, date dividers) */
+"Today" = "আজ";
+"Yesterday" = "গতকাল";

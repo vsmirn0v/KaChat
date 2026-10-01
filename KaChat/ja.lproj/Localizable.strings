@@ -905,3 +905,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "+ からチャットアドレスを追加すると、支払ったネットワーク手数料を集計できます。";
 "Transactions: %lld. Some prices are still loading." = "取引：%lld 件。一部の価格はまだ読み込み中です。";
 "Transactions: %lld, at each day's price." = "取引：%lld 件、各日の価格で計算。";
+
+/* Day labels (message times, date dividers) */
+"Today" = "今日";
+"Yesterday" = "昨日";

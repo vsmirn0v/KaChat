@@ -905,3 +905,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "Ödediği ağ ücretlerini saymak için sohbet adresini + ile ekle.";
 "Transactions: %lld. Some prices are still loading." = "İşlemler: %lld. Bazı fiyatlar hâlâ yükleniyor.";
 "Transactions: %lld, at each day's price." = "İşlemler: %lld, her günün fiyatıyla.";
+
+/* Day labels (message times, date dividers) */
+"Today" = "Bugün";
+"Yesterday" = "Dün";

@@ -852,3 +852,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "Füge deine Chat-Adresse über + hinzu, um die bezahlten Netzwerkgebühren zu zählen.";
 "Transactions: %lld. Some prices are still loading." = "Transaktionen: %lld. Einige Preise werden noch geladen.";
 "Transactions: %lld, at each day's price." = "Transaktionen: %lld, zum jeweiligen Tagespreis.";
+
+/* Day labels (message times, date dividers) */
+"Today" = "Heute";
+"Yesterday" = "Gestern";

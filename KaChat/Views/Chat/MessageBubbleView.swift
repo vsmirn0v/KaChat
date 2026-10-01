@@ -70,10 +70,6 @@ struct MessageBubbleView: View {
     /// Non-nil only for an incoming, not-yet-responded-to invite.
     let onRespondToChessInvite: ((Bool) -> Void)?
     let onOpenChessGame: (() -> Void)?
-    /// Shared horizontal offset driven by the message list's swipe-left-to-reveal-timestamp
-    /// gesture (see `ChatDetailView`'s drag gesture) - 0 at rest, negative while revealed.
-    var revealOffset: CGFloat = 0
-    var maxRevealOffset: CGFloat = 64
     /// When true, an incoming photo from this contact stays hidden behind a "Show Photo" tap
     /// instead of auto-decoding - driven by `ContactsManager.shouldAutoDisplayPhotos(for:settings:)`.
     var photosBlocked: Bool = false
@@ -111,8 +107,6 @@ struct MessageBubbleView: View {
         onJumpToReply: (() -> Void)? = nil,
         avatarURLString: String? = nil,
         avatarDisplayName: String = "",
-        revealOffset: CGFloat = 0,
-        maxRevealOffset: CGFloat = 64,
         photosBlocked: Bool = false,
         linkPreviewsAutoLoad: Bool = true,
         chessEnvelope: ChessEnvelope? = nil,
@@ -142,8 +136,6 @@ struct MessageBubbleView: View {
         self.onJumpToReply = onJumpToReply
         self.avatarURLString = avatarURLString
         self.avatarDisplayName = avatarDisplayName
-        self.revealOffset = revealOffset
-        self.maxRevealOffset = maxRevealOffset
         self.photosBlocked = photosBlocked
         self.linkPreviewsAutoLoad = linkPreviewsAutoLoad
         self.chessEnvelope = chessEnvelope
@@ -167,30 +159,8 @@ struct MessageBubbleView: View {
     }
 
 
-    private var timeText: String {
-        SharedFormatting.chatTime.string(from: message.timestamp)
-    }
-
-    /// 0 at rest, 1 once fully dragged open.
-    private var revealProgress: CGFloat {
-        min(max(-revealOffset / maxRevealOffset, 0), 1)
-    }
-
-
     var body: some View {
-        let media = mediaFile
-        let isSingleEmojiOnly = isSingleEmojiOnlyMessage(displayText)
-
-        ZStack(alignment: .trailing) {
-            Text(timeText)
-                .font(.scaled(size: 11))
-                .foregroundColor(.secondary)
-                .padding(.trailing, 12)
-                .opacity(revealProgress)
-
-            messageContent(media: media, isSingleEmojiOnly: isSingleEmojiOnly)
-                .offset(x: revealOffset)
-        }
+        messageContent(media: mediaFile, isSingleEmojiOnly: isSingleEmojiOnlyMessage(displayText))
     }
 
     private var avatarView: some View {
@@ -358,12 +328,13 @@ struct MessageBubbleView: View {
                     }
                 }
 
-                // Delivery status only - the time now shows via swipe-to-reveal, matching
-                // public chat rooms, instead of always being visible under every bubble.
+                // The time under every message, and for your own the delivery status after it:
                 // "Sending" / "Sent" / "Failed · Tap to retry" - the failed label is itself the
                 // retry button (DeliveryStatusLabel), so no second "Retry" beside it.
-                if shouldShowStatusIcon {
-                    statusIcon
+                MessageTimeLine(date: message.timestamp) {
+                    if shouldShowStatusIcon {
+                        statusIcon
+                    }
                 }
 
                 if isEdited {
@@ -1944,9 +1915,8 @@ struct LazyImageBubble: View {
             .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
     }
 
-    /// A tap opening the preview can land while a nearby row's swipe-to-reveal-timestamps drag
-    /// (`revealOffset`, shared across every visible row) is still mid-spring-back, or while the
-    /// list is still settling from a scroll - if that ambient animation transaction is still
+    /// A tap opening the preview can land while the list is still settling from a scroll - if
+    /// that ambient animation transaction is still
     /// active when `showImagePreview` flips, SwiftUI's animation engine can end up asked to
     /// animate the `fullScreenCover` presentation using a timeline it's already mid-way through
     /// for the unrelated offset, which has produced a hard freeze/crash (SwiftUI's internal

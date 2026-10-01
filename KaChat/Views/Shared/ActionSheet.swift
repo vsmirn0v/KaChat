@@ -829,6 +829,35 @@ extension Font {
 /// "Failed · Tap to retry". The glyph alone was a colour-coded dot that VoiceOver read as
 /// nothing and a colour-blind reader could not tell apart. `retry` makes the failed state a
 /// button.
+/// The line under a message: its time, and - for your own messages - the delivery status right
+/// after it ("10:57  ✓ Sent"). Every chat shows this under every message; it replaced the
+/// swipe-left-to-reveal times (5.2).
+struct MessageTimeLine<Status: View>: View {
+    let date: Date
+    /// Public chat rooms are long feeds: a message from another day says which ("Yesterday,
+    /// 9:41 AM", "Sep 28, 9:41 AM"). Threads keep the bare time under their day separators.
+    var showsDay: Bool = false
+    @ViewBuilder var status: () -> Status
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(text)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            status()
+        }
+    }
+
+    private var text: String {
+        let time = SharedFormatting.chatTime.string(from: date)
+        guard showsDay, !Calendar.current.isDateInToday(date) else { return time }
+        let day = Calendar.current.isDateInYesterday(date)
+            ? AppLocalization.string("Yesterday")
+            : SharedFormatting.chatDay.string(from: date)
+        return "\(day), \(time)"
+    }
+}
+
 struct DeliveryStatusLabel: View {
     enum Status {
         case pending, sent, failed, warning

@@ -100,8 +100,7 @@ struct ChatDetailView: View {
     ///
     /// These were computed properties, each recomputed from scratch on every read, and `body`
     /// read them four to seven times per pass: the ForEach, three `onChange` keys and the
-    /// pagination spinner. The timestamp-reveal swipe writes `revealOffset` at 60-120Hz and every
-    /// composer keystroke re-evaluates `body`, so after "jump to chat start" on a long history
+    /// pagination spinner. Every composer keystroke re-evaluates `body`, so after "jump to chat start" on a long history
     /// that was tens of thousands of struct copies and thousands of `uuidString` allocations per
     /// frame - the "scrolling old history stutters, then freezes" shape.
     ///
@@ -196,8 +195,6 @@ struct ChatDetailView: View {
     @State private var feeOverrideSompi: UInt64?
     @State private var showFeeEditor = false
     @State private var feeEditorText = ""
-    @State private var revealOffset: CGFloat = 0
-    private let maxRevealOffset: CGFloat = 64
     /// Tap-a-reply-quote-to-jump-to-original - mirrors `GroupChatDetailView`/
     /// `PublicChatChannelView`'s identical pair. `pendingJumpToTxId` is set from inside a message
     /// row (no `ScrollViewProxy` in scope there) and consumed by an `.onChange` inside the
@@ -813,22 +810,6 @@ struct ChatDetailView: View {
                             }
                             .onEnded { _ in
                                 markUserScrollInteractionEndedSoon()
-                            }
-                    )
-                    .simultaneousGesture(
-                        // Swipe-left-to-reveal-timestamps (iMessage-style, matches public chat
-                        // rooms): dragging left shifts every message row left together,
-                        // uncovering each message's time; releasing snaps back. Only engages for
-                        // mostly-horizontal drags so vertical scrolling is unaffected.
-                        DragGesture(minimumDistance: 8)
-                            .onChanged { value in
-                                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                                revealOffset = min(max(value.translation.width, -maxRevealOffset), 0)
-                            }
-                            .onEnded { _ in
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    revealOffset = 0
-                                }
                             }
                     )
                     .simultaneousGesture(
@@ -3337,8 +3318,6 @@ struct ChatDetailView: View {
             onJumpToReply: replyQuote != nil ? { pendingJumpToTxId = replyQuote?.replyToId } : nil,
             avatarURLString: senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
             avatarDisplayName: replyDisplayName(for: senderAddress ?? contact.address),
-            revealOffset: revealOffset,
-            maxRevealOffset: maxRevealOffset,
             photosBlocked: !contactsManager.shouldAutoDisplayPhotos(for: contact, settings: settingsViewModel.settings),
             linkPreviewsAutoLoad: contactsManager.isAcceptedContact(contact),
             chessEnvelope: chessEnvelope,

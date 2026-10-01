@@ -126,13 +126,9 @@ struct GroupChatDetailView: View {
     /// scrolls (open positioning, new-message scrollToBottom, keyboard pin) own bottom-pinning.
     @State private var isGrowingHistoryWindow = false
 
-    /// Swipe-left-to-reveal-timestamps, matching 1:1 chat's `ChatDetailView`/public chat rooms'
-    /// identical gesture.
-    @State private var revealOffset: CGFloat = 0
     /// Ticks once a minute while the thread is open, purely so expiring system lines disappear
     /// on their own rather than on the next unrelated redraw.
     @State private var systemLineClock = Date()
-    private let maxRevealOffset: CGFloat = 64
 
     // Avatar menu destinations - "View Profile"/"Open Chat"/"Pay in Kaspa" for a tapped member,
     // matching PublicChatChannelView's identical avatarButton pattern.
@@ -510,20 +506,6 @@ struct GroupChatDetailView: View {
                     // layout reported on iPhone Pro Max, where the keyboard is tallest and the
                     // misplacement is largest.
                     .scrollDismissesKeyboard(.immediately)
-                .simultaneousGesture(
-                    // Swipe-left-to-reveal-timestamps, matching 1:1 chat exactly: dragging left
-                    // shifts every message row left together, uncovering each message's time.
-                    DragGesture(minimumDistance: 8)
-                        .onChanged { value in
-                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                            revealOffset = min(max(value.translation.width, -maxRevealOffset), 0)
-                        }
-                        .onEnded { _ in
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                revealOffset = 0
-                            }
-                        }
-                )
                 .simultaneousGesture(
                     // Tapping anywhere in the message list dismisses whichever bubble's
                     // quick-reaction bar is open - mirrors 1:1 chat's identical gesture.
@@ -2233,8 +2215,6 @@ struct GroupChatDetailView: View {
             onMoreReactions: { emojiPickerTarget = IdentifiedTxId(id: message.txId) },
             activeQuickReactionMessageId: $activeQuickReactionMessageId,
             onJumpToReply: { pendingJumpToTxId = $0 },
-            revealOffset: revealOffset,
-            maxRevealOffset: maxRevealOffset,
             isEdited: edit != nil,
             onEdit: canEdit ? { beginEdit(message) } : nil
         )
@@ -2374,10 +2354,6 @@ private struct GroupMessageBubbleRow: View {
     /// Called with the original message's txId when the reply quote (if any) is tapped -
     /// `GroupChatDetailView` scrolls to and highlights it.
     let onJumpToReply: (String) -> Void
-    /// Shared horizontal offset driven by the message list's swipe-left-to-reveal-timestamp
-    /// gesture (see `GroupChatDetailView`'s drag gesture) - 0 at rest, negative while revealed.
-    var revealOffset: CGFloat = 0
-    var maxRevealOffset: CGFloat = 64
     /// The text shown is an edit of what was sent (the parent swapped `content`); a small
     /// "edited" sits under the bubble. `onEdit` is offered on the user's own text bubbles only.
     var isEdited: Bool = false
@@ -2520,26 +2496,8 @@ private struct GroupMessageBubbleRow: View {
         MediaFile.from(displayContent, cacheKey: message.txId)
     }
 
-    private var timeText: String {
-        SharedFormatting.chatTime.string(from: message.timestamp)
-    }
-
-    /// 0 at rest, 1 once fully dragged open.
-    private var revealProgress: CGFloat {
-        min(max(-revealOffset / maxRevealOffset, 0), 1)
-    }
-
     var body: some View {
-        ZStack(alignment: .trailing) {
-            Text(timeText)
-                .font(.scaled(size: 11))
-                .foregroundColor(.secondary)
-                .padding(.trailing, 12)
-                .opacity(revealProgress)
-
-            messageContent
-                .offset(x: revealOffset)
-        }
+        messageContent
     }
 
     private var messageContent: some View {
@@ -2724,9 +2682,12 @@ private struct GroupMessageBubbleRow: View {
                     LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil, isOutgoing: message.isOutgoing, autoFetch: autoLoadsLinkPreviews)
                 }
 
-                // The failed label is itself the retry button (DeliveryStatusLabel).
-                if message.isOutgoing {
-                    statusIcon
+                // The time under every message, and your own messages' status after it. The
+                // failed label is itself the retry button (DeliveryStatusLabel).
+                MessageTimeLine(date: message.timestamp) {
+                    if message.isOutgoing {
+                        statusIcon
+                    }
                 }
 
                 if isEdited {

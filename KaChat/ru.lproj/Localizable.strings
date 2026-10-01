@@ -905,3 +905,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "Добавьте адрес чата через +, чтобы учесть уплаченные им сетевые комиссии.";
 "Transactions: %lld. Some prices are still loading." = "Транзакций: %lld. Некоторые цены ещё загружаются.";
 "Transactions: %lld, at each day's price." = "Транзакций: %lld, по цене каждого дня.";
+
+/* Day labels (message times, date dividers) */
+"Today" = "Сегодня";
+"Yesterday" = "Вчера";

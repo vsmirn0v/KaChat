@@ -905,3 +905,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "+로 채팅 주소를 추가하면 지불한 네트워크 수수료를 집계합니다.";
 "Transactions: %lld. Some prices are still loading." = "거래: %lld건. 일부 가격을 아직 불러오는 중입니다.";
 "Transactions: %lld, at each day's price." = "거래: %lld건, 각 날짜의 가격 기준.";
+
+/* Day labels (message times, date dividers) */
+"Today" = "오늘";
+"Yesterday" = "어제";

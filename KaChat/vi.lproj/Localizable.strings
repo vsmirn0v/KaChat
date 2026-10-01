@@ -905,3 +905,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "Thêm địa chỉ trò chuyện bằng + để tính các phí mạng nó đã trả.";
 "Transactions: %lld. Some prices are still loading." = "Giao dịch: %lld. Một số giá vẫn đang tải.";
 "Transactions: %lld, at each day's price." = "Giao dịch: %lld, theo giá từng ngày.";
+
+/* Day labels (message times, date dividers) */
+"Today" = "Hôm nay";
+"Yesterday" = "Hôm qua";

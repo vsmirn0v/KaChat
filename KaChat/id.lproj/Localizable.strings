@@ -905,3 +905,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "Tambahkan alamat obrolanmu dengan + untuk menghitung biaya jaringan yang telah dibayarnya.";
 "Transactions: %lld. Some prices are still loading." = "Transaksi: %lld. Beberapa harga masih dimuat.";
 "Transactions: %lld, at each day's price." = "Transaksi: %lld, dengan harga tiap hari.";
+
+/* Day labels (message times, date dividers) */
+"Today" = "Hari ini";
+"Yesterday" = "Kemarin";

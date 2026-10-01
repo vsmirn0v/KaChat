@@ -59,12 +59,10 @@ struct PublicChatChannelView: View {
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
     @State private var feeShimmerPhase: CGFloat = -1
-    @State private var revealOffset: CGFloat = 0
     /// A once-a-minute clock for the reaction pill's green "sent" check, which is meant to go
     /// away 10 minutes after your reaction. Rows skip re-rendering unless their inputs change
     /// (`.equatable()`), so the expiry has to arrive as an input - see `isReactionCheckFresh`.
     @State private var reactionCheckClock = Date()
-    private let maxRevealOffset: CGFloat = 64
     /// User-set fee, from tapping the fee pill - see ChatDetailView.feeOverrideSompi's doc comment.
     @State private var feeOverrideSompi: UInt64?
     @State private var showFeeEditor = false
@@ -545,23 +543,6 @@ struct PublicChatChannelView: View {
                     // misplacement is largest.
                     .scrollDismissesKeyboard(.immediately)
                         .simultaneousGesture(
-                            // Swipe-left-to-reveal-timestamps (iMessage-style), matching Android:
-                            // dragging left across the message list shifts every row left by the
-                            // same amount, uncovering each message's time on the right; releasing
-                            // snaps everything back. Only engages for mostly-horizontal drags so
-                            // the ScrollView's own vertical scrolling still works normally.
-                            DragGesture(minimumDistance: 8)
-                                .onChanged { value in
-                                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                                    revealOffset = min(max(value.translation.width, -maxRevealOffset), 0)
-                                }
-                                .onEnded { _ in
-                                    withAnimation(.easeOut(duration: 0.2)) {
-                                        revealOffset = 0
-                                    }
-                                }
-                        )
-                        .simultaneousGesture(
                             // Tapping anywhere in the message list dismisses whichever bubble's
                             // quick-reaction bar is open - mirrors 1:1/group chat's identical gesture.
                             TapGesture().onEnded {
@@ -657,8 +638,8 @@ struct PublicChatChannelView: View {
 
     private func formatDateDivider(_ date: Date) -> String {
         let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return "Today" }
-        if calendar.isDateInYesterday(date) { return "Yesterday" }
+        if calendar.isDateInToday(date) { return AppLocalization.string("Today") }
+        if calendar.isDateInYesterday(date) { return AppLocalization.string("Yesterday") }
         return SharedFormatting.chatDay.string(from: date)
     }
 
@@ -773,16 +754,6 @@ struct PublicChatChannelView: View {
         // look changed to SwiftUI, so every keystroke, fee estimate, poll and avatar load in the
         // room re-ran the body of every visible row.
         .equatable()
-        // Swipe-to-reveal-time lives out here, not inside the row: the offset changes every
-        // frame of the drag, and as a row input it re-rendered every row per frame.
-        .offset(x: revealOffset)
-        .background(alignment: .trailing) {
-            Text(SharedFormatting.chatTime.string(from: Date(timeIntervalSince1970: Double(message.blockTime) / 1000)))
-                .font(.scaled(size: 11))
-                .foregroundColor(.secondary)
-                .padding(.trailing, 12)
-                .opacity(min(max(-revealOffset / maxRevealOffset, 0), 1))
-        }
         .id(message.id)
         .background(
             RoundedRectangle(cornerRadius: 12)
@@ -1711,11 +1682,12 @@ private struct PublicChatMessageRow: View, Equatable {
 
                 trailingLinkPreview
 
-                // Under your own message, exactly as in a 1:1 chat: "Sending", "Sent" with
-                // the green check, "Failed · Tap to retry". It was a black badge pinned to
-                // the bubble's corner, which read as a different thing from the 1:1 one.
-                if isOwnMessage {
-                    deliveryStatus
+                // The time under every message, exactly as in a 1:1 chat, and under your own the
+                // status after it: "Sending", "Sent" with the green check, "Failed · Tap to retry".
+                MessageTimeLine(date: Date(timeIntervalSince1970: Double(message.blockTime) / 1000), showsDay: true) {
+                    if isOwnMessage {
+                        deliveryStatus
+                    }
                 }
 
                 // A reaction (not the message) that failed to send - shown for reactions on

@@ -906,3 +906,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "Add your chatting address with + to count the network fees it has paid.";
 "Transactions: %lld. Some prices are still loading." = "Transactions: %lld. Some prices are still loading.";
 "Transactions: %lld, at each day's price." = "Transactions: %lld, at each day's price.";
+
+/* Day labels (message times, date dividers) */
+"Today" = "Today";
+"Yesterday" = "Yesterday";

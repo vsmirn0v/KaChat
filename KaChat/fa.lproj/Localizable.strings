@@ -905,3 +905,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "نشانی گفتگوی خود را با + اضافه کنید تا کارمزدهای شبکه‌ای که پرداخته شمرده شوند.";
 "Transactions: %lld. Some prices are still loading." = "تراکنش‌ها: %lld. برخی قیمت‌ها هنوز در حال بارگذاری‌اند.";
 "Transactions: %lld, at each day's price." = "تراکنش‌ها: %lld، با قیمت هر روز.";
+
+/* Day labels (message times, date dividers) */
+"Today" = "امروز";
+"Yesterday" = "دیروز";

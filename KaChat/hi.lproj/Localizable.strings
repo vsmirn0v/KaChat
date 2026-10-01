@@ -905,3 +905,7 @@
 "Add your chatting address with + to count the network fees it has paid." = "चुकाए गए नेटवर्क शुल्क गिनने के लिए + से अपना चैट पता जोड़ें।";
 "Transactions: %lld. Some prices are still loading." = "लेन-देन: %lld. कुछ कीमतें अभी लोड हो रही हैं।";
 "Transactions: %lld, at each day's price." = "लेन-देन: %lld, हर दिन की कीमत पर।";
+
+/* Day labels (message times, date dividers) */
+"Today" = "आज";
+"Yesterday" = "कल";
