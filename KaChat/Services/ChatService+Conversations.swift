@@ -3755,8 +3755,14 @@ extension ChatService {
             tag: InboxTag.compute(for: wallet),
             blockTime: since
         ), isActiveWallet(wallet) else { return }
-        if let newest = found.compactMap(\.blockTime).max(), newest > since {
-            updateChatRequests { $0.inboxCursor = newest }
+        // The cursor moves to the newest entry - but never past one whose sender the indexer
+        // hasn't resolved yet (it answers with an empty sender until the spent input is known):
+        // that entry is asked for again next time, or its sender would never be found.
+        let unresolvedTimes = found.filter { $0.sender.isEmpty }.compactMap(\.blockTime)
+        let resolvedNewest = found.filter { !$0.sender.isEmpty }.compactMap(\.blockTime).max()
+        let nextCursor = unresolvedTimes.min().map { min($0 > 0 ? $0 - 1 : 0, resolvedNewest ?? 0) } ?? resolvedNewest
+        if let nextCursor, nextCursor > since {
+            updateChatRequests { $0.inboxCursor = nextCursor }
         }
         var senders: [String] = []
         for message in found {
