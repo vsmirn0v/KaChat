@@ -314,6 +314,7 @@ Implementation uses:
 | `KACHAT_APP_LINKS.md` | The kachat.app link site (`web_site/server/`): every shared link is `https://kachat.app/...` - Open Graph previews everywhere, Universal/App Links into the app, post-only page with download buttons without it |
 | `STATS_INDEXER.md` | Server handoff: `GET /stats`, the per-category transaction counts (messages, payments, groups, public chats, KaPosts, chess...) behind Kaspa Hub > KaChat Stats; the app merges every configured indexer's answer and hides categories none reports |
 | `STATS_WINDOWS_FIX.md` | The short server ask: 24h/7d windows for the six chat-side `/stats` categories (messages, handshakes, payments, groups, self-stash), which today send `total` only. Hand this over on its own; `STATS_INDEXER.md` is the contract behind it |
+| `KACHAT_NAMES.md` | Design of `.kachat` names on Kaspa covenants: gap registry (uniqueness), commit-wait-register, name UTXO with trustless list/buy, offers, address-keyed profiles, indexer + app work, phased plan |
 | `DETERMINISTIC_ALIASES.md` | Deterministic alias derivation (shipped protocol - see `Utilities/DeterministicAlias.swift`): algorithm, migration notes, legacy-alias compatibility |
 
 Historical plan/design documents were removed from the repo in the 4.0 hygiene pass; shipped code is the source of truth for those features.
