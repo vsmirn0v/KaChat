@@ -1053,7 +1053,12 @@ final class PortfolioViewModel: ObservableObject {
             fiatValue: fiatValue,
             timestamp: timestamp,
             notes: notes,
-            portfolioId: transactions[index].portfolioId
+            portfolioId: transactions[index].portfolioId,
+            // Kept through an edit: they are how a re-import of the address recognises this
+            // row. Dropping them made the next import add the same transaction a second time -
+            // as a sell again, undoing a sell the user had just marked a transfer.
+            sourceAddress: transactions[index].sourceAddress,
+            sourceTxId: transactions[index].sourceTxId
         )
         persist()
     }
@@ -1219,7 +1224,9 @@ final class PortfolioViewModel: ObservableObject {
             guard token.caseInsensitiveCompare(Self.trackedToken) == .orderedSame else { continue }
 
             let typeRaw = fields[2].trimmingCharacters(in: .whitespaces).lowercased()
-            guard let type = PortfolioTransactionType(rawValue: typeRaw) else { continue }
+            // CoinMarketCap writes "Transfer In" / "Transfer Out"; both are a transfer here.
+            guard let type = PortfolioTransactionType(rawValue: typeRaw)
+                ?? (typeRaw.hasPrefix("transfer") ? .transfer : nil) else { continue }
             guard let timestamp = dateFormatter.date(from: fields[0].trimmingCharacters(in: .whitespaces)) else { continue }
             guard let kas = Self.parseLenientDouble(fields[4]),
                   let amountSompi = Self.sompi(fromKas: kas) else { continue }
@@ -1233,6 +1240,7 @@ final class PortfolioViewModel: ObservableObject {
                     switch type {
                     case .buy: fiatValue += fee
                     case .sell: fiatValue = max(fiatValue - fee, 0)
+                    case .transfer: break
                     }
                 }
             }
@@ -1453,6 +1461,9 @@ final class PortfolioViewModel: ObservableObject {
                 result.sellCount += 1
                 uncoveredSompi += max(remaining, 0)
                 if PortfolioAddressImporter.isPricePending(tx.notes) { result.pendingPriceCount += 1 }
+            case .transfer:
+                // Your own KAS changing address: not a sale, and its cost stays with it.
+                continue
             }
         }
         result.uncoveredKas = Double(uncoveredSompi) / 100_000_000.0
@@ -1473,6 +1484,8 @@ final class PortfolioViewModel: ObservableObject {
             case .sell:
                 holdingsSompi -= tx.amountSompi
                 totalProceeds += tx.fiatValue
+            case .transfer:
+                break
             }
         }
         let holdingsKas = Double(holdingsSompi) / 100_000_000.0
@@ -1507,6 +1520,7 @@ final class PortfolioViewModel: ObservableObject {
                 switch tx.type {
                 case .buy: holdingsSompi += tx.amountSompi
                 case .sell: holdingsSompi -= tx.amountSompi
+                case .transfer: break
                 }
             }
             let holdingsKas = Double(holdingsSompi) / 100_000_000.0

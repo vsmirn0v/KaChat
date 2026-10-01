@@ -301,16 +301,40 @@ struct PortfolioTransactionsView<Header: View>: View {
         .listRowBackground(Color.clear)
     }
 
+    static func icon(for type: PortfolioTransactionType) -> String {
+        switch type {
+        case .buy: return "arrow.down.circle.fill"
+        case .sell: return "arrow.up.circle.fill"
+        case .transfer: return "arrow.left.arrow.right.circle.fill"
+        }
+    }
+
+    static func color(for type: PortfolioTransactionType) -> Color {
+        switch type {
+        case .buy: return .green
+        case .sell: return .red
+        case .transfer: return .accentColor
+        }
+    }
+
+    static func title(for type: PortfolioTransactionType) -> LocalizedStringKey {
+        switch type {
+        case .buy: return "Buy"
+        case .sell: return "Sell"
+        case .transfer: return "Transfer"
+        }
+    }
+
     private func transactionRow(_ tx: PortfolioTransaction) -> some View {
         let needsPrice = PortfolioAddressImporter.isPricePending(tx.notes)
         return HStack(spacing: 12) {
-            Image(systemName: tx.type == .buy ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+            Image(systemName: Self.icon(for: tx.type))
                 .font(.title2)
-                .foregroundColor(tx.type == .buy ? .green : .red)
+                .foregroundColor(Self.color(for: tx.type))
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(tx.type == .buy ? "Buy" : "Sell")
+                    Text(Self.title(for: tx.type))
                         .fontWeight(.medium)
                     if needsPrice {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -860,7 +884,7 @@ private struct PortfolioTransactionEditor: View {
     let existing: PortfolioTransaction?
     @Environment(\.dismiss) private var dismiss
 
-    @State private var isBuy: Bool
+    @State private var type: PortfolioTransactionType
     @State private var quantityText: String
     @State private var priceText: String
     @State private var feeText: String = ""
@@ -870,7 +894,7 @@ private struct PortfolioTransactionEditor: View {
     init(viewModel: PortfolioViewModel, existing: PortfolioTransaction?) {
         self.viewModel = viewModel
         self.existing = existing
-        _isBuy = State(initialValue: existing?.type != .sell)
+        _type = State(initialValue: existing?.type ?? .buy)
         _notesText = State(initialValue: existing?.notes ?? "")
         _timestamp = State(initialValue: existing?.timestamp ?? Date())
 
@@ -894,7 +918,12 @@ private struct PortfolioTransactionEditor: View {
     private var total: Double? {
         guard let quantity, let pricePerCoin else { return nil }
         let base = quantity * pricePerCoin
-        return isBuy ? base + fee : base - fee
+        switch type {
+        case .buy: return base + fee
+        case .sell: return base - fee
+        // What the KAS was worth when it moved - a note on the row, counted nowhere.
+        case .transfer: return base
+        }
     }
 
     private var currencySymbol: String {
@@ -919,19 +948,25 @@ private struct PortfolioTransactionEditor: View {
         return sign + currencySymbol + magnitude
     }
 
+    /// A transfer only needs its amount: it has no price that counts for anything.
     private var isValid: Bool {
-        (quantity ?? 0) > 0 && (pricePerCoin ?? 0) > 0
+        (quantity ?? 0) > 0 && (type == .transfer || (pricePerCoin ?? 0) > 0)
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("Type", selection: $isBuy) {
-                        Text("Buy").tag(true)
-                        Text("Sell").tag(false)
+                    Picker("Type", selection: $type) {
+                        Text("Buy").tag(PortfolioTransactionType.buy)
+                        Text("Sell").tag(PortfolioTransactionType.sell)
+                        Text("Transfer").tag(PortfolioTransactionType.transfer)
                     }
                     .pickerStyle(.segmented)
+                } footer: {
+                    if type == .transfer {
+                        Text("KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit.")
+                    }
                 }
 
                 Section {
@@ -955,15 +990,17 @@ private struct PortfolioTransactionEditor: View {
                             .numericKeyboardDoneButton()
                             .multilineTextAlignment(.trailing)
                     }
-                    HStack {
-                        Text("Fee (optional)")
-                        Spacer()
-                        Text(currencySymbol)
-                            .foregroundColor(.secondary)
-                        TextField("0.00", text: $feeText)
-                            .keyboardType(.decimalPad)
-                            .numericKeyboardDoneButton()
-                            .multilineTextAlignment(.trailing)
+                    if type != .transfer {
+                        HStack {
+                            Text("Fee (optional)")
+                            Spacer()
+                            Text(currencySymbol)
+                                .foregroundColor(.secondary)
+                            TextField("0.00", text: $feeText)
+                                .keyboardType(.decimalPad)
+                                .numericKeyboardDoneButton()
+                                .multilineTextAlignment(.trailing)
+                        }
                     }
                     DatePicker("Date", selection: $timestamp, displayedComponents: [.date, .hourAndMinute])
                 }
@@ -974,7 +1011,7 @@ private struct PortfolioTransactionEditor: View {
 
                 Section {
                     HStack {
-                        Text(isBuy ? "Total Spent" : "Total Received")
+                        Text(type == .buy ? "Total Spent" : type == .sell ? "Total Received" : "Value at the Time")
                             .foregroundColor(.secondary)
                         Spacer()
                         Text(formatCurrency(total ?? 0))
@@ -1010,8 +1047,9 @@ private struct PortfolioTransactionEditor: View {
     }
 
     private func save() {
-        guard let quantity, let total else { return }
-        let type: PortfolioTransactionType = isBuy ? .buy : .sell
+        guard let quantity else { return }
+        // A transfer with no price is still a complete record.
+        let total = self.total ?? 0
         let notes = notesText.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalNotes = notes.isEmpty ? nil : notes
 

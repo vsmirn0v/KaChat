@@ -3,6 +3,10 @@ import Foundation
 enum PortfolioTransactionType: String, Codable, CaseIterable {
     case buy
     case sell
+    /// KAS moved between your own addresses - sent away and brought back later, or between two
+    /// wallets. A record only: it changes neither holdings nor cost basis nor profit, so marking
+    /// both ends of a move as transfers keeps the portfolio right.
+    case transfer
 }
 
 /// A manually-entered investment ledger row. Deliberately not derived from on-chain address

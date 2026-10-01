@@ -174,6 +174,7 @@ struct AddToPortfolioSheet: View {
                 Picker("Type", selection: $type) {
                     Text("Buy").tag(PortfolioTransactionType.buy)
                     Text("Sell").tag(PortfolioTransactionType.sell)
+                    Text("Transfer").tag(PortfolioTransactionType.transfer)
                 }
                 .pickerStyle(.segmented)
             }
@@ -233,7 +234,7 @@ struct AddToPortfolioSheet: View {
         guard amountText.isEmpty else { return }
         amountText = Self.trimmed(candidate.amountKas)
         // Money leaving the address is a sale, money arriving is a buy. Both are editable: a
-        // transfer between your own addresses is neither, and only you know which it was.
+        // move between your own addresses is a Transfer, and only you know which it was.
         type = candidate.isOutgoing ? .sell : .buy
         date = candidate.timestamp
         selected = portfolioManager.portfolios.first { $0.id == portfolioManager.activePortfolioId }
