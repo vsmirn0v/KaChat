@@ -579,18 +579,27 @@ final class WalletManager: ObservableObject {
 
         do {
             if let storedWallet = try keychainService.loadWallet(),
-               storedWallet.publicAddress == account.publicAddress {
+               Self.isSameAccount(storedWallet.publicAddress, account.publicAddress) {
                 resetInMemoryChatStateForAccountSwitch()
                 await loadWallet(force: true)
                 if currentWallet != nil {
                     ChatService.shared.startPolling()
                 }
-                return currentWallet?.publicAddress == account.publicAddress
+                return isCurrentAccount(account)
             }
 
             snapshotStoredWalletIfPossible()
 
-            guard let snapshot = try keychainService.loadAccountSnapshot(publicAddress: account.publicAddress) else {
+            // A snapshot is filed under the address it was taken with, which may be the other
+            // network's encoding of this account (one taken on mainnet, signing in on testnet).
+            var foundSnapshot: (seedPhrase: SeedPhrase, privateKey: Data)?
+            for address in Self.accountAddressVariants(account.publicAddress) {
+                if let found = try keychainService.loadAccountSnapshot(publicAddress: address) {
+                    foundSnapshot = found
+                    break
+                }
+            }
+            guard let snapshot = foundSnapshot else {
                 self.error = .keychainError("No local keys for this account. Re-import with seed phrase.")
                 return false
             }
@@ -612,7 +621,7 @@ final class WalletManager: ObservableObject {
             if currentWallet != nil {
                 ChatService.shared.startPolling()
             }
-            return currentWallet?.publicAddress == account.publicAddress
+            return isCurrentAccount(account)
         } catch {
             self.error = .keychainError(error.localizedDescription)
             return false
@@ -628,11 +637,15 @@ final class WalletManager: ObservableObject {
         let isStoredAccount: Bool
         do {
             let storedWallet = try keychainService.loadWallet()
-            isStoredAccount = storedWallet?.publicAddress == account.publicAddress
+            isStoredAccount = storedWallet.map { Self.isSameAccount($0.publicAddress, account.publicAddress) } ?? false
             if !isStoredAccount {
-                try? keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
-                ContactsManager.shared.deletePersistedContacts(forWalletAddress: account.publicAddress)
-                NextcloudService.shared.purgeStoredState(forWalletAddress: account.publicAddress)
+                for address in Self.accountAddressVariants(account.publicAddress) {
+                    try? keychainService.deleteAccountSnapshot(publicAddress: address)
+                }
+                for address in Self.accountAddressVariants(account.publicAddress) {
+                    ContactsManager.shared.deletePersistedContacts(forWalletAddress: address)
+                    NextcloudService.shared.purgeStoredState(forWalletAddress: address)
+                }
                 removeSavedAccountFromStorage(account)
                 return
             }
@@ -645,26 +658,31 @@ final class WalletManager: ObservableObject {
         await PushNotificationManager.shared.unregister()
         ChatService.shared.stopPolling()
 
-        // Remove local message DB for the stored wallet, then clear local key material.
-        await MessageStore.shared.setCurrentWallet(account.publicAddress)
-        MessageStore.shared.clearAll()
-        await MessageStore.shared.destroyLocalStoreFiles()
-        PublicChatService.shared.setCurrentWallet(account.publicAddress)
-        PublicChatStore.shared.clearAll()
-        GroupChatService.shared.setCurrentWallet(account.publicAddress)
-        GroupChatService.shared.clearAllLocalData()
-        ColdStorageManager.shared.setCurrentWallet(account.publicAddress)
-        ColdStorageManager.shared.clearAllLocalData()
-        PortfolioManager.shared.setCurrentWallet(account.publicAddress)
-        PortfolioManager.shared.clearAllLocalData()
-        PortfolioViewModel.shared.setCurrentWallet(account.publicAddress)
-        KaPostsFollowStore.shared.setCurrentWallet(account.publicAddress)
-        KaPostsModerationStore.shared.setCurrentWallet(account.publicAddress)
-        PortfolioViewModel.shared.clearAllLocalData()
-        NextcloudService.shared.purgeStoredState(forWalletAddress: account.publicAddress)
+        // Remove local message DB for the stored wallet, then clear local key material - on both
+        // networks, since mainnet and testnet keep this account's data under different addresses.
+        for address in Self.accountAddressVariants(account.publicAddress) {
+            await MessageStore.shared.setCurrentWallet(address)
+            MessageStore.shared.clearAll()
+            await MessageStore.shared.destroyLocalStoreFiles()
+            PublicChatService.shared.setCurrentWallet(address)
+            PublicChatStore.shared.clearAll()
+            GroupChatService.shared.setCurrentWallet(address)
+            GroupChatService.shared.clearAllLocalData()
+            ColdStorageManager.shared.setCurrentWallet(address)
+            ColdStorageManager.shared.clearAllLocalData()
+            PortfolioManager.shared.setCurrentWallet(address)
+            PortfolioManager.shared.clearAllLocalData()
+            PortfolioViewModel.shared.setCurrentWallet(address)
+            KaPostsFollowStore.shared.setCurrentWallet(address)
+            KaPostsModerationStore.shared.setCurrentWallet(address)
+            PortfolioViewModel.shared.clearAllLocalData()
+            NextcloudService.shared.purgeStoredState(forWalletAddress: address)
+        }
 
         do {
-            try keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
+            for address in Self.accountAddressVariants(account.publicAddress) {
+                try keychainService.deleteAccountSnapshot(publicAddress: address)
+            }
             try keychainService.clearCurrentAccountData()
         } catch {
             self.error = .keychainError(error.localizedDescription)
@@ -791,6 +809,33 @@ final class WalletManager: ObservableObject {
     /// Ensures the non-sensitive wallet record matches locally stored signing key material.
     /// If keychain sync returns a stale wallet record from another device/account, prefer
     /// local key material so message decryption and signing keep working on this device.
+    /// One key is one account on both networks: `kaspa:` and `kaspatest:` encodings of the same
+    /// payload are the same account. The stored wallet record keeps the address it was saved
+    /// with, while the saved-accounts list holds the running network's encoding
+    /// (`walletOnCurrentNetwork`), so the two must never be compared as strings.
+    static func isSameAccount(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        guard let pa = KaspaAddress(address: a), let pb = KaspaAddress(address: b) else { return false }
+        return pa.type == pb.type && pa.payload == pb.payload
+    }
+
+    /// `address` on both networks, itself first - for state filed under an address string
+    /// (account snapshots) that may have been written on the other network.
+    static func accountAddressVariants(_ address: String) -> [String] {
+        guard let parsed = KaspaAddress(address: address) else { return [address] }
+        var variants = [address]
+        for hrp in ["kaspa", "kaspatest"] where hrp != parsed.hrp {
+            let other = KaspaAddress(hrp: hrp, type: parsed.type, payload: parsed.payload).address
+            if !other.isEmpty { variants.append(other) }
+        }
+        return variants
+    }
+
+    private func isCurrentAccount(_ account: SavedAccountSummary) -> Bool {
+        guard let current = currentWallet else { return false }
+        return Self.isSameAccount(current.publicAddress, account.publicAddress)
+    }
+
     /// The same key's address on the network the app is running on. A wallet record keeps the
     /// address it was saved with; after Settings > Connection Settings > Testnet switches the
     /// network, the account must appear as its `kaspatest:` (or back to its `kaspa:`) address -
@@ -896,7 +941,7 @@ final class WalletManager: ObservableObject {
         savedAccounts[index].alias = trimmed
         persistSavedAccountsToStorage()
 
-        if currentWallet?.publicAddress == account.publicAddress {
+        if isCurrentAccount(account) {
             currentWallet?.alias = trimmed
         }
     }

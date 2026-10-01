@@ -87,7 +87,7 @@ struct OnboardingView: View {
             }
             .task {
                 // Start node pool discovery early so it's ready when wallet is created/imported
-                await NodePoolService.shared.startEarlyDiscovery()
+                await NodePoolService.shared.startEarlyDiscovery(network: AppSettings.load().networkType)
             }
             .alert(
                 "Rename Account",
