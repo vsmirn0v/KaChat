@@ -115,10 +115,12 @@ extension ChatService {
     nonisolated static func decryptContextualMessageFromRawPayloadSync(_ payload: String, privateKey: Data) -> String? {
         // Raw payload from REST API is hex-encoded
         guard let payloadData = hexStringToData(payload),
-              let payloadString = String(data: payloadData, encoding: .utf8) else {
+              let rawPayloadString = String(data: payloadData, encoding: .utf8) else {
             AppLog.log("[ChatService] Raw payload: failed to decode hex to string")
             return nil
         }
+        // A first-contact `dm` message is a contextual message plus an inbox tag.
+        let payloadString = ContextualPayloadFormat.normalized(rawPayloadString)
 
         // Check if it's a contextual message: "kchat:1:comm:ALIAS:BASE64_ENCRYPTED" (dual-read
         // of the legacy "ciph_msg:1:comm:" root too).
@@ -164,7 +166,8 @@ extension ChatService {
         }
     }
 
-    nonisolated static func extractContextualAlias(fromRawPayloadString payloadString: String) -> String? {
+    nonisolated static func extractContextualAlias(fromRawPayloadString rawPayloadString: String) -> String? {
+        let payloadString = ContextualPayloadFormat.normalized(rawPayloadString)
         guard payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:") else {
             return nil
         }

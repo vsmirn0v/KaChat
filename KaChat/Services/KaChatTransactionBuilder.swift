@@ -80,13 +80,15 @@ struct KasiaTransactionBuilder {
         senderPrivateKey: Data,
         recipientPublicKey: Data,
         utxos: [UTXO],
-        feeOverride: UInt64? = nil
+        feeOverride: UInt64? = nil,
+        inboxTag: String? = nil
     ) throws -> KaspaRpcTransaction {
         // 1. Encrypt the message for the recipient
         let kasiaPayload = try buildContextualMessagePayload(
             alias: alias,
             message: message,
-            recipientPublicKey: recipientPublicKey
+            recipientPublicKey: recipientPublicKey,
+            inboxTag: inboxTag
         )
 
         // 3. Build sender output script (self-spend)
@@ -793,10 +795,14 @@ struct KasiaTransactionBuilder {
     }
 
     /// Build the contextual message payload used by Kasia transactions
+    /// `inboxTag` makes it a first-contact message, `kchat:1:dm:<tag>:<alias>:<sealed>` - the
+    /// same message, also filed by the recipient's inbox tag so they can find it without knowing
+    /// the sender (NO_HANDSHAKE_MESSAGING.md). Nil writes the plain `comm` form.
     static func buildContextualMessagePayload(
         alias: String,
         message: String,
-        recipientPublicKey: Data
+        recipientPublicKey: Data,
+        inboxTag: String? = nil
     ) throws -> Data {
         let encryptedPayload = try encryptContextualMessage(
             alias: alias,
@@ -806,7 +812,8 @@ struct KasiaTransactionBuilder {
         return buildKasiaPayload(
             type: .contextualMessage,
             alias: alias,
-            payload: encryptedPayload
+            payload: encryptedPayload,
+            inboxTag: inboxTag
         )
     }
 
@@ -1299,7 +1306,8 @@ struct KasiaTransactionBuilder {
     private static func buildKasiaPayload(
         type: KasiaMessageType,
         alias: String?,
-        payload: Data
+        payload: Data,
+        inboxTag: String? = nil
     ) -> Data {
         switch type {
         case .handshake:
@@ -1309,6 +1317,9 @@ struct KasiaTransactionBuilder {
             return data
         case .contextualMessage:
             var protocolString = "kchat:1:comm:"
+            if let inboxTag {
+                protocolString = ContextualPayloadFormat.dmPrefix + inboxTag + ":"
+            }
             if let alias = alias {
                 protocolString += alias + ":"
             }

@@ -149,3 +149,29 @@ struct DeterministicAlias {
         return Data(privKey.xonly.bytes)
     }
 }
+
+// MARK: - No-handshake first contact (NO_HANDSHAKE_MESSAGING.md)
+
+/// The tag a first-contact message carries so its recipient can find it: the first 16 bytes of
+/// SHA-256("kachat-inbox:v1:" + the recipient's lowercased address), as hex. Every platform must
+/// produce the same 32 characters.
+enum InboxTag {
+    static func compute(for address: String) -> String {
+        let input = "kachat-inbox:v1:" + address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let digest = SHA256.hash(data: Data(input.utf8))
+        return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// Reading first-contact messages: `kchat:1:dm:<tag>:<alias>:<sealed>` is a contextual message
+/// plus the recipient's inbox tag, so every parser reads it as `kchat:1:comm:<alias>:<sealed>`.
+enum ContextualPayloadFormat {
+    static let dmPrefix = "kchat:1:dm:"
+
+    static func normalized(_ payload: String) -> String {
+        guard payload.hasPrefix(dmPrefix) else { return payload }
+        let rest = payload.dropFirst(dmPrefix.count)
+        guard let colon = rest.firstIndex(of: ":") else { return payload }
+        return "kchat:1:comm:" + rest[rest.index(after: colon)...]
+    }
+}

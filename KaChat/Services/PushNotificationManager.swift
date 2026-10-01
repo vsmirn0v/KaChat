@@ -2011,7 +2011,8 @@ final class PushNotificationManager: ObservableObject {
             return nil
         }
 
-        if let payloadString = decodePayloadString(from: payload),
+        // A first-contact `dm` message reads as `comm` (ContextualPayloadFormat).
+        if let payloadString = decodePayloadString(from: payload).map(ContextualPayloadFormat.normalized),
            (payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")) {
             let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
             guard parts.count >= 5 else { return nil }
@@ -2029,7 +2030,7 @@ final class PushNotificationManager: ObservableObject {
                 if let hexData = Data(hexString: utf8) {
                     return decryptEncryptedBytes(hexData, privateKey: privateKey)
                 }
-                if let payloadString = decodePayloadString(from: utf8),
+                if let payloadString = decodePayloadString(from: utf8).map(ContextualPayloadFormat.normalized),
                    (payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")) {
                     let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
                     if parts.count >= 5,

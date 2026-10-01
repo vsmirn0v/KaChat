@@ -1532,10 +1532,21 @@ private struct NotificationCipher {
         return try decrypt(encrypted, privateKey: privateKey)
     }
 
+    /// A first-contact message, `kchat:1:dm:<inbox tag>:<alias>:<sealed>`, is a contextual
+    /// message plus the recipient's inbox tag - read it as `kchat:1:comm:<alias>:<sealed>`.
+    /// Mirrors the app's `ContextualPayloadFormat` (NO_HANDSHAKE_MESSAGING.md).
+    static func normalizedFirstContact(_ payload: String) -> String {
+        let prefix = "kchat:1:dm:"
+        guard payload.hasPrefix(prefix) else { return payload }
+        let rest = payload.dropFirst(prefix.count)
+        guard let colon = rest.firstIndex(of: ":") else { return payload }
+        return "kchat:1:comm:" + rest[rest.index(after: colon)...]
+    }
+
     static func decryptContextualPayloadDebug(_ payloadHex: String, privateKey: Data) -> (String?, String?) {
         var firstError: String?
 
-        if let payloadString = decodePayloadString(from: payloadHex),
+        if let payloadString = decodePayloadString(from: payloadHex).map(normalizedFirstContact),
            (payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")) {
             let (message, error) = decryptContextualProtocolPayload(payloadString, privateKey: privateKey)
             if let message {
@@ -1564,7 +1575,7 @@ private struct NotificationCipher {
                     }
                 }
 
-                if let nestedPayloadString = decodePayloadString(from: utf8),
+                if let nestedPayloadString = decodePayloadString(from: utf8).map(normalizedFirstContact),
                    (nestedPayloadString.hasPrefix("kchat:1:comm:") || nestedPayloadString.hasPrefix("ciph_msg:1:comm:")) {
                     let (nestedMessage, nestedError) = decryptContextualProtocolPayload(
                         nestedPayloadString,

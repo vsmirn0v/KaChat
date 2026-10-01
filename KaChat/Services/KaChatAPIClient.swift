@@ -286,6 +286,35 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         )
     }
 
+    /// First-contact messages addressed to `tag` - a recipient's inbox tag (`InboxTag`) - newest
+    /// after `blockTime`. Same objects as by-sender, with `sender` filled in
+    /// (NO_HANDSHAKE_MESSAGING.md §5.3).
+    func getContextualMessagesByInbox(tag: String, limit: Int = 100, blockTime: UInt64 = 0) async throws -> [ContextualMessageResponse] {
+        try await getPaginated(
+            endpoint: "/contextual-messages/by-inbox",
+            params: ["tag": tag],
+            limit: limit,
+            startBlockTime: blockTime,
+            getBlockTime: { $0.blockTime }
+        )
+    }
+
+    /// Whether the indexer answers inbox lookups: true on an answer, false on 404 (an indexer
+    /// without the feature), nil when it couldn't be reached - unknown, so not worth caching.
+    func probeInboxSupport() async -> Bool? {
+        do {
+            let _: [ContextualMessageResponse] = try await get(
+                endpoint: "/contextual-messages/by-inbox",
+                params: ["tag": String(repeating: "0", count: 32), "limit": "1"]
+            )
+            return true
+        } catch let KasiaError.apiError(message) where message == "Resource not found" {
+            return false
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Payments
 
     func getPaymentsBySender(address: String, limit: Int = 50, blockTime: UInt64 = 0) async throws -> [PaymentResponse] {

@@ -770,7 +770,7 @@ extension ChatService {
     }
 
     func isContextualPayload(_ payloadHex: String) -> Bool {
-        let matches = Self.payloadHasPrefix(payloadHex, ["kchat:1:comm:", "ciph_msg:1:comm:"])
+        let matches = Self.payloadHasPrefix(payloadHex, ["kchat:1:comm:", ContextualPayloadFormat.dmPrefix, "ciph_msg:1:comm:"])
         if !matches, Self.payloadHasPrefix(payloadHex, ["kchat:", "ciph_msg:"]) {
             // Log near-miss for debugging
             AppLog.log("[ChatService] Payload is a KaChat root but not comm")
