@@ -45,6 +45,8 @@ struct ChatDetailView: View {
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var contactsManager: ContactsManager
+    /// Closes the chat after a Message Request is rejected.
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var knsService = KNSService.shared
     @ObservedObject private var portfolioViewModel = PortfolioViewModel.shared
@@ -113,7 +115,6 @@ struct ChatDetailView: View {
     private final class DerivedMessagesCache {
         struct Key: Equatable {
             let snapshotVersion: Int
-            let awaitingMyAcceptance: Bool
             let initialLayoutReady: Bool
             let loadedMessageCount: Int
             let initialWindowSize: Int
@@ -185,6 +186,10 @@ struct ChatDetailView: View {
     @State private var pendingPrependViewportSnapshot: PrependViewportSnapshot?
     @State private var storedCountTask: Task<Void, Never>?
     @State private var isRespondingHandshake = false
+    @State private var showRejectRequestConfirm = false
+    /// Whether the indexer files first-contact messages (NO_HANDSHAKE_MESSAGING.md) - if not,
+    /// the old handshake banner and "Send Handshake" stay as the way to reach a stranger.
+    @State private var inboxSupported = false
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
@@ -286,11 +291,20 @@ struct ChatDetailView: View {
         contact.address == WalletManager.shared.currentWallet?.publicAddress
     }
 
-    /// A stranger sent a connect request you haven't accepted yet (no outgoing handshake, no genuine
-    /// reply, not declined). Until you accept, their non-handshake messages must stay hidden — the
-    /// sync-level gate Android/Desktop already have; iOS fetches them, so we gate at display.
-    private var awaitingMyAcceptance: Bool {
-        !isSelfChat && hasIncomingHandshakeMessage && !hasOutgoingHandshakeMessage && !hasGenuineOutgoingMessage && !isDeclined
+    /// A chat someone else started that you haven't accepted: the whole thread is readable, and
+    /// Accept / Reject replace the composer (NO_HANDSHAKE_MESSAGING.md).
+    private var isRequest: Bool {
+        conversation.map { chatService.isMessageRequest($0) } ?? false
+    }
+
+    private var isPrivate: Bool {
+        chatService.isPrivateChat(contact.address)
+    }
+
+    /// A Private chat until they've written back: they aren't notified, and see your messages
+    /// once they start a private chat with your address too.
+    private var shouldShowPrivateNotice: Bool {
+        hasPerformedInitialSetup && isPrivate && !isSelfChat && !hasGenuineIncomingMessage && !isDeclined
     }
 
     private var messages: [ChatMessage] { derived().messages }
@@ -300,11 +314,8 @@ struct ChatDetailView: View {
         // content (an outgoing tx from another device whose text hasn't synced), and showing
         // them added noise without information. The records stay in the store, so when an
         // archive restore later delivers the real text the message appears with content.
-        let base = normalizedMessages.filter { !$0.isSentPlaceholder }
-        // Before you accept a stranger's request, show only the "wants to connect" handshake (and
-        // anything you sent) — never their earlier messages.
-        guard awaitingMyAcceptance else { return base }
-        return base.filter { $0.isOutgoing || $0.messageType == .handshake }
+        // A request is read in full: Message Requests is the gate now, not a hidden thread.
+        return normalizedMessages.filter { !$0.isSentPlaceholder }
     }
 
     /// The memoized stages, recomputed together only when one of their inputs has changed since
@@ -312,7 +323,6 @@ struct ChatDetailView: View {
     private func derived() -> DerivedMessagesCache {
         let key = DerivedMessagesCache.Key(
             snapshotVersion: normalizedMessagesVersion,
-            awaitingMyAcceptance: awaitingMyAcceptance,
             initialLayoutReady: initialLayoutReady,
             loadedMessageCount: loadedMessageCount,
             initialWindowSize: initialMessageWindowSize()
@@ -491,7 +501,10 @@ struct ChatDetailView: View {
         // `hasPerformedInitialSetup` only defers the decision past the first frame (the message
         // snapshot that feeds the relationship flags is built in `onAppear`), so an established
         // chat never flashes the banner on open.
-        hasPerformedInitialSetup && !hasEstablishedRelationship && !hasIncomingHandshakeMessage && !isDeclined
+        // Only where first contact still needs a handshake: an indexer without inbox lookups, and
+        // never in a Private chat (which deliberately has no first-contact signal at all).
+        hasPerformedInitialSetup && !inboxSupported && !isPrivate
+            && !hasEstablishedRelationship && !hasIncomingHandshakeMessage && !isDeclined
     }
 
     var body: some View {
@@ -629,25 +642,34 @@ struct ChatDetailView: View {
                         // device - this is the mechanism SwiftUI itself uses for keyboard
                         // avoidance, so there's no custom math to get wrong.
                         VStack(spacing: 0) {
-                            if shouldShowHandshakeNotice {
-                                // Pinned above the composer (not scrolled away inside the
-                                // message list) so it's visible the instant the chat opens,
-                                // for as long as the relationship isn't established.
-                                handshakeNoticeBanner
-                                    .transition(.opacity)
+                            if isRequest {
+                                // Someone wrote first: read it all, then Accept or Reject.
+                                messageRequestBar
+                            } else {
+                                if shouldShowHandshakeNotice {
+                                    // Pinned above the composer (not scrolled away inside the
+                                    // message list) so it's visible the instant the chat opens,
+                                    // for as long as the relationship isn't established.
+                                    handshakeNoticeBanner
+                                        .transition(.opacity)
+                                }
+                                if shouldShowPrivateNotice {
+                                    privateChatNotice
+                                        .transition(.opacity)
+                                }
+                                if isChattingBalanceZero {
+                                    // Zero-balance gate: reading messages above stays fully
+                                    // usable (the card is part of the bottom inset, never an
+                                    // overlay on the list) - only composing is blocked.
+                                    zeroBalanceGateCard
+                                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                                }
+                                inputBar
+                                    .disabled(isChattingBalanceZero)
+                                    .allowsHitTesting(!isChattingBalanceZero)
+                                    .grayscale(isChattingBalanceZero ? 1 : 0)
+                                    .opacity(isChattingBalanceZero ? 0.45 : 1)
                             }
-                            if isChattingBalanceZero {
-                                // Zero-balance gate: reading messages above stays fully
-                                // usable (the card is part of the bottom inset, never an
-                                // overlay on the list) - only composing is blocked.
-                                zeroBalanceGateCard
-                                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                            }
-                            inputBar
-                                .disabled(isChattingBalanceZero)
-                                .allowsHitTesting(!isChattingBalanceZero)
-                                .grayscale(isChattingBalanceZero ? 1 : 0)
-                                .opacity(isChattingBalanceZero ? 0.45 : 1)
                         }
                         .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
                         .animation(.easeInOut(duration: 0.25), value: shouldShowHandshakeNotice)
@@ -831,6 +853,7 @@ struct ChatDetailView: View {
             perform: handleImageDrop
         )
         .toast(message: toastMessage, style: toastStyle)
+        .task { inboxSupported = await chatService.inboxSupported() }
         // Reactive read-marking: the once-at-appear mark silently no-ops when a notification
         // tap opens this chat BEFORE the conversation has loaded (cold start / mid-catch-up),
         // leaving the badge stuck. Whenever unread is nonzero while this chat is open, clear
@@ -1648,6 +1671,72 @@ struct ChatDetailView: View {
 
     // MARK: - New-chat handshake notice
 
+    /// Accept / Reject, in place of the composer while the chat is a Message Request.
+    private var messageRequestBar: some View {
+        VStack(spacing: 10) {
+            Text("\(contactsManager.displayName(for: contact)) wants to chat. Accept to reply - nothing is sent until you write back.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button(role: .destructive) {
+                    showRejectRequestConfirm = true
+                } label: {
+                    Text("Reject")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                Button {
+                    Haptics.success()
+                    chatService.acceptChat(contact.address)
+                } label: {
+                    Text("Accept")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(glassBackground(cornerRadius: 0).ignoresSafeArea(edges: .bottom))
+        .alert("Reject this request?", isPresented: $showRejectRequestConfirm) {
+            Button("Reject", role: .destructive) {
+                chatService.rejectChat(contact)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Their messages are deleted from this device, and this address can't reach you again until you write to them.")
+        }
+    }
+
+    /// A Private chat that hasn't heard back yet: why the other person isn't notified.
+    private var privateChatNotice: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "lock.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.top, 1)
+            Text("Private chat - nothing links you two on chain, so \(contactsManager.displayName(for: contact)) isn't notified. They'll see your messages once they start a private chat with your address too.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(glassBackground(cornerRadius: 12))
+        .padding(.horizontal)
+        .padding(.bottom, shouldShowComposerHelperRow ? 22 : 4)
+    }
+
     /// Copy is byte-identical to desktop's banner - keep the two in sync if either changes. The
     /// last sentence is the privacy caveat: a handshake is a direct on-chain transaction between
     /// the two chatting addresses, publicly linking them, unlike ordinary aliased traffic.
@@ -2115,7 +2204,8 @@ struct ChatDetailView: View {
             ) {
                 composerSheetShowsChess = true
             }
-            if canSendRequestToCommunicate {
+            // Only where first contact still needs one: an indexer without inbox lookups.
+            if canSendRequestToCommunicate && !inboxSupported {
                 // Says what already happened once a request is out, matching the dedicated
                 // button above the composer - so a second tap reads as a deliberate re-send
                 // rather than as the first one having done nothing.
@@ -2386,26 +2476,6 @@ struct ChatDetailView: View {
             } catch {
                 self.error = displayErrorMessage(error)
             }
-        }
-    }
-
-    private func acceptHandshake() {
-        Task { @MainActor in
-            isRespondingHandshake = true
-            defer { isRespondingHandshake = false }
-            do {
-                try await chatService.respondToHandshake(for: contact, accept: true)
-            } catch {
-                self.error = displayErrorMessage(error)
-            }
-        }
-    }
-
-    private func declineHandshake() {
-        Task { @MainActor in
-            isRespondingHandshake = true
-            defer { isRespondingHandshake = false }
-            try? await chatService.respondToHandshake(for: contact, accept: false)
         }
     }
 
@@ -3261,10 +3331,6 @@ struct ChatDetailView: View {
 
     @ViewBuilder
     private func messageRow(_ message: ChatMessage) -> some View {
-        let needsHandshakeResponse = message.messageType == .handshake
-            && !message.isOutgoing
-            && !hasOutgoingHandshakeMessage
-            && !isDeclined
         // An edited message reads with its newest text; the row itself is untouched.
         let edit = chatService.editsByTxId[message.txId]
         let message = edit.map { message.replacingContent(MessageEditCodec.apply($0.text, to: message.content)) } ?? message
@@ -3292,8 +3358,10 @@ struct ChatDetailView: View {
                     await sendReactionShowingErrors(targetTxId: reaction.targetTxId, emoji: reaction.emoji, action: reaction.failedAction ?? "add", isRetry: true)
                 }
             },
-            onAcceptHandshake: needsHandshakeResponse ? { acceptHandshake() } : nil,
-            onDeclineHandshake: needsHandshakeResponse ? { declineHandshake() } : nil,
+            // No Accept/Decline bubble: an incoming handshake (old clients, Kasia) is just the
+            // first line of a Message Request, accepted or rejected from its bar.
+            onAcceptHandshake: nil,
+            onDeclineHandshake: nil,
             replyQuote: replyQuote,
             replySenderDisplayName: replyQuote.map { replyDisplayName(for: $0.replyToSender) },
             onReply: { chatService.startReplyTo(message) },

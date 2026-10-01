@@ -27,6 +27,7 @@ struct ChatListView: View {
 
     @State private var searchText = ""
     @State private var selectedContact: Contact?
+    @State private var showMessageRequests = false
     @State private var selectedGroup: GroupChat?
     @State private var selectedContactStartInPaymentMode = false
     @State private var showAddContact = false
@@ -402,6 +403,13 @@ struct ChatListView: View {
             checkPendingNavigation()
             guard !isPullRefreshing else { return }
             scheduleFilteredConversationsRefresh(debounce: false)
+        }
+        // Accept / Reject / Private move chats between the list and Message Requests.
+        .onChange(of: chatService.chatRequestsRevision) { _ in
+            scheduleFilteredConversationsRefresh(debounce: false)
+        }
+        .sheet(isPresented: $showMessageRequests) {
+            MessageRequestsView()
         }
         .onDisappear {
             searchFilterTask?.cancel()
@@ -825,7 +833,20 @@ struct ChatListView: View {
             displayed = filtered
         }
 
+        let requestCount = searchText.isEmpty && editMode != .active ? chatService.messageRequests.count : 0
         return List(selection: $selectedContactIDs) {
+            // People who wrote first and haven't been accepted - one row, right above your own
+            // chat (NO_HANDSHAKE_MESSAGING.md).
+            if requestCount > 0 {
+                Button {
+                    Haptics.impact(.light)
+                    showMessageRequests = true
+                } label: {
+                    MessageRequestsRow(count: requestCount)
+                }
+                .buttonStyle(ChatRowPressStyle())
+                .listRowBackground(Color.clear)
+            }
             if !displayed.isEmpty {
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, conversation in
                     Button {
@@ -1976,5 +1997,91 @@ private struct PublicChatsUnreadBadge: View {
 
     var body: some View {
         ChatsTabUnreadBadge(count: publicChats.totalUnreadCount)
+    }
+}
+
+// MARK: - Message Requests
+
+/// The chat list's Message Requests row: everyone who wrote first and hasn't been accepted.
+private struct MessageRequestsRow: View {
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "tray.and.arrow.down.fill")
+                .font(.scaled(size: 20, weight: .semibold))
+                .foregroundColor(.black)
+                .frame(width: 50, height: 50)
+                .background(Circle().fill(Color.accentColor))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Message Requests")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                Text("People who wrote to you first")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(verbatim: "\(count)")
+                .font(.caption.weight(.bold))
+                .foregroundColor(.black)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(Color.accentColor))
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(Color(.tertiaryLabel))
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+}
+
+/// Chats someone else started that you haven't accepted (NO_HANDSHAKE_MESSAGING.md). Open one to
+/// read everything they sent, then Accept or Reject from inside it. Their messages never notify
+/// you beyond the first "New message request".
+struct MessageRequestsView: View {
+    @EnvironmentObject private var chatService: ChatService
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            let requests = chatService.messageRequests
+            List {
+                Section {
+                    ForEach(requests) { conversation in
+                        NavigationLink {
+                            ChatDetailView(contact: conversation.contact, startInPaymentMode: false)
+                        } label: {
+                            ConversationRow(conversation: conversation)
+                        }
+                    }
+                } footer: {
+                    if !requests.isEmpty {
+                        Text("Open a request to read it. Accept to reply and move it to your chats; Reject deletes it and stops that address reaching you until you write to them.")
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .overlay {
+                if requests.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "tray")
+                            .font(.scaled(size: 40))
+                            .foregroundColor(.secondary)
+                        Text("No message requests")
+                            .font(.headline)
+                    }
+                }
+            }
+            .navigationTitle("Message Requests")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }

@@ -12,6 +12,8 @@ struct AddContactView: View {
     var onCreateGroup: ((GroupChat) -> Void)?
 
     @State private var addressInput = ""
+    /// Start this chat as Private (no inbox tag ever) - see the toggle's footer.
+    @State private var startPrivate = false
     @State private var error: String?
     @State private var isValidAddress = false
 
@@ -277,6 +279,17 @@ struct AddContactView: View {
                     Text("Address")
                 } footer: {
                     Text("Enter a Kaspa address (kaspa:...) or KNS domain name (e.g., alice.kas)")
+                }
+
+                // Private: no first-contact signal at all (NO_HANDSHAKE_MESSAGING.md §3.1).
+                Section {
+                    Toggle(isOn: $startPrivate) {
+                        Label("Private Chat", systemImage: "lock.fill")
+                    }
+                } footer: {
+                    Text(startPrivate
+                         ? "Nothing on chain links you two - not even who wrote first. They won't be notified: they'll see your messages once they start a private chat with your address too, so agree on it somewhere else first."
+                         : "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain.")
                 }
 
                 pickerContactsSection
@@ -759,6 +772,12 @@ struct AddContactView: View {
             // No name is stored: `ContactsManager.displayName` shows the KNS domain (then the
             // short address) until the user deliberately renames the contact in Chat Info.
             let contact = try contactsManager.addContact(address: addressToUse, alias: "")
+            // Starting a chat accepts it; Private also keeps it from ever carrying the inbox tag.
+            if startPrivate {
+                chatService.setPrivateChat(contact.address, true)
+            } else {
+                chatService.acceptChat(contact.address)
+            }
 
             if !existedBeforeAdd {
                 Task {
