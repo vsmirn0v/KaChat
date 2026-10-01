@@ -910,3 +910,7 @@
 /* Day labels (message times, date dividers) */
 "Today" = "Aujourd'hui";
 "Yesterday" = "Hier";
+
+/* 5.2: Portfolio transfers */
+"Value at the Time" = "Valeur à ce moment";
+"KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "Des KAS déplacés entre vos propres adresses - envoyés puis récupérés, ou d'un portefeuille à l'autre. Cela ne change ni vos avoirs, ni votre coût, ni votre profit.";

@@ -909,3 +909,7 @@
 /* Day labels (message times, date dividers) */
 "Today" = "今日";
 "Yesterday" = "昨日";
+
+/* 5.2: Portfolio transfers */
+"Value at the Time" = "当時の価値";
+"KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "自分のアドレス間で移動した KAS（送ってから戻した、またはウォレット間の移動）。保有量・取得原価・損益は変わりません。";

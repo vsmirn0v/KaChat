@@ -909,3 +909,7 @@
 /* Day labels (message times, date dividers) */
 "Today" = "اليوم";
 "Yesterday" = "أمس";
+
+/* 5.2: Portfolio transfers */
+"Value at the Time" = "القيمة في ذلك الوقت";
+"KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "‏KAS نُقلت بين عناوينك الخاصة - أُرسلت ثم أُعيدت، أو من محفظة إلى أخرى. لا يغيّر ذلك رصيدك أو التكلفة أو الربح.";

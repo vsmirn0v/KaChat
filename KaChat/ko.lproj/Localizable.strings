@@ -909,3 +909,7 @@
 /* Day labels (message times, date dividers) */
 "Today" = "오늘";
 "Yesterday" = "어제";
+
+/* 5.2: Portfolio transfers */
+"Value at the Time" = "당시 가치";
+"KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "내 주소 사이에서 옮긴 KAS(보냈다가 다시 가져오거나 지갑 간 이동). 보유량, 원가, 수익은 바뀌지 않습니다.";

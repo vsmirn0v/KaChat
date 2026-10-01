@@ -909,3 +909,7 @@
 /* Day labels (message times, date dividers) */
 "Today" = "Hôm nay";
 "Yesterday" = "Hôm qua";
+
+/* 5.2: Portfolio transfers */
+"Value at the Time" = "Giá trị tại thời điểm đó";
+"KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "KAS được chuyển giữa các địa chỉ của chính bạn - gửi đi rồi lấy lại, hoặc từ ví này sang ví khác. Không thay đổi số lượng nắm giữ, giá vốn hay lợi nhuận.";

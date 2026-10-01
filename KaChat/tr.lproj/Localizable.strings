@@ -909,3 +909,7 @@
 /* Day labels (message times, date dividers) */
 "Today" = "Bugün";
 "Yesterday" = "Dün";
+
+/* 5.2: Portfolio transfers */
+"Value at the Time" = "O Andaki Değeri";
+"KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "Kendi adreslerin arasında taşınan KAS - gönderilip geri alınan ya da cüzdandan cüzdana. Varlıklarını, maliyetini veya kârını değiştirmez.";

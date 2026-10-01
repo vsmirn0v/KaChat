@@ -909,3 +909,7 @@
 /* Day labels (message times, date dividers) */
 "Today" = "היום";
 "Yesterday" = "אתמול";
+
+/* 5.2: Portfolio transfers */
+"Value at the Time" = "השווי באותו זמן";
+"KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "‏KAS שהועברו בין הכתובות שלכם - נשלחו והוחזרו, או מארנק לארנק. זה לא משנה את האחזקות, העלות או הרווח.";

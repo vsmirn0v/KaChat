@@ -909,3 +909,7 @@
 /* Day labels (message times, date dividers) */
 "Today" = "আজ";
 "Yesterday" = "গতকাল";
+
+/* 5.2: Portfolio transfers */
+"Value at the Time" = "তখনকার মূল্য";
+"KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "আপনার নিজের ঠিকানাগুলোর মধ্যে সরানো KAS - পাঠিয়ে আবার ফিরিয়ে আনা, বা এক ওয়ালেট থেকে আরেকটিতে। এতে আপনার হোল্ডিং, খরচ বা লাভ বদলায় না।";
