@@ -884,3 +884,10 @@
 ".kachat Domains" = ".kachat 域名";
 "No .kachat names on this address" = "此地址没有 .kachat 名称";
 "Names this address claims or buys show here once .kachat names launch." = ".kachat 名称上线后，此地址领取或购买的名称会显示在这里。";
+
+/* 5.2: move a portfolio transaction */
+"Move to Portfolio" = "移至投资组合";
+"Create another portfolio first, then you can move transactions into it." = "请先创建另一个投资组合，然后就可以把交易移过去。";
+"Already has this transaction." = "已包含此交易。";
+"Move this transaction here." = "将此交易移到这里。";
+"Moved to %@." = "已移至 %@。";

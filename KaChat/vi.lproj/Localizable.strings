@@ -884,3 +884,10 @@
 ".kachat Domains" = "Tên miền .kachat";
 "No .kachat names on this address" = "Không có tên .kachat trên địa chỉ này";
 "Names this address claims or buys show here once .kachat names launch." = "Các tên mà địa chỉ này nhận hoặc mua sẽ hiện ở đây khi tên .kachat ra mắt.";
+
+/* 5.2: move a portfolio transaction */
+"Move to Portfolio" = "Chuyển sang danh mục";
+"Create another portfolio first, then you can move transactions into it." = "Hãy tạo thêm một danh mục trước, rồi bạn có thể chuyển giao dịch vào đó.";
+"Already has this transaction." = "Đã có giao dịch này.";
+"Move this transaction here." = "Chuyển giao dịch này vào đây.";
+"Moved to %@." = "Đã chuyển sang %@.";

@@ -884,3 +884,10 @@
 ".kachat Domains" = "نطاقات ‎.kachat";
 "No .kachat names on this address" = "لا توجد أسماء ‎.kachat على هذا العنوان";
 "Names this address claims or buys show here once .kachat names launch." = "تظهر هنا الأسماء التي يحصل عليها هذا العنوان أو يشتريها عند إطلاق أسماء ‎.kachat.";
+
+/* 5.2: move a portfolio transaction */
+"Move to Portfolio" = "نقل إلى محفظة";
+"Create another portfolio first, then you can move transactions into it." = "أنشئ محفظة أخرى أولًا، ثم يمكنك نقل المعاملات إليها.";
+"Already has this transaction." = "تحتوي هذه المعاملة بالفعل.";
+"Move this transaction here." = "انقل هذه المعاملة إلى هنا.";
+"Moved to %@." = "تم النقل إلى %@.";

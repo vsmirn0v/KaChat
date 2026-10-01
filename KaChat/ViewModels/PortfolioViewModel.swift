@@ -1034,6 +1034,16 @@ final class PortfolioViewModel: ObservableObject {
         persist()
     }
 
+    /// Moves one row to another of this wallet's portfolios - the same record, keeping its id
+    /// and source, so a later "Add to Portfolio" of the same transaction still recognises it
+    /// wherever it now lives.
+    func moveTransaction(id: String, to portfolioId: UUID) {
+        guard let index = transactions.firstIndex(where: { $0.id == id }),
+              transactions[index].portfolioId != portfolioId else { return }
+        transactions[index].portfolioId = portfolioId
+        persist()
+    }
+
     func deleteTransaction(id: String) {
         transactions.removeAll { $0.id == id }
         persist()

@@ -884,3 +884,10 @@
 ".kachat Domains" = ".kachat ドメイン";
 "No .kachat names on this address" = "このアドレスには .kachat 名がありません";
 "Names this address claims or buys show here once .kachat names launch." = "このアドレスで取得・購入した名前は、.kachat 名の開始後にここに表示されます。";
+
+/* 5.2: move a portfolio transaction */
+"Move to Portfolio" = "ポートフォリオへ移動";
+"Create another portfolio first, then you can move transactions into it." = "先に別のポートフォリオを作成すると、取引をそこへ移動できます。";
+"Already has this transaction." = "この取引はすでにあります。";
+"Move this transaction here." = "この取引をここへ移動します。";
+"Moved to %@." = "%@ に移動しました。";

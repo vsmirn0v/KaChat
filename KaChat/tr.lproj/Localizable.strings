@@ -884,3 +884,10 @@
 ".kachat Domains" = ".kachat Alan Adları";
 "No .kachat names on this address" = "Bu adreste .kachat adı yok";
 "Names this address claims or buys show here once .kachat names launch." = "Bu adresin aldığı ya da satın aldığı adlar .kachat adları başladığında burada görünür.";
+
+/* 5.2: move a portfolio transaction */
+"Move to Portfolio" = "Portföye Taşı";
+"Create another portfolio first, then you can move transactions into it." = "Önce başka bir portföy oluştur, sonra işlemleri oraya taşıyabilirsin.";
+"Already has this transaction." = "Bu işlem zaten var.";
+"Move this transaction here." = "Bu işlemi buraya taşı.";
+"Moved to %@." = "%@ portföyüne taşındı.";

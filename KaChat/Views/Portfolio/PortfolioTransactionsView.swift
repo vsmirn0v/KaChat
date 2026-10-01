@@ -38,6 +38,9 @@ struct PortfolioTransactionsView<Header: View>: View {
     @State private var showAddChooser = false
     @State private var showImportExport = false
     @State private var showCsvImporter = false
+    /// The transaction a long press is moving to another portfolio, while its sheet is up.
+    @State private var movingTransaction: PortfolioTransaction?
+    @ObservedObject private var portfolioManager = PortfolioManager.shared
     /// Export to / Import from Nextcloud - offered only while an account is connected.
     @ObservedObject private var nextcloud = NextcloudService.shared
     @State private var showNextcloudImporter = false
@@ -67,7 +70,7 @@ struct PortfolioTransactionsView<Header: View>: View {
                         // selection, otherwise a full-width tap opens the editor.
                         transactionRow(tx)
                             .contentShape(Rectangle())
-                            .modifier(TapToEdit(enabled: !isSelecting) { editingTransaction = tx })
+                            .modifier(TapToEdit(enabled: !isSelecting, onLongPress: { movingTransaction = tx }) { editingTransaction = tx })
                             .tag(tx.id)
                             .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
@@ -127,6 +130,7 @@ struct PortfolioTransactionsView<Header: View>: View {
         }
         .sheet(isPresented: $showAddChooser) { addChooserSheet }
         .sheet(isPresented: $showImportExport) { importExportSheet }
+        .sheet(item: $movingTransaction) { tx in moveSheet(tx) }
         .sheet(isPresented: $showAddAddressSheet) {
             AddPortfolioAddressSheet(viewModel: viewModel) { result in
                 switch result {
@@ -405,6 +409,64 @@ struct PortfolioTransactionsView<Header: View>: View {
 
     /// The two ways to put something in a portfolio. A sheet rather than a popup menu so each
     /// can say what it does - "Add Kaspa Address" reads as a contact until you learn otherwise.
+    /// Hold a transaction: move it to another portfolio. The row itself sits on top so it's clear
+    /// what is moving; a portfolio that already holds the same on-chain transaction is offered
+    /// but disabled, since moving it there would count it twice.
+    private func moveSheet(_ tx: PortfolioTransaction) -> some View {
+        let others = portfolioManager.portfolios.filter { $0.id != tx.portfolioId }
+        let alreadyHolding = viewModel.portfolioIdsContaining(sourceTxId: tx.sourceTxId ?? "")
+        return VStack(spacing: 12) {
+            Text("Move to Portfolio")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+            // The app's frosted card, as on the option rows below.
+            transactionRow(tx)
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.regularMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                        )
+                )
+            if others.isEmpty {
+                Text("Create another portfolio first, then you can move transactions into it.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+            } else {
+                ScrollView {
+                    VStack(spacing: 12) {
+                        ForEach(others) { portfolio in
+                            let duplicate = alreadyHolding.contains(portfolio.id)
+                            ActionSheetRow(
+                                title: portfolio.name,
+                                subtitle: duplicate ? "Already has this transaction." : "Move this transaction here.",
+                                systemImage: "folder",
+                                isDisabled: duplicate
+                            ) {
+                                viewModel.moveTransaction(id: tx.id, to: portfolio.id)
+                                movingTransaction = nil
+                                Haptics.success()
+                                showToast(localizedFormat("Moved to %@.", portfolio.name))
+                            }
+                            .opacity(duplicate ? 0.5 : 1)
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
     private var addChooserSheet: some View {
         VStack(spacing: 12) {
             Text("Add to Portfolio")
@@ -956,16 +1018,25 @@ private struct PortfolioTransactionEditor: View {
 
 /// A full-row tap that exists only while the list is not in Select mode, so a selecting List
 /// keeps its taps for the checkmarks.
+/// Tap opens the editor; a long press (if given) does its own thing - moving the row to another
+/// portfolio. Neither is attached in Select mode, where the List owns taps for selection.
 private struct TapToEdit: ViewModifier {
     let enabled: Bool
+    var onLongPress: (() -> Void)? = nil
     let action: () -> Void
 
     func body(content: Content) -> some View {
         if enabled {
-            content.onTapGesture {
-                Haptics.impact(.light)
-                action()
-            }
+            content
+                .onTapGesture {
+                    Haptics.impact(.light)
+                    action()
+                }
+                .onLongPressGesture(minimumDuration: 0.45) {
+                    guard let onLongPress else { return }
+                    Haptics.impact(.medium)
+                    onLongPress()
+                }
         } else {
             content
         }
