@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "Sohbet adresi bakiyesi";
 "Balance after" = "Sonraki bakiye";
 "Balance change" = "Bakiye değişimi";
+"Transaction sent" = "İşlem gönderildi";
+"View Transaction" = "İşlemi görüntüle";
+"Name released" = "Ad bırakıldı";
+"Name bought" = "Ad satın alındı";
+"Offer sent" = "Teklif gönderildi";
+"Price changed" = "Fiyat değiştirildi";
+"Listed for sale" = "Satışa çıkarıldı";
+"Name transferred" = "Ad aktarıldı";
+"Name reclaimed" = "Ad geri alındı";
+"Profile saved" = "Profil kaydedildi";
+"Primary name set" = "Ana ad ayarlandı";
+"Name registered" = "Ad kaydedildi";
+"Commit cancelled" = "Taahhüt iptal edildi";

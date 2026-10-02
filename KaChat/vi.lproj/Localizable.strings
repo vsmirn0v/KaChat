@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "Số dư địa chỉ trò chuyện";
 "Balance after" = "Số dư sau đó";
 "Balance change" = "Thay đổi số dư";
+"Transaction sent" = "Đã gửi giao dịch";
+"View Transaction" = "Xem giao dịch";
+"Name released" = "Đã giải phóng tên";
+"Name bought" = "Đã mua tên";
+"Offer sent" = "Đã gửi đề nghị";
+"Price changed" = "Đã đổi giá";
+"Listed for sale" = "Đã đăng bán";
+"Name transferred" = "Đã chuyển tên";
+"Name reclaimed" = "Đã thu hồi tên";
+"Profile saved" = "Đã lưu hồ sơ";
+"Primary name set" = "Đã đặt tên chính";
+"Name registered" = "Đã đăng ký tên";
+"Commit cancelled" = "Đã hủy cam kết";

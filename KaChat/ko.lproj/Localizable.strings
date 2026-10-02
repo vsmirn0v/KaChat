@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "채팅 주소 잔액";
 "Balance after" = "이후 잔액";
 "Balance change" = "잔액 변화";
+"Transaction sent" = "거래를 보냈습니다";
+"View Transaction" = "거래 보기";
+"Name released" = "이름을 해제했습니다";
+"Name bought" = "이름을 구매했습니다";
+"Offer sent" = "제안을 보냈습니다";
+"Price changed" = "가격을 변경했습니다";
+"Listed for sale" = "판매 등록했습니다";
+"Name transferred" = "이름을 이전했습니다";
+"Name reclaimed" = "이름을 회수했습니다";
+"Profile saved" = "프로필을 저장했습니다";
+"Primary name set" = "대표 이름을 설정했습니다";
+"Name registered" = "이름을 등록했습니다";
+"Commit cancelled" = "커밋을 취소했습니다";

@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "チャットアドレスの残高";
 "Balance after" = "送信後の残高";
 "Balance change" = "残高の変化";
+"Transaction sent" = "トランザクションを送信しました";
+"View Transaction" = "トランザクションを表示";
+"Name released" = "名前を手放しました";
+"Name bought" = "名前を購入しました";
+"Offer sent" = "オファーを送信しました";
+"Price changed" = "価格を変更しました";
+"Listed for sale" = "出品しました";
+"Name transferred" = "名前を譲渡しました";
+"Name reclaimed" = "名前を回収しました";
+"Profile saved" = "プロフィールを保存しました";
+"Primary name set" = "メインの名前を設定しました";
+"Name registered" = "名前を登録しました";
+"Commit cancelled" = "コミットを取り消しました";

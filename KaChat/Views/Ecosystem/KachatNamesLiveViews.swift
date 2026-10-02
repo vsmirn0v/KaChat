@@ -423,6 +423,88 @@ struct KachatLiveSearchResult: View {
     }
 }
 
+// MARK: - A finished transaction
+
+/// A name transaction that went out: what it did and its id, for the half sheet below.
+struct KachatTxDone: Identifiable, Equatable {
+    var id: String { txId }
+    let txId: String
+    /// Localization key of the headline ("Listed for sale", "Profile saved", ...).
+    var title: String = "Transaction sent"
+}
+
+/// The half sheet every finished name transaction shows: what happened, the transaction id
+/// (copyable), and a link to it on the block explorer - the one picked in Settings, which on
+/// testnet is the testnet-10 explorer. It opens in the in-app browser.
+struct KachatTxDoneSheet: View {
+    let done: KachatTxDone
+    @Environment(\.dismiss) private var dismiss
+    @State private var browserURL: URL?
+    @State private var copied = false
+
+    private var explorerURL: URL? { AppSettings.load().kaspaExplorer.txURL(for: done.txId) }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 44, weight: .semibold))
+                .foregroundColor(.green)
+                .padding(.top, 24)
+            Text(LocalizedStringKey(done.title))
+                .font(.title3.weight(.bold))
+            Text("It shows here once the network accepts it, usually within seconds.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Button {
+                UIPasteboard.general.string = done.txId
+                copied = true
+                Haptics.success()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(verbatim: done.txId)
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.caption)
+                }
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(Color(.secondarySystemBackground)))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 24)
+            if let explorerURL {
+                Button {
+                    browserURL = explorerURL
+                } label: {
+                    Label("View in Explorer", systemImage: "safari")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.horizontal, 24)
+            }
+            Button("Done") { dismiss() }
+                .font(.headline)
+            Spacer(minLength: 0)
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+        .fullScreenCover(isPresented: Binding(
+            get: { browserURL != nil },
+            set: { if !$0 { browserURL = nil } }
+        )) {
+            if let browserURL {
+                InAppBrowserScreen(url: browserURL) { self.browserURL = nil }
+            }
+        }
+    }
+}
+
 // MARK: - Hub: registrations in flight
 
 struct KachatRegistrationCard: View {
@@ -431,8 +513,18 @@ struct KachatRegistrationCard: View {
     @State private var confirmCancel = false
     @State private var working = false
     @State private var error: String?
+    @State private var done: KachatTxDone?
 
     private var tCommit: UInt64 { KachatNamesService.shared.manifest?.params.tCommit ?? 600 }
+
+    /// The finished registration (or cancelled commit) as the half sheet shows it.
+    private var finished: KachatTxDone? {
+        switch registration.stage {
+        case .registered: return registration.registerTxId.map { KachatTxDone(txId: $0, title: "Name registered") }
+        case .cancelled: return registration.cancelTxId.map { KachatTxDone(txId: $0, title: "Commit cancelled") }
+        default: return nil
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -466,6 +558,9 @@ struct KachatRegistrationCard: View {
         .padding(14)
         .kachatGlass()
         .padding(.horizontal, 16)
+        // Pops up the moment the registration lands (or the commit is cancelled).
+        .onChange(of: registration.stage) { _ in if let finished { done = finished } }
+        .sheet(item: $done) { KachatTxDoneSheet(done: $0) }
         .alert(Text("Cancel the commit?"), isPresented: $confirmCancel) {
             Button("Cancel Commit", role: .destructive) { authorizeCancel() }
             Button("Keep", role: .cancel) {}
@@ -496,9 +591,15 @@ struct KachatRegistrationCard: View {
     @ViewBuilder
     private var buttons: some View {
         switch registration.stage {
-        case .registered:
-            Button("Done") { actions.dismiss(registration) }
-                .buttonStyle(.bordered)
+        case .registered, .cancelled:
+            HStack {
+                if let finished {
+                    Button("View Transaction") { done = finished }
+                        .buttonStyle(.borderedProminent)
+                }
+                Button("Done") { actions.dismiss(registration) }
+                    .buttonStyle(.bordered)
+            }
         case .taken:
             Button("Cancel Commit", role: .destructive) { confirmCancel = true }
                 .buttonStyle(.bordered)
@@ -754,14 +855,14 @@ struct KachatOfferAction: Identifiable {
         case .withdraw:
             KachatTxSheet(
                 title: "Withdraw Offer", confirmTitle: "Withdraw",
-                authReason: KachatLive.authReason,
+                authReason: KachatLive.authReason, doneTitle: "Offer withdrawn",
                 rows: [.init(title: "Offer", value: KaspaUnit.amount(offer.amount))],
                 operation: .withdraw(offer), operationKey: offer.id
             )
         case .refund:
             KachatTxSheet(
                 title: "Refund Offer", confirmTitle: "Refund",
-                authReason: KachatLive.authReason,
+                authReason: KachatLive.authReason, doneTitle: "Offer refunded",
                 rows: [.init(title: "Offer", value: KaspaUnit.amount(offer.amount))],
                 operation: .refund(offer), operationKey: offer.id
             )
@@ -769,7 +870,7 @@ struct KachatOfferAction: Identifiable {
             if let n = name {
                 KachatTxSheet(
                     title: "Accept Offer", confirmTitle: "Accept and Transfer",
-                    authReason: KachatLive.authReason,
+                    authReason: KachatLive.authReason, doneTitle: "Offer accepted",
                     warning: "The name goes to the buyer and the offer's amount comes to you, in one transaction. This can't be undone.",
                     rows: [.init(title: "Name", value: n.display), .init(title: "Offer", value: KaspaUnit.amount(offer.amount)),
                            .init(title: "Buyer", value: KachatNamesRegistry.address(of: offer.buyer).map(KachatNamesRegistry.shortAddress) ?? "")],
@@ -850,6 +951,8 @@ struct KachatTxSheet<Inputs: View>: View {
     let title: LocalizedStringKey
     let confirmTitle: LocalizedStringKey
     let authReason: String
+    /// The headline of the finished-transaction half sheet (a localization key).
+    var doneTitle: String = "Transaction sent"
     var warning: LocalizedStringKey? = nil
     var footer: LocalizedStringKey? = nil
     var rows: [KachatTxRow] = []
@@ -865,6 +968,7 @@ struct KachatTxSheet<Inputs: View>: View {
     @State private var sending = false
     @State private var confirmWarning = false
     @State private var txId: String?
+    @State private var done: KachatTxDone?
     @State private var sendError: String?
 
     var body: some View {
@@ -945,6 +1049,7 @@ struct KachatTxSheet<Inputs: View>: View {
                 }
             }
             .task(id: operationKey) { await rebuild() }
+            .sheet(item: $done, onDismiss: { dismiss() }) { KachatTxDoneSheet(done: $0) }
             .alert(Text(title), isPresented: $confirmWarning) {
                 Button(confirmTitle, role: .destructive) { authorize() }
                 Button("Cancel", role: .cancel) {}
@@ -984,6 +1089,7 @@ struct KachatTxSheet<Inputs: View>: View {
             txId = id
             Haptics.success()
             onDone(id)
+            done = KachatTxDone(txId: id, title: doneTitle)
         } catch {
             sendError = error.localizedDescription
         }
@@ -1000,11 +1106,11 @@ struct KachatTxSheet<Inputs: View>: View {
 }
 
 extension KachatTxSheet where Inputs == EmptyView {
-    init(title: LocalizedStringKey, confirmTitle: LocalizedStringKey, authReason: String, warning: LocalizedStringKey? = nil,
-         footer: LocalizedStringKey? = nil, rows: [KachatTxRow] = [], operation: KachatNamesActions.Operation?, operationKey: String,
-         onDone: @escaping (String) -> Void = { _ in }) {
-        self.init(title: title, confirmTitle: confirmTitle, authReason: authReason, warning: warning, footer: footer, rows: rows,
-                  operation: operation, operationKey: operationKey, onDone: onDone, inputs: { EmptyView() })
+    init(title: LocalizedStringKey, confirmTitle: LocalizedStringKey, authReason: String, doneTitle: String = "Transaction sent",
+         warning: LocalizedStringKey? = nil, footer: LocalizedStringKey? = nil, rows: [KachatTxRow] = [],
+         operation: KachatNamesActions.Operation?, operationKey: String, onDone: @escaping (String) -> Void = { _ in }) {
+        self.init(title: title, confirmTitle: confirmTitle, authReason: authReason, doneTitle: doneTitle, warning: warning, footer: footer,
+                  rows: rows, operation: operation, operationKey: operationKey, onDone: onDone, inputs: { EmptyView() })
     }
 }
 
@@ -1175,6 +1281,7 @@ struct KachatLiveNameDetail: View {
     @State private var confirmPrimary = false
     @State private var primaryWorking = false
     @State private var primaryMessage: String?
+    @State private var primaryDone: KachatTxDone?
 
     private var mine: Bool { KachatLive.isMine(info.owner) }
     private var status: KachatNames.Status { info.status(graceMs: registry.graceMs) }
@@ -1204,6 +1311,7 @@ struct KachatLiveNameDetail: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(info.display)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $primaryDone) { KachatTxDoneSheet(done: $0) }
         .refreshable { await registry.refresh() }
         .task(id: registry.revision) { await reload() }
         .sheet(item: $sheet) { s in sheetView(s) }
@@ -1435,7 +1543,7 @@ struct KachatLiveNameDetail: View {
         case .delist:
             KachatTxSheet(
                 title: "Delist", confirmTitle: "Delist",
-                authReason: KachatLive.authReason,
+                authReason: KachatLive.authReason, doneTitle: "Delisted",
                 rows: [.init(title: "Name", value: info.display), .init(title: "Listed at", value: KaspaUnit.amount(info.price))],
                 operation: .list(info, price: 0), operationKey: "delist-\(info.outpoint.index)-\(KachatNames.hex(info.outpoint.txid))"
             )
@@ -1443,7 +1551,7 @@ struct KachatLiveNameDetail: View {
         case .release:
             KachatTxSheet(
                 title: "Release Name", confirmTitle: "Release",
-                authReason: KachatLive.authReason,
+                authReason: KachatLive.authReason, doneTitle: "Name released",
                 warning: "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back.",
                 rows: [.init(title: "Name", value: info.display)],
                 operation: .release(info), operationKey: "release-\(KachatNames.hex(info.outpoint.txid))"
@@ -1490,7 +1598,7 @@ struct KachatLiveNameDetail: View {
                     }
                     profile.primaryName = info.name
                     let tx = try await actions.saveProfile(profile)
-                    primaryMessage = String(format: AppLocalization.string("Saved. Transaction %@"), String(tx.prefix(16)) + "...")
+                    primaryDone = KachatTxDone(txId: tx, title: "Primary name set")
                     Haptics.success()
                 } catch {
                     primaryMessage = error.localizedDescription
@@ -1509,7 +1617,7 @@ struct KachatLiveBuySheet: View {
     var body: some View {
         KachatTxSheet(
             title: "Buy Name", confirmTitle: "Confirm Purchase",
-            authReason: KachatLive.authReason,
+            authReason: KachatLive.authReason, doneTitle: "Name bought",
             footer: soon ? "Less than 30 days are left before this name expires. You'd have to renew it soon." : "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does.",
             rows: [.init(title: "Name", value: info.display), .init(title: "Price (to the seller)", value: KaspaUnit.amount(info.price)),
                    .init(title: "Expires", value: KachatLive.date(info.expiresAt).formatted(date: .abbreviated, time: .omitted))],
@@ -1539,7 +1647,7 @@ struct KachatLiveOfferSheet: View {
     var body: some View {
         KachatTxSheet(
             title: "Make an Offer", confirmTitle: "Send Offer",
-            authReason: KachatLive.authReason,
+            authReason: KachatLive.authReason, doneTitle: "Offer sent",
             footer: belowListing ? "This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." : nil,
             rows: rows,
             operation: operation, operationKey: "\(amount ?? 0)-\(days)-\(virtualDaa ?? 0)"
@@ -1597,7 +1705,7 @@ struct KachatRenewSheet: View {
     var body: some View {
         KachatTxSheet(
             title: "Renew", confirmTitle: "Renew",
-            authReason: KachatLive.authReason,
+            authReason: KachatLive.authReason, doneTitle: "Renewed",
             footer: "A renewal adds to the current expiry, even after it passed. The price goes to the miners.",
             rows: [
                 .init(title: "Name", value: info.display),
@@ -1627,7 +1735,7 @@ struct KachatListSheet: View {
     var body: some View {
         KachatTxSheet(
             title: info.isListed ? "Change Price" : "List for Sale", confirmTitle: info.isListed ? "Change Price" : "List",
-            authReason: KachatLive.authReason,
+            authReason: KachatLive.authReason, doneTitle: info.isListed ? "Price changed" : "Listed for sale",
             footer: "Anyone can buy it at this price: the payment reaches you and the name reaches them in one transaction. Delist any time.",
             rows: info.isListed ? [.init(title: "Listed at", value: KaspaUnit.amount(info.price))] : [],
             operation: price.map { .list(info, price: $0) }, operationKey: "list-\(price ?? 0)"
@@ -1656,7 +1764,7 @@ struct KachatTransferSheet: View {
     var body: some View {
         KachatTxSheet(
             title: "Transfer", confirmTitle: "Transfer",
-            authReason: KachatLive.authReason,
+            authReason: KachatLive.authReason, doneTitle: "Name transferred",
             warning: "A transfer can't be undone. The new owner gets the name with its current expiry; your profile stays with your address.",
             rows: [KachatTxRow(title: "Name", value: info.display)] + (resolved.map { [KachatTxRow(title: "To", value: $0.address)] } ?? []),
             operation: resolved.map { .transfer(info, to: $0.key) }, operationKey: resolved?.address ?? "-"
@@ -1731,7 +1839,7 @@ struct KachatReclaimSheet: View {
     var body: some View {
         KachatTxSheet(
             title: "Reclaim", confirmTitle: "Reclaim",
-            authReason: KachatLive.authReason,
+            authReason: KachatLive.authReason, doneTitle: "Name reclaimed",
             footer: "The name's bond goes back to its last owner, you keep the freed registry deposit (less the fee) as a bounty, and the name is free. To own it, claim it afterwards.",
             rows: [
                 .init(title: "Name", value: info.display),
@@ -1973,6 +2081,7 @@ struct KachatLiveProfileEditor: View {
     @State private var saving = false
     @State private var confirmSave = false
     @State private var savedTx: String?
+    @State private var done: KachatTxDone?
     @State private var error: String?
     @AppStorage("kachat_profile_privacy_seen") private var privacySeen = false
 
@@ -2109,6 +2218,7 @@ struct KachatLiveProfileEditor: View {
                     }
                 }
             }
+            .sheet(item: $done, onDismiss: { dismiss() }) { KachatTxDoneSheet(done: $0) }
             .onChange(of: avatarLookup) { v in if v == .found { fillEmpty(from: avatarIn) } }
             .onChange(of: bannerLookup) { v in if v == .found { fillEmpty(from: bannerIn) } }
             .onChange(of: bioLookup) { v in if v == .found { fillEmpty(from: bioIn) } }
@@ -2164,7 +2274,9 @@ struct KachatLiveProfileEditor: View {
                 saving = true
                 error = nil
                 do {
-                    savedTx = try await KachatNamesActions.shared.saveProfile(profile)
+                    let tx = try await KachatNamesActions.shared.saveProfile(profile)
+                    savedTx = tx
+                    done = KachatTxDone(txId: tx, title: "Profile saved")
                     Haptics.success()
                 } catch {
                     self.error = error.localizedDescription

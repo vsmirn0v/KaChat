@@ -1079,3 +1079,16 @@
 "Chatting address balance" = "Guthaben der Chat-Adresse";
 "Balance after" = "Guthaben danach";
 "Balance change" = "Guthabenänderung";
+"Transaction sent" = "Transaktion gesendet";
+"View Transaction" = "Transaktion ansehen";
+"Name released" = "Name freigegeben";
+"Name bought" = "Name gekauft";
+"Offer sent" = "Angebot gesendet";
+"Price changed" = "Preis geändert";
+"Listed for sale" = "Zum Verkauf angeboten";
+"Name transferred" = "Name übertragen";
+"Name reclaimed" = "Name zurückgeholt";
+"Profile saved" = "Profil gespeichert";
+"Primary name set" = "Hauptname festgelegt";
+"Name registered" = "Name registriert";
+"Commit cancelled" = "Commit storniert";

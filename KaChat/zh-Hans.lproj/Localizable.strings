@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "聊天地址余额";
 "Balance after" = "操作后余额";
 "Balance change" = "余额变化";
+"Transaction sent" = "交易已发送";
+"View Transaction" = "查看交易";
+"Name released" = "名称已释放";
+"Name bought" = "名称已购买";
+"Offer sent" = "报价已发送";
+"Price changed" = "价格已更改";
+"Listed for sale" = "已上架出售";
+"Name transferred" = "名称已转让";
+"Name reclaimed" = "名称已收回";
+"Profile saved" = "个人资料已保存";
+"Primary name set" = "主名称已设置";
+"Name registered" = "名称已注册";
+"Commit cancelled" = "承诺已取消";

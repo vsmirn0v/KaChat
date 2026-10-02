@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "Saldo de la dirección de chat";
 "Balance after" = "Saldo después";
 "Balance change" = "Cambio de saldo";
+"Transaction sent" = "Transacción enviada";
+"View Transaction" = "Ver transacción";
+"Name released" = "Nombre liberado";
+"Name bought" = "Nombre comprado";
+"Offer sent" = "Oferta enviada";
+"Price changed" = "Precio cambiado";
+"Listed for sale" = "Puesto a la venta";
+"Name transferred" = "Nombre transferido";
+"Name reclaimed" = "Nombre recuperado";
+"Profile saved" = "Perfil guardado";
+"Primary name set" = "Nombre principal establecido";
+"Name registered" = "Nombre registrado";
+"Commit cancelled" = "Compromiso cancelado";

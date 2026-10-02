@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "Saldo alamat obrolan";
 "Balance after" = "Saldo setelahnya";
 "Balance change" = "Perubahan saldo";
+"Transaction sent" = "Transaksi terkirim";
+"View Transaction" = "Lihat transaksi";
+"Name released" = "Nama dilepas";
+"Name bought" = "Nama dibeli";
+"Offer sent" = "Penawaran terkirim";
+"Price changed" = "Harga diubah";
+"Listed for sale" = "Dijual";
+"Name transferred" = "Nama dipindahkan";
+"Name reclaimed" = "Nama diklaim ulang";
+"Profile saved" = "Profil disimpan";
+"Primary name set" = "Nama utama diatur";
+"Name registered" = "Nama terdaftar";
+"Commit cancelled" = "Komitmen dibatalkan";

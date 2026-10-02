@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "موجودی آدرس گفتگو";
 "Balance after" = "موجودی پس از آن";
 "Balance change" = "تغییر موجودی";
+"Transaction sent" = "تراکنش ارسال شد";
+"View Transaction" = "مشاهدهٔ تراکنش";
+"Name released" = "نام آزاد شد";
+"Name bought" = "نام خریداری شد";
+"Offer sent" = "پیشنهاد ارسال شد";
+"Price changed" = "قیمت تغییر کرد";
+"Listed for sale" = "برای فروش گذاشته شد";
+"Name transferred" = "نام منتقل شد";
+"Name reclaimed" = "نام بازپس گرفته شد";
+"Profile saved" = "نمایه ذخیره شد";
+"Primary name set" = "نام اصلی تنظیم شد";
+"Name registered" = "نام ثبت شد";
+"Commit cancelled" = "تعهد لغو شد";

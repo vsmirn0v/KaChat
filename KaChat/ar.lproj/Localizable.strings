@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "رصيد عنوان الدردشة";
 "Balance after" = "الرصيد بعد العملية";
 "Balance change" = "تغيّر الرصيد";
+"Transaction sent" = "تم إرسال المعاملة";
+"View Transaction" = "عرض المعاملة";
+"Name released" = "تم تحرير الاسم";
+"Name bought" = "تم شراء الاسم";
+"Offer sent" = "تم إرسال العرض";
+"Price changed" = "تم تغيير السعر";
+"Listed for sale" = "معروض للبيع";
+"Name transferred" = "تم نقل الاسم";
+"Name reclaimed" = "تمت استعادة الاسم";
+"Profile saved" = "تم حفظ الملف الشخصي";
+"Primary name set" = "تم تعيين الاسم الأساسي";
+"Name registered" = "تم تسجيل الاسم";
+"Commit cancelled" = "تم إلغاء الالتزام";

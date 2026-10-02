@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "Баланс адреса для чата";
 "Balance after" = "Баланс после";
 "Balance change" = "Изменение баланса";
+"Transaction sent" = "Транзакция отправлена";
+"View Transaction" = "Открыть транзакцию";
+"Name released" = "Имя освобождено";
+"Name bought" = "Имя куплено";
+"Offer sent" = "Предложение отправлено";
+"Price changed" = "Цена изменена";
+"Listed for sale" = "Выставлено на продажу";
+"Name transferred" = "Имя передано";
+"Name reclaimed" = "Имя возвращено";
+"Profile saved" = "Профиль сохранён";
+"Primary name set" = "Основное имя задано";
+"Name registered" = "Имя зарегистрировано";
+"Commit cancelled" = "Коммит отменён";

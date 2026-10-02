@@ -1132,3 +1132,16 @@
 "Chatting address balance" = "चैट पते का बैलेंस";
 "Balance after" = "बाद में बैलेंस";
 "Balance change" = "बैलेंस में बदलाव";
+"Transaction sent" = "लेन-देन भेजा गया";
+"View Transaction" = "लेन-देन देखें";
+"Name released" = "नाम छोड़ा गया";
+"Name bought" = "नाम खरीदा गया";
+"Offer sent" = "ऑफ़र भेजा गया";
+"Price changed" = "कीमत बदली गई";
+"Listed for sale" = "बिक्री के लिए सूचीबद्ध";
+"Name transferred" = "नाम ट्रांसफ़र किया गया";
+"Name reclaimed" = "नाम वापस लिया गया";
+"Profile saved" = "प्रोफ़ाइल सहेजी गई";
+"Primary name set" = "मुख्य नाम सेट किया गया";
+"Name registered" = "नाम पंजीकृत हुआ";
+"Commit cancelled" = "कमिट रद्द हुआ";
