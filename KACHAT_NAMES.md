@@ -134,6 +134,38 @@ Listing, buying and offers are not tied to expiry on-chain. The app shows the ex
 listing and offer, refuses to list a name in grace, and warns before buying one with less than 30
 days left.
 
+### 4.1 Decided for the next registry (v2): a 2-year cap on how far ahead a name is paid
+
+Decided 2026-10-02. **Not deployed yet**: the live testnet-10 registry still uses the rules
+above, under which repeated 1-year renewals can stack without limit. It ships with the next
+registry, which needs new contracts and a new genesis.
+
+- **New state field.** The name state gains `periodStart` (unix ms), the start of the current paid
+  period. Register sets it to `now`.
+- **`extend(years)`**, any time:
+  - only while `expiresAt + years × 1 year <= periodStart + 2 years`;
+  - `periodStart` is unchanged.
+
+  So a 1-year registration can be extended once, to 2 years. Then Extend is refused until the
+  renewal window.
+- **`renew(years)`**, 1 or 2 years:
+  - only once the renewal window has opened: `tx.time >= expiresAt - 10 days`, a "not before"
+    time lock;
+  - the new period starts at the old expiry, with `periodStart = expiresAt` and
+    `expiresAt += years × 1 year`, so no time is lost or gained;
+  - it still works in grace and after lapse, until someone reclaims.
+- **Result.** A name is never paid for more than 2 years plus 10 days ahead, and renewals can't
+  stack.
+- **No dark period.** The window opens 10 days before expiry, so an owner who renews in time
+  never has the name stop resolving.
+- **App.**
+  - "Extend to 2 years" while the period is under 2 years.
+  - "Renew" (1 or 2 years) once the window opens.
+  - Otherwise it shows "Renewal opens on <date>".
+- **Who has to change.** Contracts, the harness and the CLI (`kachat-domains`), the app's core,
+  chain walker and UI, and the indexer codec (state layout + 9 bytes; a new `extend` entry; new
+  `renew` semantics).
+
 ## 5. Offers
 
 An **offer** is a separate UTXO a buyer creates for a name that may not be listed - KAS locked
