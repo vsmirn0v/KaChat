@@ -854,7 +854,10 @@ final class WalletManager: ObservableObject {
             alias: wallet.alias,
             createdAt: wallet.createdAt
         )
-        networked.balanceSompi = wallet.balanceSompi
+        // No balance carried over: the record's balance is the other network's (it is saved
+        // with the record), and showing it here would be another chain's coins. The address's
+        // own cached balance and the node refresh fill it in.
+        networked.balanceSompi = nil
         networked.spendingAddressIndex = wallet.spendingAddressIndex
         networked.maxSpendingAddressIndex = wallet.maxSpendingAddressIndex
         return networked
