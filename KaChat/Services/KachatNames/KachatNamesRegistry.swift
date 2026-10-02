@@ -114,6 +114,12 @@ final class KachatNamesRegistry: ObservableObject {
         revision += 1
     }
 
+    /// `refresh()` unless the last one is younger than `maxAge` seconds (lookups from typed names).
+    func refreshIfStale(maxAge: TimeInterval = 60) async {
+        if let at = refreshedAt, Date().timeIntervalSince(at) < maxAge { return }
+        await refresh()
+    }
+
     private func walk(_ m: KachatNames.Manifest) async throws {
         var state = chainState ?? .atGenesis(m)
         let registryId = KachatNames.hex(m.registryCovenantId)

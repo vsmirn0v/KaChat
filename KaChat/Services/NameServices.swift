@@ -8,7 +8,9 @@ import Foundation
 ///   `https://kaspaname.com/v1`, reference SDK `@kronsdk/kaspa-names`.
 ///   `GET /addresses/{owner identifier}/names` lists an owner's names, where the identifier is
 ///   the 64-hex x-only public key inside a P2PK address - not the `kaspa:` string itself.
-/// - `.kachat` - KaChat's own names. Not live yet; listed so the app already has its place.
+/// - `.kachat` - KaChat's own names (Kaspa covenants, KACHAT_NAMES.md). Live on testnet only, read
+///   through `KachatNamesRegistry` (the names indexer, or the chain itself); mainnet waits for an
+///   audit and keeps it not live.
 ///
 /// Read-only, like both SDKs: nothing here needs a wallet key. Listing an owner's names needs no
 /// name normalization (the services return their own canonical forms); resolving a name a person
@@ -66,8 +68,8 @@ enum NameServiceTLD: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Whether the app can read this service yet.
-    var isLive: Bool { self != .kachat }
+    /// Whether the app can read this service yet. `.kachat` only on testnet (testnet-10 registry).
+    var isLive: Bool { self != .kachat || KachatNamesService.isEnabled }
 
     /// The tab Your Domains opens on: `.kachat` once it is live, KNS until then.
     static var defaultTab: NameServiceTLD { NameServiceTLD.kachat.isLive ? .kachat : .kas }
@@ -269,14 +271,21 @@ final class NameServicesClient: ObservableObject {
         return result
     }
 
-    /// Whether `address` owns a name on any service KaChat reads - .kas, .k and .kaspa today.
-    /// Account discovery asks this so an address that holds only a name, and no KAS, is still
-    /// found. .kachat joins here once its registry is live (`NameServiceTLD.isLive`).
+    /// Whether `address` owns a name on any service KaChat reads - .kas, .k and .kaspa, and
+    /// .kachat where it is live (testnet). Account discovery asks this so an address that holds
+    /// only a name, and no KAS, is still found.
     func ownsAnyName(_ address: String) async -> Bool {
         async let kas = KNSService.shared.ownsAnyDomain(address)
         async let others = ownedNames(of: address)
         let (hasKas, otherNames) = await (kas, others)
-        return hasKas || !otherNames.isEmpty
+        if hasKas || !otherNames.isEmpty { return true }
+        return await ownsKachatName(address)
+    }
+
+    private func ownsKachatName(_ address: String) async -> Bool {
+        guard NameServiceTLD.kachat.isLive, let key = KachatNamesRegistry.keyOf(address) else { return false }
+        await KachatNamesRegistry.shared.refreshIfStale()
+        return !((try? await KachatNamesRegistry.shared.names(owner: key, includeInactive: true)) ?? []).isEmpty
     }
 
     // MARK: - .k (dotk)
@@ -347,17 +356,18 @@ final class NameServicesClient: ObservableObject {
     }
 
     /// What `input` points to on every live service, in `NameServiceTLD.resolutionOrder`.
-    /// A service whose own rules reject the label is left out. `.kachat` is skipped until it is
-    /// live. Each service normalizes with its own rule (`NameNormalization`).
+    /// A service whose own rules reject the label is left out. `.kachat` is skipped where it is
+    /// not live (mainnet). Each service normalizes with its own rule (`NameNormalization`).
     func resolveEverywhere(_ input: String) async -> [NameResolution] {
         let label = NameServiceTLD.splitTypedName(input).label
         guard !label.isEmpty else { return [] }
         let network = AppSettings.load().networkType
+        async let kachat = resolveKachat(label)
         async let kas = resolveKas(label)
         async let dotk = resolveDotk(label, network: network)
         async let kaspaNames = resolveKaspaNames(label, network: network)
         let byTLD: [NameServiceTLD: NameResolution] = Dictionary(
-            uniqueKeysWithValues: [await kas, await dotk, await kaspaNames].compactMap { $0 }.map { ($0.tld, $0) }
+            uniqueKeysWithValues: [await kachat, await kas, await dotk, await kaspaNames].compactMap { $0 }.map { ($0.tld, $0) }
         )
         return NameServiceTLD.resolutionOrder.compactMap { byTLD[$0] }
     }
@@ -369,6 +379,28 @@ final class NameServicesClient: ObservableObject {
             return results.first { $0.tld == explicit && $0.address != nil }
         }
         return results.first { $0.address != nil }
+    }
+
+    /// `.kachat` (testnet only): the registry's owner of an ACTIVE name - a name in grace or lapsed
+    /// does not resolve (KACHAT_NAMES.md section 4). Same rules as the gap: a-z, 0-9, hyphen.
+    private func resolveKachat(_ label: String) async -> NameResolution? {
+        guard NameServiceTLD.kachat.isLive else { return nil }
+        let canonical = KachatNames.Codec.normalize(label)
+        guard KachatNames.Codec.isValid(canonical) else { return nil }
+        let display = "\(canonical).kachat"
+        let registry = KachatNamesRegistry.shared
+        await registry.refreshIfStale()
+        do {
+            switch try await registry.lookup(canonical) {
+            case .registered(let n) where n.status(graceMs: registry.graceMs) == .active:
+                return NameResolution(tld: .kachat, display: display, address: KachatNamesRegistry.address(of: n.owner), failed: false)
+            default:
+                return NameResolution(tld: .kachat, display: display, address: nil, failed: false)
+            }
+        } catch {
+            AppLog.log("[NameServices] .kachat lookup failed: %@", error.localizedDescription)
+            return NameResolution(tld: .kachat, display: display, address: nil, failed: true)
+        }
     }
 
     private func resolveKas(_ label: String) async -> NameResolution? {

@@ -51,7 +51,7 @@ final class KachatNamesService: ObservableObject {
     // MARK: - Gate
 
     /// The only network names may run on until an audit.
-    static var isEnabled: Bool { AppSettings.load().networkType == .testnet }
+    nonisolated static var isEnabled: Bool { AppSettings.load().networkType == .testnet }
 
     func requireTestnet() throws {
         guard Self.isEnabled else { throw ServiceError.testnetOnly }
