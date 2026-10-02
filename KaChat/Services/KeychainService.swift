@@ -195,6 +195,29 @@ final class KeychainService {
         return hash.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
+    // MARK: - .kachat commit salts (KachatNamesActions)
+    //
+    // The 32-byte salt of a pending `.kachat` registration: without it the commit can neither be
+    // registered nor cancelled, and anyone who learns it with the name can link the commit to the
+    // name before the registration reveals it. Device-only, per wallet, one entry per pending
+    // registration (`id` is the registration's UUID).
+
+    func saveKachatCommitSalt(_ salt: Data, id: String, walletAddress: String) throws {
+        try saveSensitiveDataRaw(salt, keyName: Self.kachatSaltKeyName(id: id, walletAddress: walletAddress))
+    }
+
+    func loadKachatCommitSalt(id: String, walletAddress: String) throws -> Data? {
+        try loadSensitiveDataRaw(keyName: Self.kachatSaltKeyName(id: id, walletAddress: walletAddress))
+    }
+
+    func deleteKachatCommitSalt(id: String, walletAddress: String) throws {
+        try deleteSensitiveDataRaw(keyName: Self.kachatSaltKeyName(id: id, walletAddress: walletAddress))
+    }
+
+    private static func kachatSaltKeyName(id: String, walletAddress: String) -> String {
+        "kachat_names_commit_salt_\(walletHashSuffix(walletAddress.lowercased()))_\(id)"
+    }
+
     // MARK: - Simple Mode password record (device-specific, SE-wrapped)
     //
     // Opaque blob owned by ChildModeService: a JSON {salt, SHA-256(salt || password)} record -
