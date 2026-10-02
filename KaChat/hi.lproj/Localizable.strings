@@ -1102,3 +1102,8 @@
 "%@ is already registered." = "%@ पहले से रजिस्टर है।";
 "The commit never reached the chain." = "कमिट कभी चेन तक नहीं पहुँचा।";
 "The commit is no longer on chain." = "कमिट अब चेन पर नहीं है।";
+"Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram या LinkedIn का प्रोफ़ाइल लिंक, या किसी Discord सर्वर का इनवाइट पेस्ट करें।";
+"Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram या LinkedIn का अपना प्रोफ़ाइल लिंक, या किसी Discord सर्वर का इनवाइट पेस्ट करें। वह प्लेटफ़ॉर्म जो तस्वीर दिखाता है, KaChat वही दिखाता है, इसलिए उसका मॉडरेशन यहाँ भी लागू होता है।";
+"Banners come from an X or YouTube profile link, or a Discord server invite." = "बैनर X या YouTube प्रोफ़ाइल लिंक, या Discord सर्वर इनवाइट से आते हैं।";
+"Looking up the picture..." = "तस्वीर खोजी जा रही है...";
+"No picture found for this link." = "इस लिंक के लिए कोई तस्वीर नहीं मिली।";

@@ -1102,3 +1102,8 @@
 "%@ is already registered." = "%@ はすでに登録されています。";
 "The commit never reached the chain." = "コミットはチェーンに届きませんでした。";
 "The commit is no longer on chain." = "コミットはもうチェーン上にありません。";
+"Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram、LinkedIn のプロフィールリンク、または Discord サーバーの招待リンクを貼り付けてください。";
+"Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram、LinkedIn のあなたのプロフィールリンク、または Discord サーバーの招待リンクを貼り付けてください。KaChat はそのプラットフォームが表示する画像をそのまま表示するため、そのモデレーションがここでも適用されます。";
+"Banners come from an X or YouTube profile link, or a Discord server invite." = "バナーは X または YouTube のプロフィールリンク、または Discord サーバーの招待リンクから取得します。";
+"Looking up the picture..." = "画像を検索中...";
+"No picture found for this link." = "このリンクの画像は見つかりませんでした。";

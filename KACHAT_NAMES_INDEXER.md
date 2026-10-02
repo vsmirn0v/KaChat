@@ -241,8 +241,8 @@ never changes it.
   ```json
   {
     "v": 1,
-    "avatar": "https://… | ipfs://…",
-    "banner": "https://… | ipfs://…",
+    "avatar": "https://x.com/name",
+    "banner": "https://www.youtube.com/@name",
     "bio": "≤ 280 chars",
     "links": {"website": "", "x": "", "github": "", "telegram": "", "discord": "", "nostr": ""},
     "primaryName": "alice"
@@ -250,7 +250,12 @@ never changes it.
   ```
 
   - Every field is optional. Drop unknown fields.
-  - Accept only `https://` and `ipfs://` for image URLs. Drop other schemes.
+  - `avatar` and `banner` are **profile links**, not image URLs. The app stores them normalized:
+    - `avatar` may be on X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub,
+      Telegram or LinkedIn, or a Discord server invite (`https://discord.gg/<code>`).
+    - `banner` may be on X or YouTube, or a Discord server invite.
+    - Drop anything else. Store and serve the link as a string. **Never fetch, store or proxy
+      the pictures**: each app looks them up itself, so the platform's moderation applies.
   - There is deliberately **no display-name field**.
 - **`primaryName`** is honored only while the address owns that name and it is `active`.
   - Otherwise the label falls back to the address's oldest `active` name, then to none.

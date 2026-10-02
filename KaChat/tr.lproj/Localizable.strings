@@ -1102,3 +1102,8 @@
 "%@ is already registered." = "%@ zaten kayıtlı.";
 "The commit never reached the chain." = "Taahhüt zincire hiç ulaşmadı.";
 "The commit is no longer on chain." = "Taahhüt artık zincirde değil.";
+"Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram veya LinkedIn profil bağlantısı ya da bir Discord sunucu daveti yapıştırın.";
+"Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram veya LinkedIn profil bağlantınızı ya da bir Discord sunucu davetini yapıştırın. KaChat o platformun gösterdiği resmi gösterir, bu yüzden onun moderasyonu burada da geçerlidir.";
+"Banners come from an X or YouTube profile link, or a Discord server invite." = "Kapak görselleri bir X veya YouTube profil bağlantısından ya da Discord sunucu davetinden gelir.";
+"Looking up the picture..." = "Resim aranıyor...";
+"No picture found for this link." = "Bu bağlantı için resim bulunamadı.";

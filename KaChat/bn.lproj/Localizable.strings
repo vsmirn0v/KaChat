@@ -1102,3 +1102,8 @@
 "%@ is already registered." = "%@ ইতিমধ্যে নিবন্ধিত।";
 "The commit never reached the chain." = "কমিটটি কখনও চেইনে পৌঁছায়নি।";
 "The commit is no longer on chain." = "কমিটটি আর চেইনে নেই।";
+"Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram বা LinkedIn থেকে একটি প্রোফাইল লিংক, অথবা একটি Discord সার্ভারের আমন্ত্রণ পেস্ট করুন।";
+"Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram বা LinkedIn থেকে আপনার প্রোফাইল লিংক, অথবা একটি Discord সার্ভারের আমন্ত্রণ পেস্ট করুন। ওই প্ল্যাটফর্ম যে ছবি দেখায় KaChat সেটিই দেখায়, তাই তাদের মডারেশন এখানেও প্রযোজ্য।";
+"Banners come from an X or YouTube profile link, or a Discord server invite." = "ব্যানার আসে X বা YouTube প্রোফাইল লিংক, অথবা Discord সার্ভারের আমন্ত্রণ থেকে।";
+"Looking up the picture..." = "ছবি খোঁজা হচ্ছে...";
+"No picture found for this link." = "এই লিংকের জন্য কোনো ছবি পাওয়া যায়নি।";

@@ -455,3 +455,132 @@ final class KachatNamesRegistry: ObservableObject {
         if let data = try? encoder.encode(st) { writeFile("registry.json", data) }
     }
 }
+
+// MARK: - Avatar and banner pictures (looked up on the device)
+
+/// Turns a profile's avatar/banner link (`KachatNames.SocialSource`) into the picture that
+/// platform currently shows, and caches the answer on this device - no indexer involved.
+///
+/// The cache holds the picture's URL; `KNSAvatarView` / `KNSBannerImageView` download and keep
+/// the image itself. An answer is fresh for 24 hours; a stale one is still shown while it is
+/// looked up again. When the platform answers but no longer shows a picture (taken down,
+/// account gone), the cached one is dropped at once, so their moderation carries over. When the
+/// platform can't be reached, the last picture stays.
+@MainActor
+final class KachatSocialImageResolver: ObservableObject {
+    static let shared = KachatSocialImageResolver()
+
+    private struct Entry: Codable {
+        var imageURL: String?
+        var checkedAt: Date
+    }
+
+    private static let defaultsKey = "kachat_social_image_cache"
+    private static let freshFor: TimeInterval = 24 * 3600
+    private static let maxEntries = 500
+    /// The link-preview crawler user agent: X, TikTok and others serve their Open Graph tags to it.
+    private static let crawlerAgent = "facebookexternalhit/1.1"
+    /// A desktop browser: YouTube's desktop channel page carries the banner in plain form (the
+    /// mobile page escapes it).
+    private static let browserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+
+    @Published private var entries: [String: Entry] = [:]
+    private var inFlight: [String: Task<String?, Never>] = [:]
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
+           let decoded = try? JSONDecoder().decode([String: Entry].self, from: data) {
+            entries = decoded
+        }
+    }
+
+    private static func key(_ source: KachatNames.SocialSource, _ kind: KachatNames.SocialSource.Kind) -> String {
+        "\(kind.rawValue)|\(source.link)"
+    }
+
+    /// The cached picture for `link`, starting a lookup when there is none or it is stale.
+    /// Views read this in `body`; the published cache re-renders them when the lookup lands.
+    func imageURL(for link: String?, kind: KachatNames.SocialSource.Kind) -> String? {
+        guard let link, let source = KachatNames.SocialSource(link: link, for: kind) else { return nil }
+        let key = Self.key(source, kind)
+        let entry = entries[key]
+        if entry == nil || Date().timeIntervalSince(entry!.checkedAt) > Self.freshFor {
+            Task { _ = await self.resolve(source, kind: kind) }
+        }
+        return entry?.imageURL
+    }
+
+    /// Looks the picture up now (used by the editor's preview), sharing a lookup in flight.
+    @discardableResult
+    func resolve(_ source: KachatNames.SocialSource, kind: KachatNames.SocialSource.Kind) async -> String? {
+        let key = Self.key(source, kind)
+        if let running = inFlight[key] { return await running.value }
+        let task = Task<String?, Never> { [weak self] in
+            let outcome = await Self.lookUp(source, kind: kind)
+            guard let self else { return nil }
+            guard let answered = outcome else {
+                // Couldn't reach the platform: keep the last picture.
+                return self.entries[key]?.imageURL
+            }
+            // The platform answered - with a picture, or with none (taken down, account gone).
+            self.entries[key] = Entry(imageURL: answered, checkedAt: Date())
+            self.persist()
+            return answered
+        }
+        inFlight[key] = task
+        let value = await task.value
+        inFlight[key] = nil
+        return value
+    }
+
+    private func persist() {
+        if entries.count > Self.maxEntries {
+            let oldest = entries.sorted { $0.value.checkedAt < $1.value.checkedAt }.prefix(entries.count - Self.maxEntries)
+            for (k, _) in oldest { entries[k] = nil }
+        }
+        if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        }
+    }
+
+    /// `.some(url)` / `.some(nil)` = the platform answered with a picture / with none;
+    /// nil = it couldn't be reached (or answered with an error), so nothing is known.
+    private nonisolated static func lookUp(_ source: KachatNames.SocialSource, kind: KachatNames.SocialSource.Kind) async -> String?? {
+        typealias S = KachatNames.SocialSource
+        if source.platform == .discord {
+            guard let url = URL(string: "https://discord.com/api/v10/invites/\(source.handle)") else { return .some(nil) }
+            guard let (data, status) = await fetch(url, agent: browserAgent) else { return nil }
+            if status == 404 { return .some(nil) }
+            guard status == 200 else { return nil }
+            return .some(S.discordImage(fromInviteJSON: data, kind: kind))
+        }
+        guard let url = URL(string: source.link) else { return .some(nil) }
+        if kind == .banner && source.platform == .youtube {
+            guard let (data, status) = await fetch(url, agent: browserAgent, cookie: "CONSENT=YES+1") else { return nil }
+            guard status == 200 else { return status == 404 ? .some(nil) : nil }
+            return .some(S.youtubeBanner(in: String(decoding: data, as: UTF8.self)))
+        }
+        guard let (data, status) = await fetch(url, agent: crawlerAgent) else { return nil }
+        if status == 404 || status == 410 { return .some(nil) }
+        guard status == 200 else { return nil }
+        let html = String(decoding: data, as: UTF8.self)
+        switch kind {
+        case .avatar:
+            guard let image = S.openGraphImage(in: html) else { return .some(nil) }
+            return .some(source.platform == .x ? S.xAvatar(fromOpenGraph: image) : image)
+        case .banner:
+            return .some(source.platform == .x ? S.xBanner(in: html) : nil)
+        }
+    }
+
+    private nonisolated static func fetch(_ url: URL, agent: String, cookie: String? = nil) async -> (Data, Int)? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue(agent, forHTTPHeaderField: "User-Agent")
+        request.setValue("en-US,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+        if let cookie { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else { return nil }
+        return (data.prefix(3_000_000), http.statusCode)
+    }
+}

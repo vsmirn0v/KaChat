@@ -1102,3 +1102,8 @@
 "%@ is already registered." = "%@ уже зарегистрировано.";
 "The commit never reached the chain." = "Коммит так и не попал в сеть.";
 "The commit is no longer on chain." = "Коммита больше нет в сети.";
+"Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite." = "Вставьте ссылку на профиль в X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram или LinkedIn либо приглашение на сервер Discord.";
+"Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too." = "Вставьте ссылку на свой профиль в X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram или LinkedIn либо приглашение на сервер Discord. KaChat показывает то же изображение, что и эта платформа, поэтому её модерация действует и здесь.";
+"Banners come from an X or YouTube profile link, or a Discord server invite." = "Баннеры берутся из ссылки на профиль X или YouTube либо из приглашения на сервер Discord.";
+"Looking up the picture..." = "Ищем изображение...";
+"No picture found for this link." = "Для этой ссылки изображение не найдено.";

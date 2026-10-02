@@ -1102,3 +1102,8 @@
 "%@ is already registered." = "%@은(는) 이미 등록되어 있어요.";
 "The commit never reached the chain." = "커밋이 체인에 도달하지 않았어요.";
 "The commit is no longer on chain." = "커밋이 더 이상 체인에 없어요.";
+"Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram 또는 LinkedIn 프로필 링크나 Discord 서버 초대 링크를 붙여넣으세요.";
+"Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too." = "X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram 또는 LinkedIn의 내 프로필 링크나 Discord 서버 초대 링크를 붙여넣으세요. KaChat은 해당 플랫폼이 보여주는 사진을 그대로 보여주므로 그 플랫폼의 관리 기준이 여기에도 적용됩니다.";
+"Banners come from an X or YouTube profile link, or a Discord server invite." = "배너는 X 또는 YouTube 프로필 링크, 또는 Discord 서버 초대 링크에서 가져옵니다.";
+"Looking up the picture..." = "사진을 찾는 중...";
+"No picture found for this link." = "이 링크에서 사진을 찾지 못했습니다.";

@@ -1102,3 +1102,8 @@
 "%@ is already registered." = "%@ مسجّل بالفعل.";
 "The commit never reached the chain." = "لم يصل الالتزام إلى السلسلة.";
 "The commit is no longer on chain." = "لم يعد الالتزام موجودًا على السلسلة.";
+"Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite." = "الصق رابط بروفايل من X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram أو LinkedIn، أو دعوة لسيرفر Discord.";
+"Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too." = "الصق رابط البروفايل بتاعك من X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram أو LinkedIn، أو دعوة لسيرفر Discord. KaChat بيعرض الصورة اللي المنصة دي بتعرضها، فإشرافها بيتطبق هنا كمان.";
+"Banners come from an X or YouTube profile link, or a Discord server invite." = "صور الغلاف بتيجي من رابط بروفايل على X أو YouTube، أو من دعوة لسيرفر Discord.";
+"Looking up the picture..." = "بندوّر على الصورة...";
+"No picture found for this link." = "مفيش صورة للرابط ده.";

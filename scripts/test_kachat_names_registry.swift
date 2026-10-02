@@ -271,20 +271,20 @@ func runRules(_ r: Report) {
     r.eq(KN.label(owned: [owned[2]], primaryName: nil, graceMs: g, nowMs: now), nil, "label: no active name")
 
     var p = KN.Profile()
-    p.avatar = " https://example.com/a.png "
-    p.banner = "http://example.com/b.png"
+    p.avatar = " x.com/KaspaCurrency/ "
+    p.banner = "https://example.com/b.png"
     p.bio = String(repeating: "x", count: 300)
     p.links = .init(website: "https://k.app", x: "", github: nil, telegram: "  ", discord: nil, nostr: "npub1")
     p.primaryName = "Alice.kachat"
     let clean = p.sanitized()
-    r.eq(clean.avatar, "https://example.com/a.png", "profile: avatar kept and trimmed")
-    r.eq(clean.banner, nil, "profile: http banner dropped")
+    r.eq(clean.avatar, "https://x.com/KaspaCurrency", "profile: avatar link normalized")
+    r.eq(clean.banner, nil, "profile: a link to a site that isn't a supported platform is dropped")
     r.eq(clean.bio?.count, 280, "profile: bio cut to 280")
     r.eq(clean.links, .init(website: "https://k.app", x: nil, github: nil, telegram: nil, discord: nil, nostr: "npub1"), "profile: blank links dropped")
     r.eq(clean.primaryName, "alice", "profile: primary name normalized")
     let json = try! p.recordJSON()
     r.check(json.count <= 2048, "profile JSON within 2 KB")
-    r.check(String(data: json, encoding: .utf8)!.hasPrefix("{\"avatar\":\"https://example.com/a.png\",\"bio\":"), "profile JSON compact with sorted keys")
+    r.check(String(data: json, encoding: .utf8)!.hasPrefix("{\"avatar\":\"https://x.com/KaspaCurrency\",\"bio\":"), "profile JSON compact with sorted keys")
     r.eq(KN.Profile.parse(json), clean, "profile JSON round trip")
     r.eq(KN.Profile.parse(Data("{\"v\":1,\"displayName\":\"x\",\"avatar\":\"ftp://a\"}".utf8)), KN.Profile(), "profile: unknown fields and bad schemes dropped")
     r.eq(KN.Profile.parse(Data("{\"v\":2}".utf8)), nil, "profile: only v 1")

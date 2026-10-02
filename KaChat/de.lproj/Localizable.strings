@@ -1049,3 +1049,8 @@
 "%@ is already registered." = "%@ ist bereits registriert.";
 "The commit never reached the chain." = "Der Commit hat die Chain nie erreicht.";
 "The commit is no longer on chain." = "Der Commit ist nicht mehr auf der Chain.";
+"Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite." = "Füge einen Profillink von X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram oder LinkedIn ein, oder eine Einladung zu einem Discord-Server.";
+"Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too." = "Füge deinen Profillink von X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram oder LinkedIn ein, oder eine Einladung zu einem Discord-Server. KaChat zeigt das Bild, das diese Plattform zeigt – ihre Moderation gilt also auch hier.";
+"Banners come from an X or YouTube profile link, or a Discord server invite." = "Banner kommen aus einem X- oder YouTube-Profillink oder einer Discord-Servereinladung.";
+"Looking up the picture..." = "Bild wird gesucht …";
+"No picture found for this link." = "Für diesen Link wurde kein Bild gefunden.";

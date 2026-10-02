@@ -1795,6 +1795,54 @@ struct KachatLiveDomainsTab: View {
 
 // MARK: - Edit .kachat Profile
 
+/// The picture a pasted profile link resolves to, looked up on this device: what other people
+/// will see. Empty until the link is a supported one.
+struct KachatSocialPreview: View {
+    let link: String
+    let kind: KachatNames.SocialSource.Kind
+
+    @ObservedObject private var resolver = KachatSocialImageResolver.shared
+    @State private var resolved: String?
+    @State private var looking = false
+    @State private var lookedUp = false
+
+    private var source: KachatNames.SocialSource? { KachatNames.SocialSource(link: link, for: kind) }
+
+    var body: some View {
+        Group {
+            if source != nil {
+                HStack(spacing: 12) {
+                    if let resolved {
+                        if kind == .avatar {
+                            KNSAvatarView(avatarURLString: resolved, fallbackText: "", size: 56)
+                        } else {
+                            KNSBannerImageView(bannerURLString: resolved, height: 80, cornerRadius: 8)
+                        }
+                    } else if looking {
+                        ProgressView()
+                        Text("Looking up the picture...").font(.footnote).foregroundColor(.secondary)
+                    } else if lookedUp {
+                        Image(systemName: "photo.badge.exclamationmark").foregroundColor(.secondary)
+                        Text("No picture found for this link.").font(.footnote).foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        // Debounced: one lookup once typing pauses, not one per keystroke.
+        .task(id: source?.link) {
+            resolved = nil
+            lookedUp = false
+            guard let source else { return }
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if Task.isCancelled { return }
+            looking = true
+            resolved = await resolver.resolve(source, kind: kind)
+            looking = false
+            lookedUp = true
+        }
+    }
+}
+
 /// The address profile (KACHAT_NAMES.md section 7): avatar, banner, bio, links and which of your
 /// names labels you - written as a `kchat:1:profile:` self-transfer. No display name: the label is
 /// always a name you own or your address.
@@ -1830,12 +1878,12 @@ struct KachatLiveProfileEditor: View {
         return p.sanitized()
     }
 
-    private var badImage: Bool {
-        [avatar, banner].contains { s in
-            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            return !t.isEmpty && !KachatNames.Profile.isImageURL(t)
-        }
+    private func badLink(_ s: String, _ kind: KachatNames.SocialSource.Kind) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !t.isEmpty && KachatNames.SocialSource(link: t, for: kind) == nil
     }
+
+    private var badImage: Bool { badLink(avatar, .avatar) || badLink(banner, .banner) }
 
     var body: some View {
         NavigationStack {
@@ -1849,14 +1897,26 @@ struct KachatLiveProfileEditor: View {
                     }
                 }
                 Section {
-                    TextField("https://... or ipfs://...", text: $avatar)
+                    TextField("x.com/yourname", text: $avatar)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                } header: { Text("Avatar") }
+                    KachatSocialPreview(link: avatar, kind: .avatar)
+                } header: { Text("Avatar") } footer: {
+                    if badLink(avatar, .avatar) {
+                        Text("Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite.").foregroundColor(.red)
+                    } else {
+                        Text("Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too.")
+                    }
+                }
                 Section {
-                    TextField("https://... or ipfs://...", text: $banner)
+                    TextField("x.com/yourname", text: $banner)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    KachatSocialPreview(link: banner, kind: .banner)
                 } header: { Text("Banner") } footer: {
-                    if badImage { Text("Image links must start with https:// or ipfs://.").foregroundColor(.red) }
+                    if badLink(banner, .banner) {
+                        Text("Banners come from an X or YouTube profile link, or a Discord server invite.").foregroundColor(.red)
+                    } else {
+                        Text("Banners come from an X or YouTube profile link, or a Discord server invite.")
+                    }
                 }
                 Section {
                     TextField("Bio", text: $bio, axis: .vertical)

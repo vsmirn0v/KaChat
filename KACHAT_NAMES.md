@@ -194,11 +194,17 @@ of that, so **identity belongs to the address, and a name is only a label pointi
   | Field | Meaning |
   |---|---|
   | `v` | `1` |
-  | `avatar` | image URL (https / ipfs) |
-  | `banner` | image URL |
+  | `avatar` | a **profile link** on X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram, LinkedIn, or a Discord server invite |
+  | `banner` | a profile link on X or YouTube, or a Discord server invite |
   | `bio` | ≤ 280 characters |
   | `links` | `{ "website", "x", "github", "telegram", "discord", "nostr" }`, all optional |
   | `primaryName` | which of the address's `.kachat` names to show (optional) |
+
+  **Pictures are never uploaded.** The record stores the profile link only, and each device
+  looks up the picture that platform currently shows and caches it
+  (`KachatSocialImageResolver`; no indexer involved). The platform's own moderation therefore
+  applies: a picture it takes down, or an account it removes, disappears from KaChat at the
+  next lookup (24 h). A link the app can't reach keeps the last picture.
 
   There is deliberately no free-text display name: the label for an address is its name or its
   address, never something anyone can type (no impersonation by display name).

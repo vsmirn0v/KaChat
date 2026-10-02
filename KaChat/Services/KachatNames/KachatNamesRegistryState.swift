@@ -151,12 +151,6 @@ extension KachatNames {
 
         static let maxBio = 280
 
-        /// Image URLs must be `https://` or `ipfs://`.
-        static func isImageURL(_ s: String) -> Bool {
-            let l = s.lowercased()
-            return (l.hasPrefix("https://") && l.count > 8) || (l.hasPrefix("ipfs://") && l.count > 7)
-        }
-
         private static func clean(_ s: String?) -> String? {
             guard let t = s?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
             return t
@@ -166,8 +160,10 @@ extension KachatNames {
         /// dropped, the bio cut to 280 characters, the primary name normalized.
         func sanitized() -> Profile {
             var p = Profile()
-            p.avatar = Profile.clean(avatar).flatMap { Profile.isImageURL($0) ? $0 : nil }
-            p.banner = Profile.clean(banner).flatMap { Profile.isImageURL($0) ? $0 : nil }
+            // Avatar and banner are profile links on a platform that moderates its pictures (see
+            // `SocialSource`), stored normalized; anything else is dropped.
+            p.avatar = Profile.clean(avatar).flatMap { SocialSource(link: $0, for: .avatar)?.link }
+            p.banner = Profile.clean(banner).flatMap { SocialSource(link: $0, for: .banner)?.link }
             p.bio = Profile.clean(bio).map { String($0.prefix(Profile.maxBio)) }
             if let l = links {
                 let c = Links(website: Profile.clean(l.website), x: Profile.clean(l.x), github: Profile.clean(l.github),
@@ -192,6 +188,148 @@ extension KachatNames {
             guard data.count <= Codec.maxProfileJSONBytes,
                   let p = try? JSONDecoder().decode(Profile.self, from: data), p.v == 1 else { return nil }
             return p.sanitized()
+        }
+    }
+
+    /// Where a profile's avatar or banner comes from: a profile link on a platform that moderates
+    /// the pictures it shows (X, YouTube, Facebook, ...). The record stores only the link; each
+    /// device looks the current picture up and caches it (`KachatSocialImageResolver`), so a
+    /// picture the platform takes down disappears here too. No picture is ever uploaded.
+    struct SocialSource: Equatable {
+        enum Kind: String { case avatar, banner }
+
+        enum Platform: String, CaseIterable {
+            case x, youtube, facebook, instagram, tiktok, twitch, kick, github, telegram, linkedin, discord
+
+            /// Platforms whose banner can be read without signing in.
+            var hasBanner: Bool { self == .x || self == .youtube || self == .discord }
+        }
+
+        let platform: Platform
+        /// The normalized profile link, e.g. `https://x.com/name`.
+        let link: String
+        /// The handle, channel path or invite code inside it.
+        let handle: String
+
+        /// Accepts a pasted profile link (with or without `https://`, `www.`, `m.`, trailing
+        /// slash or query). Nil for an unsupported site, a post rather than a profile, or a
+        /// banner from a platform that has none.
+        init?(link raw: String, for kind: Kind) {
+            var t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.isEmpty { return nil }
+            if !t.lowercased().hasPrefix("http://") && !t.lowercased().hasPrefix("https://") { t = "https://" + t }
+            guard let comps = URLComponents(string: t), var host = comps.host?.lowercased() else { return nil }
+            for prefix in ["www.", "m.", "mobile."] where host.hasPrefix(prefix) { host.removeFirst(prefix.count) }
+            let parts = comps.path.split(separator: "/").map(String.init).filter { !$0.isEmpty }
+            func ok(_ s: String) -> Bool {
+                !s.isEmpty && s.count <= 100 && s.allSatisfy { $0.isLetter || $0.isNumber || "._-@".contains($0) }
+            }
+            var platform: Platform?
+            var handle = ""
+            var link = ""
+            switch host {
+            case "x.com", "twitter.com":
+                if parts.count == 1, ok(parts[0]), !["home", "explore", "search", "i", "settings"].contains(parts[0].lowercased()) {
+                    platform = .x; handle = parts[0]; link = "https://x.com/\(handle)"
+                }
+            case "youtube.com":
+                if parts.count >= 1, parts[0].hasPrefix("@"), ok(parts[0]) {
+                    platform = .youtube; handle = parts[0]; link = "https://www.youtube.com/\(handle)"
+                } else if parts.count >= 2, ["channel", "c", "user"].contains(parts[0]), ok(parts[1]) {
+                    platform = .youtube; handle = "\(parts[0])/\(parts[1])"; link = "https://www.youtube.com/\(handle)"
+                }
+            case "facebook.com", "fb.com":
+                if parts.count == 1, ok(parts[0]), !["profile.php", "groups", "watch", "events"].contains(parts[0].lowercased()) {
+                    platform = .facebook; handle = parts[0]; link = "https://www.facebook.com/\(handle)"
+                }
+            case "instagram.com":
+                if parts.count == 1, ok(parts[0]), !["p", "reel", "reels", "explore", "stories"].contains(parts[0].lowercased()) {
+                    platform = .instagram; handle = parts[0]; link = "https://www.instagram.com/\(handle)/"
+                }
+            case "tiktok.com":
+                if parts.count == 1, parts[0].hasPrefix("@"), ok(parts[0]) {
+                    platform = .tiktok; handle = parts[0]; link = "https://www.tiktok.com/\(handle)"
+                }
+            case "twitch.tv":
+                if parts.count == 1, ok(parts[0]) { platform = .twitch; handle = parts[0]; link = "https://www.twitch.tv/\(handle)" }
+            case "kick.com":
+                if parts.count == 1, ok(parts[0]) { platform = .kick; handle = parts[0]; link = "https://kick.com/\(handle)" }
+            case "github.com":
+                if parts.count == 1, ok(parts[0]) { platform = .github; handle = parts[0]; link = "https://github.com/\(handle)" }
+            case "t.me", "telegram.me":
+                if parts.count == 1, ok(parts[0]), !parts[0].hasPrefix("+") {
+                    platform = .telegram; handle = parts[0]; link = "https://t.me/\(handle)"
+                }
+            case "linkedin.com":
+                if parts.count >= 2, ["in", "company"].contains(parts[0]), ok(parts[1]) {
+                    platform = .linkedin; handle = "\(parts[0])/\(parts[1])"; link = "https://www.linkedin.com/\(handle)"
+                }
+            case "discord.gg":
+                if parts.count == 1, ok(parts[0]) { platform = .discord; handle = parts[0]; link = "https://discord.gg/\(handle)" }
+            case "discord.com", "discordapp.com":
+                if parts.count == 2, parts[0] == "invite", ok(parts[1]) {
+                    platform = .discord; handle = parts[1]; link = "https://discord.gg/\(handle)"
+                }
+            default:
+                break
+            }
+            guard let platform else { return nil }
+            if kind == .banner && !platform.hasBanner { return nil }
+            self.platform = platform
+            self.handle = handle
+            self.link = link
+        }
+
+        // MARK: Reading the picture out of what the platform serves (pure, testable)
+
+        /// The `og:image` (or `twitter:image`) of an HTML page, entities decoded.
+        static func openGraphImage(in html: String) -> String? {
+            for key in ["og:image", "og:image:secure_url", "twitter:image"] {
+                let pattern = "<meta[^>]+(?:property|name)=[\"']\(NSRegularExpression.escapedPattern(for: key))[\"'][^>]*>"
+                guard let tagRange = html.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else { continue }
+                let tag = String(html[tagRange])
+                guard let c = tag.range(of: "content=[\"']([^\"']+)[\"']", options: .regularExpression) else { continue }
+                var value = String(tag[c]).replacingOccurrences(of: "content=", with: "")
+                value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                value = value.replacingOccurrences(of: "&amp;", with: "&").replacingOccurrences(of: "&#x2F;", with: "/")
+                if value.lowercased().hasPrefix("https://") { return value }
+            }
+            return nil
+        }
+
+        /// X's avatar from its page, upgraded from the 200px thumbnail to 400px.
+        static func xAvatar(fromOpenGraph url: String) -> String {
+            url.replacingOccurrences(of: "_200x200.", with: "_400x400.")
+        }
+
+        /// X's banner: the page names it as `profile_banners/<user id>/<version>`.
+        static func xBanner(in html: String) -> String? {
+            guard let r = html.range(of: "profile_banners/[0-9]+/[0-9]+", options: .regularExpression) else { return nil }
+            return "https://pbs.twimg.com/\(html[r])/1500x500"
+        }
+
+        /// YouTube's channel banner from the page's embedded data, when the channel has one.
+        static func youtubeBanner(in html: String) -> String? {
+            // The object itself (the bare name also appears earlier, in a list of renderer types).
+            guard let start = html.range(of: "\"imageBannerViewModel\":{") else { return nil }
+            let window = html[start.upperBound...].prefix(4000)
+            guard let r = window.range(of: "https://yt3\\.googleusercontent\\.com/[^\"\\\\]+", options: .regularExpression) else { return nil }
+            return String(window[r])
+        }
+
+        /// Discord invite → the server's icon or banner (`/api/v10/invites/{code}`).
+        static func discordImage(fromInviteJSON data: Data, kind: Kind) -> String? {
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let guild = root["guild"] as? [String: Any],
+                  let id = guild["id"] as? String else { return nil }
+            switch kind {
+            case .avatar:
+                guard let icon = guild["icon"] as? String, !icon.isEmpty else { return nil }
+                return "https://cdn.discordapp.com/icons/\(id)/\(icon).png?size=256"
+            case .banner:
+                guard let banner = guild["banner"] as? String, !banner.isEmpty else { return nil }
+                return "https://cdn.discordapp.com/banners/\(id)/\(banner).png?size=1024"
+            }
         }
     }
 

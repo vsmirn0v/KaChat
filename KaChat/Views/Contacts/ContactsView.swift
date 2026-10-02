@@ -36,7 +36,11 @@ struct ProfileView: View {
     /// Testnet: your `.kachat` label (KACHAT_NAMES.md section 7 - your primary name while you own
     /// it and it is active, else your oldest active name), shown as your name on the hero.
     @State private var kachatLabel: String?
+    /// The address profile's avatar/banner links (testnet), resolved on this device.
+    @State private var kachatAvatarLink: String?
+    @State private var kachatBannerLink: String?
     @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
+    @ObservedObject private var socialImages = KachatSocialImageResolver.shared
     @State private var showMoreProfileInfo = false
     @State private var showWithdrawSheet = false
     @State private var spendingAddressBalanceSompi: UInt64?
@@ -575,10 +579,16 @@ struct ProfileView: View {
     private func loadKachatLabel(_ address: String) async {
         guard KachatNamesService.isEnabled else {
             kachatLabel = nil
+            kachatAvatarLink = nil
+            kachatBannerLink = nil
             return
         }
         await kachatRegistry.refreshIfStale(maxAge: 300)
-        kachatLabel = (try? await kachatRegistry.identity(address: address))?.label
+        let identity = try? await kachatRegistry.identity(address: address)
+        kachatLabel = identity?.label
+        let profile = kachatRegistry.ownProfile(for: address)?.profile ?? identity?.profile
+        kachatAvatarLink = profile?.avatar
+        kachatBannerLink = profile?.banner
     }
 
     private func profileHeroSection(_ wallet: Wallet) -> some View {
@@ -595,9 +605,15 @@ struct ProfileView: View {
             }
             return Contact.generateDefaultAlias(from: wallet.publicAddress)
         }()
+        // On testnet the .kachat profile's pictures (looked up from its X/YouTube/... links) come
+        // first; the KNS ones otherwise.
+        let kachatBanner = socialImages.imageURL(for: kachatBannerLink, kind: .banner)
+        let kachatAvatar = socialImages.imageURL(for: kachatAvatarLink, kind: .avatar)
         return VStack(alignment: .leading, spacing: 0) {
             Group {
-                if let bannerURL = knsProfileInfo?.profile?.bannerUrl,
+                if let kachatBanner {
+                    KNSBannerImageView(bannerURLString: kachatBanner, height: 140, cornerRadius: 0)
+                } else if let bannerURL = knsProfileInfo?.profile?.bannerUrl,
                    KNSProfileLinkBuilder.websiteURL(from: bannerURL) != nil {
                     KNSBannerImageView(bannerURLString: bannerURL, height: 140, cornerRadius: 0)
                 } else {
@@ -618,7 +634,7 @@ struct ProfileView: View {
             // affordance never shows on someone else's profile.
             HStack(alignment: .bottom) {
                 KNSAvatarView(
-                    avatarURLString: knsProfileInfo?.avatarURL,
+                    avatarURLString: kachatAvatar ?? knsProfileInfo?.avatarURL,
                     fallbackText: displayName,
                     size: 76
                 )
