@@ -880,8 +880,16 @@ struct KachatTxSheet<Inputs: View>: View {
                             LabeledRow(title: "Price (to miners)", value: KaspaUnit.amount(plan.priceFee))
                         }
                         LabeledRow(title: "Network fee", value: KaspaUnit.amount(plan.networkFee))
+                        // Names always spend from, and pay back to, the chatting address: show its
+                        // real balance and what it will be once this is sent.
                         if let me = KachatNamesActions.shared.myKey {
-                            LabeledRow(title: "Your balance", value: KaspaUnit.signed(Self.balanceChange(plan, me: me)), bold: true)
+                            let change = Self.balanceChange(plan, me: me)
+                            if let balance = WalletManager.shared.currentWallet?.balanceSompi {
+                                LabeledRow(title: "Chatting address balance", value: KaspaUnit.amount(balance))
+                                LabeledRow(title: "Balance after", value: KaspaUnit.amount(UInt64(max(0, Int64(balance) + change))), bold: true)
+                            } else {
+                                LabeledRow(title: "Balance change", value: KaspaUnit.signed(change), bold: true)
+                            }
                         }
                     } else if building {
                         HStack { Text("Network fee"); Spacer(); ProgressView() }

@@ -1129,3 +1129,6 @@
 "Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "각 항목은 연결한 소셜 프로필에서 해당 플랫폼이 보여주는 그대로 가져오므로 그 플랫폼의 관리 기준이 여기에도 적용됩니다. 세 가지 모두 한 계정을 쓰거나 섞어서 쓸 수 있습니다.";
 "Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Linktree 사용자 이름을 입력하세요: 문자, 숫자, 마침표, 하이픈 또는 밑줄.";
 "That doesn't look like a handle on this platform." = "이 플랫폼의 핸들처럼 보이지 않습니다.";
+"Chatting address balance" = "채팅 주소 잔액";
+"Balance after" = "이후 잔액";
+"Balance change" = "잔액 변화";

@@ -1129,3 +1129,6 @@
 "Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "每一项都来自你关联的社交主页，与该平台显示的完全一致，因此该平台的审核在这里同样适用。三项可以用同一个账号，也可以混用。";
 "Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "请输入你的 Linktree 用户名：字母、数字、点、连字符或下划线。";
 "That doesn't look like a handle on this platform." = "这看起来不像该平台的用户名。";
+"Chatting address balance" = "聊天地址余额";
+"Balance after" = "操作后余额";
+"Balance change" = "余额变化";

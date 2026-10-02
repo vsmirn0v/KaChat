@@ -1129,3 +1129,6 @@
 "Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "各項目はリンクした SNS プロフィールから、そのプラットフォームの表示どおりに取得されるため、そのモデレーションがここでも適用されます。3 つすべてに 1 つのアカウントを使うことも、組み合わせることもできます。";
 "Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Linktree のユーザー名を入力してください（英字、数字、ピリオド、ハイフン、アンダースコア）。";
 "That doesn't look like a handle on this platform." = "このプラットフォームのハンドルではないようです。";
+"Chatting address balance" = "チャットアドレスの残高";
+"Balance after" = "送信後の残高";
+"Balance change" = "残高の変化";

@@ -1130,3 +1130,6 @@
 "Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "Chaque élément provient d'un profil social que vous liez, tel que cette plateforme l'affiche : sa modération s'applique donc ici aussi. Vous pouvez utiliser un seul compte pour les trois, ou les combiner.";
 "Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Saisissez votre nom d'utilisateur Linktree : lettres, chiffres, points, tirets ou traits de soulignement.";
 "That doesn't look like a handle on this platform." = "Cela ne ressemble pas à un identifiant sur cette plateforme.";
+"Chatting address balance" = "Solde de l'adresse de discussion";
+"Balance after" = "Solde après";
+"Balance change" = "Variation du solde";
