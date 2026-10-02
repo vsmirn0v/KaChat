@@ -256,6 +256,7 @@ final class PostTranslationService: ObservableObject {
     /// No OS gate any more: with the work on the server, iOS 16 and 17 get this too. They used to
     /// see no affordance at all, because Apple's framework starts at 18.
     func canOffer(for text: String) -> Bool {
+        guard !Self.currentServiceURL.isEmpty else { return false }
         guard let target = Self.readerLanguageCode,
               let detected = Self.detectedLanguage(of: text),
               let source = detected.languageCode?.identifier,
@@ -379,13 +380,17 @@ final class PostTranslationService: ObservableObject {
         let untranslated: Bool
     }
 
-    /// The configured service URL, trimmed, with the shipped default standing in for a blank one.
+    /// The configured service URL, trimmed, with the shipped default standing in for a blank one
+    /// on mainnet. Blank on testnet (no service there yet) - never the mainnet one.
     private static var currentServiceURL: String {
-        let raw = AppSettings.load().translationServiceURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        return raw.isEmpty ? AppSettings.defaultTranslationServiceURL : raw
+        let settings = AppSettings.load()
+        let raw = settings.translationServiceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard raw.isEmpty else { return raw }
+        return settings.networkType == .mainnet ? AppSettings.defaultTranslationServiceURL : ""
     }
 
     private static func translationServiceComponents() -> URLComponents? {
+        guard !currentServiceURL.isEmpty else { return nil }
         var components = URLComponents(string: currentServiceURL)
         // A trailing slash on a custom URL would otherwise produce "//translate".
         if components?.path.hasSuffix("/") == true { components?.path.removeLast() }

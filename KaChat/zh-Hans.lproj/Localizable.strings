@@ -943,3 +943,5 @@
 "To chat with someone, press Create Chat and enter their Kaspa address or .kachat name. Your first message reaches them as a Message Request they can accept. For the most privacy, turn on Private Chat: nothing links you on chain, and they see your messages once they start a private chat with you too." = "要和某人聊天，点击“创建聊天”，输入对方的 Kaspa 地址或 .kachat 名称。你的第一条消息会作为消息请求送达，对方可以接受。想要最高隐私，请开启私密聊天：链上没有任何东西把你们联系在一起，对方也和你开始私密聊天后就能看到你的消息。";
 "50 Kaspa is recommended to get started - enough to claim a .kachat name and chat for a while. 5 Kaspa is enough for about 2500 messages." = "建议先准备 50 Kaspa——足够领取一个 .kachat 名称并聊上一阵子。5 Kaspa 大约可发送 2500 条消息。";
 "Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "你的公开消息身份。存入少量资金用于支付消息费用和 .kachat 名称——切勿把打算花掉的钱发到这里。";
+"KaPosts isn't available on Testnet yet" = "KaPosts 暂不支持测试网";
+"There is no KaPost indexer for testnet. Turn off Testnet in Settings > Connection to read and post on mainnet." = "测试网还没有 KaPost 索引器。在“设置 > 连接”中关闭测试网，即可在主网阅读和发帖。";

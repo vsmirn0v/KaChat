@@ -48,9 +48,12 @@ final class KaPostsAPIClient: ObservableObject {
         case api(code: String, message: String)
         case badResponse
         case missingWallet
+        /// No KaPost indexer on this network (testnet has none yet).
+        case noIndexer
 
         var errorDescription: String? {
             switch self {
+            case .noIndexer: return "KaPosts isn't available on Testnet yet"
             case .badURL: return "Invalid KaPost indexer URL"
             case .api(_, let message): return message
             case .badResponse: return "Unexpected response from the KaPost indexer"
@@ -281,8 +284,19 @@ final class KaPostsAPIClient: ObservableObject {
 
     // MARK: - Requests
 
+    /// Whether this network has a KaPost indexer to talk to. A blank setting means the shipped
+    /// default on mainnet and "none" on testnet - never the mainnet indexer, which would serve
+    /// mainnet posts under testnet addresses and never see testnet posts.
+    static var hasIndexer: Bool {
+        let settings = AppSettings.load()
+        return settings.networkType == .mainnet
+            || !settings.kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func baseURL() throws -> URL {
-        let raw = AppSettings.load().kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let settings = AppSettings.load()
+        let raw = settings.kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.isEmpty && settings.networkType != .mainnet { throw KaPostsAPIError.noIndexer }
         guard let url = URL(string: raw.isEmpty ? AppSettings.defaultKaPostIndexerURL : raw) else {
             throw KaPostsAPIError.badURL
         }
@@ -1222,6 +1236,8 @@ final class KaPostsNotificationService {
     }
 
     func start() {
+        // No KaPost indexer on this network (testnet): nothing to poll.
+        guard KaPostsAPIClient.hasIndexer else { return }
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {

@@ -131,6 +131,27 @@ func kaPostsPrefetchTriggerId<T: Identifiable>(_ items: [T]) -> T.ID? {
 /// when shown in the Chats slot (full-dock re-tap mode) it overlays ChatListView, which already
 /// hosts one; nesting two wrapped navigation controllers in a tab slot is a UIKit crash. The
 /// standalone dock-tab case wraps it at the call site (MainTabView.tabContent).
+/// KaPosts on a network with no KaPost indexer (testnet, for now).
+private struct KaPostsUnavailableView: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "text.bubble")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundColor(.secondary)
+            Text("KaPosts isn't available on Testnet yet")
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            Text("There is no KaPost indexer for testnet. Turn off Testnet in Settings > Connection to read and post on mainnet.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+    }
+}
+
 struct KaPostsView: View {
     private enum FeedTab: CaseIterable {
         case following
@@ -494,6 +515,16 @@ struct KaPostsView: View {
     }
 
     var body: some View {
+        // No KaPost indexer on this network (testnet has none yet): say so, rather than run a
+        // feed that can only spin. The feed's tasks live on `feedBody`, so none of them start.
+        if KaPostsAPIClient.hasIndexer {
+            feedBody
+        } else {
+            KaPostsUnavailableView()
+        }
+    }
+
+    private var feedBody: some View {
         ZStack(alignment: .leading) {
             feedLayer
         }
