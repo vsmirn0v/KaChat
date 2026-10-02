@@ -12,7 +12,7 @@ Decisions this rests on (from the user):
 | Where the price goes | **Miners** - left as transaction fee. KaChat takes nothing. |
 | Characters | `a-z`, `0-9`, `-`; 1-32 characters; no hyphen at either end |
 | Marketplace fee | **None** - the buyer pays the seller the price, plus the network fee |
-| Ownership | **Yearly** - a name is held until its expiry and renewed by paying again (section 4) |
+| Ownership | **Yearly** - a name is held until its expiry and renewed by paying again, never paid more than 2 years ahead (section 4) |
 | Identity data | Avatar, banner, bio, links live on the **address**, never on the name (section 7) |
 
 Research behind this: dotk's live `.k` registry, reverse-specified from its compiled covenant
@@ -50,7 +50,8 @@ dictionary name from it and race the registration. `.kachat` closes that:
    - input 1: the commit UTXO (signed by the owner);
    - inputs 2..: the owner's funding;
    - output 0 `(lo, key)` gap, output 1 `(key, hi)` gap, output 2 the **name UTXO**
-     (`owner = ownerKey`, unlisted, `expiresAt = now + years × 1 year`), output 3.. change.
+     (`owner = ownerKey`, unlisted, `periodStart = now`, `expiresAt = now + years × 1 year`),
+     output 3.. change.
 
    The gap checks: `lo < key < hi`; the name's characters and length; that input 1's script is
    exactly the commit script for `(name, ownerKey, salt)`; that input 1 carries a relative
@@ -84,16 +85,21 @@ State (fixed layout, script pushes):
 | `name` | byte[32] | the name, zero-padded |
 | `owner` | byte[32] | x-only Schnorr key (KaChat addresses are P2PK) |
 | `price` | int | 0 = not listed; otherwise the asking price in sompi |
+| `periodStart` | int | unix time in milliseconds when the current paid period started (section 4) |
 | `expiresAt` | int | unix time in milliseconds when the paid period ends |
+
+126 bytes spliced as `0x20 key 0x20 name 0x20 owner 0x08 price 0x08 periodStart 0x08 expiresAt`
+(ints are 8-byte script numbers: price at bytes 100..108, periodStart 109..117, expiresAt 118..126).
 
 Value: `BOND` (proposal 1 KAS, returned on release). Entries:
 
 | Entry | Who | Effect |
 |---|---|---|
-| `transfer(newOwner, sig)` | owner | new owner; any listing is cleared; expiry unchanged |
-| `list(price, sig)` | owner | sets the asking price (0 = delist) |
-| `buy(newOwner)` | anyone | requires the output right after the name's continuation to pay `price` to P2PK(owner); new owner = `newOwner`; price reset; expiry unchanged |
-| `renew(years)` | anyone | `expiresAt += years × 1 year`; requires `1 <= years <= MAX_YEARS` and **inputs - outputs >= renewPrice(len) × years** as miner fee |
+| `transfer(newOwner, sig)` | owner | new owner; any listing is cleared; period and expiry unchanged |
+| `list(price, sig)` | owner | sets the asking price (0 = delist); period and expiry unchanged |
+| `buy(newOwner)` | anyone | requires the output right after the name's continuation to pay `price` to P2PK(owner); new owner = `newOwner`; price reset; period and expiry unchanged |
+| `extend(years)` | anyone | any time, no lock time: `expiresAt += years × 1 year` while `expiresAt + years × 1 year <= periodStart + MAX_YEARS × 1 year`; `periodStart` unchanged; **inputs - outputs >= renewPrice(len) × years** as miner fee |
+| `renew(years)` | anyone | only once `tx.time >= expiresAt - RENEW_WINDOW` (a timestamp time lock); `periodStart = expiresAt`, `expiresAt += years × 1 year`; requires `1 <= years <= MAX_YEARS` and **inputs - outputs >= renewPrice(len) × years** as miner fee |
 | `release(sig)` | owner | the exit: with `merge`/`absorbed` on the two gaps, destroys the name and returns `BOND` |
 | `reclaim()` | anyone | the expired exit: once `tx.time >= expiresAt + GRACE`, destroys the name like `release`, pays `BOND` back to P2PK(owner) at output 1, and the caller keeps the freed gap value (less the network fee) at output 2 as a bounty |
 
@@ -105,13 +111,19 @@ entry also pins the continuation's value and uses `OpAuthOutputIdx`, since
 
 ## 4. Yearly renewal and expiry
 
-A name is paid for by the year, in the same tiers and to the same place (miners) as registration.
+A name is paid for by the year, in the same tiers and to the same place (miners) as registration,
+and **never more than 2 years ahead** of the start of its current paid period (section 4.1).
 
-- **Registration** pays for 1 to `MAX_YEARS` years up front (`MAX_YEARS` = **2**, decided).
-- **Renewal** (`renew`) adds 1 to `MAX_YEARS` years to the current expiry, as often as anyone
-  likes - there is no practical cap on how far ahead a name can be paid (the script refuses
-  past ~3 million years, only to rule out integer overflow). Anyone can renew any name (a gift
-  needs no signature); the owner does not change.
+- **Registration** pays for 1 to `MAX_YEARS` years up front (`MAX_YEARS` = **2**, decided) and
+  starts the first period: `periodStart = now`.
+- **Extend** (`extend`) adds years to the current period, any time, while the period still holds
+  less than `MAX_YEARS`: a 1-year registration can be extended once, to 2 years; a 2-year one not
+  at all.
+- **Renewal** (`renew`) starts the next period, 1 or 2 years, once the **renewal window** has
+  opened: `RENEW_WINDOW` = **10 days** before the expiry (and on through grace and after lapse,
+  until someone reclaims). The new period starts at the old expiry (`periodStart = expiresAt`), so
+  no time is lost or gained, and the window moves on with it - renewals can't stack.
+- Anyone can extend or renew any name (a gift needs no signature); the owner does not change.
 - **Expiry only ever moves forward.** No entry shortens it, so the expiry a buyer sees on a
   listing or an offer is the least they get.
 - **Time is wall-clock milliseconds**, the time-lock domain of `OpCheckLockTimeVerify`, not DAA
@@ -134,11 +146,14 @@ Listing, buying and offers are not tied to expiry on-chain. The app shows the ex
 listing and offer, refuses to list a name in grace, and warns before buying one with less than 30
 days left.
 
-### 4.1 Decided for the next registry (v2): a 2-year cap on how far ahead a name is paid
+### 4.1 Registry v2: a 2-year cap on how far ahead a name is paid
 
-Decided 2026-10-02. **Not deployed yet**: the live testnet-10 registry still uses the rules
-above, under which repeated 1-year renewals can stack without limit. It ships with the next
-registry, which needs new contracts and a new genesis.
+Decided 2026-10-02 and **built** the same day: the contracts, harness, CLI and vectors in
+kachat-domains (README "Registry v2"), and the app's core, chain walker, actions and screens
+(section 9). **Genesis pending**: the live testnet-10 registry `9444187f…7a51` still runs the v1
+contracts (no `periodStart`, renewals stack without limit) and v2 can't spend its UTXOs, so v2
+needs a new genesis and manifest. Until the app bundles that manifest, its `.kachat` screens on
+testnet say "Setting up" (section 9).
 
 - **New state field.** The name state gains `periodStart` (unix ms), the start of the current paid
   period. Register sets it to `now`.
@@ -150,7 +165,10 @@ registry, which needs new contracts and a new genesis.
   renewal window.
 - **`renew(years)`**, 1 or 2 years:
   - only once the renewal window has opened: `tx.time >= expiresAt - 10 days`, a "not before"
-    time lock;
+    time lock (`renewWindowMs` = 864,000,000 in the params and the manifest). The transaction's
+    lock time is `max(min(wall clock - 3 min, median time - 1 s), expiresAt - 10 days)` and every
+    input sequence is 0; it is valid only once the network's median time passes that lock time,
+    so nobody can submit a renewal early;
   - the new period starts at the old expiry, with `periodStart = expiresAt` and
     `expiresAt += years × 1 year`, so no time is lost or gained;
   - it still works in grace and after lapse, until someone reclaims.
@@ -158,7 +176,7 @@ registry, which needs new contracts and a new genesis.
   stack.
 - **No dark period.** The window opens 10 days before expiry, so an owner who renews in time
   never has the name stop resolving.
-- **App.**
+- **App** (built, section 9).
   - "Extend to 2 years" while the period is under 2 years.
   - "Renew" (1 or 2 years) once the window opens.
   - Otherwise it shows "Renewal opens on <date>".
@@ -191,13 +209,13 @@ only grow.
 | Contract | Role | Covenant |
 |---|---|---|
 | `KachatGap` | registry interval: `register`, `merge`, `absorbed` | registry id |
-| `KachatName` | a name: `transfer`, `list`, `buy`, `renew`, `release`, `reclaim` | registry id |
+| `KachatName` | a name: `transfer`, `list`, `buy`, `extend`, `renew`, `release`, `reclaim` | registry id |
 | `KachatOffer` | an offer: `accept`, `withdraw`, `refund` | none (plain P2SH) |
 | commit script | fixed template, built by the gap's check | none |
 
 - Written in Silverscript (`pragma silverscript ^0.1.0`), compiled with a pinned `silverc v1.0.0`
   (commit `3ed9733`); registration and renewal prices, `BOND`, `GAP_VALUE` (proposal 1 KAS),
-  `T_COMMIT`, `MAX_YEARS`, `GRACE` baked in.
+  `T_COMMIT`, `MAX_YEARS`, `GRACE`, `RENEW_WINDOW` baked in.
 - **Genesis**: one version-1 transaction spends an ordinary UTXO and creates the single genesis gap
   with `covenant_id(outpoint, [gap])`. Nothing else is authorized (an extra ungoverned output in
   the genesis group could later forge a merge).
@@ -297,8 +315,8 @@ A `names` module in kachat-indexer (it already sees every block):
   compute budgets, P2SH spends (`args ‖ dispatch tag ‖ redeem`), the state codecs, template
   splicing, covenant-id hashing, blake3, time-locked transactions, and the fee rule
   (100 sompi/gram over compute and size).
-- The `.kachat` hub screens (search, claim with a years picker, My Names with expiry and Renew,
-  Marketplace, offers, activity) and the setup guide go live on top of the indexer; names resolve
+- The `.kachat` hub screens (search, claim with a years picker, My Names with expiry, Extend and
+  Renew, Marketplace, offers, activity) and the setup guide go live on top of the indexer; names resolve
   first everywhere (`NameServiceTLD`).
 - Identity: one `/identity/{address}` lookup feeds every profile card, chat header and contact row;
   Edit .kachat Profile writes the profile record and works with no name at all.
@@ -314,18 +332,22 @@ only. The live screens (below) call it.
 | `KaChat/Services/KachatNames/KachatNamesCodec.swift` | name rules, `key = blake3(name)`, commit hash + script, `num8`, script numbers, state codecs, minimal pushes, P2SH/P2PK, template hash, covenant id, payload markers |
 | `KaChat/Services/KachatNames/KachatNamesTransaction.swift` | version-1 tx (covenant bindings, compute budgets, storage-mass commitment), rest/full preimages, v1 txid, tx hash, SIGHASH_ALL sighash, compute / transient / storage mass, fee |
 | `KaChat/Services/KachatNames/KachatNamesManifest.swift` | the manifest and its verification |
-| `KaChat/Services/KachatNames/KachatNamesBuilder.swift` | commit, register, renew, transfer, list, buy, offer, accept/withdraw/refund offer, release, reclaim, cancel commit |
+| `KaChat/Services/KachatNames/KachatNamesBuilder.swift` | commit, register, extend, renew (window-aware lock time), transfer, list, buy, offer, accept/withdraw/refund offer, release, reclaim, cancel commit |
 | `KaChat/Services/KachatNames/KachatNamesService.swift` | `@MainActor`: testnet gate, manifest loading, DAG point, funding and live registry UTXOs, P256K signing, protowire conversion, submit, profile record |
 
 - **Manifest**: `kachat-names-testnet-10.json` from the app bundle when present, else the indexer's
   `GET /names/manifest` (the chat indexer URL). Before use: network `testnet-10`, every template hash
-  recomputed from its prefix and suffix (gap and name pinned to the README's hashes), every dispatch
-  tag present, the offer baked with this registry id and name template, the genesis output equal to
-  the genesis gap `(00..00, ff..ff)` worth `gapValue`, and `registryCovenantId ==
-  covenant_id(genesis outpoint, [(0, gap)])`. A dry-run manifest is refused.
+  recomputed from its prefix and suffix (gap and name pinned to the README's registry v2 hashes:
+  gap `182c463c…dd46`, name `e8ded947…9d16`), every dispatch tag present (the name's includes
+  `extend`), `renewWindowMs` in the params, the offer baked with this registry id and name template,
+  the genesis output equal to the genesis gap `(00..00, ff..ff)` worth `gapValue`, and
+  `registryCovenantId == covenant_id(genesis outpoint, [(0, gap)])`. A dry-run manifest is refused.
+  A registry v1 manifest (no `renewWindowMs`, or the v1 template hashes) is recognised as outdated
+  (`Failure.outdatedRegistry`), never trusted.
 - **Compute budgets**: the CLI measures each input in the script engine; the app has none, so it
-  commits a fixed budget per entry (register 7, merge 3, absorbed 0, transfer/list 11, buy 1, renew 1,
-  release 10, reclaim 0, accept 3, withdraw 10, refund 0, commit/P2PK 10). Budgets are not in the
+  commits a fixed budget per entry (registry v2: register 8, merge 4, absorbed 0, transfer/list 12,
+  buy 2, extend 2, renew 2, release 10, reclaim 0, accept 5, withdraw 10, refund 0, commit/P2PK 10 -
+  the vectors' `recommendedBudgets`). Budgets are not in the
   sighash or the txid; a higher one only costs 100 grams per unit.
 - **Signing**: BIP-340 Schnorr with the wallet key (P256K), SIGHASH_ALL over the v1 sighash. The
   builders leave 65-byte placeholders, so sizes and fees are final before signing.
@@ -333,15 +355,18 @@ only. The live screens (below) call it.
   on inputs, `covenant` on registry outputs and `storageMass`, through `NodePoolService`. The
   protowire is regenerated from rusty-kaspa a41a333 (`scripts/regenerate_protowire.sh`).
 - **Verified against vectors**: `KaChatTests/KachatNamesVectors.json`, written by kachat-domains'
-  `kachat-names-vectors` from the CLI's own builders (the whole e2e plan plus ten edge cases - the tenth a cancelled commit, since kachat-domains 101f966 - each
-  validated by rusty-kaspa's consensus validator). `scripts/test_kachat_names_core.swift` checks the
+  `kachat-names-vectors` from the CLI's own builders (registry v2: the whole 19-transaction e2e plan,
+  with an extend and a renewal after lapse, plus 13 edge cases - among them renewals in the window,
+  at its opening and in grace, a gifted extend and a cancelled commit - each validated by
+  rusty-kaspa's consensus validator). `scripts/test_kachat_names_core.swift` checks the
   pure core byte for byte, with the recorded signatures fed in: inputs, sequences, budgets, outputs,
   covenant bindings, lock time, payload, masses, fee, rest and full preimages, every sighash, every
-  signature script, txid and tx hash. All 28 transactions match. It also checks codecs, BLAKE3 against
-  the official vectors and Rust `blake3::hash`, and the manifest checks. With the app's fixed budgets
-  instead of the measured ones, all 28 rebuilt transactions pass `kachat-names-vectors check` (signed
-  with the vectors' key and run through the consensus validator, under their budgets, standardness
-  and the relay floor).
+  signature script, txid and tx hash. All 32 transactions match. It also checks codecs, BLAKE3 against
+  the official vectors and Rust `blake3::hash`, the manifest checks, and the period rules (what extend
+  may add, when renew opens, its lock time against the vectors' `lockTimeRules`, every sequence 0,
+  the refusals). With the app's fixed budgets instead of the measured ones, all 32 rebuilt
+  transactions pass `kachat-names-vectors check` (signed with the vectors' key and run through the
+  consensus validator, under their budgets, standardness and the relay floor).
 - **Not verified without a device build**: P256K signing itself, the protowire conversion and the
   gRPC submit path (`KachatNamesService`), and the manifest fetch.
 
@@ -352,10 +377,10 @@ screens run on the live registry. Mainnet is unchanged: mockups, "Coming soon", 
 
 | File | What |
 |---|---|
-| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled (registry `9444187f…7a51`) |
+| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled (registry `9444187f…7a51`, **v1**: refused as outdated until the v2 genesis manifest replaces it) |
 | `KaChat/Services/KachatNames/KachatNamesRegistryState.swift` | pure: status (B5), label rule, profile record, REST tx parser, indexer shapes, the walker state and its decoder (`apply`, a port of the CLI's `Registry::apply`), the walk loop |
 | `KaChat/Services/KachatNames/KachatNamesRegistry.swift` | `@MainActor` reads: lookup, by owner, listings, lapsed, offers, history, activity, exit gaps, identity; source = names indexer or chain walker; cache in Application Support |
-| `KaChat/Services/KachatNames/KachatNamesActions.swift` | `@MainActor` actions (renew, transfer, list, buy, offer, withdraw, refund, accept, release, reclaim, profile), quotes, the resumable registration driver, cancel commit |
+| `KaChat/Services/KachatNames/KachatNamesActions.swift` | `@MainActor` actions (extend, renew, transfer, list, buy, offer, withdraw, refund, accept, release, reclaim, profile), quotes, the resumable registration driver, cancel commit |
 | `KaChat/Views/Ecosystem/KachatNamesLiveViews.swift` | the live hub pages, claim sheet, name detail, transaction sheets, Your Domains tab, profile editor |
 
 **Where the registry is read from.** `KachatNamesRegistry` uses the names indexer (KACHAT_NAMES_INDEXER.md
@@ -378,7 +403,7 @@ manifest's `registryCovenantId`. Otherwise it walks the chain itself:
 | | With a names indexer | Without (chain walker) |
 |---|---|---|
 | Lookup, gaps, owners, expiry, listings, lapsed names | yes | yes |
-| Registration, renew, list, buy, transfer, release, reclaim | yes | yes |
+| Registration, extend, renew, list, buy, transfer, release, reclaim | yes (the indexer must send `periodStart`) | yes |
 | Offers you made (withdraw, refund) | yes | yes (tracked from your own transactions) |
 | Offers others made on your names (accept) | yes | no - the screens say "Offers from others appear once a names indexer is connected" |
 | History and activity | the indexer's | every registry transition the walker walked (not offers made by others) |
@@ -391,7 +416,7 @@ txids) goes to `Application Support/KachatNames/testnet-10/pending-<wallet>.json
 on app-active) waits until the virtual DAA is `commitDaa + tCommit + 20`, refreshes the registry and
 registers by itself; if someone registered the name meanwhile it stops at "taken", where the commit
 can be cancelled (`Builder.cancelCommit`: commit -> P2PK(owner) less the fee, in the vectors as the
-28th transaction and validated by `kachat-names-vectors check`). A registration that is not accepted
+32nd transaction and validated by `kachat-names-vectors check`). A registration that is not accepted
 within two minutes while its commit is still there is sent again.
 
 **Actions** build at `max(100, REST /info/fee-estimate priority feerate)`, check on the secp256k1
@@ -400,6 +425,27 @@ price, network fee and balance change, confirm (twice for transfer, release and 
 device lock (`DeviceAuth`), then sign and submit, show the txid and refresh the registry once the
 REST API reports the transaction accepted.
 
+**Extend and renew** (registry v2, section 4.1). The name detail shows the paid period ("Paid from
+<periodStart> to <expiresAt>"). For your own names:
+
+- **Extend** shows while `periodStart + 2 years - expiresAt >= 1 year` and offers exactly the years
+  that still fit (in practice 1); it is labelled "Extend to 2 years" when that fills the period.
+- **Renew** (1 or 2 years) shows once `now >= expiresAt - renewWindowMs` (10 days before the expiry,
+  and through grace and lapse); before that a disabled row says "Renewal opens on <date>". The
+  action itself also refuses until the network's median time has passed the opening (the lock
+  time could not be final before), with the same date.
+- Both open the usual transaction sheet (price to miners, network fee, chatting address balance,
+  balance after, device lock, the done half sheet "Extended" / "Renewed"). My Names marks a name
+  whose renewal is open. Anyone may extend or renew any name on chain (a gift); the actions don't
+  require the owner.
+
+**Until the v2 manifest is bundled.** The bundled manifest is registry v1, which this app no longer
+builds for: `KachatNamesService` recognises it (`registryUpgrading`), remembers the refusal instead
+of re-verifying the bundle on every call, and the hub shows a "Setting up" pill with "The .kachat
+registry on Testnet is being upgraded" (Your Domains' `.kachat` tab says the same) instead of an
+error; lookups answer nothing, the registration driver stops, and the profile record (address-keyed,
+registry-independent) still saves. Bundling the v2 genesis manifest is all it takes to go live.
+
 **Identity on testnet**: `NameServiceTLD.kachat` resolves (active names only) in every
 resolve-everywhere field; the profile hero shows your label; Edit .kachat Profile writes the
 `kchat:1:profile:` record (avatar, banner, bio, links, primary name - no display name).
@@ -407,7 +453,7 @@ resolve-everywhere field; the profile hero shows your label; Edit .kachat Profil
 **Verified without a device**: `scripts/test_kachat_names_registry.swift` (the decoder over all
 vector transactions in order, refusals, the walk over a simulated chain, the rules, the REST and
 indexer shapes, and `--live`: a read-only walk of the TN10 registry through api-tn10.kaspa.org);
-`scripts/test_kachat_names_core.swift` (28/28 transactions byte-identical, and all 28 pass the
+`scripts/test_kachat_names_core.swift` (32/32 transactions byte-identical, and all 32 pass the
 consensus validator with the app's fixed budgets). **Only a device build verifies**: the screens,
 the node reads and submits, P256K signing, DeviceAuth, Keychain salts and the driver's timing.
 
@@ -423,8 +469,8 @@ the node reads and submits, P256K signing, DeviceAuth, Keychain salts and the dr
    accepted.
 6. **Large-fee transactions**: confirm on TN10 that nodes relay a transaction paying 35-8,000 KAS
    in fee (4000 × 2 years), and how the mempool treats the time-locked ones.
-7. From the contract build (`~/kachat-domains/README.md`, "OPEN ISSUES"): register/renew are limited
-   to 8 inputs and 8 outputs (the wallet consolidates first); the app must validate owner keys
+7. From the contract build (`~/kachat-domains/README.md`, "OPEN ISSUES"): register, extend and renew
+   are limited to 8 inputs and 8 outputs (the wallet consolidates first); the app must validate owner keys
    (an invalid key locks the name until it lapses); a registration is ~125-155k grams of storage
    mass; anyone may match a listing with a higher offer and keep at most 0.02 KAS (the app warns);
    offers follow the name, so a re-registered name's new owner can accept old offers; the
@@ -438,7 +484,8 @@ the node reads and submits, P256K signing, DeviceAuth, Keychain salts and the dr
    own `TransactionValidator` pass, and a mutation check deletes each of 37 security checks and
    confirms a test catches it.
 2. TN10 genesis + manifest; register / renew / transfer / list / buy / offer / reclaim end to end
-   on testnet.
+   on testnet. Registry v1 genesis done 2026-10-01; the registry v2 genesis (section 4.1) and its
+   end-to-end run are pending, and the app waits for that manifest.
 3. Indexer `names` + profiles module (handoff to the indexer AI, like the other indexer docs).
 4. iOS wiring: Swift transaction builder, live `.kachat` screens, identity lookups, profiles. The
    transaction core is done (phase 4a, section 9 "App transaction core"); the screens are live on
