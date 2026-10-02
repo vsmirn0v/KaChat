@@ -1114,3 +1114,9 @@
 "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "你的头像、横幅和简介都来自这个主页，与该平台显示的完全一致，因此该平台的审核在这里同样适用。横幅来自 X、YouTube 和 Discord；简介来自 X, YouTube, Telegram, Twitch, Kick, GitHub 和 Discord。";
 "Only a Linktree link (linktr.ee/yourname) can be added." = "只能添加 Linktree 链接（linktr.ee/yourname）。";
 "Add your Linktree to point people to your other accounts and websites." = "添加你的 Linktree，把大家引导到你的其他账号和网站。";
+"From %@" = "来自 %@";
+"No avatar on this %@ profile." = "这个 %@ 主页没有头像。";
+"No banner on this %@ profile." = "这个 %@ 主页没有横幅。";
+"%@ doesn't share banners." = "%@ 不公开横幅。";
+"No bio on this %@ profile." = "这个 %@ 主页没有简介。";
+"%@ doesn't share bios." = "%@ 不公开简介。";

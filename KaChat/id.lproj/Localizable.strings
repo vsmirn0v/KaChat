@@ -1114,3 +1114,9 @@
 "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "Avatar, banner, dan bio Anda berasal dari profil ini, persis seperti yang ditampilkan platform itu, jadi moderasinya juga berlaku di sini. Banner berasal dari X, YouTube, dan Discord; bio dari X, YouTube, Telegram, Twitch, Kick, GitHub, dan Discord.";
 "Only a Linktree link (linktr.ee/yourname) can be added." = "Hanya tautan Linktree (linktr.ee/namaanda) yang bisa ditambahkan.";
 "Add your Linktree to point people to your other accounts and websites." = "Tambahkan Linktree Anda untuk mengarahkan orang ke akun dan situs web Anda yang lain.";
+"From %@" = "Dari %@";
+"No avatar on this %@ profile." = "Profil %@ ini tidak punya avatar.";
+"No banner on this %@ profile." = "Profil %@ ini tidak punya banner.";
+"%@ doesn't share banners." = "%@ tidak membagikan banner.";
+"No bio on this %@ profile." = "Profil %@ ini tidak punya bio.";
+"%@ doesn't share bios." = "%@ tidak membagikan bio.";

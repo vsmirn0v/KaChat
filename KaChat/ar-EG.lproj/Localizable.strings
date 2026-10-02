@@ -1114,3 +1114,9 @@
 "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "صورتك وغلافك ونبذتك بييجوا من البروفايل ده، زي ما المنصة دي بتعرضهم بالظبط، فإشرافها بيتطبق هنا كمان. الأغلفة بتيجي من X وYouTube وDiscord، والنبذات من X, YouTube, Telegram, Twitch, Kick, GitHub وDiscord.";
 "Only a Linktree link (linktr.ee/yourname) can be added." = "ممكن تضيف رابط Linktree بس (linktr.ee/yourname).";
 "Add your Linktree to point people to your other accounts and websites." = "ضيف Linktree بتاعك علشان توجّه الناس لحساباتك ومواقعك التانية.";
+"From %@" = "من %@";
+"No avatar on this %@ profile." = "مفيش صورة في بروفايل %@ ده.";
+"No banner on this %@ profile." = "مفيش غلاف في بروفايل %@ ده.";
+"%@ doesn't share banners." = "%@ مبيشاركش صور الغلاف.";
+"No bio on this %@ profile." = "مفيش نبذة في بروفايل %@ ده.";
+"%@ doesn't share bios." = "%@ مبيشاركش النبذات.";

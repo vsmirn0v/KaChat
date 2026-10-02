@@ -1061,3 +1061,9 @@
 "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "Avatar, Banner und Bio kommen aus diesem Profil – genau so, wie die Plattform sie zeigt. Ihre Moderation gilt also auch hier. Banner kommen von X, YouTube und Discord, Bios von X, YouTube, Telegram, Twitch, Kick, GitHub und Discord.";
 "Only a Linktree link (linktr.ee/yourname) can be added." = "Es kann nur ein Linktree-Link (linktr.ee/deinname) hinzugefügt werden.";
 "Add your Linktree to point people to your other accounts and websites." = "Füge deinen Linktree hinzu, um andere zu deinen weiteren Konten und Websites zu führen.";
+"From %@" = "Von %@";
+"No avatar on this %@ profile." = "Dieses %@-Profil hat keinen Avatar.";
+"No banner on this %@ profile." = "Dieses %@-Profil hat kein Banner.";
+"%@ doesn't share banners." = "%@ gibt keine Banner weiter.";
+"No bio on this %@ profile." = "Dieses %@-Profil hat keine Bio.";
+"%@ doesn't share bios." = "%@ gibt keine Bios weiter.";

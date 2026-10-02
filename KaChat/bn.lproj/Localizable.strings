@@ -1114,3 +1114,9 @@
 "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "আপনার অবতার, ব্যানার ও বায়ো এই প্রোফাইল থেকে আসে, ঠিক যেভাবে ওই প্ল্যাটফর্ম দেখায়, তাই তাদের মডারেশন এখানেও প্রযোজ্য। ব্যানার আসে X, YouTube ও Discord থেকে; বায়ো আসে X, YouTube, Telegram, Twitch, Kick, GitHub ও Discord থেকে।";
 "Only a Linktree link (linktr.ee/yourname) can be added." = "শুধু একটি Linktree লিংক (linktr.ee/yourname) যোগ করা যায়।";
 "Add your Linktree to point people to your other accounts and websites." = "আপনার অন্যান্য অ্যাকাউন্ট ও ওয়েবসাইটে মানুষকে পাঠাতে আপনার Linktree যোগ করুন।";
+"From %@" = "%@ থেকে";
+"No avatar on this %@ profile." = "এই %@ প্রোফাইলে কোনো অবতার নেই।";
+"No banner on this %@ profile." = "এই %@ প্রোফাইলে কোনো ব্যানার নেই।";
+"%@ doesn't share banners." = "%@ ব্যানার শেয়ার করে না।";
+"No bio on this %@ profile." = "এই %@ প্রোফাইলে কোনো বায়ো নেই।";
+"%@ doesn't share bios." = "%@ বায়ো শেয়ার করে না।";

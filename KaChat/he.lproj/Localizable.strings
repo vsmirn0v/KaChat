@@ -1114,3 +1114,9 @@
 "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "האווטאר, הבאנר והביו שלך מגיעים מהפרופיל הזה, בדיוק כפי שהפלטפורמה מציגה אותם, כך שהפיקוח שלה חל גם כאן. באנרים מגיעים מ-X, YouTube ו-Discord; ביו מ-X, YouTube, Telegram, Twitch, Kick, GitHub ו-Discord.";
 "Only a Linktree link (linktr.ee/yourname) can be added." = "ניתן להוסיף רק קישור Linktree ‏(linktr.ee/yourname).";
 "Add your Linktree to point people to your other accounts and websites." = "הוסף את ה-Linktree שלך כדי להפנות אנשים לחשבונות ולאתרים האחרים שלך.";
+"From %@" = "מ-%@";
+"No avatar on this %@ profile." = "לפרופיל ה-%@ הזה אין אווטאר.";
+"No banner on this %@ profile." = "לפרופיל ה-%@ הזה אין באנר.";
+"%@ doesn't share banners." = "%@ לא משתף באנרים.";
+"No bio on this %@ profile." = "לפרופיל ה-%@ הזה אין ביו.";
+"%@ doesn't share bios." = "%@ לא משתף ביו.";

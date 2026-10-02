@@ -1114,3 +1114,9 @@
 "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "Ảnh đại diện, ảnh bìa và tiểu sử của bạn lấy từ hồ sơ này, đúng như nền tảng đó hiển thị, nên việc kiểm duyệt của họ cũng áp dụng ở đây. Ảnh bìa lấy từ X, YouTube và Discord; tiểu sử lấy từ X, YouTube, Telegram, Twitch, Kick, GitHub và Discord.";
 "Only a Linktree link (linktr.ee/yourname) can be added." = "Chỉ có thể thêm liên kết Linktree (linktr.ee/tenban).";
 "Add your Linktree to point people to your other accounts and websites." = "Thêm Linktree của bạn để dẫn mọi người đến các tài khoản và trang web khác của bạn.";
+"From %@" = "Từ %@";
+"No avatar on this %@ profile." = "Hồ sơ %@ này không có ảnh đại diện.";
+"No banner on this %@ profile." = "Hồ sơ %@ này không có ảnh bìa.";
+"%@ doesn't share banners." = "%@ không chia sẻ ảnh bìa.";
+"No bio on this %@ profile." = "Hồ sơ %@ này không có tiểu sử.";
+"%@ doesn't share bios." = "%@ không chia sẻ tiểu sử.";

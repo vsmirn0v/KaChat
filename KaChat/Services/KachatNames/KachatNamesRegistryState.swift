@@ -199,6 +199,25 @@ extension KachatNames {
 
             /// Platforms whose banner can be read without signing in.
             var hasBanner: Bool { self == .x || self == .youtube || self == .discord }
+
+            /// Platforms whose preview carries the person's own bio (see `bio(for:...)`).
+            var hasBio: Bool { [.x, .youtube, .telegram, .twitch, .kick, .github, .discord].contains(self) }
+
+            var displayName: String {
+                switch self {
+                case .x: return "X"
+                case .youtube: return "YouTube"
+                case .facebook: return "Facebook"
+                case .instagram: return "Instagram"
+                case .tiktok: return "TikTok"
+                case .twitch: return "Twitch"
+                case .kick: return "Kick"
+                case .github: return "GitHub"
+                case .telegram: return "Telegram"
+                case .linkedin: return "LinkedIn"
+                case .discord: return "Discord"
+                }
+            }
         }
 
         let platform: Platform

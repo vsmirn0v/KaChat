@@ -1795,61 +1795,106 @@ struct KachatLiveDomainsTab: View {
 
 // MARK: - Edit .kachat Profile
 
-/// What a pasted social link shows - avatar, banner, bio - looked up on this device: exactly what
-/// other people will see. Empty until the link is a supported one.
+/// Where a social link's lookup stands - the editor saves only a profile that was looked up and
+/// shows something, so what gets saved is what was reviewed.
+enum KachatSocialLookup: Equatable {
+    case none, looking, found, empty
+}
+
+/// What a pasted social link shows - banner, avatar, bio - looked up on this device and laid out
+/// like the profile header: exactly what other people will see.
 struct KachatSocialPreview: View {
     let link: String
+    @Binding var lookup: KachatSocialLookup
 
     @ObservedObject private var resolver = KachatSocialImageResolver.shared
     @State private var resolved: KachatNames.SocialProfile?
-    @State private var looking = false
-    @State private var lookedUp = false
 
     private var source: KachatNames.SocialSource? { KachatNames.SocialSource(link: link, for: .avatar) }
 
     var body: some View {
         Group {
-            if source != nil {
-                if let resolved, !resolved.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if let banner = resolved.banner {
-                            KNSBannerImageView(bannerURLString: banner, height: 80, cornerRadius: 8)
-                        }
-                        HStack(alignment: .top, spacing: 12) {
-                            KNSAvatarView(avatarURLString: resolved.avatar, fallbackText: "", size: 52)
-                            if let bio = resolved.bio {
-                                Text(verbatim: bio).font(.footnote).foregroundColor(.secondary)
-                            } else {
-                                Text("No bio on this platform.").font(.footnote).foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
-                } else if looking {
+            if let source {
+                switch lookup {
+                case .looking, .none:
                     HStack(spacing: 10) {
                         ProgressView()
                         Text("Looking up the profile...").font(.footnote).foregroundColor(.secondary)
                     }
-                } else if lookedUp {
+                case .empty:
                     HStack(spacing: 10) {
                         Image(systemName: "person.crop.circle.badge.exclamationmark").foregroundColor(.secondary)
                         Text("Nothing found for this link.").font(.footnote).foregroundColor(.secondary)
                     }
+                case .found:
+                    if let resolved { card(resolved, source.platform) }
                 }
             }
         }
         // Debounced: one lookup once typing pauses, not one per keystroke.
         .task(id: source?.link) {
             resolved = nil
-            lookedUp = false
-            guard let source else { return }
+            guard let source else { lookup = .none; return }
+            lookup = .looking
             try? await Task.sleep(nanoseconds: 600_000_000)
             if Task.isCancelled { return }
-            looking = true
-            resolved = await resolver.resolve(source)
-            looking = false
-            lookedUp = true
+            let result = await resolver.resolve(source)
+            if Task.isCancelled { return }
+            resolved = result
+            lookup = (result?.isEmpty ?? true) ? .empty : .found
         }
+    }
+
+    private func card(_ p: KachatNames.SocialProfile, _ platform: KachatNames.SocialSource.Platform) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let banner = p.banner {
+                    KNSBannerImageView(bannerURLString: banner, height: 96, cornerRadius: 0)
+                } else {
+                    LinearGradient(colors: [Color.accentColor.opacity(0.55), Color.accentColor.opacity(0.15)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                        .frame(height: 96)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .clipped()
+
+            KNSAvatarView(avatarURLString: p.avatar, fallbackText: "", size: 64)
+                .overlay(Circle().stroke(Color(uiColor: .secondarySystemGroupedBackground), lineWidth: 3))
+                .padding(.leading, 12)
+                .padding(.top, -32)
+
+            VStack(alignment: .leading, spacing: 6) {
+                if let bio = p.bio {
+                    Text(verbatim: bio).font(.subheadline)
+                }
+                Text(verbatim: String(format: AppLocalization.string("From %@"), platform.displayName))
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+                ForEach(missing(p, platform), id: \.self) { note in
+                    Text(verbatim: note).font(.caption).foregroundColor(.secondary)
+                }
+            }
+            .padding(12)
+        }
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.tertiarySystemGroupedBackground)))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.vertical, 4)
+    }
+
+    /// Says why a piece is missing: the platform never shows it, or this profile has none.
+    private func missing(_ p: KachatNames.SocialProfile, _ platform: KachatNames.SocialSource.Platform) -> [String] {
+        var notes: [String] = []
+        if p.avatar == nil {
+            notes.append(String(format: AppLocalization.string("No avatar on this %@ profile."), platform.displayName))
+        }
+        if p.banner == nil {
+            notes.append(String(format: AppLocalization.string(platform.hasBanner ? "No banner on this %@ profile." : "%@ doesn't share banners."), platform.displayName))
+        }
+        if p.bio == nil {
+            notes.append(String(format: AppLocalization.string(platform.hasBio ? "No bio on this %@ profile." : "%@ doesn't share bios."), platform.displayName))
+        }
+        return notes
     }
 }
 
@@ -1862,6 +1907,7 @@ struct KachatLiveProfileEditor: View {
     @ObservedObject private var registry = KachatNamesRegistry.shared
 
     @State private var social = ""
+    @State private var socialLookup: KachatSocialLookup = .none
     @State private var linktree = ""
     @State private var primary = ""
     @State private var activeNames: [String] = []
@@ -1885,6 +1931,11 @@ struct KachatLiveProfileEditor: View {
         return !t.isEmpty && KachatNames.SocialSource(link: t, for: .avatar) == nil
     }
 
+    /// A social link is saved only once its lookup found something to show - what you reviewed.
+    private var socialNotReviewed: Bool {
+        !social.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && socialLookup != .found
+    }
+
     private var badLinktree: Bool {
         let t = linktree.trimmingCharacters(in: .whitespacesAndNewlines)
         return !t.isEmpty && KachatNames.Profile.linktreeLink(t) == nil
@@ -1904,7 +1955,7 @@ struct KachatLiveProfileEditor: View {
                 Section {
                     TextField("x.com/yourname", text: $social)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    KachatSocialPreview(link: social)
+                    KachatSocialPreview(link: social, lookup: $socialLookup)
                 } header: { Text("Social Profile") } footer: {
                     if badSocial {
                         Text("Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite.").foregroundColor(.red)
@@ -1938,7 +1989,7 @@ struct KachatLiveProfileEditor: View {
                     } label: {
                         HStack { Spacer(); if saving { ProgressView() } else { Text("Save Profile").font(.headline) }; Spacer() }
                     }
-                    .disabled(saving || !loaded || badSocial || badLinktree)
+                    .disabled(saving || !loaded || badSocial || badLinktree || socialNotReviewed)
                 } footer: {
                     if let savedTx {
                         Text(verbatim: String(format: AppLocalization.string("Saved. Transaction %@"), String(savedTx.prefix(16)) + "...")).foregroundColor(.green)

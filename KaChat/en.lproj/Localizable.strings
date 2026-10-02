@@ -1115,3 +1115,9 @@
 "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord.";
 "Only a Linktree link (linktr.ee/yourname) can be added." = "Only a Linktree link (linktr.ee/yourname) can be added.";
 "Add your Linktree to point people to your other accounts and websites." = "Add your Linktree to point people to your other accounts and websites.";
+"From %@" = "From %@";
+"No avatar on this %@ profile." = "No avatar on this %@ profile.";
+"No banner on this %@ profile." = "No banner on this %@ profile.";
+"%@ doesn't share banners." = "%@ doesn't share banners.";
+"No bio on this %@ profile." = "No bio on this %@ profile.";
+"%@ doesn't share bios." = "%@ doesn't share bios.";

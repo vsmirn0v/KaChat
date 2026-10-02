@@ -1114,3 +1114,9 @@
 "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "アバター、バナー、自己紹介はこのプロフィールから、そのプラットフォームの表示どおりに取得されるため、そのモデレーションがここでも適用されます。バナーは X、YouTube、Discord から、自己紹介は X, YouTube, Telegram, Twitch, Kick, GitHub、Discord から取得します。";
 "Only a Linktree link (linktr.ee/yourname) can be added." = "追加できるのは Linktree のリンク（linktr.ee/yourname）だけです。";
 "Add your Linktree to point people to your other accounts and websites." = "Linktree を追加して、ほかのアカウントやウェブサイトへ案内しましょう。";
+"From %@" = "%@ より";
+"No avatar on this %@ profile." = "この %@ プロフィールにはアバターがありません。";
+"No banner on this %@ profile." = "この %@ プロフィールにはバナーがありません。";
+"%@ doesn't share banners." = "%@ はバナーを公開していません。";
+"No bio on this %@ profile." = "この %@ プロフィールには自己紹介がありません。";
+"%@ doesn't share bios." = "%@ は自己紹介を公開していません。";
