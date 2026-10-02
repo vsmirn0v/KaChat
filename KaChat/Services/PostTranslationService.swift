@@ -380,13 +380,12 @@ final class PostTranslationService: ObservableObject {
         let untranslated: Bool
     }
 
-    /// The configured service URL, trimmed, with the shipped default standing in for a blank one
-    /// on mainnet. Blank on testnet (no service there yet) - never the mainnet one.
+    /// The configured service URL, trimmed, with the shipped default standing in for a blank one.
+    /// On both networks: translating text has nothing to do with which chain the app is on, so
+    /// testnet uses the same service as mainnet.
     private static var currentServiceURL: String {
-        let settings = AppSettings.load()
-        let raw = settings.translationServiceURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard raw.isEmpty else { return raw }
-        return settings.networkType == .mainnet ? AppSettings.defaultTranslationServiceURL : ""
+        let raw = AppSettings.load().translationServiceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return raw.isEmpty ? AppSettings.defaultTranslationServiceURL : raw
     }
 
     private static func translationServiceComponents() -> URLComponents? {

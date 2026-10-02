@@ -3130,7 +3130,7 @@ struct ConnectionProfile: Codable, Equatable {
                 kaPostIndexerURL: "",
                 publicChatIndexerURL: "",
                 pushIndexerURL: "",
-                translationServiceURL: "",
+                translationServiceURL: AppSettings.defaultTranslationServiceURL,
                 kaspaRestAPIURL: AppSettings.defaultKaspaTestnetURL,
                 trustedNodeAddress: "",
                 savedNodeAddresses: []

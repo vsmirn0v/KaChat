@@ -2157,7 +2157,7 @@ struct ConnectionSettingsView: View {
                 Text("Translation Service URL")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField(indexerPlaceholder(AppSettings.defaultTranslationServiceURL), text: $translationServiceURL)
+                TextField(AppSettings.defaultTranslationServiceURL, text: $translationServiceURL)
                     .font(.system(.body, design: .monospaced))
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
