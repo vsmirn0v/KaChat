@@ -21,6 +21,13 @@ final class KachatNamesService: ObservableObject {
     @Published private(set) var manifest: KachatNames.Manifest?
     /// Where the manifest came from: "bundle" or the indexer URL.
     @Published private(set) var manifestSource: String?
+    /// The manifest describes the previous registry (v1): names wait for the v2 genesis manifest.
+    /// The screens show "Setting up" instead of an error.
+    @Published private(set) var registryUpgrading = false
+
+    /// Why the bundled manifest was refused. The bundle can't change while the app runs, so it
+    /// is not read and verified again on every call (until `resetManifest`).
+    private var bundleFailure: Error?
 
     enum ServiceError: LocalizedError {
         case testnetOnly
@@ -31,9 +38,13 @@ final class KachatNamesService: ObservableObject {
         case notOnChain(String)
         case badProfile(String)
         case submitMismatch(expected: String, got: String)
+        /// the manifest is for registry v1; this app builds for v2 and waits for its genesis
+        case registryUpgrading
 
         var errorDescription: String? {
             switch self {
+            case .registryUpgrading:
+                return AppLocalization.string("The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live.")
             case .testnetOnly: return ".kachat names run on Testnet only for now"
             case .noManifest(let why): return "No .kachat registry manifest: \(why)"
             case .dryRunManifest: return "The .kachat manifest is from a dry run; that registry does not exist"
@@ -53,6 +64,12 @@ final class KachatNamesService: ObservableObject {
     /// The only network names may run on until an audit.
     nonisolated static var isEnabled: Bool { AppSettings.load().networkType == .testnet }
 
+    /// Whether `error` means the registry is being upgraded (a v1 manifest), not a failure.
+    nonisolated static func isRegistryUpgrading(_ error: Error) -> Bool {
+        if case ServiceError.registryUpgrading = error { return true }
+        return (error as? KachatNames.Failure)?.isOutdatedRegistry == true
+    }
+
     func requireTestnet() throws {
         guard Self.isEnabled else { throw ServiceError.testnetOnly }
     }
@@ -66,12 +83,27 @@ final class KachatNamesService: ObservableObject {
         if let m = manifest, allowDryRun || !m.isDryRun {
             return m
         }
+        if let bundleFailure { throw bundleFailure }
         let (data, source) = try await manifestData()
-        let m = try KachatNames.Manifest.decode(data)
-        try m.verify()
+        let m: KachatNames.Manifest
+        do {
+            m = try KachatNames.Manifest.decode(data)
+            try m.verify()
+        } catch {
+            // A registry v1 manifest (the bundled one until the v2 genesis) is expected, not an
+            // error: say "being upgraded", once, and stop re-reading the bundle.
+            let refused: Error = Self.isRegistryUpgrading(error) ? ServiceError.registryUpgrading : error
+            if Self.isRegistryUpgrading(error) {
+                if !registryUpgrading { AppLog.log("[KachatNames] the %@ manifest is registry v1; .kachat waits for the v2 genesis manifest", source) }
+                registryUpgrading = true
+            }
+            if source == "bundle" { bundleFailure = refused }
+            throw refused
+        }
         if m.isDryRun && !allowDryRun {
             throw ServiceError.dryRunManifest
         }
+        registryUpgrading = false
         manifest = m
         manifestSource = source
         return m
@@ -81,6 +113,8 @@ final class KachatNamesService: ObservableObject {
     func resetManifest() {
         manifest = nil
         manifestSource = nil
+        bundleFailure = nil
+        registryUpgrading = false
     }
 
     private func manifestData() async throws -> (Data, String) {

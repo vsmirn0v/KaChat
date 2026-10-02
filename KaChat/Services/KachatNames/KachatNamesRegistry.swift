@@ -100,6 +100,7 @@ final class KachatNamesRegistry: ObservableObject {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+        let previousError = lastError
         do {
             let m = try await prepare(forceSourceCheck: forceSourceCheck)
             if source == .chain {
@@ -107,11 +108,21 @@ final class KachatNamesRegistry: ObservableObject {
             }
             lastError = nil
             refreshedAt = Date()
+            revision += 1
         } catch {
-            lastError = error.localizedDescription
-            AppLog.log("[KachatNames] registry refresh failed: %@", error.localizedDescription)
+            let message = error.localizedDescription
+            lastError = message
+            // A failed refresh counts as an attempt too: `refreshIfStale` waits `maxAge` before
+            // the next one, and screens that reload on `revision` (and refresh from there) are
+            // only nudged when the error changed - a refusal can't turn into a refresh loop.
+            refreshedAt = Date()
+            if message != previousError {
+                if !KachatNamesService.isRegistryUpgrading(error) {
+                    AppLog.log("[KachatNames] registry refresh failed: %@", message)
+                }
+                revision += 1
+            }
         }
-        revision += 1
     }
 
     /// `refresh()` unless the last one is younger than `maxAge` seconds (lookups from typed names).

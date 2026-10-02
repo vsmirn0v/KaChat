@@ -477,6 +477,7 @@ final class KachatNamesActions: ObservableObject {
         driver = Task { @MainActor [weak self] in
             while let self, !Task.isCancelled {
                 guard KachatNamesService.isEnabled, let address = self.myAddress, address == self.pendingWallet,
+                      !self.service.registryUpgrading,
                       self.pending.contains(where: { $0.needsDriving }) else { break }
                 for p in self.pending where p.needsDriving {
                     await self.advance(p)

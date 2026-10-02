@@ -262,6 +262,8 @@ final class KachatHubModel: ObservableObject {
     /// nil until the manifest is checked; false when it fails (the hub then stays a mockup).
     @Published private(set) var ready: Bool?
     @Published private(set) var setupError: String?
+    /// The manifest is for the previous registry (v1): the hub says "Setting up", calmly.
+    @Published private(set) var upgrading = false
     @Published private(set) var search: Search = .idle
     @Published private(set) var listings: [KachatNames.NameInfo] = []
     @Published private(set) var lapsed: [KachatNames.NameInfo] = []
@@ -284,8 +286,10 @@ final class KachatHubModel: ObservableObject {
             try await registry.prepare(forceSourceCheck: true)
             ready = true
             setupError = nil
+            upgrading = false
         } catch {
             ready = false
+            upgrading = KachatNamesService.isRegistryUpgrading(error)
             setupError = error.localizedDescription
             return
         }
@@ -1950,6 +1954,7 @@ struct KachatReclaimSheet: View {
 struct KachatLiveDomainsTab: View {
     let walletAddress: String
     @ObservedObject private var registry = KachatNamesRegistry.shared
+    @ObservedObject private var service = KachatNamesService.shared
     @State private var names: [KachatNames.NameInfo] = []
     @State private var loaded = false
 
@@ -1958,6 +1963,21 @@ struct KachatLiveDomainsTab: View {
             LazyVStack(spacing: 16) {
                 if !loaded {
                     ProgressView().padding(.vertical, 24)
+                } else if service.registryUpgrading {
+                    // the bundled manifest is for the previous registry: calm, no error
+                    VStack(spacing: 10) {
+                        Image(systemName: "hammer")
+                            .font(.system(size: 40, weight: .semibold))
+                            .foregroundColor(.accentColor)
+                        Text("Setting up")
+                            .font(.headline)
+                        Text("The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
                 } else if names.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "at.circle")

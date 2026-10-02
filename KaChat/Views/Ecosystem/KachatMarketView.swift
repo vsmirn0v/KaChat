@@ -137,6 +137,17 @@ struct KachatMarketView: View {
                 .padding(.horizontal, 32)
             if live.isLive {
                 KachatTestnetBadge()
+            } else if KachatLive.isEnabled, live.upgrading {
+                // the bundled manifest is for the previous registry: a calm "setting up", no error
+                HStack(spacing: 6) {
+                    KachatTestnetBadge()
+                    settingUpPill
+                }
+                Text("The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
             } else {
                 comingSoonPill
                 if KachatLive.isEnabled, live.ready == false, let error = live.setupError {
@@ -149,6 +160,15 @@ struct KachatMarketView: View {
             }
         }
         .padding(.top, 20)
+    }
+
+    private var settingUpPill: some View {
+        Label("Setting up", systemImage: "hammer")
+            .font(.caption.weight(.bold))
+            .foregroundColor(.accentColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
     }
 
     private var comingSoonPill: some View {
