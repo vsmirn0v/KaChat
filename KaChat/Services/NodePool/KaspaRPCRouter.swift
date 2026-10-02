@@ -320,7 +320,8 @@ final class KaspaRPCRouter: ObservableObject {
                     amount: utxoEntry.amount,
                     scriptPublicKey: scriptData,
                     blockDaaScore: utxoEntry.blockDaaScore,
-                    isCoinbase: utxoEntry.isCoinbase
+                    isCoinbase: utxoEntry.isCoinbase,
+                    covenantId: utxoEntry.covenantID.isEmpty ? nil : utxoEntry.covenantID
                 )
             }
         }

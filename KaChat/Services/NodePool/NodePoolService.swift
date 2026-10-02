@@ -574,12 +574,35 @@ final class NodePoolService: ObservableObject {
         }
     }
 
+    /// The virtual's DAA score and past median time (unix ms) and the node's network name: the
+    /// point time-locked transactions are judged at (GetBlockDagInfo).
+    func currentDagPoint() async throws -> (networkName: String, virtualDaaScore: UInt64, pastMedianTimeMs: UInt64) {
+        try await executeHedged(op: .getUtxosByAddress) { conn in
+            var msg = Protowire_KaspadMessage()
+            msg.getBlockDagInfoRequest = Protowire_GetBlockDagInfoRequestMessage()
+            let response = try await conn.sendRequest(msg, type: .getBlockDagInfo, timeout: 10.0)
+            guard case .getBlockDagInfoResponse(let dagInfo) = response.payload else {
+                throw KasiaError.networkError("Unexpected response")
+            }
+            if dagInfo.hasError && !dagInfo.error.message.isEmpty {
+                throw KasiaError.networkError(dagInfo.error.message)
+            }
+            return (dagInfo.networkName, dagInfo.virtualDaaScore, UInt64(max(dagInfo.pastMedianTime, 0)))
+        }
+    }
+
     /// Submit transaction (broadcast to multiple nodes)
     func submitTransaction(_ transaction: KaspaRpcTransaction, allowOrphan: Bool = false) async throws -> (txId: String, endpoint: String) {
+        try await submitRpcTransaction(transaction.toProtobuf(), allowOrphan: allowOrphan)
+    }
+
+    /// Submit an already-converted transaction. The version-1 (Toccata) builders fill
+    /// `computeBudget`, `covenant` and `storageMass` themselves (`KachatNamesService`).
+    func submitRpcTransaction(_ rpcTransaction: Protowire_RpcTransaction, allowOrphan: Bool = false) async throws -> (txId: String, endpoint: String) {
         try await executeHedged(op: .submitTransaction) { conn in
             var msg = Protowire_KaspadMessage()
             var req = Protowire_SubmitTransactionRequestMessage()
-            req.transaction = transaction.toProtobuf()
+            req.transaction = rpcTransaction
             req.allowOrphan = allowOrphan
             msg.submitTransactionRequest = req
 
@@ -770,7 +793,8 @@ final class NodePoolService: ObservableObject {
                 amount: utxoEntry.amount,
                 scriptPublicKey: scriptData,
                 blockDaaScore: utxoEntry.blockDaaScore,
-                isCoinbase: utxoEntry.isCoinbase
+                isCoinbase: utxoEntry.isCoinbase,
+                covenantId: utxoEntry.covenantID.isEmpty ? nil : utxoEntry.covenantID
             )
         }
     }

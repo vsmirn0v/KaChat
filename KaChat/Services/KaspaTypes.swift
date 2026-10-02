@@ -36,6 +36,9 @@ struct UTXO {
     let scriptPublicKey: Data
     let blockDaaScore: UInt64
     let isCoinbase: Bool
+    /// KIP-20 covenant id the UTXO carries (hex), nil for a plain UTXO or when the source does
+    /// not report it (the REST fallback). Set from gRPC `RpcUtxoEntry.covenant_id`.
+    var covenantId: String? = nil
 
     struct Outpoint {
         let transactionId: String

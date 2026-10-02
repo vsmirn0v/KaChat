@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		KCNM00000100010001000000 /* KachatNamesService.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000100010000000000 /* KachatNamesService.swift */; };
 		KCNM00000000040001000000 /* KachatNamesBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000000040000000000 /* KachatNamesBuilder.swift */; };
 		KCNM00000000030001000000 /* KachatNamesManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000000030000000000 /* KachatNamesManifest.swift */; };
 		KCNM00000000020001000000 /* KachatNamesTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000000020000000000 /* KachatNamesTransaction.swift */; };
@@ -274,6 +275,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		KCNM00000100010000000000 /* KachatNamesService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesService.swift; sourceTree = "<group>"; };
 		KCNM00000000040000000000 /* KachatNamesBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesBuilder.swift; sourceTree = "<group>"; };
 		KCNM00000000030000000000 /* KachatNamesManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesManifest.swift; sourceTree = "<group>"; };
 		KCNM00000000020000000000 /* KachatNamesTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesTransaction.swift; sourceTree = "<group>"; };
@@ -619,6 +621,7 @@
 				KCNM00000000020000000000 /* KachatNamesTransaction.swift */,
 				KCNM00000000030000000000 /* KachatNamesManifest.swift */,
 				KCNM00000000040000000000 /* KachatNamesBuilder.swift */,
+				KCNM00000100010000000000 /* KachatNamesService.swift */,
 			);
 			path = KachatNames;
 			sourceTree = "<group>";
@@ -1503,6 +1506,7 @@
 				KCNM00000000020001000000 /* KachatNamesTransaction.swift in Sources */,
 				KCNM00000000030001000000 /* KachatNamesManifest.swift in Sources */,
 				KCNM00000000040001000000 /* KachatNamesBuilder.swift in Sources */,
+				KCNM00000100010001000000 /* KachatNamesService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
