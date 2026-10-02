@@ -1,5 +1,11 @@
 # Indexer handoff: testnet-10 + `.kachat` names and profiles
 
+> **Registry v2 (2026-10-02):** names carry `periodStart` (126-byte state). There is a new
+> `extend` entry, and `renew` now opens 10 days before expiry and starts a new period. The
+> details are in `docs/KACHAT_NAMES_REGISTRY_V2.md` in the indexer repo and in KACHAT_NAMES.md
+> section 4.1. Name objects in the API carry `periodStart`; transfer, list, buy and offer accept
+> keep it unchanged.
+
 For the KaChat indexer (the `kachat.duckdns.org` service: messages, push, KaPosts, public chats,
 groups, stats). Two jobs:
 
@@ -68,7 +74,7 @@ All of these are version-1 transactions (Toccata) with output covenant bindings.
 | UTXO | Script | Value | State (spliced into the script) |
 |---|---|---|---|
 | **Gap**: an unregistered interval `(lo, hi)` of the key space | P2SH of `KachatGap` | `gapValue` (1 KAS) | 66 B: `0x20 lo[32] 0x20 hi[32]` |
-| **Name**: one per registered name | P2SH of `KachatName` | `bond` (1 KAS) | 117 B: `0x20 key[32] 0x20 name[32] 0x20 owner[32] 0x08 price[8] 0x08 expiresAt[8]` |
+| **Name**: one per registered name | P2SH of `KachatName` | `bond` (1 KAS) | 126 B (registry v2): `0x20 key[32] 0x20 name[32] 0x20 owner[32] 0x08 price[8] 0x08 periodStart[8] 0x08 expiresAt[8]` |
 | **Offer**: KAS a buyer locks for one name | P2SH of `KachatOffer` | the offer amount | 75 B: `0x20 key[32] 0x20 buyer[32] 0x08 refundAfter[8]` |
 
 - **Key:** `key = blake3(name)`, where `name` is the ASCII bytes of the lowercase name without
@@ -139,6 +145,7 @@ module therefore derives every new state from the spending transaction itself:
      | name | `list` | `674a8ea4` |
      | name | `buy` | `76a02eb9` |
      | name | `renew` | `b706ac38` |
+     | name | `extend` | `2ce7cceb` (v2) |
      | name | `release` | `388ad0b4` |
      | name | `reclaim` | `f56af4df` |
      | offer | `accept` | `9d4043b4` |
@@ -168,7 +175,8 @@ Transitions. `YEAR` = 31,536,000,000 ms; `name continuation` = the one registry 
 | name `transfer(newOwner, sig)` | continuation: owner = `newOwner`, price = 0 |
 | name `list(price, sig)` | continuation: price = `price` |
 | name `buy(newOwner)` | continuation: owner = `newOwner`, price = 0. **Sale**: output continuation+1 paid the seller the listed price |
-| name `renew(years)` | continuation: `expiresAt += years·YEAR` |
+| name `extend(years)` (v2) | continuation: `expiresAt += years·YEAR`; `periodStart` unchanged. Allowed only while `expiresAt + years·YEAR <= periodStart + 2·YEAR` |
+| name `renew(years)` (v2) | continuation: `periodStart = old expiresAt`, `expiresAt = old expiresAt + years·YEAR`. Allowed from `expiresAt − renewWindowMs` (10 days) on |
 | exit: gap `merge` (input 0) + name `release`/`reclaim` (input 1) + gap `absorbed` (input 2) | out 0 gap `(lo of input 0, hi of input 2)`; the name is gone. `reclaim` also paid the bond back to the old owner (output 1) |
 | offer `accept(nameIdx)` + name `transfer` (or `buy`) at `nameIdx` | the name goes to the offer's `buyer`; **sale at the offer amount**; the offer is gone |
 | offer `withdraw` / `refund` | the offer is gone (the KAS returned to the buyer) |
@@ -297,7 +305,7 @@ Every endpoint is on the same base URL as the rest of the indexer, and every res
 { "name": "alice", "key": "<hex>",
   "registered": true, "status": "active",
   "owner": "kaspatest:…", "ownerKey": "<hex>",
-  "price": "0", "expiresAt": 1822000000000,
+  "price": "0", "periodStart": 1790000000000, "expiresAt": 1822000000000,
   "outpoint": {"txId": "…", "index": 2},
   "registeredAt": 1790000000000, "registeredTxId": "…", "updatedAt": 1790000000000 }
 ```
