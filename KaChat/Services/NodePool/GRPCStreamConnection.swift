@@ -666,11 +666,11 @@ actor GRPCStreamConnection {
                 return
 
             // All other notification types
-            case .virtualSelectedParentChainChangedNotification,
+            case .virtualChainChangedNotification,
                  .finalityConflictNotification,
                  .finalityConflictResolvedNotification,
-                 .virtualSelectedParentBlueScoreChangedNotification,
-                 .pruningPointUtxosetOverrideNotification,
+                 .sinkBlueScoreChangedNotification,
+                 .pruningPointUtxoSetOverrideNotification,
                  .virtualDaaScoreChangedNotification,
                  .newBlockTemplateNotification:
                 return

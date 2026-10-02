@@ -8,6 +8,8 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
+/// Composed by scripts/regenerate_protowire.sh from rusty-kaspa's three envelopes (see there).
+
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -15,12 +17,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-struct Protowire_KaspadMessage: Sendable {
+nonisolated struct Protowire_KaspadMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -355,12 +357,12 @@ struct Protowire_KaspadMessage: Sendable {
     set {payload = .ibdChainBlockLocator(newValue)}
   }
 
-  var requestAnticone: Protowire_RequestAnticoneMessage {
+  var requestAntipast: Protowire_RequestAntipastMessage {
     get {
-      if case .requestAnticone(let v)? = payload {return v}
-      return Protowire_RequestAnticoneMessage()
+      if case .requestAntipast(let v)? = payload {return v}
+      return Protowire_RequestAntipastMessage()
     }
-    set {payload = .requestAnticone(newValue)}
+    set {payload = .requestAntipast(newValue)}
   }
 
   var requestNextPruningPointAndItsAnticoneBlocks: Protowire_RequestNextPruningPointAndItsAnticoneBlocksMessage {
@@ -369,6 +371,54 @@ struct Protowire_KaspadMessage: Sendable {
       return Protowire_RequestNextPruningPointAndItsAnticoneBlocksMessage()
     }
     set {payload = .requestNextPruningPointAndItsAnticoneBlocks(newValue)}
+  }
+
+  var blockBody: Protowire_BlockBodyMessage {
+    get {
+      if case .blockBody(let v)? = payload {return v}
+      return Protowire_BlockBodyMessage()
+    }
+    set {payload = .blockBody(newValue)}
+  }
+
+  var requestBlockBodies: Protowire_RequestBlockBodiesMessage {
+    get {
+      if case .requestBlockBodies(let v)? = payload {return v}
+      return Protowire_RequestBlockBodiesMessage()
+    }
+    set {payload = .requestBlockBodies(newValue)}
+  }
+
+  var requestPruningPointSmtState: Protowire_RequestPruningPointSmtStateMessage {
+    get {
+      if case .requestPruningPointSmtState(let v)? = payload {return v}
+      return Protowire_RequestPruningPointSmtStateMessage()
+    }
+    set {payload = .requestPruningPointSmtState(newValue)}
+  }
+
+  var smtMetadata: Protowire_SmtMetadataMessage {
+    get {
+      if case .smtMetadata(let v)? = payload {return v}
+      return Protowire_SmtMetadataMessage()
+    }
+    set {payload = .smtMetadata(newValue)}
+  }
+
+  var smtLaneChunk: Protowire_SmtLaneChunkMessage {
+    get {
+      if case .smtLaneChunk(let v)? = payload {return v}
+      return Protowire_SmtLaneChunkMessage()
+    }
+    set {payload = .smtLaneChunk(newValue)}
+  }
+
+  var requestNextPruningPointSmtChunk: Protowire_RequestNextPruningPointSmtChunkMessage {
+    get {
+      if case .requestNextPruningPointSmtChunk(let v)? = payload {return v}
+      return Protowire_RequestNextPruningPointSmtChunkMessage()
+    }
+    set {payload = .requestNextPruningPointSmtChunk(newValue)}
   }
 
   var getCurrentNetworkRequest: Protowire_GetCurrentNetworkRequestMessage {
@@ -459,20 +509,20 @@ struct Protowire_KaspadMessage: Sendable {
     set {payload = .getPeerAddressesResponse(newValue)}
   }
 
-  var getSelectedTipHashRequest: Protowire_GetSelectedTipHashRequestMessage {
+  var getSinkRequest: Protowire_GetSinkRequestMessage {
     get {
-      if case .getSelectedTipHashRequest(let v)? = payload {return v}
-      return Protowire_GetSelectedTipHashRequestMessage()
+      if case .getSinkRequest(let v)? = payload {return v}
+      return Protowire_GetSinkRequestMessage()
     }
-    set {payload = .getSelectedTipHashRequest(newValue)}
+    set {payload = .getSinkRequest(newValue)}
   }
 
-  var getSelectedTipHashResponse: Protowire_GetSelectedTipHashResponseMessage {
+  var getSinkResponse: Protowire_GetSinkResponseMessage {
     get {
-      if case .getSelectedTipHashResponse(let v)? = payload {return v}
-      return Protowire_GetSelectedTipHashResponseMessage()
+      if case .getSinkResponse(let v)? = payload {return v}
+      return Protowire_GetSinkResponseMessage()
     }
-    set {payload = .getSelectedTipHashResponse(newValue)}
+    set {payload = .getSinkResponse(newValue)}
   }
 
   var getMempoolEntryRequest: Protowire_GetMempoolEntryRequestMessage {
@@ -539,28 +589,28 @@ struct Protowire_KaspadMessage: Sendable {
     set {payload = .submitTransactionResponse(newValue)}
   }
 
-  var notifyVirtualSelectedParentChainChangedRequest: Protowire_NotifyVirtualSelectedParentChainChangedRequestMessage {
+  var notifyVirtualChainChangedRequest: Protowire_NotifyVirtualChainChangedRequestMessage {
     get {
-      if case .notifyVirtualSelectedParentChainChangedRequest(let v)? = payload {return v}
-      return Protowire_NotifyVirtualSelectedParentChainChangedRequestMessage()
+      if case .notifyVirtualChainChangedRequest(let v)? = payload {return v}
+      return Protowire_NotifyVirtualChainChangedRequestMessage()
     }
-    set {payload = .notifyVirtualSelectedParentChainChangedRequest(newValue)}
+    set {payload = .notifyVirtualChainChangedRequest(newValue)}
   }
 
-  var notifyVirtualSelectedParentChainChangedResponse: Protowire_NotifyVirtualSelectedParentChainChangedResponseMessage {
+  var notifyVirtualChainChangedResponse: Protowire_NotifyVirtualChainChangedResponseMessage {
     get {
-      if case .notifyVirtualSelectedParentChainChangedResponse(let v)? = payload {return v}
-      return Protowire_NotifyVirtualSelectedParentChainChangedResponseMessage()
+      if case .notifyVirtualChainChangedResponse(let v)? = payload {return v}
+      return Protowire_NotifyVirtualChainChangedResponseMessage()
     }
-    set {payload = .notifyVirtualSelectedParentChainChangedResponse(newValue)}
+    set {payload = .notifyVirtualChainChangedResponse(newValue)}
   }
 
-  var virtualSelectedParentChainChangedNotification: Protowire_VirtualSelectedParentChainChangedNotificationMessage {
+  var virtualChainChangedNotification: Protowire_VirtualChainChangedNotificationMessage {
     get {
-      if case .virtualSelectedParentChainChangedNotification(let v)? = payload {return v}
-      return Protowire_VirtualSelectedParentChainChangedNotificationMessage()
+      if case .virtualChainChangedNotification(let v)? = payload {return v}
+      return Protowire_VirtualChainChangedNotificationMessage()
     }
-    set {payload = .virtualSelectedParentChainChangedNotification(newValue)}
+    set {payload = .virtualChainChangedNotification(newValue)}
   }
 
   var getBlockRequest: Protowire_GetBlockRequestMessage {
@@ -595,20 +645,20 @@ struct Protowire_KaspadMessage: Sendable {
     set {payload = .getSubnetworkResponse(newValue)}
   }
 
-  var getVirtualSelectedParentChainFromBlockRequest: Protowire_GetVirtualSelectedParentChainFromBlockRequestMessage {
+  var getVirtualChainFromBlockRequest: Protowire_GetVirtualChainFromBlockRequestMessage {
     get {
-      if case .getVirtualSelectedParentChainFromBlockRequest(let v)? = payload {return v}
-      return Protowire_GetVirtualSelectedParentChainFromBlockRequestMessage()
+      if case .getVirtualChainFromBlockRequest(let v)? = payload {return v}
+      return Protowire_GetVirtualChainFromBlockRequestMessage()
     }
-    set {payload = .getVirtualSelectedParentChainFromBlockRequest(newValue)}
+    set {payload = .getVirtualChainFromBlockRequest(newValue)}
   }
 
-  var getVirtualSelectedParentChainFromBlockResponse: Protowire_GetVirtualSelectedParentChainFromBlockResponseMessage {
+  var getVirtualChainFromBlockResponse: Protowire_GetVirtualChainFromBlockResponseMessage {
     get {
-      if case .getVirtualSelectedParentChainFromBlockResponse(let v)? = payload {return v}
-      return Protowire_GetVirtualSelectedParentChainFromBlockResponseMessage()
+      if case .getVirtualChainFromBlockResponse(let v)? = payload {return v}
+      return Protowire_GetVirtualChainFromBlockResponseMessage()
     }
-    set {payload = .getVirtualSelectedParentChainFromBlockResponse(newValue)}
+    set {payload = .getVirtualChainFromBlockResponse(newValue)}
   }
 
   var getBlocksRequest: Protowire_GetBlocksRequestMessage {
@@ -675,20 +725,20 @@ struct Protowire_KaspadMessage: Sendable {
     set {payload = .resolveFinalityConflictResponse(newValue)}
   }
 
-  var notifyFinalityConflictsRequest: Protowire_NotifyFinalityConflictsRequestMessage {
+  var notifyFinalityConflictRequest: Protowire_NotifyFinalityConflictRequestMessage {
     get {
-      if case .notifyFinalityConflictsRequest(let v)? = payload {return v}
-      return Protowire_NotifyFinalityConflictsRequestMessage()
+      if case .notifyFinalityConflictRequest(let v)? = payload {return v}
+      return Protowire_NotifyFinalityConflictRequestMessage()
     }
-    set {payload = .notifyFinalityConflictsRequest(newValue)}
+    set {payload = .notifyFinalityConflictRequest(newValue)}
   }
 
-  var notifyFinalityConflictsResponse: Protowire_NotifyFinalityConflictsResponseMessage {
+  var notifyFinalityConflictResponse: Protowire_NotifyFinalityConflictResponseMessage {
     get {
-      if case .notifyFinalityConflictsResponse(let v)? = payload {return v}
-      return Protowire_NotifyFinalityConflictsResponseMessage()
+      if case .notifyFinalityConflictResponse(let v)? = payload {return v}
+      return Protowire_NotifyFinalityConflictResponseMessage()
     }
-    set {payload = .notifyFinalityConflictsResponse(newValue)}
+    set {payload = .notifyFinalityConflictResponse(newValue)}
   }
 
   var finalityConflictNotification: Protowire_FinalityConflictNotificationMessage {
@@ -723,20 +773,20 @@ struct Protowire_KaspadMessage: Sendable {
     set {payload = .getMempoolEntriesResponse(newValue)}
   }
 
-  var shutDownRequest: Protowire_ShutDownRequestMessage {
+  var shutdownRequest: Protowire_ShutdownRequestMessage {
     get {
-      if case .shutDownRequest(let v)? = payload {return v}
-      return Protowire_ShutDownRequestMessage()
+      if case .shutdownRequest(let v)? = payload {return v}
+      return Protowire_ShutdownRequestMessage()
     }
-    set {payload = .shutDownRequest(newValue)}
+    set {payload = .shutdownRequest(newValue)}
   }
 
-  var shutDownResponse: Protowire_ShutDownResponseMessage {
+  var shutdownResponse: Protowire_ShutdownResponseMessage {
     get {
-      if case .shutDownResponse(let v)? = payload {return v}
-      return Protowire_ShutDownResponseMessage()
+      if case .shutdownResponse(let v)? = payload {return v}
+      return Protowire_ShutdownResponseMessage()
     }
-    set {payload = .shutDownResponse(newValue)}
+    set {payload = .shutdownResponse(newValue)}
   }
 
   var getHeadersRequest: Protowire_GetHeadersRequestMessage {
@@ -795,44 +845,44 @@ struct Protowire_KaspadMessage: Sendable {
     set {payload = .getUtxosByAddressesResponse(newValue)}
   }
 
-  var getVirtualSelectedParentBlueScoreRequest: Protowire_GetVirtualSelectedParentBlueScoreRequestMessage {
+  var getSinkBlueScoreRequest: Protowire_GetSinkBlueScoreRequestMessage {
     get {
-      if case .getVirtualSelectedParentBlueScoreRequest(let v)? = payload {return v}
-      return Protowire_GetVirtualSelectedParentBlueScoreRequestMessage()
+      if case .getSinkBlueScoreRequest(let v)? = payload {return v}
+      return Protowire_GetSinkBlueScoreRequestMessage()
     }
-    set {payload = .getVirtualSelectedParentBlueScoreRequest(newValue)}
+    set {payload = .getSinkBlueScoreRequest(newValue)}
   }
 
-  var getVirtualSelectedParentBlueScoreResponse: Protowire_GetVirtualSelectedParentBlueScoreResponseMessage {
+  var getSinkBlueScoreResponse: Protowire_GetSinkBlueScoreResponseMessage {
     get {
-      if case .getVirtualSelectedParentBlueScoreResponse(let v)? = payload {return v}
-      return Protowire_GetVirtualSelectedParentBlueScoreResponseMessage()
+      if case .getSinkBlueScoreResponse(let v)? = payload {return v}
+      return Protowire_GetSinkBlueScoreResponseMessage()
     }
-    set {payload = .getVirtualSelectedParentBlueScoreResponse(newValue)}
+    set {payload = .getSinkBlueScoreResponse(newValue)}
   }
 
-  var notifyVirtualSelectedParentBlueScoreChangedRequest: Protowire_NotifyVirtualSelectedParentBlueScoreChangedRequestMessage {
+  var notifySinkBlueScoreChangedRequest: Protowire_NotifySinkBlueScoreChangedRequestMessage {
     get {
-      if case .notifyVirtualSelectedParentBlueScoreChangedRequest(let v)? = payload {return v}
-      return Protowire_NotifyVirtualSelectedParentBlueScoreChangedRequestMessage()
+      if case .notifySinkBlueScoreChangedRequest(let v)? = payload {return v}
+      return Protowire_NotifySinkBlueScoreChangedRequestMessage()
     }
-    set {payload = .notifyVirtualSelectedParentBlueScoreChangedRequest(newValue)}
+    set {payload = .notifySinkBlueScoreChangedRequest(newValue)}
   }
 
-  var notifyVirtualSelectedParentBlueScoreChangedResponse: Protowire_NotifyVirtualSelectedParentBlueScoreChangedResponseMessage {
+  var notifySinkBlueScoreChangedResponse: Protowire_NotifySinkBlueScoreChangedResponseMessage {
     get {
-      if case .notifyVirtualSelectedParentBlueScoreChangedResponse(let v)? = payload {return v}
-      return Protowire_NotifyVirtualSelectedParentBlueScoreChangedResponseMessage()
+      if case .notifySinkBlueScoreChangedResponse(let v)? = payload {return v}
+      return Protowire_NotifySinkBlueScoreChangedResponseMessage()
     }
-    set {payload = .notifyVirtualSelectedParentBlueScoreChangedResponse(newValue)}
+    set {payload = .notifySinkBlueScoreChangedResponse(newValue)}
   }
 
-  var virtualSelectedParentBlueScoreChangedNotification: Protowire_VirtualSelectedParentBlueScoreChangedNotificationMessage {
+  var sinkBlueScoreChangedNotification: Protowire_SinkBlueScoreChangedNotificationMessage {
     get {
-      if case .virtualSelectedParentBlueScoreChangedNotification(let v)? = payload {return v}
-      return Protowire_VirtualSelectedParentBlueScoreChangedNotificationMessage()
+      if case .sinkBlueScoreChangedNotification(let v)? = payload {return v}
+      return Protowire_SinkBlueScoreChangedNotificationMessage()
     }
-    set {payload = .virtualSelectedParentBlueScoreChangedNotification(newValue)}
+    set {payload = .sinkBlueScoreChangedNotification(newValue)}
   }
 
   var banRequest: Protowire_BanRequestMessage {
@@ -899,44 +949,44 @@ struct Protowire_KaspadMessage: Sendable {
     set {payload = .stopNotifyingUtxosChangedResponse(newValue)}
   }
 
-  var notifyPruningPointUtxosetOverrideRequest: Protowire_NotifyPruningPointUTXOSetOverrideRequestMessage {
+  var notifyPruningPointUtxoSetOverrideRequest: Protowire_NotifyPruningPointUtxoSetOverrideRequestMessage {
     get {
-      if case .notifyPruningPointUtxosetOverrideRequest(let v)? = payload {return v}
-      return Protowire_NotifyPruningPointUTXOSetOverrideRequestMessage()
+      if case .notifyPruningPointUtxoSetOverrideRequest(let v)? = payload {return v}
+      return Protowire_NotifyPruningPointUtxoSetOverrideRequestMessage()
     }
-    set {payload = .notifyPruningPointUtxosetOverrideRequest(newValue)}
+    set {payload = .notifyPruningPointUtxoSetOverrideRequest(newValue)}
   }
 
-  var notifyPruningPointUtxosetOverrideResponse: Protowire_NotifyPruningPointUTXOSetOverrideResponseMessage {
+  var notifyPruningPointUtxoSetOverrideResponse: Protowire_NotifyPruningPointUtxoSetOverrideResponseMessage {
     get {
-      if case .notifyPruningPointUtxosetOverrideResponse(let v)? = payload {return v}
-      return Protowire_NotifyPruningPointUTXOSetOverrideResponseMessage()
+      if case .notifyPruningPointUtxoSetOverrideResponse(let v)? = payload {return v}
+      return Protowire_NotifyPruningPointUtxoSetOverrideResponseMessage()
     }
-    set {payload = .notifyPruningPointUtxosetOverrideResponse(newValue)}
+    set {payload = .notifyPruningPointUtxoSetOverrideResponse(newValue)}
   }
 
-  var pruningPointUtxosetOverrideNotification: Protowire_PruningPointUTXOSetOverrideNotificationMessage {
+  var pruningPointUtxoSetOverrideNotification: Protowire_PruningPointUtxoSetOverrideNotificationMessage {
     get {
-      if case .pruningPointUtxosetOverrideNotification(let v)? = payload {return v}
-      return Protowire_PruningPointUTXOSetOverrideNotificationMessage()
+      if case .pruningPointUtxoSetOverrideNotification(let v)? = payload {return v}
+      return Protowire_PruningPointUtxoSetOverrideNotificationMessage()
     }
-    set {payload = .pruningPointUtxosetOverrideNotification(newValue)}
+    set {payload = .pruningPointUtxoSetOverrideNotification(newValue)}
   }
 
-  var stopNotifyingPruningPointUtxosetOverrideRequest: Protowire_StopNotifyingPruningPointUTXOSetOverrideRequestMessage {
+  var stopNotifyingPruningPointUtxoSetOverrideRequest: Protowire_StopNotifyingPruningPointUtxoSetOverrideRequestMessage {
     get {
-      if case .stopNotifyingPruningPointUtxosetOverrideRequest(let v)? = payload {return v}
-      return Protowire_StopNotifyingPruningPointUTXOSetOverrideRequestMessage()
+      if case .stopNotifyingPruningPointUtxoSetOverrideRequest(let v)? = payload {return v}
+      return Protowire_StopNotifyingPruningPointUtxoSetOverrideRequestMessage()
     }
-    set {payload = .stopNotifyingPruningPointUtxosetOverrideRequest(newValue)}
+    set {payload = .stopNotifyingPruningPointUtxoSetOverrideRequest(newValue)}
   }
 
-  var stopNotifyingPruningPointUtxosetOverrideResponse: Protowire_StopNotifyingPruningPointUTXOSetOverrideResponseMessage {
+  var stopNotifyingPruningPointUtxoSetOverrideResponse: Protowire_StopNotifyingPruningPointUtxoSetOverrideResponseMessage {
     get {
-      if case .stopNotifyingPruningPointUtxosetOverrideResponse(let v)? = payload {return v}
-      return Protowire_StopNotifyingPruningPointUTXOSetOverrideResponseMessage()
+      if case .stopNotifyingPruningPointUtxoSetOverrideResponse(let v)? = payload {return v}
+      return Protowire_StopNotifyingPruningPointUtxoSetOverrideResponseMessage()
     }
-    set {payload = .stopNotifyingPruningPointUtxosetOverrideResponse(newValue)}
+    set {payload = .stopNotifyingPruningPointUtxoSetOverrideResponse(newValue)}
   }
 
   var estimateNetworkHashesPerSecondRequest: Protowire_EstimateNetworkHashesPerSecondRequestMessage {
@@ -1067,9 +1117,249 @@ struct Protowire_KaspadMessage: Sendable {
     set {payload = .getCoinSupplyResponse(newValue)}
   }
 
+  var pingRequest: Protowire_PingRequestMessage {
+    get {
+      if case .pingRequest(let v)? = payload {return v}
+      return Protowire_PingRequestMessage()
+    }
+    set {payload = .pingRequest(newValue)}
+  }
+
+  var pingResponse: Protowire_PingResponseMessage {
+    get {
+      if case .pingResponse(let v)? = payload {return v}
+      return Protowire_PingResponseMessage()
+    }
+    set {payload = .pingResponse(newValue)}
+  }
+
+  var getMetricsRequest: Protowire_GetMetricsRequestMessage {
+    get {
+      if case .getMetricsRequest(let v)? = payload {return v}
+      return Protowire_GetMetricsRequestMessage()
+    }
+    set {payload = .getMetricsRequest(newValue)}
+  }
+
+  var getMetricsResponse: Protowire_GetMetricsResponseMessage {
+    get {
+      if case .getMetricsResponse(let v)? = payload {return v}
+      return Protowire_GetMetricsResponseMessage()
+    }
+    set {payload = .getMetricsResponse(newValue)}
+  }
+
+  var getServerInfoRequest: Protowire_GetServerInfoRequestMessage {
+    get {
+      if case .getServerInfoRequest(let v)? = payload {return v}
+      return Protowire_GetServerInfoRequestMessage()
+    }
+    set {payload = .getServerInfoRequest(newValue)}
+  }
+
+  var getServerInfoResponse: Protowire_GetServerInfoResponseMessage {
+    get {
+      if case .getServerInfoResponse(let v)? = payload {return v}
+      return Protowire_GetServerInfoResponseMessage()
+    }
+    set {payload = .getServerInfoResponse(newValue)}
+  }
+
+  var getSyncStatusRequest: Protowire_GetSyncStatusRequestMessage {
+    get {
+      if case .getSyncStatusRequest(let v)? = payload {return v}
+      return Protowire_GetSyncStatusRequestMessage()
+    }
+    set {payload = .getSyncStatusRequest(newValue)}
+  }
+
+  var getSyncStatusResponse: Protowire_GetSyncStatusResponseMessage {
+    get {
+      if case .getSyncStatusResponse(let v)? = payload {return v}
+      return Protowire_GetSyncStatusResponseMessage()
+    }
+    set {payload = .getSyncStatusResponse(newValue)}
+  }
+
+  var getDaaScoreTimestampEstimateRequest: Protowire_GetDaaScoreTimestampEstimateRequestMessage {
+    get {
+      if case .getDaaScoreTimestampEstimateRequest(let v)? = payload {return v}
+      return Protowire_GetDaaScoreTimestampEstimateRequestMessage()
+    }
+    set {payload = .getDaaScoreTimestampEstimateRequest(newValue)}
+  }
+
+  var getDaaScoreTimestampEstimateResponse: Protowire_GetDaaScoreTimestampEstimateResponseMessage {
+    get {
+      if case .getDaaScoreTimestampEstimateResponse(let v)? = payload {return v}
+      return Protowire_GetDaaScoreTimestampEstimateResponseMessage()
+    }
+    set {payload = .getDaaScoreTimestampEstimateResponse(newValue)}
+  }
+
+  var submitTransactionReplacementRequest: Protowire_SubmitTransactionReplacementRequestMessage {
+    get {
+      if case .submitTransactionReplacementRequest(let v)? = payload {return v}
+      return Protowire_SubmitTransactionReplacementRequestMessage()
+    }
+    set {payload = .submitTransactionReplacementRequest(newValue)}
+  }
+
+  var submitTransactionReplacementResponse: Protowire_SubmitTransactionReplacementResponseMessage {
+    get {
+      if case .submitTransactionReplacementResponse(let v)? = payload {return v}
+      return Protowire_SubmitTransactionReplacementResponseMessage()
+    }
+    set {payload = .submitTransactionReplacementResponse(newValue)}
+  }
+
+  var getConnectionsRequest: Protowire_GetConnectionsRequestMessage {
+    get {
+      if case .getConnectionsRequest(let v)? = payload {return v}
+      return Protowire_GetConnectionsRequestMessage()
+    }
+    set {payload = .getConnectionsRequest(newValue)}
+  }
+
+  var getConnectionsResponse: Protowire_GetConnectionsResponseMessage {
+    get {
+      if case .getConnectionsResponse(let v)? = payload {return v}
+      return Protowire_GetConnectionsResponseMessage()
+    }
+    set {payload = .getConnectionsResponse(newValue)}
+  }
+
+  var getSystemInfoRequest: Protowire_GetSystemInfoRequestMessage {
+    get {
+      if case .getSystemInfoRequest(let v)? = payload {return v}
+      return Protowire_GetSystemInfoRequestMessage()
+    }
+    set {payload = .getSystemInfoRequest(newValue)}
+  }
+
+  var getSystemInfoResponse: Protowire_GetSystemInfoResponseMessage {
+    get {
+      if case .getSystemInfoResponse(let v)? = payload {return v}
+      return Protowire_GetSystemInfoResponseMessage()
+    }
+    set {payload = .getSystemInfoResponse(newValue)}
+  }
+
+  var getFeeEstimateRequest: Protowire_GetFeeEstimateRequestMessage {
+    get {
+      if case .getFeeEstimateRequest(let v)? = payload {return v}
+      return Protowire_GetFeeEstimateRequestMessage()
+    }
+    set {payload = .getFeeEstimateRequest(newValue)}
+  }
+
+  var getFeeEstimateResponse: Protowire_GetFeeEstimateResponseMessage {
+    get {
+      if case .getFeeEstimateResponse(let v)? = payload {return v}
+      return Protowire_GetFeeEstimateResponseMessage()
+    }
+    set {payload = .getFeeEstimateResponse(newValue)}
+  }
+
+  var getFeeEstimateExperimentalRequest: Protowire_GetFeeEstimateExperimentalRequestMessage {
+    get {
+      if case .getFeeEstimateExperimentalRequest(let v)? = payload {return v}
+      return Protowire_GetFeeEstimateExperimentalRequestMessage()
+    }
+    set {payload = .getFeeEstimateExperimentalRequest(newValue)}
+  }
+
+  var getFeeEstimateExperimentalResponse: Protowire_GetFeeEstimateExperimentalResponseMessage {
+    get {
+      if case .getFeeEstimateExperimentalResponse(let v)? = payload {return v}
+      return Protowire_GetFeeEstimateExperimentalResponseMessage()
+    }
+    set {payload = .getFeeEstimateExperimentalResponse(newValue)}
+  }
+
+  var getCurrentBlockColorRequest: Protowire_GetCurrentBlockColorRequestMessage {
+    get {
+      if case .getCurrentBlockColorRequest(let v)? = payload {return v}
+      return Protowire_GetCurrentBlockColorRequestMessage()
+    }
+    set {payload = .getCurrentBlockColorRequest(newValue)}
+  }
+
+  var getCurrentBlockColorResponse: Protowire_GetCurrentBlockColorResponseMessage {
+    get {
+      if case .getCurrentBlockColorResponse(let v)? = payload {return v}
+      return Protowire_GetCurrentBlockColorResponseMessage()
+    }
+    set {payload = .getCurrentBlockColorResponse(newValue)}
+  }
+
+  var getUtxoReturnAddressRequest: Protowire_GetUtxoReturnAddressRequestMessage {
+    get {
+      if case .getUtxoReturnAddressRequest(let v)? = payload {return v}
+      return Protowire_GetUtxoReturnAddressRequestMessage()
+    }
+    set {payload = .getUtxoReturnAddressRequest(newValue)}
+  }
+
+  var getUtxoReturnAddressResponse: Protowire_GetUtxoReturnAddressResponseMessage {
+    get {
+      if case .getUtxoReturnAddressResponse(let v)? = payload {return v}
+      return Protowire_GetUtxoReturnAddressResponseMessage()
+    }
+    set {payload = .getUtxoReturnAddressResponse(newValue)}
+  }
+
+  var getVirtualChainFromBlockV2Request: Protowire_GetVirtualChainFromBlockV2RequestMessage {
+    get {
+      if case .getVirtualChainFromBlockV2Request(let v)? = payload {return v}
+      return Protowire_GetVirtualChainFromBlockV2RequestMessage()
+    }
+    set {payload = .getVirtualChainFromBlockV2Request(newValue)}
+  }
+
+  var getVirtualChainFromBlockV2Response: Protowire_GetVirtualChainFromBlockV2ResponseMessage {
+    get {
+      if case .getVirtualChainFromBlockV2Response(let v)? = payload {return v}
+      return Protowire_GetVirtualChainFromBlockV2ResponseMessage()
+    }
+    set {payload = .getVirtualChainFromBlockV2Response(newValue)}
+  }
+
+  var getBlockRewardInfoRequest: Protowire_GetBlockRewardInfoRequestMessage {
+    get {
+      if case .getBlockRewardInfoRequest(let v)? = payload {return v}
+      return Protowire_GetBlockRewardInfoRequestMessage()
+    }
+    set {payload = .getBlockRewardInfoRequest(newValue)}
+  }
+
+  var getBlockRewardInfoResponse: Protowire_GetBlockRewardInfoResponseMessage {
+    get {
+      if case .getBlockRewardInfoResponse(let v)? = payload {return v}
+      return Protowire_GetBlockRewardInfoResponseMessage()
+    }
+    set {payload = .getBlockRewardInfoResponse(newValue)}
+  }
+
+  var getSeqCommitLaneProofRequest: Protowire_GetSeqCommitLaneProofRequestMessage {
+    get {
+      if case .getSeqCommitLaneProofRequest(let v)? = payload {return v}
+      return Protowire_GetSeqCommitLaneProofRequestMessage()
+    }
+    set {payload = .getSeqCommitLaneProofRequest(newValue)}
+  }
+
+  var getSeqCommitLaneProofResponse: Protowire_GetSeqCommitLaneProofResponseMessage {
+    get {
+      if case .getSeqCommitLaneProofResponse(let v)? = payload {return v}
+      return Protowire_GetSeqCommitLaneProofResponseMessage()
+    }
+    set {payload = .getSeqCommitLaneProofResponse(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  enum OneOf_Payload: Equatable, Sendable {
+  nonisolated enum OneOf_Payload: Equatable, Sendable {
     case addresses(Protowire_AddressesMessage)
     case block(Protowire_BlockMessage)
     case transaction(Protowire_TransactionMessage)
@@ -1111,8 +1401,14 @@ struct Protowire_KaspadMessage: Sendable {
     case trustedData(Protowire_TrustedDataMessage)
     case requestIbdchainBlockLocator(Protowire_RequestIBDChainBlockLocatorMessage)
     case ibdChainBlockLocator(Protowire_IbdChainBlockLocatorMessage)
-    case requestAnticone(Protowire_RequestAnticoneMessage)
+    case requestAntipast(Protowire_RequestAntipastMessage)
     case requestNextPruningPointAndItsAnticoneBlocks(Protowire_RequestNextPruningPointAndItsAnticoneBlocksMessage)
+    case blockBody(Protowire_BlockBodyMessage)
+    case requestBlockBodies(Protowire_RequestBlockBodiesMessage)
+    case requestPruningPointSmtState(Protowire_RequestPruningPointSmtStateMessage)
+    case smtMetadata(Protowire_SmtMetadataMessage)
+    case smtLaneChunk(Protowire_SmtLaneChunkMessage)
+    case requestNextPruningPointSmtChunk(Protowire_RequestNextPruningPointSmtChunkMessage)
     case getCurrentNetworkRequest(Protowire_GetCurrentNetworkRequestMessage)
     case getCurrentNetworkResponse(Protowire_GetCurrentNetworkResponseMessage)
     case submitBlockRequest(Protowire_SubmitBlockRequestMessage)
@@ -1124,8 +1420,8 @@ struct Protowire_KaspadMessage: Sendable {
     case blockAddedNotification(Protowire_BlockAddedNotificationMessage)
     case getPeerAddressesRequest(Protowire_GetPeerAddressesRequestMessage)
     case getPeerAddressesResponse(Protowire_GetPeerAddressesResponseMessage)
-    case getSelectedTipHashRequest(Protowire_GetSelectedTipHashRequestMessage)
-    case getSelectedTipHashResponse(Protowire_GetSelectedTipHashResponseMessage)
+    case getSinkRequest(Protowire_GetSinkRequestMessage)
+    case getSinkResponse(Protowire_GetSinkResponseMessage)
     case getMempoolEntryRequest(Protowire_GetMempoolEntryRequestMessage)
     case getMempoolEntryResponse(Protowire_GetMempoolEntryResponseMessage)
     case getConnectedPeerInfoRequest(Protowire_GetConnectedPeerInfoRequestMessage)
@@ -1134,15 +1430,15 @@ struct Protowire_KaspadMessage: Sendable {
     case addPeerResponse(Protowire_AddPeerResponseMessage)
     case submitTransactionRequest(Protowire_SubmitTransactionRequestMessage)
     case submitTransactionResponse(Protowire_SubmitTransactionResponseMessage)
-    case notifyVirtualSelectedParentChainChangedRequest(Protowire_NotifyVirtualSelectedParentChainChangedRequestMessage)
-    case notifyVirtualSelectedParentChainChangedResponse(Protowire_NotifyVirtualSelectedParentChainChangedResponseMessage)
-    case virtualSelectedParentChainChangedNotification(Protowire_VirtualSelectedParentChainChangedNotificationMessage)
+    case notifyVirtualChainChangedRequest(Protowire_NotifyVirtualChainChangedRequestMessage)
+    case notifyVirtualChainChangedResponse(Protowire_NotifyVirtualChainChangedResponseMessage)
+    case virtualChainChangedNotification(Protowire_VirtualChainChangedNotificationMessage)
     case getBlockRequest(Protowire_GetBlockRequestMessage)
     case getBlockResponse(Protowire_GetBlockResponseMessage)
     case getSubnetworkRequest(Protowire_GetSubnetworkRequestMessage)
     case getSubnetworkResponse(Protowire_GetSubnetworkResponseMessage)
-    case getVirtualSelectedParentChainFromBlockRequest(Protowire_GetVirtualSelectedParentChainFromBlockRequestMessage)
-    case getVirtualSelectedParentChainFromBlockResponse(Protowire_GetVirtualSelectedParentChainFromBlockResponseMessage)
+    case getVirtualChainFromBlockRequest(Protowire_GetVirtualChainFromBlockRequestMessage)
+    case getVirtualChainFromBlockResponse(Protowire_GetVirtualChainFromBlockResponseMessage)
     case getBlocksRequest(Protowire_GetBlocksRequestMessage)
     case getBlocksResponse(Protowire_GetBlocksResponseMessage)
     case getBlockCountRequest(Protowire_GetBlockCountRequestMessage)
@@ -1151,14 +1447,14 @@ struct Protowire_KaspadMessage: Sendable {
     case getBlockDagInfoResponse(Protowire_GetBlockDagInfoResponseMessage)
     case resolveFinalityConflictRequest(Protowire_ResolveFinalityConflictRequestMessage)
     case resolveFinalityConflictResponse(Protowire_ResolveFinalityConflictResponseMessage)
-    case notifyFinalityConflictsRequest(Protowire_NotifyFinalityConflictsRequestMessage)
-    case notifyFinalityConflictsResponse(Protowire_NotifyFinalityConflictsResponseMessage)
+    case notifyFinalityConflictRequest(Protowire_NotifyFinalityConflictRequestMessage)
+    case notifyFinalityConflictResponse(Protowire_NotifyFinalityConflictResponseMessage)
     case finalityConflictNotification(Protowire_FinalityConflictNotificationMessage)
     case finalityConflictResolvedNotification(Protowire_FinalityConflictResolvedNotificationMessage)
     case getMempoolEntriesRequest(Protowire_GetMempoolEntriesRequestMessage)
     case getMempoolEntriesResponse(Protowire_GetMempoolEntriesResponseMessage)
-    case shutDownRequest(Protowire_ShutDownRequestMessage)
-    case shutDownResponse(Protowire_ShutDownResponseMessage)
+    case shutdownRequest(Protowire_ShutdownRequestMessage)
+    case shutdownResponse(Protowire_ShutdownResponseMessage)
     case getHeadersRequest(Protowire_GetHeadersRequestMessage)
     case getHeadersResponse(Protowire_GetHeadersResponseMessage)
     case notifyUtxosChangedRequest(Protowire_NotifyUtxosChangedRequestMessage)
@@ -1166,11 +1462,11 @@ struct Protowire_KaspadMessage: Sendable {
     case utxosChangedNotification(Protowire_UtxosChangedNotificationMessage)
     case getUtxosByAddressesRequest(Protowire_GetUtxosByAddressesRequestMessage)
     case getUtxosByAddressesResponse(Protowire_GetUtxosByAddressesResponseMessage)
-    case getVirtualSelectedParentBlueScoreRequest(Protowire_GetVirtualSelectedParentBlueScoreRequestMessage)
-    case getVirtualSelectedParentBlueScoreResponse(Protowire_GetVirtualSelectedParentBlueScoreResponseMessage)
-    case notifyVirtualSelectedParentBlueScoreChangedRequest(Protowire_NotifyVirtualSelectedParentBlueScoreChangedRequestMessage)
-    case notifyVirtualSelectedParentBlueScoreChangedResponse(Protowire_NotifyVirtualSelectedParentBlueScoreChangedResponseMessage)
-    case virtualSelectedParentBlueScoreChangedNotification(Protowire_VirtualSelectedParentBlueScoreChangedNotificationMessage)
+    case getSinkBlueScoreRequest(Protowire_GetSinkBlueScoreRequestMessage)
+    case getSinkBlueScoreResponse(Protowire_GetSinkBlueScoreResponseMessage)
+    case notifySinkBlueScoreChangedRequest(Protowire_NotifySinkBlueScoreChangedRequestMessage)
+    case notifySinkBlueScoreChangedResponse(Protowire_NotifySinkBlueScoreChangedResponseMessage)
+    case sinkBlueScoreChangedNotification(Protowire_SinkBlueScoreChangedNotificationMessage)
     case banRequest(Protowire_BanRequestMessage)
     case banResponse(Protowire_BanResponseMessage)
     case unbanRequest(Protowire_UnbanRequestMessage)
@@ -1179,11 +1475,11 @@ struct Protowire_KaspadMessage: Sendable {
     case getInfoResponse(Protowire_GetInfoResponseMessage)
     case stopNotifyingUtxosChangedRequest(Protowire_StopNotifyingUtxosChangedRequestMessage)
     case stopNotifyingUtxosChangedResponse(Protowire_StopNotifyingUtxosChangedResponseMessage)
-    case notifyPruningPointUtxosetOverrideRequest(Protowire_NotifyPruningPointUTXOSetOverrideRequestMessage)
-    case notifyPruningPointUtxosetOverrideResponse(Protowire_NotifyPruningPointUTXOSetOverrideResponseMessage)
-    case pruningPointUtxosetOverrideNotification(Protowire_PruningPointUTXOSetOverrideNotificationMessage)
-    case stopNotifyingPruningPointUtxosetOverrideRequest(Protowire_StopNotifyingPruningPointUTXOSetOverrideRequestMessage)
-    case stopNotifyingPruningPointUtxosetOverrideResponse(Protowire_StopNotifyingPruningPointUTXOSetOverrideResponseMessage)
+    case notifyPruningPointUtxoSetOverrideRequest(Protowire_NotifyPruningPointUtxoSetOverrideRequestMessage)
+    case notifyPruningPointUtxoSetOverrideResponse(Protowire_NotifyPruningPointUtxoSetOverrideResponseMessage)
+    case pruningPointUtxoSetOverrideNotification(Protowire_PruningPointUtxoSetOverrideNotificationMessage)
+    case stopNotifyingPruningPointUtxoSetOverrideRequest(Protowire_StopNotifyingPruningPointUtxoSetOverrideRequestMessage)
+    case stopNotifyingPruningPointUtxoSetOverrideResponse(Protowire_StopNotifyingPruningPointUtxoSetOverrideResponseMessage)
     case estimateNetworkHashesPerSecondRequest(Protowire_EstimateNetworkHashesPerSecondRequestMessage)
     case estimateNetworkHashesPerSecondResponse(Protowire_EstimateNetworkHashesPerSecondResponseMessage)
     case notifyVirtualDaaScoreChangedRequest(Protowire_NotifyVirtualDaaScoreChangedRequestMessage)
@@ -1200,6 +1496,36 @@ struct Protowire_KaspadMessage: Sendable {
     case getMempoolEntriesByAddressesResponse(Protowire_GetMempoolEntriesByAddressesResponseMessage)
     case getCoinSupplyRequest(Protowire_GetCoinSupplyRequestMessage)
     case getCoinSupplyResponse(Protowire_GetCoinSupplyResponseMessage)
+    case pingRequest(Protowire_PingRequestMessage)
+    case pingResponse(Protowire_PingResponseMessage)
+    case getMetricsRequest(Protowire_GetMetricsRequestMessage)
+    case getMetricsResponse(Protowire_GetMetricsResponseMessage)
+    case getServerInfoRequest(Protowire_GetServerInfoRequestMessage)
+    case getServerInfoResponse(Protowire_GetServerInfoResponseMessage)
+    case getSyncStatusRequest(Protowire_GetSyncStatusRequestMessage)
+    case getSyncStatusResponse(Protowire_GetSyncStatusResponseMessage)
+    case getDaaScoreTimestampEstimateRequest(Protowire_GetDaaScoreTimestampEstimateRequestMessage)
+    case getDaaScoreTimestampEstimateResponse(Protowire_GetDaaScoreTimestampEstimateResponseMessage)
+    case submitTransactionReplacementRequest(Protowire_SubmitTransactionReplacementRequestMessage)
+    case submitTransactionReplacementResponse(Protowire_SubmitTransactionReplacementResponseMessage)
+    case getConnectionsRequest(Protowire_GetConnectionsRequestMessage)
+    case getConnectionsResponse(Protowire_GetConnectionsResponseMessage)
+    case getSystemInfoRequest(Protowire_GetSystemInfoRequestMessage)
+    case getSystemInfoResponse(Protowire_GetSystemInfoResponseMessage)
+    case getFeeEstimateRequest(Protowire_GetFeeEstimateRequestMessage)
+    case getFeeEstimateResponse(Protowire_GetFeeEstimateResponseMessage)
+    case getFeeEstimateExperimentalRequest(Protowire_GetFeeEstimateExperimentalRequestMessage)
+    case getFeeEstimateExperimentalResponse(Protowire_GetFeeEstimateExperimentalResponseMessage)
+    case getCurrentBlockColorRequest(Protowire_GetCurrentBlockColorRequestMessage)
+    case getCurrentBlockColorResponse(Protowire_GetCurrentBlockColorResponseMessage)
+    case getUtxoReturnAddressRequest(Protowire_GetUtxoReturnAddressRequestMessage)
+    case getUtxoReturnAddressResponse(Protowire_GetUtxoReturnAddressResponseMessage)
+    case getVirtualChainFromBlockV2Request(Protowire_GetVirtualChainFromBlockV2RequestMessage)
+    case getVirtualChainFromBlockV2Response(Protowire_GetVirtualChainFromBlockV2ResponseMessage)
+    case getBlockRewardInfoRequest(Protowire_GetBlockRewardInfoRequestMessage)
+    case getBlockRewardInfoResponse(Protowire_GetBlockRewardInfoResponseMessage)
+    case getSeqCommitLaneProofRequest(Protowire_GetSeqCommitLaneProofRequestMessage)
+    case getSeqCommitLaneProofResponse(Protowire_GetSeqCommitLaneProofResponseMessage)
 
   }
 
@@ -1208,11 +1534,11 @@ struct Protowire_KaspadMessage: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "protowire"
+fileprivate nonisolated let _protobuf_package = "protowire"
 
-extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".KaspadMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}addresses\0\u{1}block\0\u{1}transaction\0\u{2}\u{2}blockLocator\0\u{1}requestAddresses\0\u{2}\u{4}requestRelayBlocks\0\u{2}\u{2}requestTransactions\0\u{1}ibdBlock\0\u{1}invRelayBlock\0\u{1}invTransactions\0\u{1}ping\0\u{1}pong\0\u{2}\u{2}verack\0\u{1}version\0\u{1}transactionNotFound\0\u{1}reject\0\u{2}\u{3}pruningPointUtxoSetChunk\0\u{1}requestIBDBlocks\0\u{1}unexpectedPruningPoint\0\u{2}\u{3}ibdBlockLocator\0\u{1}ibdBlockLocatorHighestHash\0\u{2}\u{2}requestNextPruningPointUtxoSetChunk\0\u{1}donePruningPointUtxoSetChunks\0\u{1}ibdBlockLocatorHighestHashNotFound\0\u{1}blockWithTrustedData\0\u{1}doneBlocksWithTrustedData\0\u{2}\u{3}requestPruningPointAndItsAnticone\0\u{1}blockHeaders\0\u{1}requestNextHeaders\0\u{1}DoneHeaders\0\u{1}requestPruningPointUTXOSet\0\u{1}requestHeaders\0\u{1}requestBlockLocator\0\u{1}pruningPoints\0\u{1}requestPruningPointProof\0\u{1}pruningPointProof\0\u{1}ready\0\u{1}blockWithTrustedDataV4\0\u{1}trustedData\0\u{1}requestIBDChainBlockLocator\0\u{1}ibdChainBlockLocator\0\u{1}requestAnticone\0\u{1}requestNextPruningPointAndItsAnticoneBlocks\0\u{2}q\u{e}getCurrentNetworkRequest\0\u{1}getCurrentNetworkResponse\0\u{1}submitBlockRequest\0\u{1}submitBlockResponse\0\u{1}getBlockTemplateRequest\0\u{1}getBlockTemplateResponse\0\u{1}notifyBlockAddedRequest\0\u{1}notifyBlockAddedResponse\0\u{1}blockAddedNotification\0\u{1}getPeerAddressesRequest\0\u{1}getPeerAddressesResponse\0\u{1}getSelectedTipHashRequest\0\u{1}getSelectedTipHashResponse\0\u{1}getMempoolEntryRequest\0\u{1}getMempoolEntryResponse\0\u{1}getConnectedPeerInfoRequest\0\u{1}getConnectedPeerInfoResponse\0\u{1}addPeerRequest\0\u{1}addPeerResponse\0\u{1}submitTransactionRequest\0\u{1}submitTransactionResponse\0\u{1}notifyVirtualSelectedParentChainChangedRequest\0\u{1}notifyVirtualSelectedParentChainChangedResponse\0\u{1}virtualSelectedParentChainChangedNotification\0\u{1}getBlockRequest\0\u{1}getBlockResponse\0\u{1}getSubnetworkRequest\0\u{1}getSubnetworkResponse\0\u{1}getVirtualSelectedParentChainFromBlockRequest\0\u{1}getVirtualSelectedParentChainFromBlockResponse\0\u{1}getBlocksRequest\0\u{1}getBlocksResponse\0\u{1}getBlockCountRequest\0\u{1}getBlockCountResponse\0\u{1}getBlockDagInfoRequest\0\u{1}getBlockDagInfoResponse\0\u{1}resolveFinalityConflictRequest\0\u{1}resolveFinalityConflictResponse\0\u{1}notifyFinalityConflictsRequest\0\u{1}notifyFinalityConflictsResponse\0\u{1}finalityConflictNotification\0\u{1}finalityConflictResolvedNotification\0\u{1}getMempoolEntriesRequest\0\u{1}getMempoolEntriesResponse\0\u{1}shutDownRequest\0\u{1}shutDownResponse\0\u{1}getHeadersRequest\0\u{1}getHeadersResponse\0\u{1}notifyUtxosChangedRequest\0\u{1}notifyUtxosChangedResponse\0\u{1}utxosChangedNotification\0\u{1}getUtxosByAddressesRequest\0\u{1}getUtxosByAddressesResponse\0\u{1}getVirtualSelectedParentBlueScoreRequest\0\u{1}getVirtualSelectedParentBlueScoreResponse\0\u{1}notifyVirtualSelectedParentBlueScoreChangedRequest\0\u{1}notifyVirtualSelectedParentBlueScoreChangedResponse\0\u{1}virtualSelectedParentBlueScoreChangedNotification\0\u{1}banRequest\0\u{1}banResponse\0\u{1}unbanRequest\0\u{1}unbanResponse\0\u{1}getInfoRequest\0\u{1}getInfoResponse\0\u{1}stopNotifyingUtxosChangedRequest\0\u{1}stopNotifyingUtxosChangedResponse\0\u{1}notifyPruningPointUTXOSetOverrideRequest\0\u{1}notifyPruningPointUTXOSetOverrideResponse\0\u{1}pruningPointUTXOSetOverrideNotification\0\u{1}stopNotifyingPruningPointUTXOSetOverrideRequest\0\u{1}stopNotifyingPruningPointUTXOSetOverrideResponse\0\u{1}estimateNetworkHashesPerSecondRequest\0\u{1}estimateNetworkHashesPerSecondResponse\0\u{1}notifyVirtualDaaScoreChangedRequest\0\u{1}notifyVirtualDaaScoreChangedResponse\0\u{1}virtualDaaScoreChangedNotification\0\u{1}getBalanceByAddressRequest\0\u{1}getBalanceByAddressResponse\0\u{1}getBalancesByAddressesRequest\0\u{1}getBalancesByAddressesResponse\0\u{1}notifyNewBlockTemplateRequest\0\u{1}notifyNewBlockTemplateResponse\0\u{1}newBlockTemplateNotification\0\u{1}getMempoolEntriesByAddressesRequest\0\u{1}getMempoolEntriesByAddressesResponse\0\u{1}getCoinSupplyRequest\0\u{1}getCoinSupplyResponse\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}addresses\0\u{1}block\0\u{1}transaction\0\u{2}\u{2}blockLocator\0\u{1}requestAddresses\0\u{2}\u{4}requestRelayBlocks\0\u{2}\u{2}requestTransactions\0\u{1}ibdBlock\0\u{1}invRelayBlock\0\u{1}invTransactions\0\u{1}ping\0\u{1}pong\0\u{2}\u{2}verack\0\u{1}version\0\u{1}transactionNotFound\0\u{1}reject\0\u{2}\u{3}pruningPointUtxoSetChunk\0\u{1}requestIBDBlocks\0\u{1}unexpectedPruningPoint\0\u{2}\u{3}ibdBlockLocator\0\u{1}ibdBlockLocatorHighestHash\0\u{2}\u{2}requestNextPruningPointUtxoSetChunk\0\u{1}donePruningPointUtxoSetChunks\0\u{1}ibdBlockLocatorHighestHashNotFound\0\u{1}blockWithTrustedData\0\u{1}doneBlocksWithTrustedData\0\u{2}\u{3}requestPruningPointAndItsAnticone\0\u{1}blockHeaders\0\u{1}requestNextHeaders\0\u{1}DoneHeaders\0\u{1}requestPruningPointUTXOSet\0\u{1}requestHeaders\0\u{1}requestBlockLocator\0\u{1}pruningPoints\0\u{1}requestPruningPointProof\0\u{1}pruningPointProof\0\u{1}ready\0\u{1}blockWithTrustedDataV4\0\u{1}trustedData\0\u{1}requestIBDChainBlockLocator\0\u{1}ibdChainBlockLocator\0\u{1}requestAntipast\0\u{1}requestNextPruningPointAndItsAnticoneBlocks\0\u{1}blockBody\0\u{1}requestBlockBodies\0\u{1}requestPruningPointSmtState\0\u{1}smtMetadata\0\u{1}smtLaneChunk\0\u{2}\u{2}requestNextPruningPointSmtChunk\0\u{2}j\u{e}getCurrentNetworkRequest\0\u{1}getCurrentNetworkResponse\0\u{1}submitBlockRequest\0\u{1}submitBlockResponse\0\u{1}getBlockTemplateRequest\0\u{1}getBlockTemplateResponse\0\u{1}notifyBlockAddedRequest\0\u{1}notifyBlockAddedResponse\0\u{1}blockAddedNotification\0\u{1}getPeerAddressesRequest\0\u{1}getPeerAddressesResponse\0\u{1}GetSinkRequest\0\u{1}GetSinkResponse\0\u{1}getMempoolEntryRequest\0\u{1}getMempoolEntryResponse\0\u{1}getConnectedPeerInfoRequest\0\u{1}getConnectedPeerInfoResponse\0\u{1}addPeerRequest\0\u{1}addPeerResponse\0\u{1}submitTransactionRequest\0\u{1}submitTransactionResponse\0\u{1}notifyVirtualChainChangedRequest\0\u{1}notifyVirtualChainChangedResponse\0\u{1}virtualChainChangedNotification\0\u{1}getBlockRequest\0\u{1}getBlockResponse\0\u{1}getSubnetworkRequest\0\u{1}getSubnetworkResponse\0\u{1}getVirtualChainFromBlockRequest\0\u{1}getVirtualChainFromBlockResponse\0\u{1}getBlocksRequest\0\u{1}getBlocksResponse\0\u{1}getBlockCountRequest\0\u{1}getBlockCountResponse\0\u{1}getBlockDagInfoRequest\0\u{1}getBlockDagInfoResponse\0\u{1}resolveFinalityConflictRequest\0\u{1}resolveFinalityConflictResponse\0\u{1}notifyFinalityConflictRequest\0\u{1}notifyFinalityConflictResponse\0\u{1}finalityConflictNotification\0\u{1}finalityConflictResolvedNotification\0\u{1}getMempoolEntriesRequest\0\u{1}getMempoolEntriesResponse\0\u{1}shutdownRequest\0\u{1}shutdownResponse\0\u{1}getHeadersRequest\0\u{1}getHeadersResponse\0\u{1}notifyUtxosChangedRequest\0\u{1}notifyUtxosChangedResponse\0\u{1}utxosChangedNotification\0\u{1}getUtxosByAddressesRequest\0\u{1}getUtxosByAddressesResponse\0\u{1}getSinkBlueScoreRequest\0\u{1}getSinkBlueScoreResponse\0\u{1}notifySinkBlueScoreChangedRequest\0\u{1}notifySinkBlueScoreChangedResponse\0\u{1}sinkBlueScoreChangedNotification\0\u{1}banRequest\0\u{1}banResponse\0\u{1}unbanRequest\0\u{1}unbanResponse\0\u{1}getInfoRequest\0\u{1}getInfoResponse\0\u{1}stopNotifyingUtxosChangedRequest\0\u{1}stopNotifyingUtxosChangedResponse\0\u{1}notifyPruningPointUtxoSetOverrideRequest\0\u{1}notifyPruningPointUtxoSetOverrideResponse\0\u{1}pruningPointUtxoSetOverrideNotification\0\u{1}stopNotifyingPruningPointUtxoSetOverrideRequest\0\u{1}stopNotifyingPruningPointUtxoSetOverrideResponse\0\u{1}estimateNetworkHashesPerSecondRequest\0\u{1}estimateNetworkHashesPerSecondResponse\0\u{1}notifyVirtualDaaScoreChangedRequest\0\u{1}notifyVirtualDaaScoreChangedResponse\0\u{1}virtualDaaScoreChangedNotification\0\u{1}getBalanceByAddressRequest\0\u{1}getBalanceByAddressResponse\0\u{1}getBalancesByAddressesRequest\0\u{1}getBalancesByAddressesResponse\0\u{1}notifyNewBlockTemplateRequest\0\u{1}notifyNewBlockTemplateResponse\0\u{1}newBlockTemplateNotification\0\u{1}getMempoolEntriesByAddressesRequest\0\u{1}getMempoolEntriesByAddressesResponse\0\u{1}getCoinSupplyRequest\0\u{1}getCoinSupplyResponse\0\u{1}pingRequest\0\u{1}pingResponse\0\u{1}getMetricsRequest\0\u{1}getMetricsResponse\0\u{1}getServerInfoRequest\0\u{1}getServerInfoResponse\0\u{1}getSyncStatusRequest\0\u{1}getSyncStatusResponse\0\u{1}getDaaScoreTimestampEstimateRequest\0\u{1}getDaaScoreTimestampEstimateResponse\0\u{2}\u{3}submitTransactionReplacementRequest\0\u{1}submitTransactionReplacementResponse\0\u{1}getConnectionsRequest\0\u{1}getConnectionsResponse\0\u{1}getSystemInfoRequest\0\u{1}getSystemInfoResponse\0\u{1}getFeeEstimateRequest\0\u{1}getFeeEstimateResponse\0\u{1}getFeeEstimateExperimentalRequest\0\u{1}getFeeEstimateExperimentalResponse\0\u{1}getCurrentBlockColorRequest\0\u{1}getCurrentBlockColorResponse\0\u{1}getUtxoReturnAddressRequest\0\u{1}getUtxoReturnAddressResponse\0\u{1}getVirtualChainFromBlockV2Request\0\u{1}getVirtualChainFromBlockV2Response\0\u{1}getBlockRewardInfoRequest\0\u{1}getBlockRewardInfoResponse\0\u{1}getSeqCommitLaneProofRequest\0\u{1}getSeqCommitLaneProofResponse\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1754,16 +2080,16 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
         }
       }()
       case 55: try {
-        var v: Protowire_RequestAnticoneMessage?
+        var v: Protowire_RequestAntipastMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .requestAnticone(let m) = current {v = m}
+          if case .requestAntipast(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .requestAnticone(v)
+          self.payload = .requestAntipast(v)
         }
       }()
       case 56: try {
@@ -1777,6 +2103,84 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
           self.payload = .requestNextPruningPointAndItsAnticoneBlocks(v)
+        }
+      }()
+      case 57: try {
+        var v: Protowire_BlockBodyMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .blockBody(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .blockBody(v)
+        }
+      }()
+      case 58: try {
+        var v: Protowire_RequestBlockBodiesMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .requestBlockBodies(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .requestBlockBodies(v)
+        }
+      }()
+      case 59: try {
+        var v: Protowire_RequestPruningPointSmtStateMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .requestPruningPointSmtState(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .requestPruningPointSmtState(v)
+        }
+      }()
+      case 60: try {
+        var v: Protowire_SmtMetadataMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .smtMetadata(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .smtMetadata(v)
+        }
+      }()
+      case 61: try {
+        var v: Protowire_SmtLaneChunkMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .smtLaneChunk(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .smtLaneChunk(v)
+        }
+      }()
+      case 63: try {
+        var v: Protowire_RequestNextPruningPointSmtChunkMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .requestNextPruningPointSmtChunk(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .requestNextPruningPointSmtChunk(v)
         }
       }()
       case 1001: try {
@@ -1923,29 +2327,29 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
         }
       }()
       case 1012: try {
-        var v: Protowire_GetSelectedTipHashRequestMessage?
+        var v: Protowire_GetSinkRequestMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .getSelectedTipHashRequest(let m) = current {v = m}
+          if case .getSinkRequest(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .getSelectedTipHashRequest(v)
+          self.payload = .getSinkRequest(v)
         }
       }()
       case 1013: try {
-        var v: Protowire_GetSelectedTipHashResponseMessage?
+        var v: Protowire_GetSinkResponseMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .getSelectedTipHashResponse(let m) = current {v = m}
+          if case .getSinkResponse(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .getSelectedTipHashResponse(v)
+          self.payload = .getSinkResponse(v)
         }
       }()
       case 1014: try {
@@ -2053,42 +2457,42 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
         }
       }()
       case 1022: try {
-        var v: Protowire_NotifyVirtualSelectedParentChainChangedRequestMessage?
+        var v: Protowire_NotifyVirtualChainChangedRequestMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .notifyVirtualSelectedParentChainChangedRequest(let m) = current {v = m}
+          if case .notifyVirtualChainChangedRequest(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .notifyVirtualSelectedParentChainChangedRequest(v)
+          self.payload = .notifyVirtualChainChangedRequest(v)
         }
       }()
       case 1023: try {
-        var v: Protowire_NotifyVirtualSelectedParentChainChangedResponseMessage?
+        var v: Protowire_NotifyVirtualChainChangedResponseMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .notifyVirtualSelectedParentChainChangedResponse(let m) = current {v = m}
+          if case .notifyVirtualChainChangedResponse(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .notifyVirtualSelectedParentChainChangedResponse(v)
+          self.payload = .notifyVirtualChainChangedResponse(v)
         }
       }()
       case 1024: try {
-        var v: Protowire_VirtualSelectedParentChainChangedNotificationMessage?
+        var v: Protowire_VirtualChainChangedNotificationMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .virtualSelectedParentChainChangedNotification(let m) = current {v = m}
+          if case .virtualChainChangedNotification(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .virtualSelectedParentChainChangedNotification(v)
+          self.payload = .virtualChainChangedNotification(v)
         }
       }()
       case 1025: try {
@@ -2144,29 +2548,29 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
         }
       }()
       case 1029: try {
-        var v: Protowire_GetVirtualSelectedParentChainFromBlockRequestMessage?
+        var v: Protowire_GetVirtualChainFromBlockRequestMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .getVirtualSelectedParentChainFromBlockRequest(let m) = current {v = m}
+          if case .getVirtualChainFromBlockRequest(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .getVirtualSelectedParentChainFromBlockRequest(v)
+          self.payload = .getVirtualChainFromBlockRequest(v)
         }
       }()
       case 1030: try {
-        var v: Protowire_GetVirtualSelectedParentChainFromBlockResponseMessage?
+        var v: Protowire_GetVirtualChainFromBlockResponseMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .getVirtualSelectedParentChainFromBlockResponse(let m) = current {v = m}
+          if case .getVirtualChainFromBlockResponse(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .getVirtualSelectedParentChainFromBlockResponse(v)
+          self.payload = .getVirtualChainFromBlockResponse(v)
         }
       }()
       case 1031: try {
@@ -2274,29 +2678,29 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
         }
       }()
       case 1039: try {
-        var v: Protowire_NotifyFinalityConflictsRequestMessage?
+        var v: Protowire_NotifyFinalityConflictRequestMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .notifyFinalityConflictsRequest(let m) = current {v = m}
+          if case .notifyFinalityConflictRequest(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .notifyFinalityConflictsRequest(v)
+          self.payload = .notifyFinalityConflictRequest(v)
         }
       }()
       case 1040: try {
-        var v: Protowire_NotifyFinalityConflictsResponseMessage?
+        var v: Protowire_NotifyFinalityConflictResponseMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .notifyFinalityConflictsResponse(let m) = current {v = m}
+          if case .notifyFinalityConflictResponse(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .notifyFinalityConflictsResponse(v)
+          self.payload = .notifyFinalityConflictResponse(v)
         }
       }()
       case 1041: try {
@@ -2352,29 +2756,29 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
         }
       }()
       case 1045: try {
-        var v: Protowire_ShutDownRequestMessage?
+        var v: Protowire_ShutdownRequestMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .shutDownRequest(let m) = current {v = m}
+          if case .shutdownRequest(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .shutDownRequest(v)
+          self.payload = .shutdownRequest(v)
         }
       }()
       case 1046: try {
-        var v: Protowire_ShutDownResponseMessage?
+        var v: Protowire_ShutdownResponseMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .shutDownResponse(let m) = current {v = m}
+          if case .shutdownResponse(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .shutDownResponse(v)
+          self.payload = .shutdownResponse(v)
         }
       }()
       case 1047: try {
@@ -2469,68 +2873,68 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
         }
       }()
       case 1054: try {
-        var v: Protowire_GetVirtualSelectedParentBlueScoreRequestMessage?
+        var v: Protowire_GetSinkBlueScoreRequestMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .getVirtualSelectedParentBlueScoreRequest(let m) = current {v = m}
+          if case .getSinkBlueScoreRequest(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .getVirtualSelectedParentBlueScoreRequest(v)
+          self.payload = .getSinkBlueScoreRequest(v)
         }
       }()
       case 1055: try {
-        var v: Protowire_GetVirtualSelectedParentBlueScoreResponseMessage?
+        var v: Protowire_GetSinkBlueScoreResponseMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .getVirtualSelectedParentBlueScoreResponse(let m) = current {v = m}
+          if case .getSinkBlueScoreResponse(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .getVirtualSelectedParentBlueScoreResponse(v)
+          self.payload = .getSinkBlueScoreResponse(v)
         }
       }()
       case 1056: try {
-        var v: Protowire_NotifyVirtualSelectedParentBlueScoreChangedRequestMessage?
+        var v: Protowire_NotifySinkBlueScoreChangedRequestMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .notifyVirtualSelectedParentBlueScoreChangedRequest(let m) = current {v = m}
+          if case .notifySinkBlueScoreChangedRequest(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .notifyVirtualSelectedParentBlueScoreChangedRequest(v)
+          self.payload = .notifySinkBlueScoreChangedRequest(v)
         }
       }()
       case 1057: try {
-        var v: Protowire_NotifyVirtualSelectedParentBlueScoreChangedResponseMessage?
+        var v: Protowire_NotifySinkBlueScoreChangedResponseMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .notifyVirtualSelectedParentBlueScoreChangedResponse(let m) = current {v = m}
+          if case .notifySinkBlueScoreChangedResponse(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .notifyVirtualSelectedParentBlueScoreChangedResponse(v)
+          self.payload = .notifySinkBlueScoreChangedResponse(v)
         }
       }()
       case 1058: try {
-        var v: Protowire_VirtualSelectedParentBlueScoreChangedNotificationMessage?
+        var v: Protowire_SinkBlueScoreChangedNotificationMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .virtualSelectedParentBlueScoreChangedNotification(let m) = current {v = m}
+          if case .sinkBlueScoreChangedNotification(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .virtualSelectedParentBlueScoreChangedNotification(v)
+          self.payload = .sinkBlueScoreChangedNotification(v)
         }
       }()
       case 1059: try {
@@ -2638,68 +3042,68 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
         }
       }()
       case 1067: try {
-        var v: Protowire_NotifyPruningPointUTXOSetOverrideRequestMessage?
+        var v: Protowire_NotifyPruningPointUtxoSetOverrideRequestMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .notifyPruningPointUtxosetOverrideRequest(let m) = current {v = m}
+          if case .notifyPruningPointUtxoSetOverrideRequest(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .notifyPruningPointUtxosetOverrideRequest(v)
+          self.payload = .notifyPruningPointUtxoSetOverrideRequest(v)
         }
       }()
       case 1068: try {
-        var v: Protowire_NotifyPruningPointUTXOSetOverrideResponseMessage?
+        var v: Protowire_NotifyPruningPointUtxoSetOverrideResponseMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .notifyPruningPointUtxosetOverrideResponse(let m) = current {v = m}
+          if case .notifyPruningPointUtxoSetOverrideResponse(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .notifyPruningPointUtxosetOverrideResponse(v)
+          self.payload = .notifyPruningPointUtxoSetOverrideResponse(v)
         }
       }()
       case 1069: try {
-        var v: Protowire_PruningPointUTXOSetOverrideNotificationMessage?
+        var v: Protowire_PruningPointUtxoSetOverrideNotificationMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .pruningPointUtxosetOverrideNotification(let m) = current {v = m}
+          if case .pruningPointUtxoSetOverrideNotification(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .pruningPointUtxosetOverrideNotification(v)
+          self.payload = .pruningPointUtxoSetOverrideNotification(v)
         }
       }()
       case 1070: try {
-        var v: Protowire_StopNotifyingPruningPointUTXOSetOverrideRequestMessage?
+        var v: Protowire_StopNotifyingPruningPointUtxoSetOverrideRequestMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .stopNotifyingPruningPointUtxosetOverrideRequest(let m) = current {v = m}
+          if case .stopNotifyingPruningPointUtxoSetOverrideRequest(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .stopNotifyingPruningPointUtxosetOverrideRequest(v)
+          self.payload = .stopNotifyingPruningPointUtxoSetOverrideRequest(v)
         }
       }()
       case 1071: try {
-        var v: Protowire_StopNotifyingPruningPointUTXOSetOverrideResponseMessage?
+        var v: Protowire_StopNotifyingPruningPointUtxoSetOverrideResponseMessage?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .stopNotifyingPruningPointUtxosetOverrideResponse(let m) = current {v = m}
+          if case .stopNotifyingPruningPointUtxoSetOverrideResponse(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .stopNotifyingPruningPointUtxosetOverrideResponse(v)
+          self.payload = .stopNotifyingPruningPointUtxoSetOverrideResponse(v)
         }
       }()
       case 1072: try {
@@ -2910,6 +3314,396 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
           self.payload = .getCoinSupplyResponse(v)
         }
       }()
+      case 1088: try {
+        var v: Protowire_PingRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .pingRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .pingRequest(v)
+        }
+      }()
+      case 1089: try {
+        var v: Protowire_PingResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .pingResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .pingResponse(v)
+        }
+      }()
+      case 1090: try {
+        var v: Protowire_GetMetricsRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getMetricsRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getMetricsRequest(v)
+        }
+      }()
+      case 1091: try {
+        var v: Protowire_GetMetricsResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getMetricsResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getMetricsResponse(v)
+        }
+      }()
+      case 1092: try {
+        var v: Protowire_GetServerInfoRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getServerInfoRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getServerInfoRequest(v)
+        }
+      }()
+      case 1093: try {
+        var v: Protowire_GetServerInfoResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getServerInfoResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getServerInfoResponse(v)
+        }
+      }()
+      case 1094: try {
+        var v: Protowire_GetSyncStatusRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getSyncStatusRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getSyncStatusRequest(v)
+        }
+      }()
+      case 1095: try {
+        var v: Protowire_GetSyncStatusResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getSyncStatusResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getSyncStatusResponse(v)
+        }
+      }()
+      case 1096: try {
+        var v: Protowire_GetDaaScoreTimestampEstimateRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getDaaScoreTimestampEstimateRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getDaaScoreTimestampEstimateRequest(v)
+        }
+      }()
+      case 1097: try {
+        var v: Protowire_GetDaaScoreTimestampEstimateResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getDaaScoreTimestampEstimateResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getDaaScoreTimestampEstimateResponse(v)
+        }
+      }()
+      case 1100: try {
+        var v: Protowire_SubmitTransactionReplacementRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .submitTransactionReplacementRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .submitTransactionReplacementRequest(v)
+        }
+      }()
+      case 1101: try {
+        var v: Protowire_SubmitTransactionReplacementResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .submitTransactionReplacementResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .submitTransactionReplacementResponse(v)
+        }
+      }()
+      case 1102: try {
+        var v: Protowire_GetConnectionsRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getConnectionsRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getConnectionsRequest(v)
+        }
+      }()
+      case 1103: try {
+        var v: Protowire_GetConnectionsResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getConnectionsResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getConnectionsResponse(v)
+        }
+      }()
+      case 1104: try {
+        var v: Protowire_GetSystemInfoRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getSystemInfoRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getSystemInfoRequest(v)
+        }
+      }()
+      case 1105: try {
+        var v: Protowire_GetSystemInfoResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getSystemInfoResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getSystemInfoResponse(v)
+        }
+      }()
+      case 1106: try {
+        var v: Protowire_GetFeeEstimateRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getFeeEstimateRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getFeeEstimateRequest(v)
+        }
+      }()
+      case 1107: try {
+        var v: Protowire_GetFeeEstimateResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getFeeEstimateResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getFeeEstimateResponse(v)
+        }
+      }()
+      case 1108: try {
+        var v: Protowire_GetFeeEstimateExperimentalRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getFeeEstimateExperimentalRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getFeeEstimateExperimentalRequest(v)
+        }
+      }()
+      case 1109: try {
+        var v: Protowire_GetFeeEstimateExperimentalResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getFeeEstimateExperimentalResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getFeeEstimateExperimentalResponse(v)
+        }
+      }()
+      case 1110: try {
+        var v: Protowire_GetCurrentBlockColorRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getCurrentBlockColorRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getCurrentBlockColorRequest(v)
+        }
+      }()
+      case 1111: try {
+        var v: Protowire_GetCurrentBlockColorResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getCurrentBlockColorResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getCurrentBlockColorResponse(v)
+        }
+      }()
+      case 1112: try {
+        var v: Protowire_GetUtxoReturnAddressRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getUtxoReturnAddressRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getUtxoReturnAddressRequest(v)
+        }
+      }()
+      case 1113: try {
+        var v: Protowire_GetUtxoReturnAddressResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getUtxoReturnAddressResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getUtxoReturnAddressResponse(v)
+        }
+      }()
+      case 1114: try {
+        var v: Protowire_GetVirtualChainFromBlockV2RequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getVirtualChainFromBlockV2Request(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getVirtualChainFromBlockV2Request(v)
+        }
+      }()
+      case 1115: try {
+        var v: Protowire_GetVirtualChainFromBlockV2ResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getVirtualChainFromBlockV2Response(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getVirtualChainFromBlockV2Response(v)
+        }
+      }()
+      case 1116: try {
+        var v: Protowire_GetBlockRewardInfoRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getBlockRewardInfoRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getBlockRewardInfoRequest(v)
+        }
+      }()
+      case 1117: try {
+        var v: Protowire_GetBlockRewardInfoResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getBlockRewardInfoResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getBlockRewardInfoResponse(v)
+        }
+      }()
+      case 1118: try {
+        var v: Protowire_GetSeqCommitLaneProofRequestMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getSeqCommitLaneProofRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getSeqCommitLaneProofRequest(v)
+        }
+      }()
+      case 1119: try {
+        var v: Protowire_GetSeqCommitLaneProofResponseMessage?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .getSeqCommitLaneProofResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .getSeqCommitLaneProofResponse(v)
+        }
+      }()
       default: break
       }
     }
@@ -3085,13 +3879,37 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
       guard case .ibdChainBlockLocator(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 54)
     }()
-    case .requestAnticone?: try {
-      guard case .requestAnticone(let v)? = self.payload else { preconditionFailure() }
+    case .requestAntipast?: try {
+      guard case .requestAntipast(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 55)
     }()
     case .requestNextPruningPointAndItsAnticoneBlocks?: try {
       guard case .requestNextPruningPointAndItsAnticoneBlocks(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 56)
+    }()
+    case .blockBody?: try {
+      guard case .blockBody(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 57)
+    }()
+    case .requestBlockBodies?: try {
+      guard case .requestBlockBodies(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 58)
+    }()
+    case .requestPruningPointSmtState?: try {
+      guard case .requestPruningPointSmtState(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 59)
+    }()
+    case .smtMetadata?: try {
+      guard case .smtMetadata(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 60)
+    }()
+    case .smtLaneChunk?: try {
+      guard case .smtLaneChunk(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 61)
+    }()
+    case .requestNextPruningPointSmtChunk?: try {
+      guard case .requestNextPruningPointSmtChunk(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 63)
     }()
     case .getCurrentNetworkRequest?: try {
       guard case .getCurrentNetworkRequest(let v)? = self.payload else { preconditionFailure() }
@@ -3137,12 +3955,12 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
       guard case .getPeerAddressesResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1011)
     }()
-    case .getSelectedTipHashRequest?: try {
-      guard case .getSelectedTipHashRequest(let v)? = self.payload else { preconditionFailure() }
+    case .getSinkRequest?: try {
+      guard case .getSinkRequest(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1012)
     }()
-    case .getSelectedTipHashResponse?: try {
-      guard case .getSelectedTipHashResponse(let v)? = self.payload else { preconditionFailure() }
+    case .getSinkResponse?: try {
+      guard case .getSinkResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1013)
     }()
     case .getMempoolEntryRequest?: try {
@@ -3177,16 +3995,16 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
       guard case .submitTransactionResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1021)
     }()
-    case .notifyVirtualSelectedParentChainChangedRequest?: try {
-      guard case .notifyVirtualSelectedParentChainChangedRequest(let v)? = self.payload else { preconditionFailure() }
+    case .notifyVirtualChainChangedRequest?: try {
+      guard case .notifyVirtualChainChangedRequest(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1022)
     }()
-    case .notifyVirtualSelectedParentChainChangedResponse?: try {
-      guard case .notifyVirtualSelectedParentChainChangedResponse(let v)? = self.payload else { preconditionFailure() }
+    case .notifyVirtualChainChangedResponse?: try {
+      guard case .notifyVirtualChainChangedResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1023)
     }()
-    case .virtualSelectedParentChainChangedNotification?: try {
-      guard case .virtualSelectedParentChainChangedNotification(let v)? = self.payload else { preconditionFailure() }
+    case .virtualChainChangedNotification?: try {
+      guard case .virtualChainChangedNotification(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1024)
     }()
     case .getBlockRequest?: try {
@@ -3205,12 +4023,12 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
       guard case .getSubnetworkResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1028)
     }()
-    case .getVirtualSelectedParentChainFromBlockRequest?: try {
-      guard case .getVirtualSelectedParentChainFromBlockRequest(let v)? = self.payload else { preconditionFailure() }
+    case .getVirtualChainFromBlockRequest?: try {
+      guard case .getVirtualChainFromBlockRequest(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1029)
     }()
-    case .getVirtualSelectedParentChainFromBlockResponse?: try {
-      guard case .getVirtualSelectedParentChainFromBlockResponse(let v)? = self.payload else { preconditionFailure() }
+    case .getVirtualChainFromBlockResponse?: try {
+      guard case .getVirtualChainFromBlockResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1030)
     }()
     case .getBlocksRequest?: try {
@@ -3245,12 +4063,12 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
       guard case .resolveFinalityConflictResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1038)
     }()
-    case .notifyFinalityConflictsRequest?: try {
-      guard case .notifyFinalityConflictsRequest(let v)? = self.payload else { preconditionFailure() }
+    case .notifyFinalityConflictRequest?: try {
+      guard case .notifyFinalityConflictRequest(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1039)
     }()
-    case .notifyFinalityConflictsResponse?: try {
-      guard case .notifyFinalityConflictsResponse(let v)? = self.payload else { preconditionFailure() }
+    case .notifyFinalityConflictResponse?: try {
+      guard case .notifyFinalityConflictResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1040)
     }()
     case .finalityConflictNotification?: try {
@@ -3269,12 +4087,12 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
       guard case .getMempoolEntriesResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1044)
     }()
-    case .shutDownRequest?: try {
-      guard case .shutDownRequest(let v)? = self.payload else { preconditionFailure() }
+    case .shutdownRequest?: try {
+      guard case .shutdownRequest(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1045)
     }()
-    case .shutDownResponse?: try {
-      guard case .shutDownResponse(let v)? = self.payload else { preconditionFailure() }
+    case .shutdownResponse?: try {
+      guard case .shutdownResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1046)
     }()
     case .getHeadersRequest?: try {
@@ -3305,24 +4123,24 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
       guard case .getUtxosByAddressesResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1053)
     }()
-    case .getVirtualSelectedParentBlueScoreRequest?: try {
-      guard case .getVirtualSelectedParentBlueScoreRequest(let v)? = self.payload else { preconditionFailure() }
+    case .getSinkBlueScoreRequest?: try {
+      guard case .getSinkBlueScoreRequest(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1054)
     }()
-    case .getVirtualSelectedParentBlueScoreResponse?: try {
-      guard case .getVirtualSelectedParentBlueScoreResponse(let v)? = self.payload else { preconditionFailure() }
+    case .getSinkBlueScoreResponse?: try {
+      guard case .getSinkBlueScoreResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1055)
     }()
-    case .notifyVirtualSelectedParentBlueScoreChangedRequest?: try {
-      guard case .notifyVirtualSelectedParentBlueScoreChangedRequest(let v)? = self.payload else { preconditionFailure() }
+    case .notifySinkBlueScoreChangedRequest?: try {
+      guard case .notifySinkBlueScoreChangedRequest(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1056)
     }()
-    case .notifyVirtualSelectedParentBlueScoreChangedResponse?: try {
-      guard case .notifyVirtualSelectedParentBlueScoreChangedResponse(let v)? = self.payload else { preconditionFailure() }
+    case .notifySinkBlueScoreChangedResponse?: try {
+      guard case .notifySinkBlueScoreChangedResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1057)
     }()
-    case .virtualSelectedParentBlueScoreChangedNotification?: try {
-      guard case .virtualSelectedParentBlueScoreChangedNotification(let v)? = self.payload else { preconditionFailure() }
+    case .sinkBlueScoreChangedNotification?: try {
+      guard case .sinkBlueScoreChangedNotification(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1058)
     }()
     case .banRequest?: try {
@@ -3357,24 +4175,24 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
       guard case .stopNotifyingUtxosChangedResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1066)
     }()
-    case .notifyPruningPointUtxosetOverrideRequest?: try {
-      guard case .notifyPruningPointUtxosetOverrideRequest(let v)? = self.payload else { preconditionFailure() }
+    case .notifyPruningPointUtxoSetOverrideRequest?: try {
+      guard case .notifyPruningPointUtxoSetOverrideRequest(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1067)
     }()
-    case .notifyPruningPointUtxosetOverrideResponse?: try {
-      guard case .notifyPruningPointUtxosetOverrideResponse(let v)? = self.payload else { preconditionFailure() }
+    case .notifyPruningPointUtxoSetOverrideResponse?: try {
+      guard case .notifyPruningPointUtxoSetOverrideResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1068)
     }()
-    case .pruningPointUtxosetOverrideNotification?: try {
-      guard case .pruningPointUtxosetOverrideNotification(let v)? = self.payload else { preconditionFailure() }
+    case .pruningPointUtxoSetOverrideNotification?: try {
+      guard case .pruningPointUtxoSetOverrideNotification(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1069)
     }()
-    case .stopNotifyingPruningPointUtxosetOverrideRequest?: try {
-      guard case .stopNotifyingPruningPointUtxosetOverrideRequest(let v)? = self.payload else { preconditionFailure() }
+    case .stopNotifyingPruningPointUtxoSetOverrideRequest?: try {
+      guard case .stopNotifyingPruningPointUtxoSetOverrideRequest(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1070)
     }()
-    case .stopNotifyingPruningPointUtxosetOverrideResponse?: try {
-      guard case .stopNotifyingPruningPointUtxosetOverrideResponse(let v)? = self.payload else { preconditionFailure() }
+    case .stopNotifyingPruningPointUtxoSetOverrideResponse?: try {
+      guard case .stopNotifyingPruningPointUtxoSetOverrideResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1071)
     }()
     case .estimateNetworkHashesPerSecondRequest?: try {
@@ -3440,6 +4258,126 @@ extension Protowire_KaspadMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
     case .getCoinSupplyResponse?: try {
       guard case .getCoinSupplyResponse(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1087)
+    }()
+    case .pingRequest?: try {
+      guard case .pingRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1088)
+    }()
+    case .pingResponse?: try {
+      guard case .pingResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1089)
+    }()
+    case .getMetricsRequest?: try {
+      guard case .getMetricsRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1090)
+    }()
+    case .getMetricsResponse?: try {
+      guard case .getMetricsResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1091)
+    }()
+    case .getServerInfoRequest?: try {
+      guard case .getServerInfoRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1092)
+    }()
+    case .getServerInfoResponse?: try {
+      guard case .getServerInfoResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1093)
+    }()
+    case .getSyncStatusRequest?: try {
+      guard case .getSyncStatusRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1094)
+    }()
+    case .getSyncStatusResponse?: try {
+      guard case .getSyncStatusResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1095)
+    }()
+    case .getDaaScoreTimestampEstimateRequest?: try {
+      guard case .getDaaScoreTimestampEstimateRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1096)
+    }()
+    case .getDaaScoreTimestampEstimateResponse?: try {
+      guard case .getDaaScoreTimestampEstimateResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1097)
+    }()
+    case .submitTransactionReplacementRequest?: try {
+      guard case .submitTransactionReplacementRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1100)
+    }()
+    case .submitTransactionReplacementResponse?: try {
+      guard case .submitTransactionReplacementResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1101)
+    }()
+    case .getConnectionsRequest?: try {
+      guard case .getConnectionsRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1102)
+    }()
+    case .getConnectionsResponse?: try {
+      guard case .getConnectionsResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1103)
+    }()
+    case .getSystemInfoRequest?: try {
+      guard case .getSystemInfoRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1104)
+    }()
+    case .getSystemInfoResponse?: try {
+      guard case .getSystemInfoResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1105)
+    }()
+    case .getFeeEstimateRequest?: try {
+      guard case .getFeeEstimateRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1106)
+    }()
+    case .getFeeEstimateResponse?: try {
+      guard case .getFeeEstimateResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1107)
+    }()
+    case .getFeeEstimateExperimentalRequest?: try {
+      guard case .getFeeEstimateExperimentalRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1108)
+    }()
+    case .getFeeEstimateExperimentalResponse?: try {
+      guard case .getFeeEstimateExperimentalResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1109)
+    }()
+    case .getCurrentBlockColorRequest?: try {
+      guard case .getCurrentBlockColorRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1110)
+    }()
+    case .getCurrentBlockColorResponse?: try {
+      guard case .getCurrentBlockColorResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1111)
+    }()
+    case .getUtxoReturnAddressRequest?: try {
+      guard case .getUtxoReturnAddressRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1112)
+    }()
+    case .getUtxoReturnAddressResponse?: try {
+      guard case .getUtxoReturnAddressResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1113)
+    }()
+    case .getVirtualChainFromBlockV2Request?: try {
+      guard case .getVirtualChainFromBlockV2Request(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1114)
+    }()
+    case .getVirtualChainFromBlockV2Response?: try {
+      guard case .getVirtualChainFromBlockV2Response(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1115)
+    }()
+    case .getBlockRewardInfoRequest?: try {
+      guard case .getBlockRewardInfoRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1116)
+    }()
+    case .getBlockRewardInfoResponse?: try {
+      guard case .getBlockRewardInfoResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1117)
+    }()
+    case .getSeqCommitLaneProofRequest?: try {
+      guard case .getSeqCommitLaneProofRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1118)
+    }()
+    case .getSeqCommitLaneProofResponse?: try {
+      guard case .getSeqCommitLaneProofResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1119)
     }()
     case nil: break
     }

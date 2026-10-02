@@ -8,7 +8,11 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -16,12 +20,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-struct Protowire_RequestAddressesMessage: Sendable {
+nonisolated struct Protowire_RequestAddressesMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -29,11 +33,11 @@ struct Protowire_RequestAddressesMessage: Sendable {
   var includeAllSubnetworks: Bool = false
 
   var subnetworkID: Protowire_SubnetworkId {
-    get {return _subnetworkID ?? Protowire_SubnetworkId()}
+    get {_subnetworkID ?? Protowire_SubnetworkId()}
     set {_subnetworkID = newValue}
   }
   /// Returns true if `subnetworkID` has been explicitly set.
-  var hasSubnetworkID: Bool {return self._subnetworkID != nil}
+  var hasSubnetworkID: Bool {self._subnetworkID != nil}
   /// Clears the value of `subnetworkID`. Subsequent reads from it will return its default value.
   mutating func clearSubnetworkID() {self._subnetworkID = nil}
 
@@ -44,7 +48,7 @@ struct Protowire_RequestAddressesMessage: Sendable {
   fileprivate var _subnetworkID: Protowire_SubnetworkId? = nil
 }
 
-struct Protowire_AddressesMessage: Sendable {
+nonisolated struct Protowire_AddressesMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -56,7 +60,7 @@ struct Protowire_AddressesMessage: Sendable {
   init() {}
 }
 
-struct Protowire_NetAddress: Sendable {
+nonisolated struct Protowire_NetAddress: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -72,7 +76,7 @@ struct Protowire_NetAddress: Sendable {
   init() {}
 }
 
-struct Protowire_SubnetworkId: Sendable {
+nonisolated struct Protowire_SubnetworkId: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -84,7 +88,7 @@ struct Protowire_SubnetworkId: Sendable {
   init() {}
 }
 
-struct Protowire_TransactionMessage: Sendable {
+nonisolated struct Protowire_TransactionMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -98,17 +102,19 @@ struct Protowire_TransactionMessage: Sendable {
   var lockTime: UInt64 = 0
 
   var subnetworkID: Protowire_SubnetworkId {
-    get {return _subnetworkID ?? Protowire_SubnetworkId()}
+    get {_subnetworkID ?? Protowire_SubnetworkId()}
     set {_subnetworkID = newValue}
   }
   /// Returns true if `subnetworkID` has been explicitly set.
-  var hasSubnetworkID: Bool {return self._subnetworkID != nil}
+  var hasSubnetworkID: Bool {self._subnetworkID != nil}
   /// Clears the value of `subnetworkID`. Subsequent reads from it will return its default value.
   mutating func clearSubnetworkID() {self._subnetworkID = nil}
 
   var gas: UInt64 = 0
 
   var payload: Data = Data()
+
+  var storageMass: UInt64 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -117,17 +123,17 @@ struct Protowire_TransactionMessage: Sendable {
   fileprivate var _subnetworkID: Protowire_SubnetworkId? = nil
 }
 
-struct Protowire_TransactionInput: Sendable {
+nonisolated struct Protowire_TransactionInput: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var previousOutpoint: Protowire_Outpoint {
-    get {return _previousOutpoint ?? Protowire_Outpoint()}
+    get {_previousOutpoint ?? Protowire_Outpoint()}
     set {_previousOutpoint = newValue}
   }
   /// Returns true if `previousOutpoint` has been explicitly set.
-  var hasPreviousOutpoint: Bool {return self._previousOutpoint != nil}
+  var hasPreviousOutpoint: Bool {self._previousOutpoint != nil}
   /// Clears the value of `previousOutpoint`. Subsequent reads from it will return its default value.
   mutating func clearPreviousOutpoint() {self._previousOutpoint = nil}
 
@@ -135,7 +141,7 @@ struct Protowire_TransactionInput: Sendable {
 
   var sequence: UInt64 = 0
 
-  var sigOpCount: UInt32 = 0
+  var computeCommit: UInt32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -144,17 +150,17 @@ struct Protowire_TransactionInput: Sendable {
   fileprivate var _previousOutpoint: Protowire_Outpoint? = nil
 }
 
-struct Protowire_Outpoint: Sendable {
+nonisolated struct Protowire_Outpoint: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var transactionID: Protowire_TransactionId {
-    get {return _transactionID ?? Protowire_TransactionId()}
+    get {_transactionID ?? Protowire_TransactionId()}
     set {_transactionID = newValue}
   }
   /// Returns true if `transactionID` has been explicitly set.
-  var hasTransactionID: Bool {return self._transactionID != nil}
+  var hasTransactionID: Bool {self._transactionID != nil}
   /// Clears the value of `transactionID`. Subsequent reads from it will return its default value.
   mutating func clearTransactionID() {self._transactionID = nil}
 
@@ -167,7 +173,7 @@ struct Protowire_Outpoint: Sendable {
   fileprivate var _transactionID: Protowire_TransactionId? = nil
 }
 
-struct Protowire_TransactionId: Sendable {
+nonisolated struct Protowire_TransactionId: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -179,7 +185,7 @@ struct Protowire_TransactionId: Sendable {
   init() {}
 }
 
-struct Protowire_ScriptPublicKey: Sendable {
+nonisolated struct Protowire_ScriptPublicKey: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -193,7 +199,30 @@ struct Protowire_ScriptPublicKey: Sendable {
   init() {}
 }
 
-struct Protowire_TransactionOutput: Sendable {
+nonisolated struct Protowire_CovenantBinding: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var authorizingInput: UInt32 = 0
+
+  var covenantID: Protowire_Hash {
+    get {_covenantID ?? Protowire_Hash()}
+    set {_covenantID = newValue}
+  }
+  /// Returns true if `covenantID` has been explicitly set.
+  var hasCovenantID: Bool {self._covenantID != nil}
+  /// Clears the value of `covenantID`. Subsequent reads from it will return its default value.
+  mutating func clearCovenantID() {self._covenantID = nil}
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+
+  fileprivate var _covenantID: Protowire_Hash? = nil
+}
+
+nonisolated struct Protowire_TransactionOutput: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -201,32 +230,42 @@ struct Protowire_TransactionOutput: Sendable {
   var value: UInt64 = 0
 
   var scriptPublicKey: Protowire_ScriptPublicKey {
-    get {return _scriptPublicKey ?? Protowire_ScriptPublicKey()}
+    get {_scriptPublicKey ?? Protowire_ScriptPublicKey()}
     set {_scriptPublicKey = newValue}
   }
   /// Returns true if `scriptPublicKey` has been explicitly set.
-  var hasScriptPublicKey: Bool {return self._scriptPublicKey != nil}
+  var hasScriptPublicKey: Bool {self._scriptPublicKey != nil}
   /// Clears the value of `scriptPublicKey`. Subsequent reads from it will return its default value.
   mutating func clearScriptPublicKey() {self._scriptPublicKey = nil}
+
+  var covenant: Protowire_CovenantBinding {
+    get {_covenant ?? Protowire_CovenantBinding()}
+    set {_covenant = newValue}
+  }
+  /// Returns true if `covenant` has been explicitly set.
+  var hasCovenant: Bool {self._covenant != nil}
+  /// Clears the value of `covenant`. Subsequent reads from it will return its default value.
+  mutating func clearCovenant() {self._covenant = nil}
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 
   fileprivate var _scriptPublicKey: Protowire_ScriptPublicKey? = nil
+  fileprivate var _covenant: Protowire_CovenantBinding? = nil
 }
 
-struct Protowire_BlockMessage: Sendable {
+nonisolated struct Protowire_BlockMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var header: Protowire_BlockHeader {
-    get {return _header ?? Protowire_BlockHeader()}
+    get {_header ?? Protowire_BlockHeader()}
     set {_header = newValue}
   }
   /// Returns true if `header` has been explicitly set.
-  var hasHeader: Bool {return self._header != nil}
+  var hasHeader: Bool {self._header != nil}
   /// Clears the value of `header`. Subsequent reads from it will return its default value.
   mutating func clearHeader() {self._header = nil}
 
@@ -239,7 +278,19 @@ struct Protowire_BlockMessage: Sendable {
   fileprivate var _header: Protowire_BlockHeader? = nil
 }
 
-struct Protowire_BlockHeader: Sendable {
+nonisolated struct Protowire_BlockBodyMessage: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var transactions: [Protowire_TransactionMessage] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Protowire_BlockHeader: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -249,29 +300,29 @@ struct Protowire_BlockHeader: Sendable {
   var parents: [Protowire_BlockLevelParents] = []
 
   var hashMerkleRoot: Protowire_Hash {
-    get {return _hashMerkleRoot ?? Protowire_Hash()}
+    get {_hashMerkleRoot ?? Protowire_Hash()}
     set {_hashMerkleRoot = newValue}
   }
   /// Returns true if `hashMerkleRoot` has been explicitly set.
-  var hasHashMerkleRoot: Bool {return self._hashMerkleRoot != nil}
+  var hasHashMerkleRoot: Bool {self._hashMerkleRoot != nil}
   /// Clears the value of `hashMerkleRoot`. Subsequent reads from it will return its default value.
   mutating func clearHashMerkleRoot() {self._hashMerkleRoot = nil}
 
   var acceptedIDMerkleRoot: Protowire_Hash {
-    get {return _acceptedIDMerkleRoot ?? Protowire_Hash()}
+    get {_acceptedIDMerkleRoot ?? Protowire_Hash()}
     set {_acceptedIDMerkleRoot = newValue}
   }
   /// Returns true if `acceptedIDMerkleRoot` has been explicitly set.
-  var hasAcceptedIDMerkleRoot: Bool {return self._acceptedIDMerkleRoot != nil}
+  var hasAcceptedIDMerkleRoot: Bool {self._acceptedIDMerkleRoot != nil}
   /// Clears the value of `acceptedIDMerkleRoot`. Subsequent reads from it will return its default value.
   mutating func clearAcceptedIDMerkleRoot() {self._acceptedIDMerkleRoot = nil}
 
   var utxoCommitment: Protowire_Hash {
-    get {return _utxoCommitment ?? Protowire_Hash()}
+    get {_utxoCommitment ?? Protowire_Hash()}
     set {_utxoCommitment = newValue}
   }
   /// Returns true if `utxoCommitment` has been explicitly set.
-  var hasUtxoCommitment: Bool {return self._utxoCommitment != nil}
+  var hasUtxoCommitment: Bool {self._utxoCommitment != nil}
   /// Clears the value of `utxoCommitment`. Subsequent reads from it will return its default value.
   mutating func clearUtxoCommitment() {self._utxoCommitment = nil}
 
@@ -286,11 +337,11 @@ struct Protowire_BlockHeader: Sendable {
   var blueWork: Data = Data()
 
   var pruningPoint: Protowire_Hash {
-    get {return _pruningPoint ?? Protowire_Hash()}
+    get {_pruningPoint ?? Protowire_Hash()}
     set {_pruningPoint = newValue}
   }
   /// Returns true if `pruningPoint` has been explicitly set.
-  var hasPruningPoint: Bool {return self._pruningPoint != nil}
+  var hasPruningPoint: Bool {self._pruningPoint != nil}
   /// Clears the value of `pruningPoint`. Subsequent reads from it will return its default value.
   mutating func clearPruningPoint() {self._pruningPoint = nil}
 
@@ -306,19 +357,21 @@ struct Protowire_BlockHeader: Sendable {
   fileprivate var _pruningPoint: Protowire_Hash? = nil
 }
 
-struct Protowire_BlockLevelParents: Sendable {
+nonisolated struct Protowire_BlockLevelParents: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var parentHashes: [Protowire_Hash] = []
 
+  var cumulativeLevel: UInt32 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 }
 
-struct Protowire_Hash: Sendable {
+nonisolated struct Protowire_Hash: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -330,17 +383,17 @@ struct Protowire_Hash: Sendable {
   init() {}
 }
 
-struct Protowire_RequestBlockLocatorMessage: Sendable {
+nonisolated struct Protowire_RequestBlockLocatorMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var highHash: Protowire_Hash {
-    get {return _highHash ?? Protowire_Hash()}
+    get {_highHash ?? Protowire_Hash()}
     set {_highHash = newValue}
   }
   /// Returns true if `highHash` has been explicitly set.
-  var hasHighHash: Bool {return self._highHash != nil}
+  var hasHighHash: Bool {self._highHash != nil}
   /// Clears the value of `highHash`. Subsequent reads from it will return its default value.
   mutating func clearHighHash() {self._highHash = nil}
 
@@ -353,7 +406,7 @@ struct Protowire_RequestBlockLocatorMessage: Sendable {
   fileprivate var _highHash: Protowire_Hash? = nil
 }
 
-struct Protowire_BlockLocatorMessage: Sendable {
+nonisolated struct Protowire_BlockLocatorMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -365,26 +418,26 @@ struct Protowire_BlockLocatorMessage: Sendable {
   init() {}
 }
 
-struct Protowire_RequestHeadersMessage: Sendable {
+nonisolated struct Protowire_RequestHeadersMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var lowHash: Protowire_Hash {
-    get {return _lowHash ?? Protowire_Hash()}
+    get {_lowHash ?? Protowire_Hash()}
     set {_lowHash = newValue}
   }
   /// Returns true if `lowHash` has been explicitly set.
-  var hasLowHash: Bool {return self._lowHash != nil}
+  var hasLowHash: Bool {self._lowHash != nil}
   /// Clears the value of `lowHash`. Subsequent reads from it will return its default value.
   mutating func clearLowHash() {self._lowHash = nil}
 
   var highHash: Protowire_Hash {
-    get {return _highHash ?? Protowire_Hash()}
+    get {_highHash ?? Protowire_Hash()}
     set {_highHash = newValue}
   }
   /// Returns true if `highHash` has been explicitly set.
-  var hasHighHash: Bool {return self._highHash != nil}
+  var hasHighHash: Bool {self._highHash != nil}
   /// Clears the value of `highHash`. Subsequent reads from it will return its default value.
   mutating func clearHighHash() {self._highHash = nil}
 
@@ -396,7 +449,7 @@ struct Protowire_RequestHeadersMessage: Sendable {
   fileprivate var _highHash: Protowire_Hash? = nil
 }
 
-struct Protowire_RequestNextHeadersMessage: Sendable {
+nonisolated struct Protowire_RequestNextHeadersMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -406,7 +459,7 @@ struct Protowire_RequestNextHeadersMessage: Sendable {
   init() {}
 }
 
-struct Protowire_DoneHeadersMessage: Sendable {
+nonisolated struct Protowire_DoneHeadersMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -416,7 +469,7 @@ struct Protowire_DoneHeadersMessage: Sendable {
   init() {}
 }
 
-struct Protowire_RequestRelayBlocksMessage: Sendable {
+nonisolated struct Protowire_RequestRelayBlocksMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -428,7 +481,7 @@ struct Protowire_RequestRelayBlocksMessage: Sendable {
   init() {}
 }
 
-struct Protowire_RequestTransactionsMessage: Sendable {
+nonisolated struct Protowire_RequestTransactionsMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -440,17 +493,17 @@ struct Protowire_RequestTransactionsMessage: Sendable {
   init() {}
 }
 
-struct Protowire_TransactionNotFoundMessage: Sendable {
+nonisolated struct Protowire_TransactionNotFoundMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var id: Protowire_TransactionId {
-    get {return _id ?? Protowire_TransactionId()}
+    get {_id ?? Protowire_TransactionId()}
     set {_id = newValue}
   }
   /// Returns true if `id` has been explicitly set.
-  var hasID: Bool {return self._id != nil}
+  var hasID: Bool {self._id != nil}
   /// Clears the value of `id`. Subsequent reads from it will return its default value.
   mutating func clearID() {self._id = nil}
 
@@ -461,17 +514,17 @@ struct Protowire_TransactionNotFoundMessage: Sendable {
   fileprivate var _id: Protowire_TransactionId? = nil
 }
 
-struct Protowire_InvRelayBlockMessage: Sendable {
+nonisolated struct Protowire_InvRelayBlockMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var hash: Protowire_Hash {
-    get {return _hash ?? Protowire_Hash()}
+    get {_hash ?? Protowire_Hash()}
     set {_hash = newValue}
   }
   /// Returns true if `hash` has been explicitly set.
-  var hasHash: Bool {return self._hash != nil}
+  var hasHash: Bool {self._hash != nil}
   /// Clears the value of `hash`. Subsequent reads from it will return its default value.
   mutating func clearHash() {self._hash = nil}
 
@@ -482,7 +535,7 @@ struct Protowire_InvRelayBlockMessage: Sendable {
   fileprivate var _hash: Protowire_Hash? = nil
 }
 
-struct Protowire_InvTransactionsMessage: Sendable {
+nonisolated struct Protowire_InvTransactionsMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -494,7 +547,7 @@ struct Protowire_InvTransactionsMessage: Sendable {
   init() {}
 }
 
-struct Protowire_PingMessage: Sendable {
+nonisolated struct Protowire_PingMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -506,7 +559,7 @@ struct Protowire_PingMessage: Sendable {
   init() {}
 }
 
-struct Protowire_PongMessage: Sendable {
+nonisolated struct Protowire_PongMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -518,7 +571,7 @@ struct Protowire_PongMessage: Sendable {
   init() {}
 }
 
-struct Protowire_VerackMessage: Sendable {
+nonisolated struct Protowire_VerackMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -528,7 +581,7 @@ struct Protowire_VerackMessage: Sendable {
   init() {}
 }
 
-struct Protowire_VersionMessage: Sendable {
+nonisolated struct Protowire_VersionMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -540,11 +593,11 @@ struct Protowire_VersionMessage: Sendable {
   var timestamp: Int64 = 0
 
   var address: Protowire_NetAddress {
-    get {return _address ?? Protowire_NetAddress()}
+    get {_address ?? Protowire_NetAddress()}
     set {_address = newValue}
   }
   /// Returns true if `address` has been explicitly set.
-  var hasAddress: Bool {return self._address != nil}
+  var hasAddress: Bool {self._address != nil}
   /// Clears the value of `address`. Subsequent reads from it will return its default value.
   mutating func clearAddress() {self._address = nil}
 
@@ -555,11 +608,11 @@ struct Protowire_VersionMessage: Sendable {
   var disableRelayTx: Bool = false
 
   var subnetworkID: Protowire_SubnetworkId {
-    get {return _subnetworkID ?? Protowire_SubnetworkId()}
+    get {_subnetworkID ?? Protowire_SubnetworkId()}
     set {_subnetworkID = newValue}
   }
   /// Returns true if `subnetworkID` has been explicitly set.
-  var hasSubnetworkID: Bool {return self._subnetworkID != nil}
+  var hasSubnetworkID: Bool {self._subnetworkID != nil}
   /// Clears the value of `subnetworkID`. Subsequent reads from it will return its default value.
   mutating func clearSubnetworkID() {self._subnetworkID = nil}
 
@@ -573,7 +626,7 @@ struct Protowire_VersionMessage: Sendable {
   fileprivate var _subnetworkID: Protowire_SubnetworkId? = nil
 }
 
-struct Protowire_RejectMessage: Sendable {
+nonisolated struct Protowire_RejectMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -585,17 +638,17 @@ struct Protowire_RejectMessage: Sendable {
   init() {}
 }
 
-struct Protowire_RequestPruningPointUTXOSetMessage: Sendable {
+nonisolated struct Protowire_RequestPruningPointUTXOSetMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var pruningPointHash: Protowire_Hash {
-    get {return _pruningPointHash ?? Protowire_Hash()}
+    get {_pruningPointHash ?? Protowire_Hash()}
     set {_pruningPointHash = newValue}
   }
   /// Returns true if `pruningPointHash` has been explicitly set.
-  var hasPruningPointHash: Bool {return self._pruningPointHash != nil}
+  var hasPruningPointHash: Bool {self._pruningPointHash != nil}
   /// Clears the value of `pruningPointHash`. Subsequent reads from it will return its default value.
   mutating func clearPruningPointHash() {self._pruningPointHash = nil}
 
@@ -606,7 +659,7 @@ struct Protowire_RequestPruningPointUTXOSetMessage: Sendable {
   fileprivate var _pruningPointHash: Protowire_Hash? = nil
 }
 
-struct Protowire_PruningPointUtxoSetChunkMessage: Sendable {
+nonisolated struct Protowire_PruningPointUtxoSetChunkMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -618,26 +671,26 @@ struct Protowire_PruningPointUtxoSetChunkMessage: Sendable {
   init() {}
 }
 
-struct Protowire_OutpointAndUtxoEntryPair: Sendable {
+nonisolated struct Protowire_OutpointAndUtxoEntryPair: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var outpoint: Protowire_Outpoint {
-    get {return _outpoint ?? Protowire_Outpoint()}
+    get {_outpoint ?? Protowire_Outpoint()}
     set {_outpoint = newValue}
   }
   /// Returns true if `outpoint` has been explicitly set.
-  var hasOutpoint: Bool {return self._outpoint != nil}
+  var hasOutpoint: Bool {self._outpoint != nil}
   /// Clears the value of `outpoint`. Subsequent reads from it will return its default value.
   mutating func clearOutpoint() {self._outpoint = nil}
 
   var utxoEntry: Protowire_UtxoEntry {
-    get {return _utxoEntry ?? Protowire_UtxoEntry()}
+    get {_utxoEntry ?? Protowire_UtxoEntry()}
     set {_utxoEntry = newValue}
   }
   /// Returns true if `utxoEntry` has been explicitly set.
-  var hasUtxoEntry: Bool {return self._utxoEntry != nil}
+  var hasUtxoEntry: Bool {self._utxoEntry != nil}
   /// Clears the value of `utxoEntry`. Subsequent reads from it will return its default value.
   mutating func clearUtxoEntry() {self._utxoEntry = nil}
 
@@ -649,7 +702,7 @@ struct Protowire_OutpointAndUtxoEntryPair: Sendable {
   fileprivate var _utxoEntry: Protowire_UtxoEntry? = nil
 }
 
-struct Protowire_UtxoEntry: Sendable {
+nonisolated struct Protowire_UtxoEntry: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -657,11 +710,11 @@ struct Protowire_UtxoEntry: Sendable {
   var amount: UInt64 = 0
 
   var scriptPublicKey: Protowire_ScriptPublicKey {
-    get {return _scriptPublicKey ?? Protowire_ScriptPublicKey()}
+    get {_scriptPublicKey ?? Protowire_ScriptPublicKey()}
     set {_scriptPublicKey = newValue}
   }
   /// Returns true if `scriptPublicKey` has been explicitly set.
-  var hasScriptPublicKey: Bool {return self._scriptPublicKey != nil}
+  var hasScriptPublicKey: Bool {self._scriptPublicKey != nil}
   /// Clears the value of `scriptPublicKey`. Subsequent reads from it will return its default value.
   mutating func clearScriptPublicKey() {self._scriptPublicKey = nil}
 
@@ -669,14 +722,24 @@ struct Protowire_UtxoEntry: Sendable {
 
   var isCoinbase: Bool = false
 
+  var covenantID: Protowire_Hash {
+    get {_covenantID ?? Protowire_Hash()}
+    set {_covenantID = newValue}
+  }
+  /// Returns true if `covenantID` has been explicitly set.
+  var hasCovenantID: Bool {self._covenantID != nil}
+  /// Clears the value of `covenantID`. Subsequent reads from it will return its default value.
+  mutating func clearCovenantID() {self._covenantID = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 
   fileprivate var _scriptPublicKey: Protowire_ScriptPublicKey? = nil
+  fileprivate var _covenantID: Protowire_Hash? = nil
 }
 
-struct Protowire_RequestNextPruningPointUtxoSetChunkMessage: Sendable {
+nonisolated struct Protowire_RequestNextPruningPointUtxoSetChunkMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -686,7 +749,7 @@ struct Protowire_RequestNextPruningPointUtxoSetChunkMessage: Sendable {
   init() {}
 }
 
-struct Protowire_DonePruningPointUtxoSetChunksMessage: Sendable {
+nonisolated struct Protowire_DonePruningPointUtxoSetChunksMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -696,7 +759,7 @@ struct Protowire_DonePruningPointUtxoSetChunksMessage: Sendable {
   init() {}
 }
 
-struct Protowire_RequestIBDBlocksMessage: Sendable {
+nonisolated struct Protowire_RequestIBDBlocksMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -708,7 +771,19 @@ struct Protowire_RequestIBDBlocksMessage: Sendable {
   init() {}
 }
 
-struct Protowire_UnexpectedPruningPointMessage: Sendable {
+nonisolated struct Protowire_RequestBlockBodiesMessage: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var hashes: [Protowire_Hash] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Protowire_UnexpectedPruningPointMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -718,17 +793,17 @@ struct Protowire_UnexpectedPruningPointMessage: Sendable {
   init() {}
 }
 
-struct Protowire_IbdBlockLocatorMessage: Sendable {
+nonisolated struct Protowire_IbdBlockLocatorMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var targetHash: Protowire_Hash {
-    get {return _targetHash ?? Protowire_Hash()}
+    get {_targetHash ?? Protowire_Hash()}
     set {_targetHash = newValue}
   }
   /// Returns true if `targetHash` has been explicitly set.
-  var hasTargetHash: Bool {return self._targetHash != nil}
+  var hasTargetHash: Bool {self._targetHash != nil}
   /// Clears the value of `targetHash`. Subsequent reads from it will return its default value.
   mutating func clearTargetHash() {self._targetHash = nil}
 
@@ -741,26 +816,26 @@ struct Protowire_IbdBlockLocatorMessage: Sendable {
   fileprivate var _targetHash: Protowire_Hash? = nil
 }
 
-struct Protowire_RequestIBDChainBlockLocatorMessage: Sendable {
+nonisolated struct Protowire_RequestIBDChainBlockLocatorMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var lowHash: Protowire_Hash {
-    get {return _lowHash ?? Protowire_Hash()}
+    get {_lowHash ?? Protowire_Hash()}
     set {_lowHash = newValue}
   }
   /// Returns true if `lowHash` has been explicitly set.
-  var hasLowHash: Bool {return self._lowHash != nil}
+  var hasLowHash: Bool {self._lowHash != nil}
   /// Clears the value of `lowHash`. Subsequent reads from it will return its default value.
   mutating func clearLowHash() {self._lowHash = nil}
 
   var highHash: Protowire_Hash {
-    get {return _highHash ?? Protowire_Hash()}
+    get {_highHash ?? Protowire_Hash()}
     set {_highHash = newValue}
   }
   /// Returns true if `highHash` has been explicitly set.
-  var hasHighHash: Bool {return self._highHash != nil}
+  var hasHighHash: Bool {self._highHash != nil}
   /// Clears the value of `highHash`. Subsequent reads from it will return its default value.
   mutating func clearHighHash() {self._highHash = nil}
 
@@ -772,7 +847,7 @@ struct Protowire_RequestIBDChainBlockLocatorMessage: Sendable {
   fileprivate var _highHash: Protowire_Hash? = nil
 }
 
-struct Protowire_IbdChainBlockLocatorMessage: Sendable {
+nonisolated struct Protowire_IbdChainBlockLocatorMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -784,26 +859,27 @@ struct Protowire_IbdChainBlockLocatorMessage: Sendable {
   init() {}
 }
 
-struct Protowire_RequestAnticoneMessage: Sendable {
+/// Legacy name of this message is `RequestAnticoneMessage`
+nonisolated struct Protowire_RequestAntipastMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var blockHash: Protowire_Hash {
-    get {return _blockHash ?? Protowire_Hash()}
+    get {_blockHash ?? Protowire_Hash()}
     set {_blockHash = newValue}
   }
   /// Returns true if `blockHash` has been explicitly set.
-  var hasBlockHash: Bool {return self._blockHash != nil}
+  var hasBlockHash: Bool {self._blockHash != nil}
   /// Clears the value of `blockHash`. Subsequent reads from it will return its default value.
   mutating func clearBlockHash() {self._blockHash = nil}
 
   var contextHash: Protowire_Hash {
-    get {return _contextHash ?? Protowire_Hash()}
+    get {_contextHash ?? Protowire_Hash()}
     set {_contextHash = newValue}
   }
   /// Returns true if `contextHash` has been explicitly set.
-  var hasContextHash: Bool {return self._contextHash != nil}
+  var hasContextHash: Bool {self._contextHash != nil}
   /// Clears the value of `contextHash`. Subsequent reads from it will return its default value.
   mutating func clearContextHash() {self._contextHash = nil}
 
@@ -815,17 +891,17 @@ struct Protowire_RequestAnticoneMessage: Sendable {
   fileprivate var _contextHash: Protowire_Hash? = nil
 }
 
-struct Protowire_IbdBlockLocatorHighestHashMessage: Sendable {
+nonisolated struct Protowire_IbdBlockLocatorHighestHashMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var highestHash: Protowire_Hash {
-    get {return _highestHash ?? Protowire_Hash()}
+    get {_highestHash ?? Protowire_Hash()}
     set {_highestHash = newValue}
   }
   /// Returns true if `highestHash` has been explicitly set.
-  var hasHighestHash: Bool {return self._highestHash != nil}
+  var hasHighestHash: Bool {self._highestHash != nil}
   /// Clears the value of `highestHash`. Subsequent reads from it will return its default value.
   mutating func clearHighestHash() {self._highestHash = nil}
 
@@ -836,7 +912,7 @@ struct Protowire_IbdBlockLocatorHighestHashMessage: Sendable {
   fileprivate var _highestHash: Protowire_Hash? = nil
 }
 
-struct Protowire_IbdBlockLocatorHighestHashNotFoundMessage: Sendable {
+nonisolated struct Protowire_IbdBlockLocatorHighestHashNotFoundMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -846,7 +922,7 @@ struct Protowire_IbdBlockLocatorHighestHashNotFoundMessage: Sendable {
   init() {}
 }
 
-struct Protowire_BlockHeadersMessage: Sendable {
+nonisolated struct Protowire_BlockHeadersMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -858,7 +934,7 @@ struct Protowire_BlockHeadersMessage: Sendable {
   init() {}
 }
 
-struct Protowire_RequestPruningPointAndItsAnticoneMessage: Sendable {
+nonisolated struct Protowire_RequestPruningPointAndItsAnticoneMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -868,7 +944,7 @@ struct Protowire_RequestPruningPointAndItsAnticoneMessage: Sendable {
   init() {}
 }
 
-struct Protowire_RequestNextPruningPointAndItsAnticoneBlocksMessage: Sendable {
+nonisolated struct Protowire_RequestNextPruningPointAndItsAnticoneBlocksMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -878,17 +954,18 @@ struct Protowire_RequestNextPruningPointAndItsAnticoneBlocksMessage: Sendable {
   init() {}
 }
 
-struct Protowire_BlockWithTrustedDataMessage: Sendable {
+/// TODO: remove once v4 is obsolete
+nonisolated struct Protowire_BlockWithTrustedDataMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var block: Protowire_BlockMessage {
-    get {return _block ?? Protowire_BlockMessage()}
+    get {_block ?? Protowire_BlockMessage()}
     set {_block = newValue}
   }
   /// Returns true if `block` has been explicitly set.
-  var hasBlock: Bool {return self._block != nil}
+  var hasBlock: Bool {self._block != nil}
   /// Clears the value of `block`. Subsequent reads from it will return its default value.
   mutating func clearBlock() {self._block = nil}
 
@@ -905,26 +982,27 @@ struct Protowire_BlockWithTrustedDataMessage: Sendable {
   fileprivate var _block: Protowire_BlockMessage? = nil
 }
 
-struct Protowire_DaaBlock: @unchecked Sendable {
+/// TODO: rename to `TrustedBlock` once v5 is obsolete
+nonisolated struct Protowire_DaaBlock: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var block: Protowire_BlockMessage {
-    get {return _storage._block ?? Protowire_BlockMessage()}
+    get {_storage._block ?? Protowire_BlockMessage()}
     set {_uniqueStorage()._block = newValue}
   }
   /// Returns true if `block` has been explicitly set.
-  var hasBlock: Bool {return _storage._block != nil}
+  var hasBlock: Bool {_storage._block != nil}
   /// Clears the value of `block`. Subsequent reads from it will return its default value.
   mutating func clearBlock() {_uniqueStorage()._block = nil}
 
   var ghostdagData: Protowire_GhostdagData {
-    get {return _storage._ghostdagData ?? Protowire_GhostdagData()}
+    get {_storage._ghostdagData ?? Protowire_GhostdagData()}
     set {_uniqueStorage()._ghostdagData = newValue}
   }
   /// Returns true if `ghostdagData` has been explicitly set.
-  var hasGhostdagData: Bool {return _storage._ghostdagData != nil}
+  var hasGhostdagData: Bool {_storage._ghostdagData != nil}
   /// Clears the value of `ghostdagData`. Subsequent reads from it will return its default value.
   mutating func clearGhostdagData() {_uniqueStorage()._ghostdagData = nil}
 
@@ -935,26 +1013,27 @@ struct Protowire_DaaBlock: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-struct Protowire_DaaBlockV4: @unchecked Sendable {
+/// TODO: rename to `TrustedHeader` once v5 is obsolete
+nonisolated struct Protowire_DaaBlockV4: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var header: Protowire_BlockHeader {
-    get {return _storage._header ?? Protowire_BlockHeader()}
+    get {_storage._header ?? Protowire_BlockHeader()}
     set {_uniqueStorage()._header = newValue}
   }
   /// Returns true if `header` has been explicitly set.
-  var hasHeader: Bool {return _storage._header != nil}
+  var hasHeader: Bool {_storage._header != nil}
   /// Clears the value of `header`. Subsequent reads from it will return its default value.
   mutating func clearHeader() {_uniqueStorage()._header = nil}
 
   var ghostdagData: Protowire_GhostdagData {
-    get {return _storage._ghostdagData ?? Protowire_GhostdagData()}
+    get {_storage._ghostdagData ?? Protowire_GhostdagData()}
     set {_uniqueStorage()._ghostdagData = newValue}
   }
   /// Returns true if `ghostdagData` has been explicitly set.
-  var hasGhostdagData: Bool {return _storage._ghostdagData != nil}
+  var hasGhostdagData: Bool {_storage._ghostdagData != nil}
   /// Clears the value of `ghostdagData`. Subsequent reads from it will return its default value.
   mutating func clearGhostdagData() {_uniqueStorage()._ghostdagData = nil}
 
@@ -965,26 +1044,27 @@ struct Protowire_DaaBlockV4: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-struct Protowire_BlockGhostdagDataHashPair: Sendable {
+/// TODO: remove once v5 is obsolete
+nonisolated struct Protowire_BlockGhostdagDataHashPair: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var hash: Protowire_Hash {
-    get {return _hash ?? Protowire_Hash()}
+    get {_hash ?? Protowire_Hash()}
     set {_hash = newValue}
   }
   /// Returns true if `hash` has been explicitly set.
-  var hasHash: Bool {return self._hash != nil}
+  var hasHash: Bool {self._hash != nil}
   /// Clears the value of `hash`. Subsequent reads from it will return its default value.
   mutating func clearHash() {self._hash = nil}
 
   var ghostdagData: Protowire_GhostdagData {
-    get {return _ghostdagData ?? Protowire_GhostdagData()}
+    get {_ghostdagData ?? Protowire_GhostdagData()}
     set {_ghostdagData = newValue}
   }
   /// Returns true if `ghostdagData` has been explicitly set.
-  var hasGhostdagData: Bool {return self._ghostdagData != nil}
+  var hasGhostdagData: Bool {self._ghostdagData != nil}
   /// Clears the value of `ghostdagData`. Subsequent reads from it will return its default value.
   mutating func clearGhostdagData() {self._ghostdagData = nil}
 
@@ -996,7 +1076,7 @@ struct Protowire_BlockGhostdagDataHashPair: Sendable {
   fileprivate var _ghostdagData: Protowire_GhostdagData? = nil
 }
 
-struct Protowire_GhostdagData: Sendable {
+nonisolated struct Protowire_GhostdagData: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1006,11 +1086,11 @@ struct Protowire_GhostdagData: Sendable {
   var blueWork: Data = Data()
 
   var selectedParent: Protowire_Hash {
-    get {return _selectedParent ?? Protowire_Hash()}
+    get {_selectedParent ?? Protowire_Hash()}
     set {_selectedParent = newValue}
   }
   /// Returns true if `selectedParent` has been explicitly set.
-  var hasSelectedParent: Bool {return self._selectedParent != nil}
+  var hasSelectedParent: Bool {self._selectedParent != nil}
   /// Clears the value of `selectedParent`. Subsequent reads from it will return its default value.
   mutating func clearSelectedParent() {self._selectedParent = nil}
 
@@ -1027,17 +1107,17 @@ struct Protowire_GhostdagData: Sendable {
   fileprivate var _selectedParent: Protowire_Hash? = nil
 }
 
-struct Protowire_BluesAnticoneSizes: Sendable {
+nonisolated struct Protowire_BluesAnticoneSizes: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var blueHash: Protowire_Hash {
-    get {return _blueHash ?? Protowire_Hash()}
+    get {_blueHash ?? Protowire_Hash()}
     set {_blueHash = newValue}
   }
   /// Returns true if `blueHash` has been explicitly set.
-  var hasBlueHash: Bool {return self._blueHash != nil}
+  var hasBlueHash: Bool {self._blueHash != nil}
   /// Clears the value of `blueHash`. Subsequent reads from it will return its default value.
   mutating func clearBlueHash() {self._blueHash = nil}
 
@@ -1050,7 +1130,7 @@ struct Protowire_BluesAnticoneSizes: Sendable {
   fileprivate var _blueHash: Protowire_Hash? = nil
 }
 
-struct Protowire_DoneBlocksWithTrustedDataMessage: Sendable {
+nonisolated struct Protowire_DoneBlocksWithTrustedDataMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1060,7 +1140,7 @@ struct Protowire_DoneBlocksWithTrustedDataMessage: Sendable {
   init() {}
 }
 
-struct Protowire_PruningPointsMessage: Sendable {
+nonisolated struct Protowire_PruningPointsMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1072,7 +1152,7 @@ struct Protowire_PruningPointsMessage: Sendable {
   init() {}
 }
 
-struct Protowire_RequestPruningPointProofMessage: Sendable {
+nonisolated struct Protowire_RequestPruningPointProofMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1082,7 +1162,7 @@ struct Protowire_RequestPruningPointProofMessage: Sendable {
   init() {}
 }
 
-struct Protowire_PruningPointProofMessage: Sendable {
+nonisolated struct Protowire_PruningPointProofMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1094,7 +1174,7 @@ struct Protowire_PruningPointProofMessage: Sendable {
   init() {}
 }
 
-struct Protowire_PruningPointProofHeaderArray: Sendable {
+nonisolated struct Protowire_PruningPointProofHeaderArray: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1106,7 +1186,7 @@ struct Protowire_PruningPointProofHeaderArray: Sendable {
   init() {}
 }
 
-struct Protowire_ReadyMessage: Sendable {
+nonisolated struct Protowire_ReadyMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1116,22 +1196,24 @@ struct Protowire_ReadyMessage: Sendable {
   init() {}
 }
 
-struct Protowire_BlockWithTrustedDataV4Message: Sendable {
+nonisolated struct Protowire_BlockWithTrustedDataV4Message: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var block: Protowire_BlockMessage {
-    get {return _block ?? Protowire_BlockMessage()}
+    get {_block ?? Protowire_BlockMessage()}
     set {_block = newValue}
   }
   /// Returns true if `block` has been explicitly set.
-  var hasBlock: Bool {return self._block != nil}
+  var hasBlock: Bool {self._block != nil}
   /// Clears the value of `block`. Subsequent reads from it will return its default value.
   mutating func clearBlock() {self._block = nil}
 
+  /// TODO: remove once v5 is obsolete
   var daaWindowIndices: [UInt64] = []
 
+  /// TODO: remove once v5 is obsolete
   var ghostdagDataIndices: [UInt64] = []
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -1141,14 +1223,94 @@ struct Protowire_BlockWithTrustedDataV4Message: Sendable {
   fileprivate var _block: Protowire_BlockMessage? = nil
 }
 
-struct Protowire_TrustedDataMessage: Sendable {
+nonisolated struct Protowire_TrustedDataMessage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// TODO: rename to `trustedSubDag` once v5 is obsolete
   var daaWindow: [Protowire_DaaBlockV4] = []
 
+  /// TODO: remove once v5 is obsolete
   var ghostdagData: [Protowire_BlockGhostdagDataHashPair] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Protowire_RequestPruningPointSmtStateMessage: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var pruningPointHash: Protowire_Hash {
+    get {_pruningPointHash ?? Protowire_Hash()}
+    set {_pruningPointHash = newValue}
+  }
+  /// Returns true if `pruningPointHash` has been explicitly set.
+  var hasPruningPointHash: Bool {self._pruningPointHash != nil}
+  /// Clears the value of `pruningPointHash`. Subsequent reads from it will return its default value.
+  mutating func clearPruningPointHash() {self._pruningPointHash = nil}
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+
+  fileprivate var _pruningPointHash: Protowire_Hash? = nil
+}
+
+nonisolated struct Protowire_SmtMetadataMessage: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// 96 bytes: lanes_root || payload_and_ctx_digest || parent_seq_commit
+  var data: Data = Data()
+
+  /// number of active lanes
+  var activeLanesCount: UInt64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Protowire_SmtLaneEntry: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// 64 bytes: lane_key[32] || lane_tip[32]
+  var data: Data = Data()
+
+  var blueScore: UInt64 = 0
+
+  /// optional: bitmap[32] || terminal_tag[1] || terminal_payload || siblings[N * 32]
+  var proof: Data = Data()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Protowire_SmtLaneChunkMessage: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// up to SMT_CHUNK_SIZE lane entries per chunk
+  var entries: [Protowire_SmtLaneEntry] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Protowire_RequestNextPruningPointSmtChunkMessage: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1157,9 +1319,9 @@ struct Protowire_TrustedDataMessage: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "protowire"
+fileprivate nonisolated let _protobuf_package = "protowire"
 
-extension Protowire_RequestAddressesMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestAddressesMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestAddressesMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}includeAllSubnetworks\0\u{1}subnetworkId\0")
 
@@ -1198,7 +1360,7 @@ extension Protowire_RequestAddressesMessage: SwiftProtobuf.Message, SwiftProtobu
   }
 }
 
-extension Protowire_AddressesMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_AddressesMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".AddressesMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}addressList\0")
 
@@ -1228,7 +1390,7 @@ extension Protowire_AddressesMessage: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Protowire_NetAddress: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_NetAddress: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".NetAddress"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}timestamp\0\u{2}\u{2}ip\0\u{1}port\0")
 
@@ -1268,7 +1430,7 @@ extension Protowire_NetAddress: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 }
 
-extension Protowire_SubnetworkId: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_SubnetworkId: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SubnetworkId"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}bytes\0")
 
@@ -1298,9 +1460,9 @@ extension Protowire_SubnetworkId: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Protowire_TransactionMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_TransactionMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".TransactionMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}version\0\u{1}inputs\0\u{1}outputs\0\u{1}lockTime\0\u{1}subnetworkId\0\u{1}gas\0\u{2}\u{2}payload\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}version\0\u{1}inputs\0\u{1}outputs\0\u{1}lockTime\0\u{1}subnetworkId\0\u{1}gas\0\u{2}\u{2}payload\0\u{3}storage_mass\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1315,6 +1477,7 @@ extension Protowire_TransactionMessage: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 5: try { try decoder.decodeSingularMessageField(value: &self._subnetworkID) }()
       case 6: try { try decoder.decodeSingularUInt64Field(value: &self.gas) }()
       case 8: try { try decoder.decodeSingularBytesField(value: &self.payload) }()
+      case 9: try { try decoder.decodeSingularUInt64Field(value: &self.storageMass) }()
       default: break
       }
     }
@@ -1346,6 +1509,9 @@ extension Protowire_TransactionMessage: SwiftProtobuf.Message, SwiftProtobuf._Me
     if !self.payload.isEmpty {
       try visitor.visitSingularBytesField(value: self.payload, fieldNumber: 8)
     }
+    if self.storageMass != 0 {
+      try visitor.visitSingularUInt64Field(value: self.storageMass, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1357,14 +1523,15 @@ extension Protowire_TransactionMessage: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs._subnetworkID != rhs._subnetworkID {return false}
     if lhs.gas != rhs.gas {return false}
     if lhs.payload != rhs.payload {return false}
+    if lhs.storageMass != rhs.storageMass {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Protowire_TransactionInput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_TransactionInput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".TransactionInput"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}previousOutpoint\0\u{1}signatureScript\0\u{1}sequence\0\u{1}sigOpCount\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}previousOutpoint\0\u{1}signatureScript\0\u{1}sequence\0\u{3}compute_commit\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1375,7 +1542,7 @@ extension Protowire_TransactionInput: SwiftProtobuf.Message, SwiftProtobuf._Mess
       case 1: try { try decoder.decodeSingularMessageField(value: &self._previousOutpoint) }()
       case 2: try { try decoder.decodeSingularBytesField(value: &self.signatureScript) }()
       case 3: try { try decoder.decodeSingularUInt64Field(value: &self.sequence) }()
-      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.sigOpCount) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.computeCommit) }()
       default: break
       }
     }
@@ -1395,8 +1562,8 @@ extension Protowire_TransactionInput: SwiftProtobuf.Message, SwiftProtobuf._Mess
     if self.sequence != 0 {
       try visitor.visitSingularUInt64Field(value: self.sequence, fieldNumber: 3)
     }
-    if self.sigOpCount != 0 {
-      try visitor.visitSingularUInt32Field(value: self.sigOpCount, fieldNumber: 4)
+    if self.computeCommit != 0 {
+      try visitor.visitSingularUInt32Field(value: self.computeCommit, fieldNumber: 4)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -1405,13 +1572,13 @@ extension Protowire_TransactionInput: SwiftProtobuf.Message, SwiftProtobuf._Mess
     if lhs._previousOutpoint != rhs._previousOutpoint {return false}
     if lhs.signatureScript != rhs.signatureScript {return false}
     if lhs.sequence != rhs.sequence {return false}
-    if lhs.sigOpCount != rhs.sigOpCount {return false}
+    if lhs.computeCommit != rhs.computeCommit {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Protowire_Outpoint: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_Outpoint: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Outpoint"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}transactionId\0\u{1}index\0")
 
@@ -1450,7 +1617,7 @@ extension Protowire_Outpoint: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Protowire_TransactionId: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_TransactionId: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".TransactionId"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}bytes\0")
 
@@ -1480,7 +1647,7 @@ extension Protowire_TransactionId: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Protowire_ScriptPublicKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_ScriptPublicKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ScriptPublicKey"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}script\0\u{1}version\0")
 
@@ -1515,9 +1682,48 @@ extension Protowire_ScriptPublicKey: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Protowire_TransactionOutput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_CovenantBinding: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".CovenantBinding"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}authorizingInput\0\u{1}covenantId\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.authorizingInput) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._covenantID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.authorizingInput != 0 {
+      try visitor.visitSingularUInt32Field(value: self.authorizingInput, fieldNumber: 1)
+    }
+    try { if let v = self._covenantID {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Protowire_CovenantBinding, rhs: Protowire_CovenantBinding) -> Bool {
+    if lhs.authorizingInput != rhs.authorizingInput {return false}
+    if lhs._covenantID != rhs._covenantID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Protowire_TransactionOutput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".TransactionOutput"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}value\0\u{1}scriptPublicKey\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}value\0\u{1}scriptPublicKey\0\u{1}covenant\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1527,6 +1733,7 @@ extension Protowire_TransactionOutput: SwiftProtobuf.Message, SwiftProtobuf._Mes
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularUInt64Field(value: &self.value) }()
       case 2: try { try decoder.decodeSingularMessageField(value: &self._scriptPublicKey) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._covenant) }()
       default: break
       }
     }
@@ -1543,18 +1750,22 @@ extension Protowire_TransactionOutput: SwiftProtobuf.Message, SwiftProtobuf._Mes
     try { if let v = self._scriptPublicKey {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
     } }()
+    try { if let v = self._covenant {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Protowire_TransactionOutput, rhs: Protowire_TransactionOutput) -> Bool {
     if lhs.value != rhs.value {return false}
     if lhs._scriptPublicKey != rhs._scriptPublicKey {return false}
+    if lhs._covenant != rhs._covenant {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Protowire_BlockMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_BlockMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".BlockMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}header\0\u{1}transactions\0")
 
@@ -1593,7 +1804,37 @@ extension Protowire_BlockMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Protowire_BlockHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_BlockBodyMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".BlockBodyMessage"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}transactions\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.transactions) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.transactions.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.transactions, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Protowire_BlockBodyMessage, rhs: Protowire_BlockBodyMessage) -> Bool {
+    if lhs.transactions != rhs.transactions {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Protowire_BlockHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".BlockHeader"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}version\0\u{2}\u{2}hashMerkleRoot\0\u{1}acceptedIdMerkleRoot\0\u{1}utxoCommitment\0\u{1}timestamp\0\u{1}bits\0\u{1}nonce\0\u{1}daaScore\0\u{1}blueWork\0\u{2}\u{2}parents\0\u{1}blueScore\0\u{1}pruningPoint\0")
 
@@ -1682,9 +1923,9 @@ extension Protowire_BlockHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   }
 }
 
-extension Protowire_BlockLevelParents: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_BlockLevelParents: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".BlockLevelParents"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}parentHashes\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}parentHashes\0\u{1}cumulativeLevel\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1693,6 +1934,7 @@ extension Protowire_BlockLevelParents: SwiftProtobuf.Message, SwiftProtobuf._Mes
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.parentHashes) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.cumulativeLevel) }()
       default: break
       }
     }
@@ -1702,17 +1944,21 @@ extension Protowire_BlockLevelParents: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if !self.parentHashes.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.parentHashes, fieldNumber: 1)
     }
+    if self.cumulativeLevel != 0 {
+      try visitor.visitSingularUInt32Field(value: self.cumulativeLevel, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Protowire_BlockLevelParents, rhs: Protowire_BlockLevelParents) -> Bool {
     if lhs.parentHashes != rhs.parentHashes {return false}
+    if lhs.cumulativeLevel != rhs.cumulativeLevel {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Protowire_Hash: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_Hash: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Hash"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}bytes\0")
 
@@ -1742,7 +1988,7 @@ extension Protowire_Hash: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
   }
 }
 
-extension Protowire_RequestBlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestBlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestBlockLocatorMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}highHash\0\u{1}limit\0")
 
@@ -1781,7 +2027,7 @@ extension Protowire_RequestBlockLocatorMessage: SwiftProtobuf.Message, SwiftProt
   }
 }
 
-extension Protowire_BlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_BlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".BlockLocatorMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hashes\0")
 
@@ -1811,7 +2057,7 @@ extension Protowire_BlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Protowire_RequestHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestHeadersMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}lowHash\0\u{1}highHash\0")
 
@@ -1850,7 +2096,7 @@ extension Protowire_RequestHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
-extension Protowire_RequestNextHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestNextHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestNextHeadersMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -1869,7 +2115,7 @@ extension Protowire_RequestNextHeadersMessage: SwiftProtobuf.Message, SwiftProto
   }
 }
 
-extension Protowire_DoneHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_DoneHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DoneHeadersMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -1888,7 +2134,7 @@ extension Protowire_DoneHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Protowire_RequestRelayBlocksMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestRelayBlocksMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestRelayBlocksMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hashes\0")
 
@@ -1918,7 +2164,7 @@ extension Protowire_RequestRelayBlocksMessage: SwiftProtobuf.Message, SwiftProto
   }
 }
 
-extension Protowire_RequestTransactionsMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestTransactionsMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestTransactionsMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ids\0")
 
@@ -1948,7 +2194,7 @@ extension Protowire_RequestTransactionsMessage: SwiftProtobuf.Message, SwiftProt
   }
 }
 
-extension Protowire_TransactionNotFoundMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_TransactionNotFoundMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".TransactionNotFoundMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0")
 
@@ -1982,7 +2228,7 @@ extension Protowire_TransactionNotFoundMessage: SwiftProtobuf.Message, SwiftProt
   }
 }
 
-extension Protowire_InvRelayBlockMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_InvRelayBlockMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".InvRelayBlockMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hash\0")
 
@@ -2016,7 +2262,7 @@ extension Protowire_InvRelayBlockMessage: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Protowire_InvTransactionsMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_InvTransactionsMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".InvTransactionsMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ids\0")
 
@@ -2046,7 +2292,7 @@ extension Protowire_InvTransactionsMessage: SwiftProtobuf.Message, SwiftProtobuf
   }
 }
 
-extension Protowire_PingMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_PingMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".PingMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}nonce\0")
 
@@ -2076,7 +2322,7 @@ extension Protowire_PingMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   }
 }
 
-extension Protowire_PongMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_PongMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".PongMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}nonce\0")
 
@@ -2106,7 +2352,7 @@ extension Protowire_PongMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   }
 }
 
-extension Protowire_VerackMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_VerackMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".VerackMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -2125,7 +2371,7 @@ extension Protowire_VerackMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Protowire_VersionMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_VersionMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".VersionMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}protocolVersion\0\u{1}services\0\u{1}timestamp\0\u{1}address\0\u{1}id\0\u{1}userAgent\0\u{2}\u{2}disableRelayTx\0\u{1}subnetworkId\0\u{1}network\0")
 
@@ -2199,7 +2445,7 @@ extension Protowire_VersionMessage: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
-extension Protowire_RejectMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RejectMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RejectMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}reason\0")
 
@@ -2229,7 +2475,7 @@ extension Protowire_RejectMessage: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Protowire_RequestPruningPointUTXOSetMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestPruningPointUTXOSetMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestPruningPointUTXOSetMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pruningPointHash\0")
 
@@ -2263,7 +2509,7 @@ extension Protowire_RequestPruningPointUTXOSetMessage: SwiftProtobuf.Message, Sw
   }
 }
 
-extension Protowire_PruningPointUtxoSetChunkMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_PruningPointUtxoSetChunkMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".PruningPointUtxoSetChunkMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}outpointAndUtxoEntryPairs\0")
 
@@ -2293,7 +2539,7 @@ extension Protowire_PruningPointUtxoSetChunkMessage: SwiftProtobuf.Message, Swif
   }
 }
 
-extension Protowire_OutpointAndUtxoEntryPair: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_OutpointAndUtxoEntryPair: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".OutpointAndUtxoEntryPair"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}outpoint\0\u{1}utxoEntry\0")
 
@@ -2332,9 +2578,9 @@ extension Protowire_OutpointAndUtxoEntryPair: SwiftProtobuf.Message, SwiftProtob
   }
 }
 
-extension Protowire_UtxoEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_UtxoEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".UtxoEntry"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}amount\0\u{1}scriptPublicKey\0\u{1}blockDaaScore\0\u{1}isCoinbase\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}amount\0\u{1}scriptPublicKey\0\u{1}blockDaaScore\0\u{1}isCoinbase\0\u{1}covenantId\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2346,6 +2592,7 @@ extension Protowire_UtxoEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
       case 2: try { try decoder.decodeSingularMessageField(value: &self._scriptPublicKey) }()
       case 3: try { try decoder.decodeSingularUInt64Field(value: &self.blockDaaScore) }()
       case 4: try { try decoder.decodeSingularBoolField(value: &self.isCoinbase) }()
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._covenantID) }()
       default: break
       }
     }
@@ -2368,6 +2615,9 @@ extension Protowire_UtxoEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     if self.isCoinbase != false {
       try visitor.visitSingularBoolField(value: self.isCoinbase, fieldNumber: 4)
     }
+    try { if let v = self._covenantID {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2376,12 +2626,13 @@ extension Protowire_UtxoEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     if lhs._scriptPublicKey != rhs._scriptPublicKey {return false}
     if lhs.blockDaaScore != rhs.blockDaaScore {return false}
     if lhs.isCoinbase != rhs.isCoinbase {return false}
+    if lhs._covenantID != rhs._covenantID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Protowire_RequestNextPruningPointUtxoSetChunkMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestNextPruningPointUtxoSetChunkMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestNextPruningPointUtxoSetChunkMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -2400,7 +2651,7 @@ extension Protowire_RequestNextPruningPointUtxoSetChunkMessage: SwiftProtobuf.Me
   }
 }
 
-extension Protowire_DonePruningPointUtxoSetChunksMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_DonePruningPointUtxoSetChunksMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DonePruningPointUtxoSetChunksMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -2419,7 +2670,7 @@ extension Protowire_DonePruningPointUtxoSetChunksMessage: SwiftProtobuf.Message,
   }
 }
 
-extension Protowire_RequestIBDBlocksMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestIBDBlocksMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestIBDBlocksMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hashes\0")
 
@@ -2449,7 +2700,37 @@ extension Protowire_RequestIBDBlocksMessage: SwiftProtobuf.Message, SwiftProtobu
   }
 }
 
-extension Protowire_UnexpectedPruningPointMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestBlockBodiesMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RequestBlockBodiesMessage"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hashes\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.hashes) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.hashes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.hashes, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Protowire_RequestBlockBodiesMessage, rhs: Protowire_RequestBlockBodiesMessage) -> Bool {
+    if lhs.hashes != rhs.hashes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Protowire_UnexpectedPruningPointMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".UnexpectedPruningPointMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -2468,7 +2749,7 @@ extension Protowire_UnexpectedPruningPointMessage: SwiftProtobuf.Message, SwiftP
   }
 }
 
-extension Protowire_IbdBlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_IbdBlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".IbdBlockLocatorMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}targetHash\0\u{1}blockLocatorHashes\0")
 
@@ -2507,7 +2788,7 @@ extension Protowire_IbdBlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf
   }
 }
 
-extension Protowire_RequestIBDChainBlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestIBDChainBlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestIBDChainBlockLocatorMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}lowHash\0\u{1}highHash\0")
 
@@ -2546,7 +2827,7 @@ extension Protowire_RequestIBDChainBlockLocatorMessage: SwiftProtobuf.Message, S
   }
 }
 
-extension Protowire_IbdChainBlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_IbdChainBlockLocatorMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".IbdChainBlockLocatorMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}blockLocatorHashes\0")
 
@@ -2576,8 +2857,8 @@ extension Protowire_IbdChainBlockLocatorMessage: SwiftProtobuf.Message, SwiftPro
   }
 }
 
-extension Protowire_RequestAnticoneMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".RequestAnticoneMessage"
+nonisolated extension Protowire_RequestAntipastMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RequestAntipastMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}blockHash\0\u{1}contextHash\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2607,7 +2888,7 @@ extension Protowire_RequestAnticoneMessage: SwiftProtobuf.Message, SwiftProtobuf
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Protowire_RequestAnticoneMessage, rhs: Protowire_RequestAnticoneMessage) -> Bool {
+  static func ==(lhs: Protowire_RequestAntipastMessage, rhs: Protowire_RequestAntipastMessage) -> Bool {
     if lhs._blockHash != rhs._blockHash {return false}
     if lhs._contextHash != rhs._contextHash {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
@@ -2615,7 +2896,7 @@ extension Protowire_RequestAnticoneMessage: SwiftProtobuf.Message, SwiftProtobuf
   }
 }
 
-extension Protowire_IbdBlockLocatorHighestHashMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_IbdBlockLocatorHighestHashMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".IbdBlockLocatorHighestHashMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}highestHash\0")
 
@@ -2649,7 +2930,7 @@ extension Protowire_IbdBlockLocatorHighestHashMessage: SwiftProtobuf.Message, Sw
   }
 }
 
-extension Protowire_IbdBlockLocatorHighestHashNotFoundMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_IbdBlockLocatorHighestHashNotFoundMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".IbdBlockLocatorHighestHashNotFoundMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -2668,7 +2949,7 @@ extension Protowire_IbdBlockLocatorHighestHashNotFoundMessage: SwiftProtobuf.Mes
   }
 }
 
-extension Protowire_BlockHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_BlockHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".BlockHeadersMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}blockHeaders\0")
 
@@ -2698,7 +2979,7 @@ extension Protowire_BlockHeadersMessage: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Protowire_RequestPruningPointAndItsAnticoneMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestPruningPointAndItsAnticoneMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestPruningPointAndItsAnticoneMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -2717,7 +2998,7 @@ extension Protowire_RequestPruningPointAndItsAnticoneMessage: SwiftProtobuf.Mess
   }
 }
 
-extension Protowire_RequestNextPruningPointAndItsAnticoneBlocksMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestNextPruningPointAndItsAnticoneBlocksMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestNextPruningPointAndItsAnticoneBlocksMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -2736,7 +3017,7 @@ extension Protowire_RequestNextPruningPointAndItsAnticoneBlocksMessage: SwiftPro
   }
 }
 
-extension Protowire_BlockWithTrustedDataMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_BlockWithTrustedDataMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".BlockWithTrustedDataMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}block\0\u{1}daaScore\0\u{1}daaWindow\0\u{1}ghostdagData\0")
 
@@ -2785,7 +3066,7 @@ extension Protowire_BlockWithTrustedDataMessage: SwiftProtobuf.Message, SwiftPro
   }
 }
 
-extension Protowire_DaaBlock: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_DaaBlock: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DaaBlock"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}ghostdagData\0\u{1}block\0")
 
@@ -2862,7 +3143,7 @@ extension Protowire_DaaBlock: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Protowire_DaaBlockV4: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_DaaBlockV4: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DaaBlockV4"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}header\0\u{1}ghostdagData\0")
 
@@ -2939,7 +3220,7 @@ extension Protowire_DaaBlockV4: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 }
 
-extension Protowire_BlockGhostdagDataHashPair: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_BlockGhostdagDataHashPair: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".BlockGhostdagDataHashPair"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hash\0\u{1}ghostdagData\0")
 
@@ -2978,7 +3259,7 @@ extension Protowire_BlockGhostdagDataHashPair: SwiftProtobuf.Message, SwiftProto
   }
 }
 
-extension Protowire_GhostdagData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_GhostdagData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".GhostdagData"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}blueScore\0\u{1}blueWork\0\u{1}selectedParent\0\u{1}mergeSetBlues\0\u{1}mergeSetReds\0\u{1}bluesAnticoneSizes\0")
 
@@ -3037,7 +3318,7 @@ extension Protowire_GhostdagData: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Protowire_BluesAnticoneSizes: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_BluesAnticoneSizes: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".BluesAnticoneSizes"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}blueHash\0\u{1}anticoneSize\0")
 
@@ -3076,7 +3357,7 @@ extension Protowire_BluesAnticoneSizes: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Protowire_DoneBlocksWithTrustedDataMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_DoneBlocksWithTrustedDataMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DoneBlocksWithTrustedDataMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -3095,7 +3376,7 @@ extension Protowire_DoneBlocksWithTrustedDataMessage: SwiftProtobuf.Message, Swi
   }
 }
 
-extension Protowire_PruningPointsMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_PruningPointsMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".PruningPointsMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}headers\0")
 
@@ -3125,7 +3406,7 @@ extension Protowire_PruningPointsMessage: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Protowire_RequestPruningPointProofMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_RequestPruningPointProofMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestPruningPointProofMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -3144,7 +3425,7 @@ extension Protowire_RequestPruningPointProofMessage: SwiftProtobuf.Message, Swif
   }
 }
 
-extension Protowire_PruningPointProofMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_PruningPointProofMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".PruningPointProofMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}headers\0")
 
@@ -3174,7 +3455,7 @@ extension Protowire_PruningPointProofMessage: SwiftProtobuf.Message, SwiftProtob
   }
 }
 
-extension Protowire_PruningPointProofHeaderArray: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_PruningPointProofHeaderArray: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".PruningPointProofHeaderArray"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}headers\0")
 
@@ -3204,7 +3485,7 @@ extension Protowire_PruningPointProofHeaderArray: SwiftProtobuf.Message, SwiftPr
   }
 }
 
-extension Protowire_ReadyMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_ReadyMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ReadyMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -3223,7 +3504,7 @@ extension Protowire_ReadyMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Protowire_BlockWithTrustedDataV4Message: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_BlockWithTrustedDataV4Message: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".BlockWithTrustedDataV4Message"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}block\0\u{1}daaWindowIndices\0\u{1}ghostdagDataIndices\0")
 
@@ -3267,7 +3548,7 @@ extension Protowire_BlockWithTrustedDataV4Message: SwiftProtobuf.Message, SwiftP
   }
 }
 
-extension Protowire_TrustedDataMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Protowire_TrustedDataMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".TrustedDataMessage"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}daaWindow\0\u{1}ghostdagData\0")
 
@@ -3297,6 +3578,164 @@ extension Protowire_TrustedDataMessage: SwiftProtobuf.Message, SwiftProtobuf._Me
   static func ==(lhs: Protowire_TrustedDataMessage, rhs: Protowire_TrustedDataMessage) -> Bool {
     if lhs.daaWindow != rhs.daaWindow {return false}
     if lhs.ghostdagData != rhs.ghostdagData {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Protowire_RequestPruningPointSmtStateMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RequestPruningPointSmtStateMessage"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pruningPointHash\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._pruningPointHash) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._pruningPointHash {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Protowire_RequestPruningPointSmtStateMessage, rhs: Protowire_RequestPruningPointSmtStateMessage) -> Bool {
+    if lhs._pruningPointHash != rhs._pruningPointHash {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Protowire_SmtMetadataMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SmtMetadataMessage"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{1}activeLanesCount\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.activeLanesCount) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.data.isEmpty {
+      try visitor.visitSingularBytesField(value: self.data, fieldNumber: 1)
+    }
+    if self.activeLanesCount != 0 {
+      try visitor.visitSingularUInt64Field(value: self.activeLanesCount, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Protowire_SmtMetadataMessage, rhs: Protowire_SmtMetadataMessage) -> Bool {
+    if lhs.data != rhs.data {return false}
+    if lhs.activeLanesCount != rhs.activeLanesCount {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Protowire_SmtLaneEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SmtLaneEntry"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{1}blueScore\0\u{1}proof\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.blueScore) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.proof) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.data.isEmpty {
+      try visitor.visitSingularBytesField(value: self.data, fieldNumber: 1)
+    }
+    if self.blueScore != 0 {
+      try visitor.visitSingularUInt64Field(value: self.blueScore, fieldNumber: 2)
+    }
+    if !self.proof.isEmpty {
+      try visitor.visitSingularBytesField(value: self.proof, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Protowire_SmtLaneEntry, rhs: Protowire_SmtLaneEntry) -> Bool {
+    if lhs.data != rhs.data {return false}
+    if lhs.blueScore != rhs.blueScore {return false}
+    if lhs.proof != rhs.proof {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Protowire_SmtLaneChunkMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SmtLaneChunkMessage"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}entries\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.entries) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.entries.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.entries, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Protowire_SmtLaneChunkMessage, rhs: Protowire_SmtLaneChunkMessage) -> Bool {
+    if lhs.entries != rhs.entries {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Protowire_RequestNextPruningPointSmtChunkMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RequestNextPruningPointSmtChunkMessage"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Protowire_RequestNextPruningPointSmtChunkMessage, rhs: Protowire_RequestNextPruningPointSmtChunkMessage) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
