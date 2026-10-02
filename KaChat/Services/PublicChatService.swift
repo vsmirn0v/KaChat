@@ -502,7 +502,13 @@ final class PublicChatService: ObservableObject {
     /// app-wide one", which is what the curated Popular rooms do (KaChat's own indexer).
     // nonisolated: `indexerBaseURL(forChannel:)` is nonisolated so callers off the main actor
     // can resolve a room's indexer, and a main-actor-isolated constant is not reachable from it.
-    private nonisolated static let indexerOverridesKey = "kachat_broadcast_indexer_overrides"
+    // Per network: a room pointed at a mainnet indexer must not keep reading it on testnet.
+    // Mainnet keeps the original key.
+    private nonisolated static var indexerOverridesKey: String {
+        AppSettings.load().networkType == .mainnet
+            ? "kachat_broadcast_indexer_overrides"
+            : "kachat_broadcast_indexer_overrides.testnet"
+    }
 
     private var indexerOverrides: [String: String] {
         get { UserDefaults.standard.dictionary(forKey: Self.indexerOverridesKey) as? [String: String] ?? [:] }

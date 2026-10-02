@@ -109,7 +109,16 @@ private enum ShareStore {
             uniquingKeysWith: { first, _ in first }
         )
 
+        // Recents are one list for both networks; show only the running network's chats (the
+        // app's wallet address says which), so a mainnet chat can't be a share target on testnet.
+        let walletAddress = sharedDefaults?.string(forKey: walletAddressKey)?.lowercased() ?? ""
+        let onTestnet = walletAddress.hasPrefix("kaspatest:")
         return decoded
+            .filter { record in
+                let address = record.address.lowercased()
+                guard !walletAddress.isEmpty, address.hasPrefix("kaspa") else { return true }
+                return address.hasPrefix("kaspatest:") == onTestnet
+            }
             .sorted { $0.lastUsedMs > $1.lastUsedMs }
             .map { record in
                 let syncedAlias = contactAliases[record.address]?

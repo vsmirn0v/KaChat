@@ -2103,7 +2103,13 @@ enum KaspaExplorer: String, Codable, CaseIterable {
         }
     }
 
+    /// On testnet every link goes to kaspa.stream's testnet-10 explorer, whichever explorer is
+    /// picked: explorer.kaspa.org has no live testnet-10 site (explorer-tn10 answers 402), and a
+    /// mainnet page for a testnet transaction or address is just "not found".
+    private var isTestnet: Bool { AppSettings.load().networkType == .testnet }
+
     private var txBaseURL: String {
+        if isTestnet { return "https://tn10.kaspa.stream/transactions/" }
         switch self {
         case .kaspaStream: return "https://kaspa.stream/transactions/"
         case .kaspaOrg: return "https://explorer.kaspa.org/txs/"
@@ -2111,6 +2117,7 @@ enum KaspaExplorer: String, Codable, CaseIterable {
     }
 
     private var addressBaseURL: String {
+        if isTestnet { return "https://tn10.kaspa.stream/addresses/" }
         switch self {
         case .kaspaStream: return "https://kaspa.stream/addresses/"
         case .kaspaOrg: return "https://explorer.kaspa.org/addresses/"

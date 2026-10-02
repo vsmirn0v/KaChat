@@ -72,9 +72,12 @@ struct PublicChatRoomInfoView: View {
 
     /// What the field's placeholder should say: the app-wide indexer this room falls back to.
     private var appWideIndexer: String {
-        let configured = AppSettings.load().publicChatIndexerURL
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return configured.isEmpty ? AppSettings.defaultPublicChatIndexerURL : configured
+        let settings = AppSettings.load()
+        let configured = settings.publicChatIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard configured.isEmpty else { return configured }
+        return settings.networkType == .mainnet
+            ? AppSettings.defaultPublicChatIndexerURL
+            : String(localized: "No testnet indexer yet")
     }
 
     var body: some View {
@@ -222,7 +225,15 @@ struct PublicChatRoomInfoView: View {
 
         // Whichever one the room now reads from - the override just saved, or the app-wide one
         // a cleared field falls back to.
-        let target = trimmed.isEmpty ? appWideIndexer : trimmed
+        let appWide = AppSettings.load().publicChatIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = trimmed.isEmpty
+            ? (appWide.isEmpty && AppSettings.load().networkType == .mainnet ? AppSettings.defaultPublicChatIndexerURL : appWide)
+            : trimmed
+        // Nothing to check: following the app-wide setting on a network without an indexer.
+        guard !target.isEmpty else {
+            indexerCheck = .idle
+            return
+        }
         indexerCheck = .checking
         Task {
             do {
