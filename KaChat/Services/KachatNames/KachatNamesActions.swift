@@ -72,6 +72,12 @@ final class KachatNamesActions: ObservableObject {
         case invalidKey(String)
         case noSalt
         case notRegisterable(String)
+        /// renew before its window: the network's time has not reached `expiresAt - renewWindowMs`
+        case renewalNotOpen(opensMs: Int64)
+        /// extend past `periodStart + maxYears`
+        case periodFull(renewalOpensMs: Int64)
+        /// the record has no periodStart (an indexer without the field), so its state is unknown
+        case periodUnknown
 
         var errorDescription: String? {
             switch self {
@@ -80,8 +86,24 @@ final class KachatNamesActions: ObservableObject {
             case .invalidKey(let what): return String(format: AppLocalization.string("%@ is not a valid key (not on the secp256k1 curve)."), what)
             case .noSalt: return AppLocalization.string("The secret for this registration is missing on this device.")
             case .notRegisterable(let why): return why
+            case .renewalNotOpen(let opens):
+                return String(format: AppLocalization.string("Renewal opens on %@"), KachatNamesActions.dayString(opens))
+            case .periodFull(let opens):
+                return String(format: AppLocalization.string("This name is already paid for 2 years from the start of its period. Renewal opens on %@."),
+                              KachatNamesActions.dayString(opens))
+            case .periodUnknown:
+                return AppLocalization.string("The names indexer didn't send this name's paid period. Pull to refresh and try again.")
             }
         }
+    }
+
+    /// A unix-ms day ("Oct 12, 2027") in the in-app language.
+    nonisolated static func dayString(_ ms: Int64) -> String {
+        let f = DateFormatter()
+        f.locale = AppLocalization.locale
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f.string(from: Date(timeIntervalSince1970: TimeInterval(ms) / 1000))
     }
 
     // MARK: - Wallet
@@ -160,8 +182,9 @@ final class KachatNamesActions: ObservableObject {
     // MARK: - Live records
 
     private func liveName(_ n: KachatNames.NameInfo, _ m: KachatNames.Manifest) async throws -> KachatNames.NameRecord {
-        let u = try await service.liveRegistryUtxo(script: m.name.script(n.fields.encoded), outpoint: n.outpoint)
-        return KachatNames.NameRecord(fields: n.fields, value: u.entry.amount, utxo: u)
+        guard let fields = n.fields else { throw ActionError.periodUnknown }
+        let u = try await service.liveRegistryUtxo(script: m.name.script(fields.encoded), outpoint: n.outpoint)
+        return KachatNames.NameRecord(fields: fields, value: u.entry.amount, utxo: u)
     }
 
     private func liveGap(_ g: KachatNames.GapInfo, _ m: KachatNames.Manifest) async throws -> KachatNames.GapRecord {
@@ -177,6 +200,9 @@ final class KachatNamesActions: ObservableObject {
     // MARK: - Operations
 
     enum Operation {
+        /// add years to the current paid period (anyone, any time, up to 2 years past periodStart)
+        case extend(KachatNames.NameInfo, years: Int64)
+        /// start the next period at the current expiry (anyone, once the renewal window opened)
         case renew(KachatNames.NameInfo, years: Int64)
         case transfer(KachatNames.NameInfo, to: Data)
         /// price 0 delists
@@ -202,7 +228,16 @@ final class KachatNamesActions: ObservableObject {
         let (b, env, wallet) = try await context(s)
         let plan: KachatNames.Plan
         switch op {
+        case .extend(let n, let years):
+            guard n.periodStart != nil else { throw ActionError.periodUnknown }
+            guard years >= 1, years <= n.extendableYears(m.params) else { throw ActionError.periodFull(renewalOpensMs: n.renewOpens(m.params)) }
+            plan = try b.extend(env: env, wallet: wallet, name: try await liveName(n, m), years: years)
         case .renew(let n, let years):
+            // Valid only once the network's median time passes the window opening (the mempool
+            // keeps no future-dated transactions): refuse before, and say when it opens.
+            guard KachatNames.Builder.renewWindowOpen(env: env, params: m.params, expiresAt: n.expiresAt) else {
+                throw ActionError.renewalNotOpen(opensMs: n.renewOpens(m.params))
+            }
             plan = try b.renew(env: env, wallet: wallet, name: try await liveName(n, m), years: years)
         case .transfer(let n, let to):
             try Self.validateKey(to, AppLocalization.string("The new owner"))
