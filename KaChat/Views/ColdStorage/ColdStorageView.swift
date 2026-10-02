@@ -610,7 +610,7 @@ struct ColdStorageDetailView: View {
                 Text("Total Balance")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("\(formatKasExact(totalBalanceSompi)) KAS")
+                Text(verbatim: "\(formatKasExact(totalBalanceSompi)) \(KaspaUnit.symbol)")
                     .font(.title2)
                     .fontWeight(.bold)
             }
@@ -831,7 +831,7 @@ struct ColdStorageDetailView: View {
                     Text(entry.shortAddress)
                         .font(.system(.subheadline, design: .monospaced))
                         .foregroundColor(.primary)
-                    Text("\(formatKasExact(entry.balanceSompi)) KAS")
+                    Text(verbatim: "\(formatKasExact(entry.balanceSompi)) \(KaspaUnit.symbol)")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     HStack(spacing: 6) {
@@ -1361,7 +1361,7 @@ private struct ColdSendFlowView: View {
                 HStack {
                     Text("Available")
                     Spacer()
-                    Text("\(formatKas(availableBalanceSompi)) KAS")
+                    Text(verbatim: "\(formatKas(availableBalanceSompi)) \(KaspaUnit.symbol)")
                         .foregroundColor(.secondary)
                 }
             }
@@ -1505,7 +1505,7 @@ private struct ColdSendFlowView: View {
                         .buttonStyle(.borderless)
                         .disabled(!hasValidRecipient)
                     }
-                    Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "KAS")
+                    Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.symbol)
                         .foregroundColor(.secondary)
                 }
             } header: {
@@ -1576,7 +1576,7 @@ private struct ColdSendFlowView: View {
                             focusedField = .fee
                         } label: {
                             HStack(spacing: 4) {
-                                Text("~\(formatKas(effectiveFeeSompi)) KAS")
+                                Text(verbatim: "~\(formatKas(effectiveFeeSompi)) \(KaspaUnit.symbol)")
                                     .underline()
                                 Image(systemName: "pencil")
                                     .font(.caption2)
@@ -1662,12 +1662,12 @@ private struct ColdSendFlowView: View {
                             HStack {
                                 Text("Available")
                                 Spacer()
-                                Text("\(formatKas(availableBalanceSompi)) KAS")
+                                Text(verbatim: "\(formatKas(availableBalanceSompi)) \(KaspaUnit.symbol)")
                             }
                             HStack {
                                 Text("Network Fee")
                                 Spacer()
-                                Text("\(formatKas(unsignedTx.feeSompi)) KAS")
+                                Text(verbatim: "\(formatKas(unsignedTx.feeSompi)) \(KaspaUnit.symbol)")
                             }
                         }
                         .font(.caption)
@@ -1703,7 +1703,7 @@ private struct ColdSendFlowView: View {
                     .foregroundColor(.secondary)
                 Text(fromAddress)
                     .font(.system(.subheadline, design: .monospaced))
-                Text("Available: \(formatKas(availableBalanceSompi)) KAS")
+                KaspaUnit.text("Available: %@ KAS", formatKas(availableBalanceSompi))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -2063,7 +2063,7 @@ struct CoinControlView: View {
                                                 .fontWeight(.bold)
                                                 .foregroundColor(.accentColor)
                                         }
-                                        Text("\(formatKas(utxo.amount)) KAS")
+                                        Text(verbatim: "\(formatKas(utxo.amount)) \(KaspaUnit.symbol)")
                                             .font(.subheadline)
                                             .fontWeight(.semibold)
                                             .foregroundColor(.primary)
@@ -2079,7 +2079,7 @@ struct CoinControlView: View {
                         }
                     } footer: {
                         if !selectedKeys.isEmpty {
-                            Text("Selected: \(formatKas(selectedTotalSompi)) KAS (\(selectedKeys.count) UTXO\(selectedKeys.count == 1 ? "" : "s"))")
+                            Text(verbatim: "Selected: \(formatKas(selectedTotalSompi)) \(KaspaUnit.symbol) (\(selectedKeys.count) UTXO\(selectedKeys.count == 1 ? "" : "s"))")
                         }
                     }
                 }
@@ -2184,7 +2184,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
                 Text("Balance")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("\(formatKasExact(entry.balanceSompi)) KAS")
+                Text(verbatim: "\(formatKasExact(entry.balanceSompi)) \(KaspaUnit.symbol)")
                     .font(.title3.weight(.semibold))
             }
             .padding(.top, 12)
@@ -2420,7 +2420,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
                         .fontWeight(.bold)
                         .foregroundColor(.accentColor)
                 }
-                Text("\(formatKasExact(utxo.amount)) KAS")
+                Text(verbatim: "\(formatKasExact(utxo.amount)) \(KaspaUnit.symbol)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                 Text("\(utxo.outpoint.transactionId):\(utxo.outpoint.index)")
@@ -2476,7 +2476,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 if let info {
-                    Text("\(info.isOutgoing ? "-" : "+")\(formatKasExact(info.amountSompi)) KAS")
+                    Text(verbatim: "\(info.isOutgoing ? "-" : "+")\(formatKasExact(info.amountSompi)) \(KaspaUnit.symbol)")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(info.isOutgoing ? .red : .green)
@@ -2678,7 +2678,7 @@ private struct ColdStorageAddressVisibilityView: View {
     @ViewBuilder
     private func usedTag(_ entry: ColdStorageAddressEntry, funded: Bool) -> some View {
         if funded {
-            Text("\(Double(entry.balanceSompi) / 100_000_000.0, specifier: "%.4f") KAS")
+            Text(verbatim: "\(String(format: "%.4f", Double(entry.balanceSompi) / 100_000_000.0)) \(KaspaUnit.symbol)")
                 .font(.caption2.weight(.semibold))
                 .foregroundColor(.accentColor)
         } else if let used = usedByAddress[entry.address] {

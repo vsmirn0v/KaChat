@@ -363,16 +363,16 @@ class NotificationService: UNNotificationServiceExtension {
         // Try to extract amount from userInfo
         if let amountSompi = userInfo["amount"] as? UInt64 {
             let kas = Double(amountSompi) / 100_000_000.0
-            let format = NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount")
+            let format = unitLabel(NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount"))
             content.body = String(format: format, kas)
         } else if let amountStr = userInfo["amount"] as? String,
                   let amountSompi = UInt64(amountStr) {
             let kas = Double(amountSompi) / 100_000_000.0
-            let format = NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount")
+            let format = unitLabel(NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount"))
             content.body = String(format: format, kas)
         } else if let amountNum = userInfo["amount"] as? NSNumber {
             let kas = amountNum.doubleValue / 100_000_000.0
-            let format = NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount")
+            let format = unitLabel(NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount"))
             content.body = String(format: format, kas)
         } else {
             content.body = NSLocalizedString("Received payment", comment: "Push body for incoming payment")
@@ -703,6 +703,13 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     // MARK: - Shared Data Access
+
+    /// `text` with KAS shown as TKAS when the app runs on testnet (its shared wallet address is
+    /// `kaspatest:`) - the extension's copy of the app's `KaspaUnit.label`.
+    private func unitLabel(_ text: String) -> String {
+        guard getWalletAddress().flatMap({ Self.addressNetwork($0) }) == "kaspatest" else { return text }
+        return text.replacingOccurrences(of: "(?<![A-Za-z])KAS(?![A-Za-z])", with: "TKAS", options: .regularExpression)
+    }
 
     /// "kaspa" or "kaspatest" by an address's prefix; nil without one.
     static func addressNetwork(_ address: String) -> String? {
@@ -1167,7 +1174,7 @@ class NotificationService: UNNotificationServiceExtension {
             return NSLocalizedString("Received payment", comment: "Push body for incoming payment")
         }
         let kas = Double(amountSompi) / 100_000_000.0
-        let format = NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount")
+        let format = unitLabel(NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount"))
         return String(format: format, kas)
     }
 

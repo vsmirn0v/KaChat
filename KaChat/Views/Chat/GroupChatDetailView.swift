@@ -803,7 +803,7 @@ struct GroupChatDetailView: View {
         }
         .toast(message: toastMessage, style: toastStyle)
         .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
-            TextField("Fee (KAS)", text: $feeEditorText)
+            TextField(KaspaUnit.label(AppLocalization.string("Fee (KAS)")), text: $feeEditorText)
                 .keyboardType(.decimalPad)
                 .numericKeyboardDoneButton()
             Button("Save") { commitFeeOverride() }
@@ -1020,12 +1020,12 @@ struct GroupChatDetailView: View {
     private var feeBubble: some View {
         Group {
             if isEstimatingFee {
-                Text("fee: -------- KAS")
+                KaspaUnit.text("fee: -------- KAS")
             } else if let fee = feeOverrideSompi ?? feeEstimateSompi {
                 Text(localizedFeeText(fee))
                     .underline()
             } else {
-                Text("fee: -- KAS")
+                KaspaUnit.text("fee: -- KAS")
             }
         }
         .font(.caption2)
@@ -1061,7 +1061,7 @@ struct GroupChatDetailView: View {
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
-        let template = AppLocalization.string("fee: %@ KAS")
+        let template = KaspaUnit.label(AppLocalization.string("fee: %@ KAS"))
         return String(format: template, locale: AppLocalization.locale, formatKaspaExact(feeSompi))
     }
 
@@ -2865,7 +2865,7 @@ struct GroupChatInfoView: View {
         guard let kas = groupChatService.estimateGroupActionFeeKas(groupId: group.id, controlTx: controlTx, photoTx: photoTx) else {
             return "\n\n(\(n) network transaction\(plural).)"
         }
-        return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(plural)."
+        return "\n\nEstimated network fee ≈ \(kas) \(KaspaUnit.symbol) across \(n) transaction\(plural)."
     }
 
     /// Fee suffix for setting a NEW photo (estimated from its own size, not the stored one).
@@ -2875,7 +2875,7 @@ struct GroupChatInfoView: View {
         guard n > 0, let kas = groupChatService.estimateGroupPhotoFeeKas(hexLength: hexLength, txCount: n) else {
             return "\n\n(\(n) network transaction\(plural).)"
         }
-        return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(plural)."
+        return "\n\nEstimated network fee ≈ \(kas) \(KaspaUnit.symbol) across \(n) transaction\(plural)."
     }
 
     /// Same resolution 1:1/public chat/the message list use (contact alias, then KNS domain, then
@@ -3386,7 +3386,7 @@ private struct AddGroupMembersView: View {
         guard let kas = groupChatService.estimateGroupActionFeeKas(groupId: group.id, controlTx: controlTx, photoTx: photoTx) else {
             return "\n\n(\(n) network transaction\(n == 1 ? "" : "s").)"
         }
-        return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(n == 1 ? "" : "s")."
+        return "\n\nEstimated network fee ≈ \(kas) \(KaspaUnit.symbol) across \(n) transaction\(n == 1 ? "" : "s")."
     }
 
     /// Contacts not already in the group, filtered by the search box (name or address).

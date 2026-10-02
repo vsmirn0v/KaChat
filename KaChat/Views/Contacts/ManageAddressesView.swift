@@ -418,7 +418,7 @@ struct ManageAddressesView: View {
                     // Money on a pool address is worth noticing: it means the offer has been
                     // paid into and the address is not really "fresh and waiting" any more.
                     HStack(spacing: 6) {
-                        Text("\(formatKasExact(entry.balanceSompi)) KAS")
+                        Text(verbatim: "\(formatKasExact(entry.balanceSompi)) \(KaspaUnit.symbol)")
                             .font(.subheadline)
                             .fontWeight(.bold)
                             .foregroundColor(.accentColor)
@@ -496,7 +496,7 @@ struct ManageAddressesView: View {
                     Text(entry.shortAddress)
                         .font(.system(.subheadline, design: .monospaced))
                         .foregroundColor(.primary)
-                    Text("\(formatKasExact(entry.balanceSompi)) KAS")
+                    Text(verbatim: "\(formatKasExact(entry.balanceSompi)) \(KaspaUnit.symbol)")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     HStack(spacing: 6) {
@@ -553,7 +553,7 @@ struct ManageAddressesView: View {
                 Text("Total Balance")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("\(formatKasExact(totalBalanceSompi)) KAS")
+                Text(verbatim: "\(formatKasExact(totalBalanceSompi)) \(KaspaUnit.symbol)")
                     .font(.title2)
                     .fontWeight(.bold)
             }
@@ -794,7 +794,7 @@ struct ManageAddressesView: View {
                     .font(.system(.caption, design: .monospaced))
                     .foregroundColor(.secondary)
                 if funded {
-                    Text("Holding \(formatKasExact(entry.balanceSompi)) KAS")
+                    KaspaUnit.text("Holding %@ KAS", formatKasExact(entry.balanceSompi))
                         .font(.caption.weight(.semibold))
                         .foregroundColor(.accentColor)
                 }
@@ -1305,7 +1305,7 @@ private struct ConsolidateToPrimaryConfirmView: View {
                                         .font(.system(.subheadline, design: .monospaced))
                                 }
                                 Spacer()
-                                Text("\(formatKas(entry.balanceSompi)) KAS")
+                                Text(verbatim: "\(formatKas(entry.balanceSompi)) \(KaspaUnit.symbol)")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
                             }
@@ -1360,7 +1360,7 @@ private struct ConsolidateToPrimaryConfirmView: View {
                                     isEditingFee = true
                                 } label: {
                                     HStack(spacing: 4) {
-                                        Text("~\(formatKas(effectiveFeeSompi)) KAS")
+                                        Text(verbatim: "~\(formatKas(effectiveFeeSompi)) \(KaspaUnit.symbol)")
                                             .underline()
                                         Image(systemName: "pencil")
                                             .font(.caption2)
@@ -1708,13 +1708,13 @@ struct SpendingAddressWithdrawView: View {
                             .buttonStyle(.borderless)
                             .disabled(!hasValidRecipient)
                         }
-                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "KAS")
+                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.symbol)
                             .foregroundColor(.secondary)
                     }
                 } header: {
                     Text("Amount")
                 } footer: {
-                    Text("Available: \(formatKas(entry.balanceSompi)) KAS")
+                    KaspaUnit.text("Available: %@ KAS", formatKas(entry.balanceSompi))
                 }
 
                 Section {
@@ -1776,7 +1776,7 @@ struct SpendingAddressWithdrawView: View {
                                 startEditingFee()
                             } label: {
                                 HStack(spacing: 4) {
-                                    Text("\(formatKas(totalFeeSompi)) KAS")
+                                    Text(verbatim: "\(formatKas(totalFeeSompi)) \(KaspaUnit.symbol)")
                                         .underline()
                                     Image(systemName: "pencil")
                                         .font(.caption2)
@@ -2316,7 +2316,7 @@ private struct SpendingAddressTransactionHistoryView: View {
                 Text("Balance")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("\(formatKasExact(entry.balanceSompi)) KAS")
+                Text(verbatim: "\(formatKasExact(entry.balanceSompi)) \(KaspaUnit.symbol)")
                     .font(.title3.weight(.semibold))
             }
             .padding(.top, 12)
@@ -2582,7 +2582,7 @@ private struct SpendingAddressTransactionHistoryView: View {
                         .fontWeight(.bold)
                         .foregroundColor(.accentColor)
                 }
-                Text("\(formatKasExact(utxo.amount)) KAS")
+                Text(verbatim: "\(formatKasExact(utxo.amount)) \(KaspaUnit.symbol)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                 Text("\(utxo.outpoint.transactionId):\(utxo.outpoint.index)")
@@ -2650,7 +2650,7 @@ private struct SpendingAddressTransactionHistoryView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 if let info {
-                    Text("\(info.isOutgoing ? "-" : "+")\(formatKasExact(info.amountSompi)) KAS")
+                    Text(verbatim: "\(info.isOutgoing ? "-" : "+")\(formatKasExact(info.amountSompi)) \(KaspaUnit.symbol)")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(info.isOutgoing ? .red : .green)
@@ -2878,7 +2878,7 @@ private struct SpendingAddressVisibilityView: View {
     @ViewBuilder
     private func usedTag(_ entry: SpendingAddressEntry, funded: Bool) -> some View {
         if funded {
-            Text("\(Double(entry.balanceSompi) / 100_000_000.0, specifier: "%.4f") KAS")
+            Text(verbatim: "\(String(format: "%.4f", Double(entry.balanceSompi) / 100_000_000.0)) \(KaspaUnit.symbol)")
                 .font(.caption2.weight(.semibold))
                 .foregroundColor(.accentColor)
         } else if let used = usedByAddress[entry.address] {

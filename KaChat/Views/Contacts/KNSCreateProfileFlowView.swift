@@ -296,7 +296,7 @@ struct KNSCreateProfileFlowView: View {
                 Text("Current balance")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("\(Self.formatKas(balanceKas)) KAS")
+                Text(verbatim: "\(Self.formatKas(balanceKas)) \(KaspaUnit.symbol)")
                     .font(.title2.weight(.bold))
             }
 
@@ -739,7 +739,7 @@ private struct KNSDomainCreationStepView: View {
                     HStack {
                         Text("Service fee")
                         Spacer()
-                        Text("\(KNSCreateProfileFlowView.formatKas(fee)) KAS")
+                        Text(verbatim: "\(KNSCreateProfileFlowView.formatKas(fee)) \(KaspaUnit.symbol)")
                             .foregroundColor(.secondary)
                     }
                 }
@@ -1166,7 +1166,7 @@ private struct KNSDetailsStepView: View {
                 Text("Let's add more details about yourself")
                     .font(.title2.weight(.bold))
                     .padding(.top, 12)
-                Text(localizedFormat("You need at least %@ KAS to fill in all fields.", KNSCreateProfileFlowView.formatKas(Self.costPerFieldKas)))
+                Text(KaspaUnit.label(localizedFormat("You need at least %@ KAS to fill in all fields.", KNSCreateProfileFlowView.formatKas(Self.costPerFieldKas))))
                     .font(.footnote)
                     .foregroundColor(.secondary)
 

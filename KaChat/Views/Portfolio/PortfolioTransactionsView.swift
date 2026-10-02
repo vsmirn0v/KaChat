@@ -357,7 +357,7 @@ struct PortfolioTransactionsView<Header: View>: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text(viewModel.valuesHidden ? "\(PortfolioFormat.masked) KAS" : "\(Self.formatKasAmount(tx.amountKas)) KAS")
+                Text(viewModel.valuesHidden ? "\(PortfolioFormat.masked) \(KaspaUnit.symbol)" : "\(Self.formatKasAmount(tx.amountKas)) \(KaspaUnit.symbol)")
                     .fontWeight(.medium)
                 Text(viewModel.valuesHidden ? PortfolioFormat.masked : formatCurrency(tx.fiatValue))
                     .font(.caption)
@@ -977,7 +977,7 @@ private struct PortfolioTransactionEditor: View {
                             .keyboardType(.decimalPad)
                             .numericKeyboardDoneButton()
                             .multilineTextAlignment(.trailing)
-                        Text("KAS")
+                        Text(verbatim: KaspaUnit.symbol)
                             .foregroundColor(.secondary)
                     }
                     HStack {

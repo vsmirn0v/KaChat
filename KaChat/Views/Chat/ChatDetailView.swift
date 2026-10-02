@@ -1012,10 +1012,10 @@ struct ChatDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
+            KaspaUnit.text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
         }
         .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
-            TextField("Fee (KAS)", text: $feeEditorText)
+            TextField(KaspaUnit.label(AppLocalization.string("Fee (KAS)")), text: $feeEditorText)
                 .keyboardType(.decimalPad)
                 .numericKeyboardDoneButton()
             Button("Save") { commitFeeOverride() }
@@ -1747,7 +1747,7 @@ struct ChatDetailView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 1)
-                Text("The recipient won't see your messages until they message you or you ping them with a handshake. Handshakes cost 0.2 KAS and are returned to you if they accept. You lose privacy if you ping them.")
+                KaspaUnit.text("The recipient won't see your messages until they message you or you ping them with a handshake. Handshakes cost 0.2 KAS and are returned to you if they accept. You lose privacy if you ping them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2339,7 +2339,7 @@ struct ChatDetailView: View {
             }
 
             composerQuickActionButton(
-                title: "Send KAS",
+                title: LocalizedStringKey(KaspaUnit.label(AppLocalization.string("Send KAS"))),
                 icon: "KaspaLogo",
                 isAssetImage: true
             ) {
@@ -2579,7 +2579,7 @@ struct ChatDetailView: View {
             .buttonStyle(.plain)
 
             TextField(
-                fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "Amount (KAS)",
+                fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.label(AppLocalization.string("Amount (KAS)")),
                 text: Binding(
                     get: { fiatAmountState.displayText },
                     set: { newValue in
@@ -2692,7 +2692,7 @@ struct ChatDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.leading, 6)
-                        .accessibilityLabel(Text("Send KAS"))
+                        .accessibilityLabel(KaspaUnit.text("Send KAS"))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -2786,12 +2786,12 @@ struct ChatDetailView: View {
     private var feeBubble: some View {
         HStack(spacing: 6) {
             if isEstimatingFee {
-                Text("fee: -------- KAS")
+                KaspaUnit.text("fee: -------- KAS")
             } else if let fee = feeOverrideSompi ?? feeEstimateSompi ?? recordingFeeSompi {
                 Text(localizedFeeText(fee))
                     .underline()
             } else {
-                Text("fee: -- KAS")
+                KaspaUnit.text("fee: -- KAS")
             }
         }
         .font(.caption2)
@@ -4494,12 +4494,12 @@ struct ChatDetailView: View {
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
-        let template = AppLocalization.string("fee: %@ KAS")
+        let template = KaspaUnit.label(AppLocalization.string("fee: %@ KAS"))
         return String(format: template, locale: AppLocalization.locale, formatKaspaExact(feeSompi))
     }
 
     private func localizedAvailableBalanceText(_ balanceSompi: UInt64?) -> String {
-        let template = AppLocalization.string("available: %@ KAS")
+        let template = KaspaUnit.label(AppLocalization.string("available: %@ KAS"))
         let value = balanceSompi.map(formatKaspaExact) ?? "--"
         return String(format: template, locale: AppLocalization.locale, value)
     }
@@ -4697,9 +4697,9 @@ struct ChatDetailView: View {
         // Must match `ChatService+Conversations.formatInsufficientBalanceError`'s own lookup
         // (`AppLocalization`, not `NSLocalizedString`) - that's the language `message` was
         // actually generated in, which isn't necessarily the device's system language.
-        let template = AppLocalization.string(
+        let template = KaspaUnit.label(AppLocalization.string(
             "Planned spend %@ KAS, but available balance %@ KAS is less than required."
-        ).lowercased()
+        )).lowercased()
         let parts = template.components(separatedBy: "%@").filter { !$0.isEmpty }
         if parts.isEmpty { return true }
 

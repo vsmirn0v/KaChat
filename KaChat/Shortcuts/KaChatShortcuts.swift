@@ -256,7 +256,7 @@ struct SendKaChatPaymentIntent: AppIntent {
 
         // Match in-app guard from ChatDetailView.
         if amountSompi < 10_000_001 {
-            throw KasiaError.networkError("Minimum payment amount is 0.10000001 KAS")
+            throw KasiaError.networkError(KaspaUnit.label("Minimum payment amount is 0.10000001 KAS"))
         }
 
         let target = try KaChatShortcutHelpers.resolveContact(from: contact)

@@ -537,7 +537,7 @@ struct SentConfirmationSheet: View {
         var text = String(format: "%.8f", Double(sompi) / 100_000_000.0)
         while text.hasSuffix("0") { text.removeLast() }
         if text.hasSuffix(".") { text.removeLast() }
-        return "\(text) KAS"
+        return "\(text) \(KaspaUnit.symbol)"
     }
 
     var body: some View {

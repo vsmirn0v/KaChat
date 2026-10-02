@@ -149,7 +149,7 @@ struct ChattingAddressPickerView: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     HStack(spacing: 6) {
-                        Text("\(formatKas(candidate.balanceSompi)) KAS")
+                        Text(verbatim: "\(formatKas(candidate.balanceSompi)) \(KaspaUnit.symbol)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         if candidate.nameCount > 0 {
@@ -256,7 +256,7 @@ struct ChattingAddressDetailView: View {
                         Label("Balance", systemImage: "circlebadge.2.fill")
                             .font(.subheadline.weight(.semibold))
                         Spacer()
-                        Text("\(formatKas(candidate.balanceSompi)) KAS")
+                        Text(verbatim: "\(formatKas(candidate.balanceSompi)) \(KaspaUnit.symbol)")
                             .font(.subheadline.monospacedDigit())
                             .foregroundColor(.secondary)
                     }

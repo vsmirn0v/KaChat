@@ -98,7 +98,7 @@ struct PortfolioView: View {
                     if viewModel.valuesHidden {
                         HStack(spacing: 6) {
                             Image("KaspaLogo").resizable().scaledToFit().frame(width: 15, height: 15)
-                            Text("\(PortfolioFormat.masked) KAS")
+                            Text(verbatim: "\(PortfolioFormat.masked) \(KaspaUnit.symbol)")
                                 .font(.footnote.weight(.semibold))
                                 .foregroundColor(.secondary)
                         }
@@ -289,7 +289,7 @@ struct PortfolioView: View {
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 8
         formatter.locale = Locale(identifier: "en_US")
-        return (formatter.string(from: NSNumber(value: value)) ?? String(format: "%.8f", value)) + " KAS"
+        return (formatter.string(from: NSNumber(value: value)) ?? String(format: "%.8f", value)) + " " + KaspaUnit.symbol
     }
 
     private var priceSquare: some View {
@@ -630,7 +630,7 @@ private struct PortfolioValueChartScreen: View {
 
     private func statsCard(_ summary: PortfolioSummary) -> some View {
         VStack(spacing: 0) {
-            statRow("Holdings", viewModel.valuesHidden ? "\(PortfolioFormat.masked) KAS" : PortfolioFormat.kas(summary.holdingsKas))
+            statRow("Holdings", viewModel.valuesHidden ? "\(PortfolioFormat.masked) \(KaspaUnit.symbol)" : PortfolioFormat.kas(summary.holdingsKas))
             Divider()
             statRow("Current Value", money(summary.currentValue))
             Divider()
@@ -919,7 +919,7 @@ enum PortfolioFormat {
 
     static func kas(_ value: Double) -> String {
         let text = kasFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.4f", value)
-        return text + " KAS"
+        return text + " " + KaspaUnit.symbol
     }
 }
 
@@ -1589,7 +1589,7 @@ private struct MiningEstimateCard: View {
     private var assumptionsLine: String {
         guard let networkHashratePHs, let blockRewardKas else { return "" }
         return "At \(HashrateFormat.display(networkHashratePHs)) network hashrate and a "
-            + "\(String(format: "%.4f", blockRewardKas)) KAS block reward. Before pool fees, "
+            + "\(String(format: "%.4f", blockRewardKas)) \(KaspaUnit.symbol) block reward. Before pool fees, "
             + "power and luck, and both figures move."
     }
 }

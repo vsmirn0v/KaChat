@@ -4073,7 +4073,7 @@ struct KaPostsView: View {
                 Haptics.success()
                 // A deferred send (no confirmed inputs yet) has no transaction to show; the
                 // retry timer owns it from here.
-                showActionToast("Tipped \(kasText) KAS to \(name)", txId: txId ?? "")
+                showActionToast("Tipped \(kasText) \(KaspaUnit.symbol) to \(name)", txId: txId ?? "")
             } catch {
                 AppLog.log("[KaPosts] Instant tip failed: %@", error.localizedDescription)
                 feedError = "Tip didn't send: \(UserFacingError.message(for: error))"
@@ -6220,14 +6220,14 @@ private struct KaPostTipSheet: View {
                                 .fontWeight(.semibold)
                                 .buttonStyle(.borderless)
                         }
-                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "KAS")
+                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.symbol)
                             .foregroundColor(.secondary)
                     }
                 } header: {
                     Text("Amount")
                 } footer: {
                     if let availableSompi {
-                        Text("Available: \(trimmedKas(availableSompi)) KAS from your \(fundingIsSpending ? "primary spending address" : "chatting address")")
+                        KaspaUnit.text("Available: %@ KAS from your %@", trimmedKas(availableSompi), fundingIsSpending ? "primary spending address" : "chatting address")
                     }
                 }
 
@@ -6266,7 +6266,7 @@ private struct KaPostTipSheet: View {
                                 startEditingFee()
                             } label: {
                                 HStack(spacing: 4) {
-                                    Text("\(trimmedKas(totalFeeSompi)) KAS")
+                                    Text(verbatim: "\(trimmedKas(totalFeeSompi)) \(KaspaUnit.symbol)")
                                         .underline()
                                     Image(systemName: "pencil")
                                         .font(.caption2)
@@ -6992,7 +6992,7 @@ private struct KaPostComposerView: View {
             Spacer()
             if settingsViewModel.settings.showFeeEstimate, !trimmed.isEmpty,
                let fee = KaPostsAPIClient.estimatePostFee(text: trimmed) {
-                Text("Est. fee: \(String(format: "%.8f", Double(fee) / 100_000_000.0)) KAS")
+                KaspaUnit.text("Est. fee: %@ KAS", String(format: "%.8f", Double(fee) / 100_000_000.0))
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundColor(.secondary)

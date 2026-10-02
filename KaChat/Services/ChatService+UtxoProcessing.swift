@@ -862,7 +862,7 @@ extension ChatService {
     }
 
     func parseKasAmountFromPaymentContent(_ content: String) -> UInt64? {
-        let pattern = "(?:Received|Sent)\\s+([0-9][0-9,]*(?:\\.[0-9]{1,8})?)\\s+KAS"
+        let pattern = "(?:Received|Sent)\\s+([0-9][0-9,]*(?:\\.[0-9]{1,8})?)\\s+T?KAS"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(content.startIndex..<content.endIndex, in: content)
         guard let match = regex.firstMatch(in: content, options: [], range: range),

@@ -253,7 +253,7 @@ struct ChessTournamentsView: View {
         } header: {
             Text("Public")
         } footer: {
-            Text("Join and you are paired with the next person who joins. When a room fills, the game starts and the next room opens. Five minutes a side; every move is a Kaspa transaction (about 0.0017 KAS each). Games here count on the leaderboard.")
+            KaspaUnit.text("Join and you are paired with the next person who joins. When a room fills, the game starts and the next room opens. Five minutes a side; every move is a Kaspa transaction (about 0.0017 KAS each). Games here count on the leaderboard.")
         }
         Section {
             ForEach(service.myPrivateDuels) { duel in
@@ -465,7 +465,7 @@ struct ChessTournamentsView: View {
         } header: {
             Text("Public")
         } footer: {
-            Text("There is always a public room waiting for players. When it fills, it starts and the next one opens. Eight players, single elimination, five minutes a side. Every move is a Kaspa transaction (about 0.0017 KAS each).")
+            KaspaUnit.text("There is always a public room waiting for players. When it fills, it starts and the next one opens. Eight players, single elimination, five minutes a side. Every move is a Kaspa transaction (about 0.0017 KAS each).")
         }
         Section {
             ForEach(service.myPrivateTournaments) { tournament in

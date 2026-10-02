@@ -908,7 +908,7 @@ extension ChatService {
     func formatInsufficientBalanceError(plannedSpendSompi: UInt64, availableSompi: UInt64) -> KasiaError {
         let planned = formatKasAmount(plannedSpendSompi)
         let available = formatKasAmount(availableSompi)
-        let template = AppLocalization.string("Planned spend %@ KAS, but available balance %@ KAS is less than required.")
+        let template = KaspaUnit.label(AppLocalization.string("Planned spend %@ KAS, but available balance %@ KAS is less than required."))
         let message = String(format: template, locale: AppLocalization.locale, planned, available)
         return KasiaError.networkError(
             message
@@ -921,7 +921,7 @@ extension ChatService {
 
     func matchesLocalizedTemplate(_ message: String, key: String) -> Bool {
         let lowered = message.lowercased()
-        let localized = AppLocalization.string(key).lowercased()
+        let localized = KaspaUnit.label(AppLocalization.string(key)).lowercased()
         let segments = localized.components(separatedBy: "%@").filter { !$0.isEmpty }
         guard !segments.isEmpty else { return lowered == localized }
 
@@ -2407,7 +2407,7 @@ extension ChatService {
         if pendingTxId == nil {
             let formattedAmount = formatKasAmount(amountSompi)
             let pendingTimestamp = Date()
-            let pendingTemplate = AppLocalization.string("Sent %@ KAS")
+            let pendingTemplate = KaspaUnit.label(AppLocalization.string("Sent %@ KAS"))
             let pendingMessage = ChatMessage(
                 txId: activePendingTxId,
                 senderAddress: wallet.publicAddress,

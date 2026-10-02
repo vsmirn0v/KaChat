@@ -392,7 +392,7 @@ struct ProfileView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 15, height: 15)
-            Text("\(exact) KAS")
+            Text(verbatim: "\(exact) \(KaspaUnit.symbol)")
                 .font(.footnote.weight(.semibold))
                 .monospacedDigit()
                 .foregroundColor(.secondary)
@@ -1098,7 +1098,7 @@ struct ProfileView: View {
             addressActionRow(
                 title: "Chatting",
                 address: wallet.publicAddress,
-                balanceText: wallet.balanceSompi.map { "\(formatKaspaExact($0)) KAS" },
+                balanceText: wallet.balanceSompi.map { "\(formatKaspaExact($0)) \(KaspaUnit.symbol)" },
                 onSend: { showWithdrawSheet = true }
             ) {
                 ChattingAddressManageView(address: wallet.publicAddress)
@@ -1106,7 +1106,7 @@ struct ProfileView: View {
             addressActionRow(
                 title: "Spending",
                 address: walletManager.currentSpendingAddress(),
-                balanceText: spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) KAS" },
+                balanceText: spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) \(KaspaUnit.symbol)" },
                 totalText: spendingTotalText,
                 isLoadingBalance: isLoadingSpendingBalance,
                 onSend: { showSpendingAddressWithdraw = true }
@@ -1225,7 +1225,7 @@ struct ProfileView: View {
     /// than as "nothing else to add".
     private var spendingTotalText: String? {
         guard let total = spendingTotalSompi else { return nil }
-        return "Total: \(formatKaspaExact(total)) KAS"
+        return "Total: \(formatKaspaExact(total)) \(KaspaUnit.symbol)"
     }
 
     /// Coalesces balance refreshes triggered by own-address activity.
@@ -2512,7 +2512,7 @@ private struct KNSProfileEditorSheet: View {
                                         .foregroundColor(.secondary)
                                 }
                             }
-                            Text("Each transaction temporarily uses ~2 KAS; ~1 KAS returns immediately as change, so only the small network fee is a real cost.")
+                            KaspaUnit.text("Each transaction temporarily uses ~2 KAS; ~1 KAS returns immediately as change, so only the small network fee is a real cost.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             HStack {
@@ -3028,7 +3028,7 @@ private struct KNSDomainInscribeSheet: View {
                         HStack {
                             Text("Service fee")
                             Spacer()
-                            Text("\(formatKas(fee)) KAS")
+                            Text(verbatim: "\(formatKas(fee)) \(KaspaUnit.symbol)")
                                 .foregroundColor(.secondary)
                         }
                         if availability?.isReservedDomain == true {
@@ -3534,7 +3534,7 @@ struct KNSDomainSendView: View {
                                 startEditingFee()
                             } label: {
                                 HStack(spacing: 4) {
-                                    Text("\(trimmedKas(priorityFeeSompi)) KAS")
+                                    Text(verbatim: "\(trimmedKas(priorityFeeSompi)) \(KaspaUnit.symbol)")
                                         .underline()
                                     Image(systemName: "pencil")
                                         .font(.caption2)
@@ -3826,7 +3826,7 @@ struct ChattingAddressManageView: View {
                 Text("Balance")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("\(formatKasExact(balanceSompi)) KAS")
+                Text(verbatim: "\(formatKasExact(balanceSompi)) \(KaspaUnit.symbol)")
                     .font(.title3.weight(.semibold))
             }
             .padding(.top, 12)
@@ -4150,7 +4150,7 @@ struct ChattingAddressManageView: View {
                         .fontWeight(.bold)
                         .foregroundColor(.accentColor)
                 }
-                Text("\(formatKasExact(utxo.amount)) KAS")
+                Text(verbatim: "\(formatKasExact(utxo.amount)) \(KaspaUnit.symbol)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                 Text("\(utxo.outpoint.transactionId):\(utxo.outpoint.index)")
@@ -4218,7 +4218,7 @@ struct ChattingAddressManageView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 if let info {
-                    Text("\(info.isOutgoing ? "-" : "+")\(formatKasExact(info.amountSompi)) KAS")
+                    Text(verbatim: "\(info.isOutgoing ? "-" : "+")\(formatKasExact(info.amountSompi)) \(KaspaUnit.symbol)")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(info.isOutgoing ? .red : .green)
@@ -4540,7 +4540,7 @@ struct ChattingAddressQRView: View {
             .toast(message: toastMessage)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text(balanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
+                    Text(balanceSompi.map { "\(formatKaspaExact($0)) \(KaspaUnit.symbol)" } ?? "—")
                         .font(.caption)
                         .fontWeight(.bold)
                         .monospacedDigit()
@@ -4835,14 +4835,14 @@ struct WithdrawKaspaView: View {
                             .buttonStyle(.borderless)
                             .disabled(!hasValidRecipient)
                         }
-                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "KAS")
+                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.symbol)
                             .foregroundColor(.secondary)
                     }
                 } header: {
                     Text("Amount")
                 } footer: {
                     if let availableBalanceSompi {
-                        Text("Available: \(trimmedKas(availableBalanceSompi)) KAS")
+                        KaspaUnit.text("Available: %@ KAS", trimmedKas(availableBalanceSompi))
                     }
                 }
 
@@ -4905,7 +4905,7 @@ struct WithdrawKaspaView: View {
                                 startEditingFee()
                             } label: {
                                 HStack(spacing: 4) {
-                                    Text("\(trimmedKas(totalFeeSompi)) KAS")
+                                    Text(verbatim: "\(trimmedKas(totalFeeSompi)) \(KaspaUnit.symbol)")
                                         .underline()
                                     Image(systemName: "pencil")
                                         .font(.caption2)

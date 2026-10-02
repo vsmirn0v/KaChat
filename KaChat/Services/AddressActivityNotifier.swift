@@ -345,7 +345,7 @@ final class AddressActivityNotifier: ObservableObject {
         guard total > 0 else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "Received \(Self.formatKas(total)) KAS"
+        content.title = "Received \(Self.formatKas(total)) \(KaspaUnit.symbol)"
         content.body = bodyDescribing(addresses: hits.map { $0.address })
         content.threadIdentifier = Self.notificationThreadIdentifier
         content.userInfo = ["kind": kindKey(for: hits.first?.address ?? "")]
@@ -363,7 +363,7 @@ final class AddressActivityNotifier: ObservableObject {
     private func postBalanceIncreasedNotification(address: String, delta: UInt64) {
         guard featureEnabled else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Balance increased by \(Self.formatKas(delta)) KAS"
+        content.title = "Balance increased by \(Self.formatKas(delta)) \(KaspaUnit.symbol)"
         content.body = describe(address: address)
         content.threadIdentifier = Self.notificationThreadIdentifier
         content.userInfo = ["kind": kindKey(for: address)]

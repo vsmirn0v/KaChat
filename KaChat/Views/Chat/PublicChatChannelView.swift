@@ -214,7 +214,7 @@ struct PublicChatChannelView: View {
             )
         }
         .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
-            TextField("Fee (KAS)", text: $feeEditorText)
+            TextField(KaspaUnit.label(AppLocalization.string("Fee (KAS)")), text: $feeEditorText)
                 .keyboardType(.decimalPad)
                 .numericKeyboardDoneButton()
             Button("Save") { commitFeeOverride() }
@@ -921,12 +921,12 @@ struct PublicChatChannelView: View {
     private var feeBubble: some View {
         Group {
             if isEstimatingFee {
-                Text("fee: -------- KAS")
+                KaspaUnit.text("fee: -------- KAS")
             } else if let fee = feeOverrideSompi ?? feeEstimateSompi {
                 Text(localizedFeeText(fee))
                     .underline()
             } else {
-                Text("fee: -- KAS")
+                KaspaUnit.text("fee: -- KAS")
             }
         }
         .font(.caption2)
@@ -962,7 +962,7 @@ struct PublicChatChannelView: View {
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
-        let template = AppLocalization.string("fee: %@ KAS")
+        let template = KaspaUnit.label(AppLocalization.string("fee: %@ KAS"))
         return String(format: template, locale: AppLocalization.locale, formatKaspaExact(feeSompi))
     }
 

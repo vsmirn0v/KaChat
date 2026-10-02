@@ -225,7 +225,7 @@ struct KachatMarketView: View {
                         .foregroundColor(.black)
                         .redacted(reason: .placeholder)
                 )
-            Text("000 KAS")
+            Text(verbatim: "000 \(KaspaUnit.symbol)")
                 .font(.subheadline.weight(.semibold))
                 .redacted(reason: .placeholder)
             Text("Buy")
@@ -251,7 +251,7 @@ struct KachatMarketView: View {
             }
             .redacted(reason: .placeholder)
             Spacer()
-            Text("000 KAS")
+            Text(verbatim: "000 \(KaspaUnit.symbol)")
                 .font(.subheadline.weight(.semibold))
                 .redacted(reason: .placeholder)
             Image(systemName: "chevron.right")
@@ -322,7 +322,7 @@ struct KachatMarketView: View {
                         }
                         .redacted(reason: .placeholder)
                         Spacer()
-                        Text("000 KAS")
+                        Text(verbatim: "000 \(KaspaUnit.symbol)")
                             .font(.subheadline)
                             .redacted(reason: .placeholder)
                     }
@@ -365,7 +365,7 @@ struct KachatMarketView: View {
                     howItWorksRow(
                         icon: "hand.raised",
                         title: "Offer",
-                        detail: "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first."
+                        detail: LocalizedStringKey(KaspaUnit.label(AppLocalization.string("Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first.")))
                     )
                     howItWorksRow(
                         icon: "checkmark.shield",
@@ -453,7 +453,7 @@ struct KachatListingDetailView: View {
                     Text("Price")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text(verbatim: "000 KAS")
+                    Text(verbatim: "000 \(KaspaUnit.symbol)")
                         .font(.title3.weight(.bold))
                         .redacted(reason: .placeholder)
                 }
@@ -540,7 +540,7 @@ struct KachatListingDetailView: View {
                         }
                         .redacted(reason: .placeholder)
                         Spacer()
-                        Text(verbatim: "000 KAS")
+                        Text(verbatim: "000 \(KaspaUnit.symbol)")
                             .font(.subheadline.weight(.semibold))
                             .redacted(reason: .placeholder)
                     }
@@ -585,7 +585,7 @@ struct KachatListingDetailView: View {
     private var notes: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Buying pays the seller and moves the name to you in one transaction.", systemImage: "cart")
-            Label("An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires.", systemImage: "lock")
+            Label(KaspaUnit.label(AppLocalization.string("An offer locks your KAS on chain until the seller accepts it, you withdraw it, or it expires.")), systemImage: "lock")
             Label("Messages go to the seller like any KaChat chat.", systemImage: "bubble.left.and.bubble.right")
         }
         .font(.footnote)
@@ -604,9 +604,9 @@ struct KachatBuySheet: View {
             Form {
                 Section {
                     summaryRow("Name", value: "name.kachat")
-                    summaryRow("Price", value: "000 KAS")
-                    summaryRow("Network fee", value: "0.0000 KAS")
-                    summaryRow("Total", value: "000 KAS", bold: true)
+                    summaryRow("Price", value: "000 \(KaspaUnit.symbol)")
+                    summaryRow("Network fee", value: "0.0000 \(KaspaUnit.symbol)")
+                    summaryRow("Total", value: "000 \(KaspaUnit.symbol)", bold: true)
                 } footer: {
                     Text("The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does.")
                 }
@@ -675,7 +675,7 @@ struct KachatOfferSheet: View {
                     HStack {
                         Text("Listed at")
                         Spacer()
-                        Text(verbatim: "000 KAS").redacted(reason: .placeholder)
+                        Text(verbatim: "000 \(KaspaUnit.symbol)").redacted(reason: .placeholder)
                     }
                 }
 
@@ -684,13 +684,13 @@ struct KachatOfferSheet: View {
                         TextField("0", text: $amount)
                             .keyboardType(.decimalPad)
                             .font(.title3.weight(.semibold))
-                        Text(verbatim: "KAS")
+                        Text(verbatim: KaspaUnit.symbol)
                             .foregroundColor(.secondary)
                     }
                 } header: {
                     Text("Your offer")
                 } footer: {
-                    Text("Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it.")
+                    KaspaUnit.text("Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it.")
                 }
 
                 Section {

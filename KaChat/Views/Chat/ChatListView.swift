@@ -1027,7 +1027,7 @@ struct ChatListView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 15, height: 15)
-            Text("\(exact) KAS")
+            Text(verbatim: "\(exact) \(KaspaUnit.symbol)")
                 .font(.footnote.weight(.semibold))
                 .monospacedDigit()
                 .foregroundColor(.secondary)

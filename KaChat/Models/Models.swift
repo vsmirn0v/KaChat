@@ -1690,6 +1690,29 @@ enum NetworkType: String, Codable, CaseIterable {
     }
 }
 
+/// The unit every amount is shown in: KAS on mainnet, TKAS on testnet, so a testnet amount can
+/// never be read as real KAS. Market data (the KAS price, exchange tickers) stays "KAS".
+enum KaspaUnit {
+    static var symbol: String { AppSettings.load().networkType == .testnet ? "TKAS" : "KAS" }
+
+    /// `text` with the word KAS shown as the running network's unit. For strings that are
+    /// already localized: every translation keeps "KAS" as is. Matches KAS only as a whole
+    /// ASCII word, so it also works inside scripts without word breaks ("%@ KASを受信") and never
+    /// touches "Kaspa" or an existing "TKAS".
+    static func label(_ text: String) -> String {
+        guard AppSettings.load().networkType == .testnet else { return text }
+        return text.replacingOccurrences(of: "(?<![A-Za-z])KAS(?![A-Za-z])", with: "TKAS", options: .regularExpression)
+    }
+
+    /// A `Text` for a localized key that mentions KAS (the same key `Text("...")` would look
+    /// up), formatted in the in-app language and labelled for the network.
+    static func text(_ key: String, _ args: CVarArg...) -> Text {
+        let template = AppLocalization.string(key)
+        let resolved = args.isEmpty ? template : String(format: template, locale: AppLocalization.locale, arguments: args)
+        return Text(verbatim: label(resolved))
+    }
+}
+
 /// App-wide appearance override. "System" (the default) just follows the device's own Light/Dark
 /// Mode setting like any well-behaved app — Light/Dark force one specific appearance regardless
 /// of what the device is currently set to.

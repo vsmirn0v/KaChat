@@ -351,7 +351,7 @@ struct AddContactView: View {
                 let k = selectedMemberAddresses.count
                 let txCount = k + 1
                 let feeText = groupChatService.estimateGroupActionFeeKas(groupId: "", controlTx: txCount, photoTx: 0)
-                    .map { "\n\nEstimated network fee ≈ \($0) KAS across \(txCount) transactions." }
+                    .map { "\n\nEstimated network fee ≈ \($0) \(KaspaUnit.symbol) across \(txCount) transactions." }
                     ?? "\n\n(\(txCount) network transactions.)"
                 Text("Create \"\(groupName.trimmingCharacters(in: .whitespacesAndNewlines))\" and invite \(k) member\(k == 1 ? "" : "s")?\(feeText)")
             }

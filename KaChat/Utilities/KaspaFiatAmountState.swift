@@ -62,7 +62,7 @@ final class KaspaFiatAmountState: ObservableObject {
     func conversionLabelText(priceInCurrency: Double?, currency: AppCurrency) -> String? {
         guard let kas = kasFromDisplay(priceInCurrency: priceInCurrency) else { return nil }
         if isFiatMode {
-            return "\(formatKasAmountPlain(kas)) KAS"
+            return "\(formatKasAmountPlain(kas)) \(KaspaUnit.symbol)"
         }
         guard let priceInCurrency, priceInCurrency > 0 else { return nil }
         return formatFiatAmount(kas * priceInCurrency, currency: currency)

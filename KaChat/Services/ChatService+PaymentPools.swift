@@ -735,7 +735,7 @@ extension ChatService {
             guard let self else { return }
             guard await self.findLocalMessage(txId: txId) == nil else { return }
 
-            let template = AppLocalization.string("Received %@ KAS")
+            let template = KaspaUnit.label(AppLocalization.string("Received %@ KAS"))
             let bubble = ChatMessage(
                 txId: txId,
                 senderAddress: contactAddress,
@@ -782,7 +782,7 @@ extension ChatService {
 
         if paidToClaimed == 0 {
             AppLog.log("[ChatService] payment_notice %@ FAILED verification - no output to claimed address", String(txId.prefix(12)))
-            let template = AppLocalization.string("Received %@ KAS")
+            let template = KaspaUnit.label(AppLocalization.string("Received %@ KAS"))
             _ = updateIncomingPaymentStatus(
                 txId: txId,
                 deliveryStatus: .warning,
@@ -791,7 +791,7 @@ extension ChatService {
             saveMessages()
         } else if paidToClaimed != claimedAmount {
             // Chain is authoritative for the amount.
-            let template = AppLocalization.string("Received %@ KAS")
+            let template = KaspaUnit.label(AppLocalization.string("Received %@ KAS"))
             _ = updateIncomingPaymentStatus(
                 txId: txId,
                 deliveryStatus: .sent,

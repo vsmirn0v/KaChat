@@ -39,7 +39,7 @@ struct KaPostsSettingsView: View {
                                 .numericKeyboardDoneButton()
                                 .onSubmit { commitDefaultTip() }
                                 .onChange(of: defaultTipText) { _ in commitDefaultTip() }
-                            Text("KAS")
+                            Text(verbatim: KaspaUnit.symbol)
                                 .foregroundColor(.secondary)
                         }
                     }

@@ -3496,20 +3496,20 @@ extension ChatService {
             let formatted = formatKasAmount(amount)
             if let payload = decodePaymentPayload(payment.messagePayload),
                !payload.message.isEmpty {
-                let template = isOutgoing
+                let template = KaspaUnit.label(isOutgoing
                     ? AppLocalization.string("Sent %@ KAS — %@")
-                    : AppLocalization.string("Received %@ KAS — %@")
+                    : AppLocalization.string("Received %@ KAS — %@"))
                 return String(format: template, formatted, payload.message)
             }
-            let template = isOutgoing
+            let template = KaspaUnit.label(isOutgoing
                 ? AppLocalization.string("Sent %@ KAS")
-                : AppLocalization.string("Received %@ KAS")
+                : AppLocalization.string("Received %@ KAS"))
             return String(format: template, formatted)
         }
 
         if let payload = decodePaymentPayload(payment.messagePayload) {
             let formatted = formatKasAmount(payload.amount)
-            let template = AppLocalization.string("Payment: %@ KAS — %@")
+            let template = KaspaUnit.label(AppLocalization.string("Payment: %@ KAS — %@"))
             return String(format: template, formatted, payload.message)
         }
 

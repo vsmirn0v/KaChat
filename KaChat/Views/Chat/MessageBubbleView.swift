@@ -988,7 +988,7 @@ struct MessageBubbleView: View {
                 Text(outgoing ? "Sent" : "Received")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(outgoing ? Color.white.opacity(0.85) : .secondary)
-                Text("\(parts.amountText) KAS")
+                Text(verbatim: "\(parts.amountText) \(KaspaUnit.symbol)")
                     .font(.title3.weight(.bold))
                     .foregroundColor(outgoing ? .white : .primary)
                     .lineLimit(1)

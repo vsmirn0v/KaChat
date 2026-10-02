@@ -268,7 +268,7 @@ final class ChessTournamentService: ObservableObject {
         )
         let sompi = KasiaTransactionBuilder.estimatePublicChatFee(payload: payload, inputCount: 1, senderScriptPubKey: senderScriptPubKey)
         // Four decimals: "0.0017 KAS" reads at a glance; the exact sompi is in the transaction.
-        return String(format: "%.4f KAS", Double(sompi) / 100_000_000)
+        return String(format: "%.4f %@", Double(sompi) / 100_000_000, KaspaUnit.symbol)
     }
 
     /// The join button's label: "Join (Fee: 0.0017 KAS)".
