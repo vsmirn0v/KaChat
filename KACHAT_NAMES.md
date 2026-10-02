@@ -260,7 +260,7 @@ A `names` module in kachat-indexer (it already sees every block):
 ### App transaction core (iOS, phase 4a)
 
 The kachat-domains CLI's builders (`tools/kachat-names-cli/src/ops.rs`) ported to Swift, testnet-10
-only. No screen calls it yet.
+only. The live screens (below) call it.
 
 | File | What |
 |---|---|
@@ -268,7 +268,7 @@ only. No screen calls it yet.
 | `KaChat/Services/KachatNames/KachatNamesCodec.swift` | name rules, `key = blake3(name)`, commit hash + script, `num8`, script numbers, state codecs, minimal pushes, P2SH/P2PK, template hash, covenant id, payload markers |
 | `KaChat/Services/KachatNames/KachatNamesTransaction.swift` | version-1 tx (covenant bindings, compute budgets, storage-mass commitment), rest/full preimages, v1 txid, tx hash, SIGHASH_ALL sighash, compute / transient / storage mass, fee |
 | `KaChat/Services/KachatNames/KachatNamesManifest.swift` | the manifest and its verification |
-| `KaChat/Services/KachatNames/KachatNamesBuilder.swift` | commit, register, renew, transfer, list, buy, offer, accept/withdraw/refund offer, release, reclaim |
+| `KaChat/Services/KachatNames/KachatNamesBuilder.swift` | commit, register, renew, transfer, list, buy, offer, accept/withdraw/refund offer, release, reclaim, cancel commit |
 | `KaChat/Services/KachatNames/KachatNamesService.swift` | `@MainActor`: testnet gate, manifest loading, DAG point, funding and live registry UTXOs, P256K signing, protowire conversion, submit, profile record |
 
 - **Manifest**: `kachat-names-testnet-10.json` from the app bundle when present, else the indexer's
@@ -287,17 +287,83 @@ only. No screen calls it yet.
   on inputs, `covenant` on registry outputs and `storageMass`, through `NodePoolService`. The
   protowire is regenerated from rusty-kaspa a41a333 (`scripts/regenerate_protowire.sh`).
 - **Verified against vectors**: `KaChatTests/KachatNamesVectors.json`, written by kachat-domains'
-  `kachat-names-vectors` from the CLI's own builders (the whole e2e plan plus nine edge cases, each
+  `kachat-names-vectors` from the CLI's own builders (the whole e2e plan plus ten edge cases - the tenth a cancelled commit, since kachat-domains 101f966 - each
   validated by rusty-kaspa's consensus validator). `scripts/test_kachat_names_core.swift` checks the
   pure core byte for byte, with the recorded signatures fed in: inputs, sequences, budgets, outputs,
   covenant bindings, lock time, payload, masses, fee, rest and full preimages, every sighash, every
-  signature script, txid and tx hash. All 27 transactions match. It also checks codecs, BLAKE3 against
+  signature script, txid and tx hash. All 28 transactions match. It also checks codecs, BLAKE3 against
   the official vectors and Rust `blake3::hash`, and the manifest checks. With the app's fixed budgets
-  instead of the measured ones, all 27 rebuilt transactions pass `kachat-names-vectors check` (signed
+  instead of the measured ones, all 28 rebuilt transactions pass `kachat-names-vectors check` (signed
   with the vectors' key and run through the consensus validator, under their budgets, standardness
   and the relay floor).
 - **Not verified without a device build**: P256K signing itself, the protowire conversion and the
   gRPC submit path (`KachatNamesService`), and the manifest fetch.
+
+### Live screens on testnet (iOS, phase 4b)
+
+On testnet-10 (Settings > Connection > Testnet) with the bundled manifest verified, the `.kachat`
+screens run on the live registry. Mainnet is unchanged: mockups, "Coming soon", no network actions.
+
+| File | What |
+|---|---|
+| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled (registry `9444187f…7a51`) |
+| `KaChat/Services/KachatNames/KachatNamesRegistryState.swift` | pure: status (B5), label rule, profile record, REST tx parser, indexer shapes, the walker state and its decoder (`apply`, a port of the CLI's `Registry::apply`), the walk loop |
+| `KaChat/Services/KachatNames/KachatNamesRegistry.swift` | `@MainActor` reads: lookup, by owner, listings, lapsed, offers, history, activity, exit gaps, identity; source = names indexer or chain walker; cache in Application Support |
+| `KaChat/Services/KachatNames/KachatNamesActions.swift` | `@MainActor` actions (renew, transfer, list, buy, offer, withdraw, refund, accept, release, reclaim, profile), quotes, the resumable registration driver, cancel commit |
+| `KaChat/Views/Ecosystem/KachatNamesLiveViews.swift` | the live hub pages, claim sheet, name detail, transaction sheets, Your Domains tab, profile editor |
+
+**Where the registry is read from.** `KachatNamesRegistry` uses the names indexer (KACHAT_NAMES_INDEXER.md
+Part D) at the chat indexer URL when it is set and `GET /names/status` answers 200 with this
+manifest's `registryCovenantId`. Otherwise it walks the chain itself:
+
+- It keeps the registry's live UTXO set (gaps and names, plus the offers this device made), decoded,
+  from the manifest's genesis gap forward, cached per network (`Application Support/KachatNames/testnet-10/registry.json`).
+- A refresh asks a node (`GetUtxosByAddresses` on each state's P2SH address) which tracked UTXOs are
+  unspent. For each spent one it finds the spending transaction through the Kaspa REST API
+  (`GET /addresses/{p2sh}/full-transactions`, which returns v1 inputs' signature scripts and outputs'
+  covenant bindings), decodes the spend exactly like B3 (dispatch tag, arguments, revealed redeem),
+  predicts every registry output and accepts the transaction only if each prediction matches an
+  output's P2SH script with the registry covenant id, authorized by the input that predicted it.
+  New outputs are tracked in the next round; a transaction that needs a registry input not tracked
+  yet waits for one later in the same round.
+- Records from either source are only for display: every action re-reads its UTXOs from a node
+  (registry ones with the registry covenant id) before building anything.
+
+| | With a names indexer | Without (chain walker) |
+|---|---|---|
+| Lookup, gaps, owners, expiry, listings, lapsed names | yes | yes |
+| Registration, renew, list, buy, transfer, release, reclaim | yes | yes |
+| Offers you made (withdraw, refund) | yes | yes (tracked from your own transactions) |
+| Offers others made on your names (accept) | yes | no - the screens say "Offers from others appear once a names indexer is connected" |
+| History and activity | the indexer's | every registry transition the walker walked (not offers made by others) |
+| Labels (section 7) | `/identity` | from the walked names; `primaryName` known only for your own address |
+| Other people's profiles (avatar, bio...) | `/identity`, `/profiles` | no; your own last record only |
+
+**Registration** (`KachatNamesActions`): a fresh 32-byte salt goes to the Keychain (per wallet and
+registration), the salted commit is sent, and a record (name, years, commit outpoint and DAA, stage,
+txids) goes to `Application Support/KachatNames/testnet-10/pending-<wallet>.json`. A driver (resumed
+on app-active) waits until the virtual DAA is `commitDaa + tCommit + 20`, refreshes the registry and
+registers by itself; if someone registered the name meanwhile it stops at "taken", where the commit
+can be cancelled (`Builder.cancelCommit`: commit -> P2PK(owner) less the fee, in the vectors as the
+28th transaction and validated by `kachat-names-vectors check`). A registration that is not accepted
+within two minutes while its commit is still there is sent again.
+
+**Actions** build at `max(100, REST /info/fee-estimate priority feerate)`, check on the secp256k1
+curve every key a name or an offer will be locked to (new owner, buyer, accepting buyer), show the
+price, network fee and balance change, confirm (twice for transfer, release and accept), pass the
+device lock (`DeviceAuth`), then sign and submit, show the txid and refresh the registry once the
+REST API reports the transaction accepted.
+
+**Identity on testnet**: `NameServiceTLD.kachat` resolves (active names only) in every
+resolve-everywhere field; the profile hero shows your label; Edit .kachat Profile writes the
+`kchat:1:profile:` record (avatar, banner, bio, links, primary name - no display name).
+
+**Verified without a device**: `scripts/test_kachat_names_registry.swift` (the decoder over all
+vector transactions in order, refusals, the walk over a simulated chain, the rules, the REST and
+indexer shapes, and `--live`: a read-only walk of the TN10 registry through api-tn10.kaspa.org);
+`scripts/test_kachat_names_core.swift` (28/28 transactions byte-identical, and all 28 pass the
+consensus validator with the app's fixed budgets). **Only a device build verifies**: the screens,
+the node reads and submits, P256K signing, DeviceAuth, Keychain salts and the driver's timing.
 
 ## 10. Open points
 
@@ -329,5 +395,6 @@ only. No screen calls it yet.
    on testnet.
 3. Indexer `names` + profiles module (handoff to the indexer AI, like the other indexer docs).
 4. iOS wiring: Swift transaction builder, live `.kachat` screens, identity lookups, profiles. The
-   transaction core is done (phase 4a, section 9 "App transaction core"); screens come next.
+   transaction core is done (phase 4a, section 9 "App transaction core"); the screens are live on
+   testnet (phase 4b, section 9 "Live screens on testnet"), with or without a names indexer.
 5. Review / audit, then mainnet genesis.
