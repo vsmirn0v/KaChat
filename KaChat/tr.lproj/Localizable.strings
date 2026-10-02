@@ -1145,3 +1145,7 @@
 "Primary name set" = "Ana ad ayarlandı";
 "Name registered" = "Ad kaydedildi";
 "Commit cancelled" = "Taahhüt iptal edildi";
+"Your Profile" = "Profiliniz";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "Sohbet adresinizden kendisine zincir üzerinde kaydedilir.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "Profiller herkese açıktır ve zincir üzerindedir: herkes okuyabilir ve değiştirdikten sonra önceki sürümler okunabilir kalır.";

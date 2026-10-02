@@ -1145,3 +1145,7 @@
 "Primary name set" = "השם הראשי הוגדר";
 "Name registered" = "השם נרשם";
 "Commit cancelled" = "ההתחייבות בוטלה";
+"Your Profile" = "הפרופיל שלך";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "נשמר על השרשרת מכתובת הצ'אט שלך אל עצמה.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "פרופילים הם ציבוריים ועל השרשרת: כל אחד יכול לקרוא אותם, וגרסאות קודמות נשארות קריאות גם אחרי שינוי.";

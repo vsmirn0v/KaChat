@@ -1145,3 +1145,7 @@
 "Primary name set" = "मुख्य नाम सेट किया गया";
 "Name registered" = "नाम पंजीकृत हुआ";
 "Commit cancelled" = "कमिट रद्द हुआ";
+"Your Profile" = "आपकी प्रोफ़ाइल";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "आपके चैट पते से उसी को ऑन-चेन सहेजा जाता है।";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "प्रोफ़ाइल सार्वजनिक और ऑन-चेन होती हैं: कोई भी उन्हें पढ़ सकता है, और बदलने के बाद भी पुराने संस्करण पढ़े जा सकते हैं।";

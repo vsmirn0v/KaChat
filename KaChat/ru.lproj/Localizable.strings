@@ -1145,3 +1145,7 @@
 "Primary name set" = "Основное имя задано";
 "Name registered" = "Имя зарегистрировано";
 "Commit cancelled" = "Коммит отменён";
+"Your Profile" = "Ваш профиль";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "Сохраняется в блокчейне переводом с вашего адреса для чата на него же.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "Профили публичны и хранятся в блокчейне: их может прочитать кто угодно, а прежние версии остаются доступными после изменения.";

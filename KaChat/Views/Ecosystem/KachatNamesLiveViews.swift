@@ -1279,9 +1279,6 @@ struct KachatLiveNameDetail: View {
     @State private var history: [KachatNames.Event] = []
     @State private var gone = false
     @State private var confirmPrimary = false
-    @State private var primaryWorking = false
-    @State private var primaryMessage: String?
-    @State private var primaryDone: KachatTxDone?
 
     private var mine: Bool { KachatLive.isMine(info.owner) }
     private var status: KachatNames.Status { info.status(graceMs: registry.graceMs) }
@@ -1298,9 +1295,6 @@ struct KachatLiveNameDetail: View {
                         .padding(.horizontal, 20)
                 } else {
                     actionButtons
-                    if let primaryMessage {
-                        Text(verbatim: primaryMessage).font(.footnote).foregroundColor(.secondary).padding(.horizontal, 20)
-                    }
                     ownerCard
                     offersSection
                 }
@@ -1311,16 +1305,13 @@ struct KachatLiveNameDetail: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(info.display)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $primaryDone) { KachatTxDoneSheet(done: $0) }
         .refreshable { await registry.refresh() }
         .task(id: registry.revision) { await reload() }
         .sheet(item: $sheet) { s in sheetView(s) }
         .sheet(item: $offerAction) { action in action.sheet }
-        .alert(Text("Make \(info.display) your primary name?"), isPresented: $confirmPrimary) {
-            Button("Set as Primary") { setPrimary() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("KaChat shows it as your name. It's saved in your profile record on chain, for a network fee.")
+        .sheet(isPresented: $confirmPrimary) {
+            KachatProfileSaveSheet(title: "Set as Primary", confirmTitle: "Set as Primary", doneTitle: "Primary name set",
+                                   makeProfile: { await primaryProfile() })
         }
     }
 
@@ -1392,12 +1383,12 @@ struct KachatLiveNameDetail: View {
                         actionButton("Delist", "tag.slash") { sheet = .delist }
                     } else {
                         actionButton("Set as Primary", "person.crop.circle.badge.checkmark") { confirmPrimary = true }
-                            .disabled(status != .active || primaryWorking)
+                            .disabled(status != .active)
                     }
                 }
                 if info.isListed {
                     actionButton("Set as Primary", "person.crop.circle.badge.checkmark") { confirmPrimary = true }
-                        .disabled(status != .active || primaryWorking)
+                        .disabled(status != .active)
                 }
                 Button(role: .destructive) { sheet = .release } label: {
                     Label("Release Name", systemImage: "trash")
@@ -1582,30 +1573,18 @@ struct KachatLiveNameDetail: View {
         }
     }
 
-    private func setPrimary() {
-        DeviceAuth.authenticate(reason: KachatLive.authReason) {
-            Task { @MainActor in
-                primaryWorking = true
-                primaryMessage = nil
-                do {
-                    var profile = KachatNames.Profile()
-                    if let address = actions.myAddress {
-                        if let own = registry.ownProfile(for: address)?.profile {
-                            profile = own
-                        } else if let p = try? await registry.identity(address: address).profile {
-                            profile = p
-                        }
-                    }
-                    profile.primaryName = info.name
-                    let tx = try await actions.saveProfile(profile)
-                    primaryDone = KachatTxDone(txId: tx, title: "Primary name set")
-                    Haptics.success()
-                } catch {
-                    primaryMessage = error.localizedDescription
-                }
-                primaryWorking = false
+    /// Your current profile with this name as the primary one: setting it rewrites the record.
+    private func primaryProfile() async -> KachatNames.Profile {
+        var profile = KachatNames.Profile()
+        if let address = actions.myAddress {
+            if let own = registry.ownProfile(for: address)?.profile {
+                profile = own
+            } else if let p = try? await registry.identity(address: address).profile {
+                profile = p
             }
         }
+        profile.primaryName = info.name
+        return profile
     }
 }
 
@@ -2078,12 +2057,7 @@ struct KachatLiveProfileEditor: View {
     @State private var primary = ""
     @State private var activeNames: [String] = []
     @State private var loaded = false
-    @State private var saving = false
-    @State private var confirmSave = false
-    @State private var savedTx: String?
-    @State private var done: KachatTxDone?
-    @State private var error: String?
-    @AppStorage("kachat_profile_privacy_seen") private var privacySeen = false
+    @State private var showSave = false
 
     private typealias Kind = KachatNames.SocialSource.Kind
 
@@ -2203,22 +2177,19 @@ struct KachatLiveProfileEditor: View {
                 }
                 Section {
                     Button {
-                        confirmSave = true
+                        showSave = true
                     } label: {
-                        HStack { Spacer(); if saving { ProgressView() } else { Text("Save Profile").font(.headline) }; Spacer() }
+                        HStack { Spacer(); Text("Save Profile").font(.headline); Spacer() }
                     }
-                    .disabled(saving || !loaded || blocked)
+                    .disabled(!loaded || blocked)
                 } footer: {
-                    if let savedTx {
-                        Text(verbatim: String(format: AppLocalization.string("Saved. Transaction %@"), String(savedTx.prefix(16)) + "...")).foregroundColor(.green)
-                    } else if let error {
-                        Text(verbatim: error).foregroundColor(.red)
-                    } else {
-                        Text("Saving writes your profile to the chain from your address to itself, for a network fee. Profiles are public.")
-                    }
+                    Text("Saving writes your profile to the chain from your address to itself, for a network fee. Profiles are public.")
                 }
             }
-            .sheet(item: $done, onDismiss: { dismiss() }) { KachatTxDoneSheet(done: $0) }
+            .sheet(isPresented: $showSave) {
+                KachatProfileSaveSheet(title: "Save Profile", confirmTitle: "Save Profile", doneTitle: "Profile saved",
+                                       makeProfile: { profile }, onSaved: { dismiss() })
+            }
             .onChange(of: avatarLookup) { v in if v == .found { fillEmpty(from: avatarIn) } }
             .onChange(of: bannerLookup) { v in if v == .found { fillEmpty(from: bannerIn) } }
             .onChange(of: bioLookup) { v in if v == .found { fillEmpty(from: bioIn) } }
@@ -2226,22 +2197,10 @@ struct KachatLiveProfileEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        if savedTx == nil { Text("Cancel") } else { Text("Done") }
-                    }
+                    Button("Cancel") { dismiss() }
                 }
             }
             .task { await load() }
-            .alert(Text("Save your profile?"), isPresented: $confirmSave) {
-                Button("Save") { authorizeSave() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                if privacySeen {
-                    Text("It's written to the chain for a network fee.")
-                } else {
-                    Text("Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them. It's written for a network fee.")
-                }
-            }
         }
     }
 
@@ -2267,21 +2226,113 @@ struct KachatLiveProfileEditor: View {
         loaded = true
     }
 
-    private func authorizeSave() {
-        privacySeen = true
+}
+
+/// Review before a profile record goes out - what will be saved, the network fee, the chatting
+/// address's balance before and after - the same confirmation every other name action shows.
+/// Used by Edit .kachat Profile and by Set as Primary.
+struct KachatProfileSaveSheet: View {
+    let title: LocalizedStringKey
+    let confirmTitle: LocalizedStringKey
+    /// The finished-transaction half sheet's headline (a localization key).
+    let doneTitle: String
+    /// Builds the record to save when the sheet opens (Set as Primary reads your current profile).
+    let makeProfile: () async -> KachatNames.Profile
+    var onSaved: () -> Void = {}
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var profile: KachatNames.Profile?
+    @State private var fee: UInt64?
+    @State private var quoteError: String?
+    @State private var sending = false
+    @State private var sendError: String?
+    @State private var done: KachatTxDone?
+    @AppStorage("kachat_profile_privacy_seen") private var privacySeen = false
+
+    private func source(_ link: String?, _ kind: KachatNames.SocialSource.Kind) -> String {
+        guard let s = KachatNames.SocialSource(link: link ?? "", for: kind) else { return AppLocalization.string("None") }
+        return "\(s.platform.displayName) · \(s.platform.prefix)\(s.displayHandle)"
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let profile {
+                    Section {
+                        LabeledRow(title: "Avatar", value: source(profile.avatar, .avatar))
+                        LabeledRow(title: "Banner", value: source(profile.banner, .banner))
+                        LabeledRow(title: "Bio", value: source(profile.bio, .bio))
+                        LabeledRow(title: "Linktree", value: profile.linktree.map { $0.replacingOccurrences(of: "https://", with: "") } ?? AppLocalization.string("None"))
+                        LabeledRow(title: "Primary name", value: profile.primaryName.map { "\($0).kachat" } ?? AppLocalization.string("None"))
+                    } header: {
+                        Text("Your Profile")
+                    }
+                }
+                Section {
+                    if let fee {
+                        LabeledRow(title: "Network fee", value: KaspaUnit.amount(fee))
+                        if let balance = WalletManager.shared.currentWallet?.balanceSompi {
+                            LabeledRow(title: "Chatting address balance", value: KaspaUnit.amount(balance))
+                            LabeledRow(title: "Balance after", value: KaspaUnit.amount(balance > fee ? balance - fee : 0), bold: true)
+                        }
+                    } else if quoteError == nil {
+                        HStack { Text("Network fee"); Spacer(); ProgressView() }
+                    }
+                } footer: {
+                    if let quoteError {
+                        Text(verbatim: quoteError).foregroundColor(.red)
+                    } else if privacySeen {
+                        Text("Saved on chain from your chatting address to itself.")
+                    } else {
+                        Text("Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them.")
+                    }
+                }
+                Section {
+                    Button {
+                        authorize()
+                    } label: {
+                        HStack { Spacer(); if sending { ProgressView() } else { Text(confirmTitle).font(.headline) }; Spacer() }
+                    }
+                    .disabled(fee == nil || profile == nil || sending || done != nil)
+                } footer: {
+                    if let sendError { Text(verbatim: sendError).foregroundColor(.red) }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .task { await quote() }
+            .sheet(item: $done, onDismiss: { dismiss(); onSaved() }) { KachatTxDoneSheet(done: $0) }
+        }
+    }
+
+    private func quote() async {
+        let p = await makeProfile()
+        profile = p
+        do {
+            fee = try await KachatNamesActions.shared.profileFee(p)
+        } catch {
+            quoteError = error.localizedDescription
+        }
+    }
+
+    private func authorize() {
+        guard let profile else { return }
         DeviceAuth.authenticate(reason: KachatLive.authReason) {
             Task { @MainActor in
-                saving = true
-                error = nil
+                sending = true
+                sendError = nil
                 do {
                     let tx = try await KachatNamesActions.shared.saveProfile(profile)
-                    savedTx = tx
-                    done = KachatTxDone(txId: tx, title: "Profile saved")
+                    privacySeen = true
+                    done = KachatTxDone(txId: tx, title: doneTitle)
                     Haptics.success()
                 } catch {
-                    self.error = error.localizedDescription
+                    sendError = error.localizedDescription
                 }
-                saving = false
+                sending = false
             }
         }
     }

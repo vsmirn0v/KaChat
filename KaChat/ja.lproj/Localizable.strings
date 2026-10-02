@@ -1145,3 +1145,7 @@
 "Primary name set" = "メインの名前を設定しました";
 "Name registered" = "名前を登録しました";
 "Commit cancelled" = "コミットを取り消しました";
+"Your Profile" = "あなたのプロフィール";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "チャットアドレスから自分自身宛てにオンチェーンで保存されます。";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "プロフィールは公開され、オンチェーンに保存されます。誰でも読むことができ、変更後も以前のバージョンは読める状態で残ります。";

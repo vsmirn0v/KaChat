@@ -1145,3 +1145,7 @@
 "Primary name set" = "Đã đặt tên chính";
 "Name registered" = "Đã đăng ký tên";
 "Commit cancelled" = "Đã hủy cam kết";
+"Your Profile" = "Hồ sơ của bạn";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "Được lưu trên chuỗi từ địa chỉ trò chuyện của bạn gửi cho chính nó.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "Hồ sơ là công khai và nằm trên chuỗi: ai cũng có thể đọc, và các phiên bản trước vẫn đọc được sau khi bạn thay đổi.";

@@ -1145,3 +1145,7 @@
 "Primary name set" = "主名称已设置";
 "Name registered" = "名称已注册";
 "Commit cancelled" = "承诺已取消";
+"Your Profile" = "你的个人资料";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "从你的聊天地址发送给自身，保存在链上。";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "个人资料是公开的且保存在链上：任何人都能读取，修改后旧版本依然可读。";

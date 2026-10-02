@@ -1145,3 +1145,7 @@
 "Primary name set" = "الاسم الأساسي اتحدد";
 "Name registered" = "الاسم اتسجل";
 "Commit cancelled" = "الالتزام اتلغى";
+"Your Profile" = "البروفايل بتاعك";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "بيتحفظ على السلسلة من عنوان الشات بتاعك لنفسه.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "البروفايلات عامة وعلى السلسلة: أي حد يقدر يقراها، والنسخ القديمة بتفضل مقروءة بعد ما تغيرها.";

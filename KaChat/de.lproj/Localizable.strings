@@ -1092,3 +1092,7 @@
 "Primary name set" = "Hauptname festgelegt";
 "Name registered" = "Name registriert";
 "Commit cancelled" = "Commit storniert";
+"Your Profile" = "Dein Profil";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "Wird on-chain von deiner Chat-Adresse an sich selbst gespeichert.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "Profile sind öffentlich und on-chain: Jeder kann sie lesen, und frühere Versionen bleiben nach einer Änderung lesbar.";

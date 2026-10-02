@@ -1145,3 +1145,7 @@
 "Primary name set" = "Nama utama diatur";
 "Name registered" = "Nama terdaftar";
 "Commit cancelled" = "Komitmen dibatalkan";
+"Your Profile" = "Profil Anda";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "Disimpan on-chain dari alamat obrolan Anda ke dirinya sendiri.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "Profil bersifat publik dan on-chain: siapa pun bisa membacanya, dan versi sebelumnya tetap terbaca setelah Anda mengubahnya.";

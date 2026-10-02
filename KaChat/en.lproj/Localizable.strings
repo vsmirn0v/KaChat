@@ -1146,3 +1146,7 @@
 "Primary name set" = "Primary name set";
 "Name registered" = "Name registered";
 "Commit cancelled" = "Commit cancelled";
+"Your Profile" = "Your Profile";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "Saved on chain from your chatting address to itself.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them.";

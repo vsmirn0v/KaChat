@@ -258,6 +258,23 @@ final class KachatNamesActions: ObservableObject {
 
     /// Writes the address profile (`kchat:1:profile:`): a self-transfer, network fee only.
     @discardableResult
+    /// What saving `profile` will cost: the profile record is a self-transfer from the chatting
+    /// address, so the network fee is all it spends. Built (and signed) the same way the save
+    /// builds it, never sent.
+    func profileFee(_ profile: KachatNames.Profile) async throws -> UInt64 {
+        let s = try signer()
+        let json = try profile.sanitized().recordJSON()
+        let utxos = try await NodePoolService.shared.getUtxosByAddresses([s.address])
+        let tx = try service.buildProfileRecord(address: s.address, privateKey: s.privateKey, utxos: utxos, json: json)
+        let spent = tx.inputs.reduce(UInt64(0)) { total, input in
+            total + (utxos.first {
+                $0.outpoint.transactionId == input.previousOutpoint.transactionId && $0.outpoint.index == input.previousOutpoint.index
+            }?.amount ?? 0)
+        }
+        let back = tx.outputs.reduce(UInt64(0)) { $0 + $1.value }
+        return spent > back ? spent - back : 0
+    }
+
     func saveProfile(_ profile: KachatNames.Profile) async throws -> String {
         let s = try signer()
         let clean = profile.sanitized()

@@ -1145,3 +1145,7 @@
 "Primary name set" = "تم تعيين الاسم الأساسي";
 "Name registered" = "تم تسجيل الاسم";
 "Commit cancelled" = "تم إلغاء الالتزام";
+"Your Profile" = "ملفك الشخصي";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "يُحفظ على السلسلة من عنوان الدردشة الخاص بك إلى نفسه.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "الملفات الشخصية عامة وعلى السلسلة: يمكن لأي شخص قراءتها، وتبقى الإصدارات السابقة قابلة للقراءة بعد تغييرها.";

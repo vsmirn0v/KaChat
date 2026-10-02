@@ -1145,3 +1145,7 @@
 "Primary name set" = "نام اصلی تنظیم شد";
 "Name registered" = "نام ثبت شد";
 "Commit cancelled" = "تعهد لغو شد";
+"Your Profile" = "نمایهٔ شما";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "روی زنجیره از آدرس گفتگوی شما به خودش ذخیره می‌شود.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "نمایه‌ها عمومی و روی زنجیره هستند: هر کسی می‌تواند آن‌ها را بخواند و نسخه‌های قبلی پس از تغییر هم خواندنی می‌مانند.";

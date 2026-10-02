@@ -1145,3 +1145,7 @@
 "Primary name set" = "Nome principal definido";
 "Name registered" = "Nome registrado";
 "Commit cancelled" = "Compromisso cancelado";
+"Your Profile" = "Seu perfil";
+"Linktree" = "Linktree";
+"Saved on chain from your chatting address to itself." = "Salvo on-chain do seu endereço de chat para ele mesmo.";
+"Profiles are public and on chain: anyone can read them, and earlier versions stay readable after you change them." = "Os perfis são públicos e ficam na blockchain: qualquer pessoa pode lê-los, e as versões anteriores continuam legíveis depois que você os altera.";
