@@ -945,3 +945,5 @@
 "Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "আপনার পাবলিক মেসেজিং পরিচয়। মেসেজ ফি ও আপনার .kachat নামের জন্য অল্প কিছু টাকা রাখুন - যে টাকা খরচ করতে চান তা কখনো এখানে পাঠাবেন না।";
 "KaPosts isn't available on Testnet yet" = "KaPosts এখনও টেস্টনেটে উপলব্ধ নয়";
 "There is no KaPost indexer for testnet. Turn off Testnet in Settings > Connection to read and post on mainnet." = "টেস্টনেটের জন্য কোনো KaPost ইনডেক্সার নেই। মেইননেটে পড়তে ও পোস্ট করতে সেটিংস > সংযোগ থেকে টেস্টনেট বন্ধ করুন।";
+"Nextcloud is off while Testnet is on." = "টেস্টনেট চালু থাকলে Nextcloud বন্ধ থাকে।";
+"Backups, sync, media and calls through Nextcloud work on mainnet only, so testnet can never overwrite your mainnet backup. Turn off Testnet in Settings > Connection and your Nextcloud connection comes back as it was." = "Nextcloud-এর মাধ্যমে ব্যাকআপ, সিঙ্ক, মিডিয়া ও কল শুধু মেইননেটে কাজ করে, তাই টেস্টনেট কখনো আপনার মেইননেট ব্যাকআপ মুছে লিখতে পারে না। সেটিংস > সংযোগ থেকে টেস্টনেট বন্ধ করলে আপনার Nextcloud সংযোগ আগের মতো ফিরে আসবে।";

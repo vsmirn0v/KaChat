@@ -3472,6 +3472,22 @@ struct NextcloudSettingsView: View {
     }
 
     var body: some View {
+        if service.isOffForTestnet {
+            // Mainnet-only (see NextcloudService.isOffForTestnet): nothing to set up here, and
+            // the mainnet connection is waiting, untouched, for the next mainnet launch.
+            Form {
+                Section {
+                    Label("Nextcloud is off while Testnet is on.", systemImage: "icloud.slash")
+                } footer: {
+                    Text("Backups, sync, media and calls through Nextcloud work on mainnet only, so testnet can never overwrite your mainnet backup. Turn off Testnet in Settings > Connection and your Nextcloud connection comes back as it was.")
+                }
+            }
+        } else {
+            nextcloudForm
+        }
+    }
+
+    private var nextcloudForm: some View {
         // One concrete container (NOT a Group): presentation modifiers below — .sheet/.alert —
         // must attach to a single view. On a Group they replicate onto every child Section,
         // and the competing presentation attempts pop the whole settings navigation instead

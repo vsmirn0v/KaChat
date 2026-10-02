@@ -945,3 +945,5 @@
 "Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "공개 메시지 신원입니다. 메시지 수수료와 .kachat 이름 비용으로 소액을 넣어 두세요. 쓸 돈은 절대 여기로 보내지 마세요.";
 "KaPosts isn't available on Testnet yet" = "KaPosts는 아직 테스트넷에서 사용할 수 없습니다";
 "There is no KaPost indexer for testnet. Turn off Testnet in Settings > Connection to read and post on mainnet." = "테스트넷용 KaPost 인덱서가 없습니다. 메인넷에서 읽고 게시하려면 설정 > 연결에서 테스트넷을 끄세요.";
+"Nextcloud is off while Testnet is on." = "테스트넷이 켜져 있는 동안 Nextcloud는 꺼집니다.";
+"Backups, sync, media and calls through Nextcloud work on mainnet only, so testnet can never overwrite your mainnet backup. Turn off Testnet in Settings > Connection and your Nextcloud connection comes back as it was." = "Nextcloud를 통한 백업, 동기화, 미디어, 통화는 메인넷에서만 작동하므로 테스트넷이 메인넷 백업을 덮어쓸 일은 없습니다. 설정 > 연결에서 테스트넷을 끄면 Nextcloud 연결이 그대로 돌아옵니다.";

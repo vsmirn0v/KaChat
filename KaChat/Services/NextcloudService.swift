@@ -86,6 +86,8 @@ enum NextcloudError: LocalizedError {
     case truncatedDownload(received: Int64, expected: Int64)
     case backupNotFound
     case noActiveWallet
+    /// The app is running on testnet, where Nextcloud is off (see `isOffForTestnet`).
+    case offOnTestnet
     /// HTTP 423 on the archive after the retries: Nextcloud's lock on the file did not clear.
     case backupLocked
 
@@ -99,6 +101,8 @@ enum NextcloudError: LocalizedError {
             return "Nextcloud rejected the username or app password."
         case .noActiveWallet:
             return "Sign in to a KaChat account before connecting Nextcloud."
+        case .offOnTestnet:
+            return String(localized: "Nextcloud is off while Testnet is on.")
         case .httpError(let code):
             return "Nextcloud returned HTTP \(code)."
         case .malformedResponse:
@@ -344,7 +348,17 @@ final class NextcloudService: ObservableObject {
     /// the same hook MessageStore/PublicChatService/etc. use. Cancels any in-flight automatic
     /// backup first, and drops the thumbnail cache so the picker never shows a previous
     /// account's server content.
-    func setCurrentWallet(_ walletAddress: String?) {
+    /// True when the app is running on testnet. Nextcloud is a mainnet-only feature: the backup
+    /// archive, the media folder and Talk calls are one per account across both networks, so on
+    /// testnet automatic sync would write testnet history over the mainnet backup (and import
+    /// mainnet history into testnet). While this is set the service holds no account at all -
+    /// nothing syncs, restores, uploads or rings - and the mainnet connection comes back as it
+    /// was on the next mainnet launch. Fixed per launch, like the network itself.
+    @Published private(set) var isOffForTestnet = false
+
+    func setCurrentWallet(_ requestedAddress: String?) {
+        isOffForTestnet = AppSettings.load().networkType == .testnet
+        let walletAddress = isOffForTestnet ? nil : requestedAddress
         guard walletAddress != currentWalletAddress else { return }
 
         autoBackupTask?.cancel()
@@ -991,6 +1005,7 @@ final class NextcloudService: ObservableObject {
     /// then persists them. Throws `badCredentials` on a 401 so the connect screen can say exactly
     /// what's wrong.
     func connect(serverInput: String, username: String, appPassword: String) async throws {
+        guard !isOffForTestnet else { throw NextcloudError.offOnTestnet }
         guard let walletAddress = currentWalletAddress else {
             throw NextcloudError.noActiveWallet
         }

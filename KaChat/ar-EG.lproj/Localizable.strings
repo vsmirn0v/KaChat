@@ -945,3 +945,5 @@
 "Your public messaging identity. Fund it with a small amount to pay message fees and for your .kachat name - never send money here that you intend to spend." = "هويتك العامة للمراسلة. موّلها بمبلغ صغير لدفع رسوم الرسائل واسم ‎.kachat الخاص بك - لا ترسل إلى هنا أبدًا أموالًا تنوي إنفاقها.";
 "KaPosts isn't available on Testnet yet" = "KaPosts لسه مش متاحة على الشبكة التجريبية";
 "There is no KaPost indexer for testnet. Turn off Testnet in Settings > Connection to read and post on mainnet." = "مفيش مفهرس KaPost للشبكة التجريبية. اقفل الشبكة التجريبية من الإعدادات > الاتصال علشان تقرا وتنشر على الشبكة الرئيسية.";
+"Nextcloud is off while Testnet is on." = "Nextcloud مقفول طول ما الشبكة التجريبية شغالة.";
+"Backups, sync, media and calls through Nextcloud work on mainnet only, so testnet can never overwrite your mainnet backup. Turn off Testnet in Settings > Connection and your Nextcloud connection comes back as it was." = "النسخ الاحتياطي والمزامنة والوسائط والمكالمات عن طريق Nextcloud بتشتغل على الشبكة الرئيسية بس، علشان الشبكة التجريبية متكتبش أبدًا فوق نسختك الاحتياطية. اقفل الشبكة التجريبية من الإعدادات > الاتصال واتصال Nextcloud هيرجع زي ما كان.";
