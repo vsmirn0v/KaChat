@@ -2212,8 +2212,15 @@ struct ConnectionSettingsView: View {
                 Text("KaChat Names (.kachat)")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("Coming soon")
-                    .foregroundColor(.secondary)
+                if settingsViewModel.settings.networkType == .testnet {
+                    // The testnet-10 registry: read through the chat indexer above when it serves
+                    // names, else straight from the chain (KachatNamesRegistry).
+                    Text("Live on Testnet (testnet-10 registry)")
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Coming soon")
+                        .foregroundColor(.secondary)
+                }
             }
         } header: {
             Text("Other Name Services")

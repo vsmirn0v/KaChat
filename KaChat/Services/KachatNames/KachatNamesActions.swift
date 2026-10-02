@@ -144,6 +144,11 @@ final class KachatNamesActions: ObservableObject {
         return (builder, env, funding)
     }
 
+    /// Reads the virtual DAA score (for "refundable now" on offers).
+    func refreshVirtualDaa() async {
+        if let daa = await NodePoolService.shared.currentVirtualDaaScore() { virtualDaa = daa }
+    }
+
     /// What the wallet can spend on names right now (sompi).
     func spendable() async throws -> UInt64 {
         let s = try signer()

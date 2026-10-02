@@ -237,6 +237,9 @@ struct KaChatApp: App {
             ChatService.shared.startForegroundContactSweep()
             // And the 2s open-chat poll, if a conversation was open when we went to background.
             ChatService.shared.resumeActiveChatPollIfNeeded()
+            // .kachat registrations in flight (testnet only; no-op on mainnet) resume after a
+            // relaunch: commit -> wait -> register continues by itself.
+            KachatNamesActions.shared.resume()
             // Group traffic from the indexer while the app is open (block stream as fallback).
             GroupChatService.shared.startLivePolling()
 

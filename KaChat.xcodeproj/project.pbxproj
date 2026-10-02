@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		KCM0002B000000000000001 /* KachatNamesLiveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCM0002A000000000000001 /* KachatNamesLiveViews.swift */; };
 		KCNM00000200030001000000 /* KachatNamesActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000200030000000000 /* KachatNamesActions.swift */; };
 		KCNM00000200020001000000 /* KachatNamesRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000200020000000000 /* KachatNamesRegistry.swift */; };
 		KCNM00000200010001000000 /* KachatNamesRegistryState.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000200010000000000 /* KachatNamesRegistryState.swift */; };
@@ -279,6 +280,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		KCM0002A000000000000001 /* KachatNamesLiveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesLiveViews.swift; sourceTree = "<group>"; };
 		KCNM00000200030000000000 /* KachatNamesActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesActions.swift; sourceTree = "<group>"; };
 		KCNM00000200020000000000 /* KachatNamesRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesRegistry.swift; sourceTree = "<group>"; };
 		KCNM00000200010000000000 /* KachatNamesRegistryState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesRegistryState.swift; sourceTree = "<group>"; };
@@ -988,6 +990,7 @@
 			children = (
 				D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */,
 				KCM0001A000000000000001 /* KachatMarketView.swift */,
+				KCM0002A000000000000001 /* KachatNamesLiveViews.swift */,
 				KST0001A000000000000001 /* KaChatStatsView.swift */,
 			);
 			path = Ecosystem;
@@ -1446,6 +1449,7 @@
 				E81000232D4C000100000012 /* MainTabView.swift in Sources */,
 				C3F79B2E51A64D08B7E1265A /* EcosystemView.swift in Sources */,
 				KCM0001B000000000000001 /* KachatMarketView.swift in Sources */,
+				KCM0002B000000000000001 /* KachatNamesLiveViews.swift in Sources */,
 				KST0001B000000000000001 /* KaChatStatsView.swift in Sources */,
 				E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */,
 				DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */,

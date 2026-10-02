@@ -34,10 +34,15 @@ enum KachatTabIcon {
 /// peer to peer and trustless (the name and the payment settle together on chain, no one holds
 /// either in between).
 ///
-/// UI only. Nothing is wired yet: search answers "not live yet", listings and activity show
+/// On mainnet it is UI only: search answers "not live yet", listings and activity show
 /// placeholder skeletons, and every action is disabled with "Coming soon". No invented names or
 /// prices anywhere - the skeletons are redacted shapes, so nothing here can be mistaken for a
 /// real listing.
+///
+/// On TESTNET (testnet-10, with the bundled registry manifest verified) it is live
+/// (`KachatNamesLiveViews.swift`): search shows real availability and the price, Claim registers,
+/// the tabs read the registry (`KachatNamesRegistry`), and registrations in flight show their
+/// progress.
 struct KachatMarketView: View {
     private enum Page: String, CaseIterable {
         case market, myNames, activity
@@ -54,6 +59,9 @@ struct KachatMarketView: View {
     @State private var page: Page = .market
     @State private var searchText = ""
     @State private var showHowItWorks = false
+    @StateObject private var live = KachatHubModel()
+    @ObservedObject private var actions = KachatNamesActions.shared
+    @State private var claimTarget: KachatClaimTarget?
 
     var body: some View {
         NavigationStack {
@@ -61,17 +69,40 @@ struct KachatMarketView: View {
                 VStack(spacing: 18) {
                     hero
                     searchCard
+                    if live.isLive {
+                        ForEach(actions.pending.filter(\.isOpen)) { registration in
+                            KachatRegistrationCard(registration: registration)
+                        }
+                    }
                     UnderlineTabBar(
                         tabs: Page.allCases.map { (tab: $0, title: $0.title) },
                         selection: $page
                     )
-                    switch page {
-                    case .market: marketPage
-                    case .myNames: myNamesPage
-                    case .activity: activityPage
+                    if live.isLive {
+                        switch page {
+                        case .market: KachatLiveMarketPage(model: live)
+                        case .myNames: KachatLiveMyNamesPage(model: live)
+                        case .activity: KachatLiveActivityPage(model: live)
+                        }
+                    } else {
+                        switch page {
+                        case .market: marketPage
+                        case .myNames: myNamesPage
+                        case .activity: activityPage
+                        }
                     }
                 }
                 .padding(.bottom, 28)
+            }
+            // Pull to refresh on testnet only; mainnet has nothing to refresh.
+            .modifier(KachatRefreshable(enabled: live.isLive) { await live.refresh() })
+            .task { await live.start() }
+            .onReceive(KachatNamesRegistry.shared.$revision.dropFirst()) { _ in
+                guard live.isLive else { return }
+                Task { await live.reload() }
+            }
+            .sheet(item: $claimTarget) { target in
+                KachatClaimSheet(target: target)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle(".kachat")
@@ -104,7 +135,18 @@ struct KachatMarketView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-            comingSoonPill
+            if live.isLive {
+                KachatTestnetBadge()
+            } else {
+                comingSoonPill
+                if KachatLive.isEnabled, live.ready == false, let error = live.setupError {
+                    Text(verbatim: error)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+            }
         }
         .padding(.top, 20)
     }
@@ -134,7 +176,9 @@ struct KachatMarketView: View {
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
 
             let typed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if !typed.isEmpty {
+            if !typed.isEmpty && live.isLive {
+                KachatLiveSearchResult(model: live, typed: typed) { claimTarget = $0 }
+            } else if !typed.isEmpty {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(typed).kachat")
@@ -373,7 +417,11 @@ struct KachatMarketView: View {
                         detail: "No middleman and no escrow account: Kaspa's own rules enforce every sale."
                     )
                 } footer: {
-                    Text("Nothing here is live yet.")
+                    if live.isLive {
+                        Text("Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names come after an audit.")
+                    } else {
+                        Text("Nothing here is live yet.")
+                    }
                 }
             }
             .navigationTitle("How .kachat works")
@@ -414,11 +462,21 @@ struct KachatMarketView: View {
 /// in its seller - Message Seller opens a 1:1 chat with it.
 struct KachatListingDetailView: View {
     var sellerAddress: String? = nil
+    /// A real name (testnet only): the live detail with its actions instead of the mockup.
+    var info: KachatNames.NameInfo? = nil
 
     @State private var showBuy = false
     @State private var showOffer = false
 
     var body: some View {
+        if let info, KachatLive.isEnabled {
+            KachatLiveNameDetail(info: info)
+        } else {
+            mockup
+        }
+    }
+
+    private var mockup: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 nameCard
@@ -597,9 +655,19 @@ struct KachatListingDetailView: View {
 /// Buy at the listed price: what you pay, then one confirmation. Opens full height with Cancel
 /// top left, the same as the offer sheet. Disabled until names launch.
 struct KachatBuySheet: View {
+    /// A real listing (testnet only): the live purchase instead of the mockup.
+    var info: KachatNames.NameInfo? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        if let info, KachatLive.isEnabled {
+            KachatLiveBuySheet(info: info)
+        } else {
+            mockup
+        }
+    }
+
+    private var mockup: some View {
         NavigationStack {
             Form {
                 Section {
@@ -646,6 +714,8 @@ struct KachatBuySheet: View {
 /// Make an offer: an amount, how long it stands, and what happens to the KAS meanwhile. The
 /// amount and expiry can be set so the form can be tried; sending is disabled until names launch.
 struct KachatOfferSheet: View {
+    /// A real name (testnet only): the live offer instead of the mockup.
+    var info: KachatNames.NameInfo? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var amount = ""
     @State private var expiry: Expiry = .threeDays
@@ -664,6 +734,14 @@ struct KachatOfferSheet: View {
     }
 
     var body: some View {
+        if let info, KachatLive.isEnabled {
+            KachatLiveOfferSheet(name: info.name, info: info)
+        } else {
+            mockup
+        }
+    }
+
+    private var mockup: some View {
         NavigationStack {
             Form {
                 Section {
@@ -727,6 +805,19 @@ struct KachatOfferSheet: View {
 }
 
 // MARK: - Shared pieces
+
+private struct KachatRefreshable: ViewModifier {
+    let enabled: Bool
+    let action: () async -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.refreshable { await action() }
+        } else {
+            content
+        }
+    }
+}
 
 private struct KachatSectionHeader: View {
     let title: LocalizedStringKey

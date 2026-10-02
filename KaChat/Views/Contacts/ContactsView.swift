@@ -33,6 +33,10 @@ struct ProfileView: View {
     @ObservedObject private var nameServices = NameServicesClient.shared
     @State private var knsPrimaryDomain: String?
     @State private var knsProfileInfo: KNSAddressProfileInfo?
+    /// Testnet: your `.kachat` label (KACHAT_NAMES.md section 7 - your primary name while you own
+    /// it and it is active, else your oldest active name), shown as your name on the hero.
+    @State private var kachatLabel: String?
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
     @State private var showMoreProfileInfo = false
     @State private var showWithdrawSheet = false
     @State private var spendingAddressBalanceSompi: UInt64?
@@ -74,6 +78,9 @@ struct ProfileView: View {
                     if let wallet = walletManager.currentWallet {
                         accountNameRow(wallet)
                         profileHeroSection(wallet)
+                            .task(id: "\(wallet.publicAddress)-\(kachatRegistry.revision)") {
+                                await loadKachatLabel(wallet.publicAddress)
+                            }
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
                         yourDomainsSection
@@ -564,8 +571,21 @@ struct ProfileView: View {
     /// KaPosts-style hero: KNS banner (gradient fallback), overlapping avatar, display name and
     /// bio. The name is what other people see you as: your domain name, else your short address
     /// ("kaspa:xxxx....xxxx") - never the account name, which is only your own label for it.
+    /// Testnet only: the `.kachat` label of the wallet's address (nil on mainnet, or without one).
+    private func loadKachatLabel(_ address: String) async {
+        guard KachatNamesService.isEnabled else {
+            kachatLabel = nil
+            return
+        }
+        await kachatRegistry.refreshIfStale(maxAge: 300)
+        kachatLabel = (try? await kachatRegistry.identity(address: address))?.label
+    }
+
     private func profileHeroSection(_ wallet: Wallet) -> some View {
         let displayName: String = {
+            if KachatNamesService.isEnabled, let kachatLabel {
+                return "\(kachatLabel).kachat"
+            }
             // Your .kas name is yours to manage in Your Domains, but not your name here since 5.2
             // (KNSService.showsDomainNamesAsIdentity) - that will be your .kachat name.
             if KNSService.showsDomainNamesAsIdentity,
@@ -2720,7 +2740,12 @@ private struct KNSDomainsListView: View {
             case .k, .kaspa:
                 serviceNameList(selectedTLD)
             case .kachat:
-                kachatComingSoon
+                // Live on testnet (the testnet-10 registry); mainnet keeps "coming".
+                if KachatNamesService.isEnabled {
+                    KachatLiveDomainsTab(walletAddress: walletAddress)
+                } else {
+                    kachatComingSoon
+                }
             }
         }
         .contentShape(Rectangle())
@@ -5738,14 +5763,23 @@ private struct DomainProfileEditTarget: Identifiable {
 }
 
 /// "Edit .kachat Profile": the same layout as the .kas profile editor - avatar, banner, bio and
-/// links - but nothing in it yet, because KaChat's own names are not live. Once they are, this is
-/// the profile the whole app shows, ahead of any other name service's.
+/// links - but nothing in it yet on mainnet, because KaChat's own names are not live there. On
+/// testnet it is the live address profile editor (`KachatLiveProfileEditor`): it writes the
+/// `kchat:1:profile:` record.
 struct KaChatProfileEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var walletManager = WalletManager.shared
     @State private var showSetupGuide = false
 
     var body: some View {
+        if KachatNamesService.isEnabled {
+            KachatLiveProfileEditor()
+        } else {
+            comingSoonEditor
+        }
+    }
+
+    private var comingSoonEditor: some View {
         NavigationStack {
             Form {
                 // The setup guide lives here since 5.2 - .kachat is the name KaChat sets up for

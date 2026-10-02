@@ -88,11 +88,19 @@ struct KachatSetupGuideView: View {
                 }
                 .padding(12)
                 .background(fieldBackground)
-                Text("Registration isn't open yet.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if KachatNamesService.isEnabled {
+                    Text("On Testnet, claim one in Kaspa Hub > .kachat.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Registration isn't open yet.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
-            comingSoonNote
+            if !KachatNamesService.isEnabled {
+                comingSoonNote
+            }
 
         case .avatar:
             stepHeader(
