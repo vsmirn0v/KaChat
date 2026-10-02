@@ -633,15 +633,27 @@ final class ContactsManager: ObservableObject {
     /// .kachat names exist.
     func displayName(for address: String) -> String {
         if let assigned = getContact(byAddress: address)?.assignedName { return assigned }
-        if let domain = KNSService.shared.profileCache[address]?.domainName, !domain.isEmpty { return domain }
-        return Contact.generateDefaultAlias(from: address)
+        return identityName(for: address)
     }
 
     /// Same rule, when the caller already has the `Contact` in hand.
     func displayName(for contact: Contact) -> String {
         if let assigned = contact.assignedName { return assigned }
-        if let domain = KNSService.shared.profileCache[contact.address]?.domainName, !domain.isEmpty { return domain }
-        return Contact.generateDefaultAlias(from: contact.address)
+        return identityName(for: contact.address)
+    }
+
+    /// Who an address is when you haven't named it yourself. On testnet that is its `.kachat`
+    /// name (KACHAT_NAMES.md section 7) - KNS is not consulted there; elsewhere the KNS domain
+    /// as before. Otherwise the short address.
+    private func identityName(for address: String) -> String {
+        if KachatNamesService.isEnabled {
+            if let label = KachatNamesRegistry.shared.cachedIdentity(for: address)?.label {
+                return "\(label).kachat"
+            }
+            return Contact.generateDefaultAlias(from: address)
+        }
+        if let domain = KNSService.shared.profileCache[address]?.domainName, !domain.isEmpty { return domain }
+        return Contact.generateDefaultAlias(from: address)
     }
 
     /// The accepted/established-contact predicate shared by the stranger-gating features:

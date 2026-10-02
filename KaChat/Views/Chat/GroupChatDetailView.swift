@@ -1920,13 +1920,9 @@ struct GroupChatDetailView: View {
     /// happened to already be named contacts at that moment ever showed a real name - everyone
     /// else was stuck on their truncated address forever, even after adding/renaming them.
     private func displayName(for address: String) -> String {
-        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
-            return assigned
-        }
-        if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
-            return knsName
-        }
-        return Contact.generateDefaultAlias(from: address)
+        // The app's one rule (ContactsManager.displayName): your name for them, else their
+        // .kachat name on testnet (KNS elsewhere), else the short address.
+        contactsManager.displayName(for: address)
     }
 
     private func replyDisplayName(for address: String) -> String {
@@ -2374,13 +2370,9 @@ private struct GroupMessageBubbleRow: View {
     /// threaded down as a closure, matching this file's existing pattern of each row/screen
     /// owning a small local copy (see `GroupChatInfoView`/`HiddenGroupMembersView`).
     private func resolveDisplayName(for address: String) -> String {
-        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
-            return assigned
-        }
-        if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
-            return knsName
-        }
-        return Contact.generateDefaultAlias(from: address)
+        // The app's one rule (ContactsManager.displayName): your name for them, else their
+        // .kachat name on testnet (KNS elsewhere), else the short address.
+        contactsManager.displayName(for: address)
     }
 
     private var senderName: String { senderDisplayName }
@@ -2885,13 +2877,9 @@ struct GroupChatInfoView: View {
     /// the current user's own row, rather than special-casing "You" here the way message bubbles
     /// do - this screen is about who someone *is*, not who sent a given message.
     private func displayName(for address: String) -> String {
-        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
-            return assigned
-        }
-        if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
-            return knsName
-        }
-        return Contact.generateDefaultAlias(from: address)
+        // The app's one rule (ContactsManager.displayName): your name for them, else their
+        // .kachat name on testnet (KNS elsewhere), else the short address.
+        contactsManager.displayName(for: address)
     }
 
     private var hiddenMemberAddresses: [String] {
@@ -3269,13 +3257,9 @@ private struct HiddenGroupMembersView: View {
     @Environment(\.dismiss) private var dismiss
 
     private func displayName(for address: String) -> String {
-        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
-            return assigned
-        }
-        if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
-            return knsName
-        }
-        return Contact.generateDefaultAlias(from: address)
+        // The app's one rule (ContactsManager.displayName): your name for them, else their
+        // .kachat name on testnet (KNS elsewhere), else the short address.
+        contactsManager.displayName(for: address)
     }
 
     var body: some View {

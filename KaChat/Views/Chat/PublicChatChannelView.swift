@@ -656,13 +656,9 @@ struct PublicChatChannelView: View {
     }
 
     private func displayName(for address: String) -> String {
-        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
-            return assigned
-        }
-        if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
-            return knsName
-        }
-        return Contact.generateDefaultAlias(from: address)
+        // The app's one rule (ContactsManager.displayName): your name for them, else their
+        // .kachat name on testnet (KNS elsewhere), else the short address.
+        contactsManager.displayName(for: address)
     }
 
     /// One message row. Its own function because the initializer takes twenty arguments,

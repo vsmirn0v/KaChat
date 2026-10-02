@@ -44,6 +44,16 @@ final class KachatNamesRegistry: ObservableObject {
     private var cacheNetwork: String?
     private var ownProfiles: [String: OwnProfile] = [:]
 
+    /// `.kachat` identities by lowercased address, for the app's display rules (names, avatars,
+    /// banners, bios everywhere - see `cachedIdentity(for:)`).
+    private struct CachedIdentity {
+        var identity: KachatNames.Identity
+        var revision: Int
+        var at: Date
+    }
+    @Published private var identities: [String: CachedIdentity] = [:]
+    private var identityLookups: Set<String> = []
+
     private init() {}
 
     private var service: KachatNamesService { KachatNamesService.shared }
@@ -359,6 +369,41 @@ final class KachatNamesRegistry: ObservableObject {
             let label = KachatNames.label(owned: owned, primaryName: profile?.primaryName, graceMs: graceMs)
             return KachatNames.Identity(address: address, label: label, names: owned.map(\.name), profile: profile)
         }
+    }
+
+    /// The address's `.kachat` identity as the app shows it, from a cache that fills in the
+    /// background: callable from any view body (testnet only - nil otherwise). An answer is
+    /// re-asked once the registry moved on or after five minutes, and this wallet's own saved
+    /// profile always wins for its own address. When an answer lands, views that read contact
+    /// names re-render (ContactsManager is told).
+    func cachedIdentity(for address: String) -> KachatNames.Identity? {
+        guard KachatNamesService.isEnabled else { return nil }
+        let key = address.lowercased()
+        guard key.hasPrefix("kaspatest:") else { return nil }
+        let entry = identities[key]
+        let stale = entry.map { $0.revision != revision || Date().timeIntervalSince($0.at) > 300 } ?? true
+        if stale, !identityLookups.contains(key) {
+            identityLookups.insert(key)
+            Task { [weak self] in
+                guard let self else { return }
+                let found = try? await self.identity(address: key)
+                self.identityLookups.remove(key)
+                guard let found else { return }
+                if self.identities[key]?.identity != found {
+                    self.identities[key] = CachedIdentity(identity: found, revision: self.revision, at: Date())
+                    ContactsManager.shared.objectWillChange.send()
+                } else {
+                    self.identities[key]?.revision = self.revision
+                    self.identities[key]?.at = Date()
+                }
+            }
+        }
+        var identity = entry?.identity
+        if let own = ownProfile(for: key)?.profile {
+            identity = identity ?? KachatNames.Identity(address: key, label: nil, names: [], profile: nil)
+            identity?.profile = own
+        }
+        return identity
     }
 
     /// The profile record this device last wrote for `address`.

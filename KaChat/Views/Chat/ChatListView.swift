@@ -1478,6 +1478,7 @@ struct ConversationRow: View {
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
     @ObservedObject private var knsService = KNSService.shared
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
     private static let previewCache: NSCache<NSString, NSString> = {
         let cache = NSCache<NSString, NSString>()
         cache.countLimit = 2048
@@ -1492,6 +1493,12 @@ struct ConversationRow: View {
     /// through the observed KNS service so the row redraws when a profile lands.
     private var rowDisplayName: String {
         if let assigned = conversation.contact.assignedName { return assigned }
+        // On testnet: the .kachat name (read through the observed registry, so the row redraws
+        // when it lands); KNS isn't consulted there.
+        if KachatNamesService.isEnabled {
+            if let label = kachatRegistry.cachedIdentity(for: conversation.contact.address)?.label { return "\(label).kachat" }
+            return Contact.generateDefaultAlias(from: conversation.contact.address)
+        }
         if let domain = knsService.profileCache[conversation.contact.address]?.domainName, !domain.isEmpty {
             return domain
         }
@@ -1845,13 +1852,9 @@ struct GroupChatRow: View {
 
     /// Same resolution as `GroupChatDetailView.displayName(for:)`.
     private func resolveDisplayName(for address: String) -> String {
-        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
-            return assigned
-        }
-        if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
-            return knsName
-        }
-        return Contact.generateDefaultAlias(from: address)
+        // The app's one rule (ContactsManager.displayName): your name for them, else their
+        // .kachat name on testnet (KNS elsewhere), else the short address.
+        contactsManager.displayName(for: address)
     }
 
     /// Decoded group photos, keyed on the group id, the hex length and the payload's tail:

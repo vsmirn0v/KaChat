@@ -1340,7 +1340,10 @@ final class CallService: ObservableObject {
 
     private func ownDisplayName() -> String {
         guard let address = WalletManager.shared.currentWallet?.publicAddress else { return "KaChat" }
-        if let domain = KNSService.shared.profileCache[address]?.domainName, !domain.isEmpty {
+        if KachatNamesService.isEnabled, let label = KachatNamesRegistry.shared.cachedIdentity(for: address)?.label {
+            return "\(label).kachat"
+        }
+        if !KachatNamesService.isEnabled, let domain = KNSService.shared.profileCache[address]?.domainName, !domain.isEmpty {
             return domain
         }
         return "KaChat \(address.suffix(6))"

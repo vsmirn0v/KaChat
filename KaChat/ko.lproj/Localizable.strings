@@ -1164,3 +1164,4 @@
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "이름은 결제한 연수 동안 내 것이에요(최대 2년 앞까지). 1년 이름은 2년으로 연장할 수 있고, 만료 10일 전부터 갱신할 수 있어요.";
 "Setting up" = "설정 중";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "테스트넷의 .kachat 레지스트리를 업그레이드하고 있어요. 새 레지스트리가 가동되면 여기서 이름이 다시 열려요.";
+".kachat Names" = ".kachat 이름";

@@ -17,6 +17,12 @@ struct ChatInfoView: View {
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
     @ObservedObject private var knsService = KNSService.shared
+    /// The address's `.kachat` identity (testnet): its label and its profile record - your own
+    /// straight from the registry, anyone else's through the names indexer once one is connected.
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
+    @ObservedObject private var socialImages = KachatSocialImageResolver.shared
+    @State private var kachatLabel: String?
+    @State private var kachatProfile: KachatNames.Profile?
 
     @State private var editedAlias: String = ""
     @State private var notificationModeOverride: ContactNotificationMode? = nil
@@ -24,7 +30,7 @@ struct ChatInfoView: View {
     @State private var activeSheet: InfoSheet?
 
     private enum InfoSheet: String, Identifiable {
-        case address, domains, aliases, systemContact, notifications, photos, calls, info
+        case address, domains, kachatNames, aliases, systemContact, notifications, photos, calls, info
         var id: String { rawValue }
     }
     @State private var photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil
@@ -131,6 +137,21 @@ struct ChatInfoView: View {
         knsProfileInfo?.profile
     }
 
+    /// The `.kachat` profile's pieces, each looked up from its social link on this device. They
+    /// come first; the KNS ones are the fallback.
+    private var kachatAvatar: String? { socialImages.profile(for: kachatProfile?.avatar)?.avatar }
+    private var kachatBanner: String? { socialImages.profile(for: kachatProfile?.banner)?.banner }
+    private var kachatBio: String? { socialImages.profile(for: kachatProfile?.bio)?.bio }
+    /// On testnet identity is `.kachat` only: KNS pictures and bios aren't shown there.
+    private var usesKNSProfile: Bool { !KachatNamesService.isEnabled }
+
+    /// The address's active `.kachat` names, its primary (label) first.
+    private var kachatNames: [String] {
+        let names = kachatRegistry.cachedIdentity(for: contact.address)?.names ?? []
+        guard let label = kachatLabel, names.contains(label) else { return names }
+        return [label] + names.filter { $0 != label }
+    }
+
     private var hasProfileDetailFields: Bool {
         guard let profile = knsProfile else { return false }
         return profile.bio != nil
@@ -147,7 +168,9 @@ struct ChatInfoView: View {
         NavigationStack {
             Form {
                 Section {
-                    if KNSProfileLinkBuilder.websiteURL(from: knsProfile?.bannerUrl) != nil {
+                    if let kachatBanner {
+                        KNSBannerImageView(bannerURLString: kachatBanner, height: 110, cornerRadius: 10)
+                    } else if usesKNSProfile, KNSProfileLinkBuilder.websiteURL(from: knsProfile?.bannerUrl) != nil {
                         KNSBannerImageView(
                             bannerURLString: knsProfile?.bannerUrl,
                             height: 110,
@@ -160,7 +183,7 @@ struct ChatInfoView: View {
                             showAvatarPreview = true
                         } label: {
                             KNSAvatarView(
-                                avatarURLString: knsProfileInfo?.avatarURL,
+                                avatarURLString: usesKNSProfile ? knsProfileInfo?.avatarURL : kachatAvatar,
                                 fallbackText: contactsManager.displayName(for: contact),
                                 size: 60,
                                 contactAddress: contact.address
@@ -174,7 +197,7 @@ struct ChatInfoView: View {
                             // focuses the field too, so it works as the affordance it looks like
                             // rather than being decoration next to the real target.
                             if isSelf {
-                                Text(contactsManager.displayName(for: contact))
+                                Text(verbatim: kachatLabel.map { "\($0).kachat" } ?? contactsManager.displayName(for: contact))
                                     .font(.headline)
                                     .lineLimit(1)
                             } else {
@@ -199,7 +222,27 @@ struct ChatInfoView: View {
                             // Matches Android: the plain contact-name card shows the address as a
                             // fallback caption; once the contact owns any KNS domain, the fancier
                             // profile card below takes over that spot with the bio instead.
-                            if knsDomains.isEmpty || knsProfile?.bio == nil {
+                            if let kachatBio {
+                                Text(verbatim: kachatBio)
+                                    .font(.subheadline)
+                                    .lineLimit(isBioExpanded ? nil : 5)
+                                    .onTapGesture {
+                                        withAnimation { isBioExpanded.toggle() }
+                                    }
+                                    .onLongPressGesture(minimumDuration: 0.45) {
+                                        copyProfileFieldValue(kachatBio, fieldName: "Bio")
+                                    }
+                                if let linktree = kachatProfile?.linktree, let url = URL(string: linktree) {
+                                    Link(destination: url) {
+                                        Label {
+                                            Text(verbatim: linktree.replacingOccurrences(of: "https://", with: ""))
+                                        } icon: {
+                                            Image(systemName: "link")
+                                        }
+                                        .font(.caption.weight(.semibold))
+                                    }
+                                }
+                            } else if !usesKNSProfile || knsDomains.isEmpty || knsProfile?.bio == nil {
                                 // The address, unless a profile supplies a bio. Since 5.2 .kas
                                 // profiles are not loaded (KNSService.loadsDomainProfiles), so
                                 // this is what a .kas owner shows until .kachat profiles exist.
@@ -231,7 +274,7 @@ struct ChatInfoView: View {
                     // let the user pick which one represents this contact. The KNS avatar is the
                     // default (see SystemContactAvatarStore's resolution order); the choice
                     // persists per contact.
-                    if contactAvatars.rawImage(for: contact) != nil,
+                    if usesKNSProfile, contactAvatars.rawImage(for: contact) != nil,
                        knsProfileInfo?.avatarURL != nil {
                         Picker("Avatar", selection: Binding(
                             get: { contact.preferKNSAvatar ?? true },
@@ -246,7 +289,7 @@ struct ChatInfoView: View {
                         .pickerStyle(.segmented)
                     }
 
-                    if !knsDomains.isEmpty {
+                    if usesKNSProfile, !knsDomains.isEmpty {
                         // Same DisclosureGroup used by the user's own Profile view's KNS card
                         // (ContactsView.knsProfileCard) - native chevron/expand behavior, teal
                         // label, LabeledContent rows with no dividers between them.
@@ -333,6 +376,15 @@ struct ChatInfoView: View {
                         .disabled(knsDomains.isEmpty)
                     }
 
+                    // On testnet: the address's .kachat names (its identity there, not KNS).
+                    if KachatNamesService.isEnabled {
+                        infoCard(
+                            ".kachat Names",
+                            systemImage: "at"
+                        ) { activeSheet = .kachatNames }
+                        .disabled(kachatNames.isEmpty)
+                    }
+
                     // Per-contact settings: the chat's aliases, the Contacts-app link,
                     // notification/photo/call choices and message stats. None of them has
                     // anything to act on in your own User Info.
@@ -376,6 +428,7 @@ struct ChatInfoView: View {
                 switch sheet {
                 case .address: addressSheet
                 case .domains: domainsSheet
+                case .kachatNames: kachatNamesSheet
                 case .aliases: aliasesSheet
                 case .systemContact: systemContactSheet
                 case .notifications: notificationsSheet
@@ -388,7 +441,7 @@ struct ChatInfoView: View {
             .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $showAvatarPreview) {
                 KNSAvatarFullscreenView(
-                    avatarURLString: knsProfileInfo?.avatarURL,
+                    avatarURLString: usesKNSProfile ? knsProfileInfo?.avatarURL : kachatAvatar,
                     fallbackText: contactsManager.displayName(for: contact),
                     title: contactsManager.displayName(for: contact),
                     systemContactId: contact.systemContactId,
@@ -436,13 +489,32 @@ struct ChatInfoView: View {
                 // The Domains section stops showing its loading row once the lookup has
                 // answered, whether or not it found anything.
                 knsDomainsLoaded = true
-                _ = await KNSService.shared.fetchProfile(for: contact.address, force: true)
+                // On testnet identity is .kachat (loadKachatIdentity); KNS isn't asked there.
+                if !KachatNamesService.isEnabled {
+                    _ = await KNSService.shared.fetchProfile(for: contact.address, force: true)
+                }
 
                 let stats = await MessageStore.shared.messageStats(contactAddress: contact.address)
                 messageSent = stats.sent
                 messageReceived = stats.received
             }
+            .task(id: kachatRegistry.revision) { await loadKachatIdentity() }
         }
+    }
+
+    /// The `.kachat` label and profile for this address (testnet only). Your own profile comes
+    /// straight from the registry - the record you saved, even before any indexer has it.
+    /// Someone else's comes from the names indexer; without one, only their label shows.
+    private func loadKachatIdentity() async {
+        guard KachatNamesService.isEnabled else {
+            kachatLabel = nil
+            kachatProfile = nil
+            return
+        }
+        await kachatRegistry.refreshIfStale(maxAge: 300)
+        let identity = try? await kachatRegistry.identity(address: contact.address)
+        kachatLabel = identity?.label
+        kachatProfile = (isSelf ? kachatRegistry.ownProfile(for: contact.address)?.profile : nil) ?? identity?.profile
     }
 
     /// Primary first, then the rest alphabetically - a stable order that doesn't jump around as
@@ -515,6 +587,31 @@ struct ChatInfoView: View {
                 }
             }
             .navigationTitle("Address")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// The address's `.kachat` names (testnet), its primary one marked.
+    private var kachatNamesSheet: some View {
+        NavigationStack {
+            List {
+                ForEach(kachatNames, id: \.self) { name in
+                    HStack {
+                        Text(verbatim: "\(name).kachat")
+                        Spacer()
+                        if name == kachatLabel {
+                            Text("Primary")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onLongPressGesture { copyProfileFieldValue("\(name).kachat", fieldName: "Domain") }
+                }
+            }
+            .navigationTitle(".kachat Names")
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium, .large])

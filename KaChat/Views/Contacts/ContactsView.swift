@@ -621,7 +621,7 @@ struct ProfileView: View {
             Group {
                 if let kachatBanner {
                     KNSBannerImageView(bannerURLString: kachatBanner, height: 140, cornerRadius: 0)
-                } else if let bannerURL = knsProfileInfo?.profile?.bannerUrl,
+                } else if !KachatNamesService.isEnabled, let bannerURL = knsProfileInfo?.profile?.bannerUrl,
                    KNSProfileLinkBuilder.websiteURL(from: bannerURL) != nil {
                     KNSBannerImageView(bannerURLString: bannerURL, height: 140, cornerRadius: 0)
                 } else {
@@ -642,7 +642,8 @@ struct ProfileView: View {
             // affordance never shows on someone else's profile.
             HStack(alignment: .bottom) {
                 KNSAvatarView(
-                    avatarURLString: kachatAvatar ?? knsProfileInfo?.avatarURL,
+                    // On testnet identity is .kachat only; KNS pictures aren't shown there.
+                    avatarURLString: KachatNamesService.isEnabled ? kachatAvatar : knsProfileInfo?.avatarURL,
                     fallbackText: displayName,
                     size: 76
                 )
@@ -672,7 +673,7 @@ struct ProfileView: View {
                     Text(verbatim: bio)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                } else if let bio = knsProfileInfo?.profile?.bio,
+                } else if !KachatNamesService.isEnabled, let bio = knsProfileInfo?.profile?.bio,
                    !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(bio)
                         .font(.subheadline)

@@ -592,9 +592,7 @@ struct PublicChatRow: View {
 
     private func senderName(_ address: String) -> String {
         if address == WalletManager.shared.currentWallet?.publicAddress { return "You" }
-        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName { return assigned }
-        if let domain = knsService.profileCache[address]?.domainName, !domain.isEmpty { return domain }
-        return Contact.generateDefaultAlias(from: address)
+        return ContactsManager.shared.displayName(for: address)
     }
 
     private func timeText(_ date: Date) -> String {

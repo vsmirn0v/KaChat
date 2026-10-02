@@ -25,6 +25,18 @@ struct KNSAvatarView: View {
     @State private var loadedImage: UIImage?
     @State private var isLoading = false
     @State private var lastLoadedIdentity: String?
+    /// On testnet an address's avatar is its `.kachat` one (looked up from its profile's social
+    /// link on this device); the KNS URL the caller passes is not used for an address there.
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
+    @ObservedObject private var socialImages = KachatSocialImageResolver.shared
+
+    /// The URL this avatar shows: the caller's, except for an address on testnet, where it is
+    /// the `.kachat` profile's avatar (or none).
+    private var effectiveAvatarURLString: String? {
+        guard KachatNamesService.isEnabled, let contactAddress else { return avatarURLString }
+        let link = kachatRegistry.cachedIdentity(for: contactAddress)?.profile?.avatar
+        return socialImages.profile(for: link)?.avatar
+    }
     /// Observed so an avatar re-renders when its contact's photo lands from the lazy CN fetch.
     /// The store only publishes when a photo is decoded (once per linked contact per session,
     /// disk-cached afterwards), so this costs nothing on scroll.
@@ -93,7 +105,7 @@ struct KNSAvatarView: View {
             } else {
                 fallbackAvatar
                     .overlay {
-                        if isLoading, KNSProfileImageDescriptor.from(raw: avatarURLString) != nil {
+                        if isLoading, KNSProfileImageDescriptor.from(raw: effectiveAvatarURLString) != nil {
                             ProgressView()
                                 .scaleEffect(0.8)
                         }
@@ -103,7 +115,7 @@ struct KNSAvatarView: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .accessibilityHidden(true)
-        .task(id: KNSProfileImageDescriptor.from(raw: avatarURLString)?.cacheIdentity) {
+        .task(id: KNSProfileImageDescriptor.from(raw: effectiveAvatarURLString)?.cacheIdentity) {
             await loadAvatarIfNeeded()
         }
     }
@@ -121,7 +133,7 @@ struct KNSAvatarView: View {
 
     @MainActor
     private func loadAvatarIfNeeded() async {
-        guard let descriptor = KNSProfileImageDescriptor.from(raw: avatarURLString) else {
+        guard let descriptor = KNSProfileImageDescriptor.from(raw: effectiveAvatarURLString) else {
             loadedImage = nil
             lastLoadedIdentity = nil
             isLoading = false
