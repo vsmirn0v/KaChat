@@ -27,8 +27,10 @@ What is needed:
 1. **A second deployment of the same indexer, pointed at TN10.**
    - A Toccata-capable rusty-kaspa node on testnet-10, with `--utxoindex`. Toccata is the
      covenant hard fork, live on TN10 and on mainnet since DAA 474,165,565. Public TN10 nodes
-     answer on gRPC port 16210 (DNS seeds `seeder1-testnet.kaspad.net` and
-     `seeder2-testnet.kaspad.net`), but a node of your own is better for an indexer.
+     answer on gRPC port 16210 (DNS seeds `seeder1-tn.kaspad.net`,
+     `dnsseeder-kaspa-testnet.x-con.at` and `n-testnet-10.kaspa.ws`, as in rusty-kaspa's
+     `TESTNET_PARAMS`; the older `seeder1/2-testnet.kaspad.net` no longer resolve), but a node of
+     your own is better for an indexer.
    - Its own database. Nothing may be shared with mainnet: same keys, different chain.
    - Its own base URL, for example `https://kachat-tn10.duckdns.org`, or a path prefix such as
      `https://kachat.duckdns.org/tn10`. **Tell the app owner the URL**: the app will use it as
@@ -96,7 +98,8 @@ All of these are version-1 transactions (Toccata) with output covenant bindings.
 - It contains:
   - `registryCovenantId`
   - the genesis `txId` and the authorized output
-  - each contract's template hash, prefix and suffix
+  - each contract's template hash, prefix and suffix bytes, and its dispatch tags
+  - a scan checkpoint
   - the params: `bond`, `gapValue`, `tCommit` (600 DAA), `maxYears` (2), `graceMs` (10 days),
     `prices` and `renewPrices` per length (5+ chars 35 KAS, 4 = 250, 3 = 1000, 2 = 2000,
     1 = 4000, all per year), and `offerMaxFee` (0.02 KAS)
@@ -135,8 +138,15 @@ module therefore derives every new state from the spending transaction itself:
      | offer | `refund` | `777f5b11` |
 
    - The pushes before that are the entry's arguments, in ABI order (the artifact JSON lists
-     each entry's parameters). `byte[32]` is a 32-byte push. `int` is a script number. `sig` is
-     a 65-byte push (64-byte Schnorr signature + `0x01`). `byte[]` is a plain push.
+     each entry's parameters). Every push is a **minimal** push:
+     - `byte[32]` is a 32-byte push.
+     - `sig` is a 65-byte push (64-byte Schnorr signature + `0x01`).
+     - `byte[]` is a minimal push of its bytes. The name suffix (1,884 B) and the redeem
+       scripts use `OP_PUSHDATA2`.
+     - `int` is a minimal script number, **not** the fixed 8-byte form used inside states:
+       - 0 is `OP_0` (`0x00`), 1-16 are `OP_1`..`OP_16` (`0x51`-`0x60`), and -1 is
+         `OP_1NEGATE`. So `years = 1` is the single byte `0x51`, and `accept(0)` is `0x00`.
+       - Larger values are minimal 1-8 byte little-endian sign-magnitude pushes.
 3. **Compute the new state(s)** with the transition rules below.
 4. **Verify** each new state: `P2SH(prefix ‖ newState ‖ suffix)` must equal the output's
    `scriptPublicKey`. Index the output only if it matches. A mismatch is a bug, either in the
@@ -167,12 +177,17 @@ spent. The app (and the CLI) put this in the **payload** of the transaction that
 kchat:1:offer:<keyHex>:<buyerXonlyHex>:<refundAfterDaa>
 ```
 
+Here `keyHex` and `buyerXonlyHex` are lowercase hex, and `refundAfterDaa` is decimal.
+
 - Verify it: `P2SH(offerPrefix ‖ offerState(key, buyer, refundAfter) ‖ offerSuffix)` must equal
   one of the transaction's outputs. That output is the offer, and its value is the amount.
 - Ignore a marker that matches no output.
 - The offer prefix and suffix are per network, because the offer script bakes in the registry id.
 
-All other name transactions also carry an informational payload, `kchat:1:name:<op>:<name>`.
+All other name transactions (register, renew, transfer, list, buy, release, reclaim, accept)
+also carry an informational payload, `kchat:1:name:<op>:<name>`. Commits carry none, because
+naming the name there would defeat the salted commit; genesis, withdraw and refund carry none
+either.
 **Never rely on it**: B3 is the source of truth, and the marker is only for debugging.
 
 ### B5. Status
@@ -187,6 +202,11 @@ All other name transactions also carry an informational payload, `kchat:1:name:<
 
 Forward lookups (name → address) and reverse lookups (address → names) return **`active` names
 only**.
+
+A registration can be **backdated**: the gap only checks that `now` is not in the future, so a
+name can be minted already in grace, or lapsed. It costs only the registrant, and the testnet
+plan uses it to test `reclaim` without waiting a year. Always compute status from `expiresAt`;
+never assume a fresh registration is `active`.
 
 ### B6. Reorgs
 
