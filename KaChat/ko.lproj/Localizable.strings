@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@은(는) 배너를 공유하지 않습니다.";
 "No bio on this %@ profile." = "이 %@ 프로필에는 소개가 없습니다.";
 "%@ doesn't share bios." = "%@은(는) 소개를 공유하지 않습니다.";
+"Retry" = "다시 시도";
+"Couldn't reach %@." = "%@에 연결할 수 없습니다.";
+"Account on" = "계정 위치";
+"handle" = "핸들";
+"invite" = "초대 코드";
+"username" = "사용자 이름";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "각 항목은 연결한 소셜 프로필에서 해당 플랫폼이 보여주는 그대로 가져오므로 그 플랫폼의 관리 기준이 여기에도 적용됩니다. 세 가지 모두 한 계정을 쓰거나 섞어서 쓸 수 있습니다.";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Linktree 사용자 이름을 입력하세요: 문자, 숫자, 마침표, 하이픈 또는 밑줄.";
+"That doesn't look like a handle on this platform." = "이 플랫폼의 핸들처럼 보이지 않습니다.";

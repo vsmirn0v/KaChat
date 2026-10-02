@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@ не показывает баннеры.";
 "No bio on this %@ profile." = "В этом профиле %@ нет описания.";
 "%@ doesn't share bios." = "%@ не показывает описания.";
+"Retry" = "Повторить";
+"Couldn't reach %@." = "Не удалось связаться с %@.";
+"Account on" = "Аккаунт в";
+"handle" = "имя пользователя";
+"invite" = "приглашение";
+"username" = "имя пользователя";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "Каждая часть берётся из привязанного профиля в соцсети — ровно так, как его показывает платформа, поэтому её модерация действует и здесь. Можно использовать один аккаунт для всех трёх или сочетать разные.";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Введите имя пользователя Linktree: буквы, цифры, точки, дефисы или подчёркивания.";
+"That doesn't look like a handle on this platform." = "Это не похоже на имя пользователя этой платформы.";

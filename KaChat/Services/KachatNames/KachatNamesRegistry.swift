@@ -485,7 +485,7 @@ final class KachatSocialImageResolver: ObservableObject {
     private static let browserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
     @Published private var entries: [String: Entry] = [:]
-    private var inFlight: [String: Task<KachatNames.SocialProfile?, Never>] = [:]
+    private var inFlight: [String: Task<Lookup, Never>] = [:]
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
@@ -505,25 +505,61 @@ final class KachatSocialImageResolver: ObservableObject {
         return entry?.profile
     }
 
+    /// What a lookup came back with.
+    enum Lookup: Equatable {
+        /// The platform answered (possibly with nothing: taken down, account gone).
+        case answered(KachatNames.SocialProfile)
+        /// It couldn't be reached in time; the last answer this device had, if any.
+        case unreachable(KachatNames.SocialProfile?)
+
+        var profile: KachatNames.SocialProfile? {
+            switch self {
+            case .answered(let p): return p
+            case .unreachable(let p): return p
+            }
+        }
+    }
+
+    /// Hard limit for one lookup, every request and fallback included: a preview never spins
+    /// longer than this.
+    private static let deadline: UInt64 = 10_000_000_000
+
     /// Looks the profile up now (the editor's preview), sharing a lookup in flight.
     @discardableResult
-    func resolve(_ source: KachatNames.SocialSource) async -> KachatNames.SocialProfile? {
+    func resolve(_ source: KachatNames.SocialSource) async -> Lookup {
         let key = source.link
         if let running = inFlight[key] { return await running.value }
-        let task = Task<KachatNames.SocialProfile?, Never> { [weak self] in
-            let outcome = await Self.lookUp(source)
-            guard let self else { return nil }
+        let task = Task<Lookup, Never> { [weak self] in
+            let started = Date()
+            let outcome = await Self.withDeadline { await Self.lookUp(source) }
+            AppLog.log("[KachatSocial] %@ %@ in %.1fs", source.platform.rawValue,
+                       outcome == nil ? "unreachable" : "answered", Date().timeIntervalSince(started))
+            guard let self else { return .unreachable(nil) }
             guard let answered = outcome else {
-                return self.entries[key]?.profile // couldn't reach it: keep the last answer
+                return .unreachable(self.entries[key]?.profile) // keep the last answer
             }
             self.entries[key] = Entry(profile: answered, checkedAt: Date())
             self.persist()
-            return answered
+            return .answered(answered)
         }
         inFlight[key] = task
         let value = await task.value
         inFlight[key] = nil
         return value
+    }
+
+    /// `work`'s result, or nil once the deadline passes (the work is cancelled).
+    private nonisolated static func withDeadline(_ work: @escaping @Sendable () async -> KachatNames.SocialProfile?) async -> KachatNames.SocialProfile? {
+        await withTaskGroup(of: KachatNames.SocialProfile??.self) { group in
+            group.addTask { .some(await work()) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: deadline)
+                return .none
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? nil
+        }
     }
 
     private func persist() {
@@ -549,6 +585,15 @@ final class KachatSocialImageResolver: ObservableObject {
             return KachatNames.SocialProfile(avatar: S.discordImage(fromInviteJSON: data, kind: .avatar),
                                              banner: S.discordImage(fromInviteJSON: data, kind: .banner),
                                              bio: S.discordDescription(fromInviteJSON: data))
+        case .x:
+            // FxTwitter first: one small JSON answer with avatar, banner and bio. X's own page
+            // (served to link-preview crawlers) is the fallback.
+            if let url = URL(string: "https://api.fxtwitter.com/\(source.handle)"),
+               let (data, status) = await fetch(url, agent: browserAgent),
+               status == 200 || status == 404,
+               let p = S.fxTwitterProfile(fromJSON: data) {
+                return p
+            }
         case .github:
             guard let url = URL(string: "https://api.github.com/users/\(source.handle)"),
                   let (data, status) = await fetch(url, agent: browserAgent) else { return nil }
@@ -581,13 +626,22 @@ final class KachatSocialImageResolver: ObservableObject {
         return result
     }
 
+    /// Ephemeral (nothing written to the shared cookie store or cache), and no request outlives 8 s.
+    private nonisolated static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 8
+        config.timeoutIntervalForResource = 8
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }()
+
     private nonisolated static func fetch(_ url: URL, agent: String, cookie: String? = nil) async -> (Data, Int)? {
         var request = URLRequest(url: url)
-        request.timeoutInterval = 15
+        request.timeoutInterval = 8
         request.setValue(agent, forHTTPHeaderField: "User-Agent")
         request.setValue("en-US,en;q=0.8", forHTTPHeaderField: "Accept-Language")
         if let cookie { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await session.data(for: request),
               let http = response as? HTTPURLResponse else { return nil }
         return (data.prefix(3_000_000), http.statusCode)
     }

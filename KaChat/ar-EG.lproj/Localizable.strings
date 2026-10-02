@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@ مبيشاركش صور الغلاف.";
 "No bio on this %@ profile." = "مفيش نبذة في بروفايل %@ ده.";
 "%@ doesn't share bios." = "%@ مبيشاركش النبذات.";
+"Retry" = "حاول تاني";
+"Couldn't reach %@." = "مقدرناش نوصل لـ %@.";
+"Account on" = "الحساب على";
+"handle" = "اليوزر";
+"invite" = "الدعوة";
+"username" = "اسم المستخدم";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "كل جزء بييجي من بروفايل اجتماعي بتربطه، زي ما المنصة دي بتعرضه بالظبط، فإشرافها بيتطبق هنا كمان. ممكن تستخدم حساب واحد للتلاتة أو تخلط بينهم.";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "اكتب يوزر Linktree بتاعك: حروف أو أرقام أو نقط أو شرط أو شرط سفلية.";
+"That doesn't look like a handle on this platform." = "ده مش شكل يوزر على المنصة دي.";

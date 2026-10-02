@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@ kapak görsellerini paylaşmıyor.";
 "No bio on this %@ profile." = "Bu %@ profilinde biyografi yok.";
 "%@ doesn't share bios." = "%@ biyografileri paylaşmıyor.";
+"Retry" = "Tekrar dene";
+"Couldn't reach %@." = "%@ ile bağlantı kurulamadı.";
+"Account on" = "Hesap";
+"handle" = "kullanıcı adı";
+"invite" = "davet";
+"username" = "kullanıcı adı";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "Her parça, bağladığınız sosyal profilden o platformun gösterdiği şekliyle gelir; bu yüzden onun moderasyonu burada da geçerlidir. Üçü için tek bir hesap kullanabilir ya da karıştırabilirsiniz.";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Linktree kullanıcı adınızı girin: harf, rakam, nokta, tire veya alt çizgi.";
+"That doesn't look like a handle on this platform." = "Bu, bu platformda bir kullanıcı adına benzemiyor.";

@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@ はバナーを公開していません。";
 "No bio on this %@ profile." = "この %@ プロフィールには自己紹介がありません。";
 "%@ doesn't share bios." = "%@ は自己紹介を公開していません。";
+"Retry" = "再試行";
+"Couldn't reach %@." = "%@ に接続できませんでした。";
+"Account on" = "アカウントの場所";
+"handle" = "ハンドル";
+"invite" = "招待コード";
+"username" = "ユーザー名";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "各項目はリンクした SNS プロフィールから、そのプラットフォームの表示どおりに取得されるため、そのモデレーションがここでも適用されます。3 つすべてに 1 つのアカウントを使うことも、組み合わせることもできます。";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Linktree のユーザー名を入力してください（英字、数字、ピリオド、ハイフン、アンダースコア）。";
+"That doesn't look like a handle on this platform." = "このプラットフォームのハンドルではないようです。";

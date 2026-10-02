@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@ không chia sẻ ảnh bìa.";
 "No bio on this %@ profile." = "Hồ sơ %@ này không có tiểu sử.";
 "%@ doesn't share bios." = "%@ không chia sẻ tiểu sử.";
+"Retry" = "Thử lại";
+"Couldn't reach %@." = "Không thể kết nối tới %@.";
+"Account on" = "Tài khoản trên";
+"handle" = "tên người dùng";
+"invite" = "lời mời";
+"username" = "tên người dùng";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "Mỗi phần lấy từ một hồ sơ mạng xã hội bạn liên kết, đúng như nền tảng đó hiển thị, nên việc kiểm duyệt của họ cũng áp dụng ở đây. Bạn có thể dùng một tài khoản cho cả ba, hoặc kết hợp.";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Nhập tên người dùng Linktree: chữ cái, số, dấu chấm, gạch ngang hoặc gạch dưới.";
+"That doesn't look like a handle on this platform." = "Đây không giống tên người dùng trên nền tảng này.";

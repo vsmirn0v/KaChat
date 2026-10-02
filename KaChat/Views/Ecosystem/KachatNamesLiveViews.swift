@@ -1795,119 +1795,166 @@ struct KachatLiveDomainsTab: View {
 
 // MARK: - Edit .kachat Profile
 
-/// Where a social link's lookup stands - the editor saves only a profile that was looked up and
-/// shows something, so what gets saved is what was reviewed.
+/// Where a social link's lookup stands - the editor saves only a field whose lookup found what
+/// that field shows, so what gets saved is what was reviewed.
 enum KachatSocialLookup: Equatable {
-    case none, looking, found, empty
+    case none, looking, found, empty, unreachable
 }
 
-/// What a pasted social link shows - banner, avatar, bio - looked up on this device and laid out
-/// like the profile header: exactly what other people will see.
+/// One profile field's source (avatar, banner or bio) looked up on this device, showing exactly
+/// the piece other people will see.
 struct KachatSocialPreview: View {
     let link: String
+    let kind: KachatNames.SocialSource.Kind
     @Binding var lookup: KachatSocialLookup
 
     @ObservedObject private var resolver = KachatSocialImageResolver.shared
     @State private var resolved: KachatNames.SocialProfile?
+    @State private var attempt = 0
+    /// The lookup whose answer may land: a newer one (edited link, Retry) supersedes it.
+    @State private var activeKey = ""
 
-    private var source: KachatNames.SocialSource? { KachatNames.SocialSource(link: link, for: .avatar) }
+    private var source: KachatNames.SocialSource? { KachatNames.SocialSource(link: link, for: kind) }
+
+    private func piece(_ p: KachatNames.SocialProfile?) -> String? {
+        switch kind {
+        case .avatar: return p?.avatar
+        case .banner: return p?.banner
+        case .bio: return p?.bio
+        }
+    }
 
     var body: some View {
         Group {
             if let source {
                 switch lookup {
-                case .looking, .none:
+                case .none, .looking:
                     HStack(spacing: 10) {
                         ProgressView()
                         Text("Looking up the profile...").font(.footnote).foregroundColor(.secondary)
                     }
-                case .empty:
-                    HStack(spacing: 10) {
-                        Image(systemName: "person.crop.circle.badge.exclamationmark").foregroundColor(.secondary)
-                        Text("Nothing found for this link.").font(.footnote).foregroundColor(.secondary)
-                    }
                 case .found:
-                    if let resolved { card(resolved, source.platform) }
+                    found(source)
+                case .empty:
+                    note("person.crop.circle.badge.exclamationmark", missingText(source.platform))
+                case .unreachable:
+                    HStack(spacing: 10) {
+                        Image(systemName: "wifi.exclamationmark").foregroundColor(.secondary)
+                        Text(verbatim: String(format: AppLocalization.string("Couldn't reach %@."), source.platform.displayName))
+                            .font(.footnote).foregroundColor(.secondary)
+                        Spacer()
+                        Button("Retry") { attempt += 1 }.font(.footnote.weight(.semibold))
+                    }
                 }
             }
         }
-        // Debounced: one lookup once typing pauses, not one per keystroke.
-        .task(id: source?.link) {
-            resolved = nil
-            guard let source else { lookup = .none; return }
+        // Debounced: one lookup once typing pauses. `attempt` reruns it for Retry. Whatever
+        // happens - cancelled, restarted, failed - the state always lands somewhere final.
+        .task(id: "\(source?.link ?? "")#\(attempt)") {
+            let myKey = "\(source?.link ?? "")#\(attempt)"
+            activeKey = myKey
+            guard let source else { resolved = nil; lookup = .none; return }
             lookup = .looking
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            if Task.isCancelled { return }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard activeKey == myKey else { return }
             let result = await resolver.resolve(source)
-            if Task.isCancelled { return }
-            resolved = result
-            lookup = (result?.isEmpty ?? true) ? .empty : .found
+            guard activeKey == myKey else { return }
+            resolved = result.profile
+            switch result {
+            case .answered(let p):
+                lookup = piece(p) == nil ? .empty : .found
+            case .unreachable(let cached):
+                lookup = piece(cached) == nil ? .unreachable : .found
+            }
         }
     }
 
-    private func card(_ p: KachatNames.SocialProfile, _ platform: KachatNames.SocialSource.Platform) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Group {
-                if let banner = p.banner {
-                    KNSBannerImageView(bannerURLString: banner, height: 96, cornerRadius: 0)
-                } else {
-                    LinearGradient(colors: [Color.accentColor.opacity(0.55), Color.accentColor.opacity(0.15)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                        .frame(height: 96)
-                }
+    @ViewBuilder
+    private func found(_ source: KachatNames.SocialSource) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            switch kind {
+            case .avatar:
+                KNSAvatarView(avatarURLString: resolved?.avatar, fallbackText: "", size: 64)
+            case .banner:
+                KNSBannerImageView(bannerURLString: resolved?.banner, height: 90, cornerRadius: 8)
+            case .bio:
+                Text(verbatim: resolved?.bio ?? "").font(.subheadline)
             }
-            .frame(maxWidth: .infinity)
-            .clipped()
-
-            KNSAvatarView(avatarURLString: p.avatar, fallbackText: "", size: 64)
-                .overlay(Circle().stroke(Color(uiColor: .secondarySystemGroupedBackground), lineWidth: 3))
-                .padding(.leading, 12)
-                .padding(.top, -32)
-
-            VStack(alignment: .leading, spacing: 6) {
-                if let bio = p.bio {
-                    Text(verbatim: bio).font(.subheadline)
-                }
-                Text(verbatim: String(format: AppLocalization.string("From %@"), platform.displayName))
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.secondary)
-                ForEach(missing(p, platform), id: \.self) { note in
-                    Text(verbatim: note).font(.caption).foregroundColor(.secondary)
-                }
-            }
-            .padding(12)
+            Text(verbatim: String(format: AppLocalization.string("From %@"), source.platform.displayName))
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
         }
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.tertiarySystemGroupedBackground)))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.vertical, 4)
     }
 
-    /// Says why a piece is missing: the platform never shows it, or this profile has none.
-    private func missing(_ p: KachatNames.SocialProfile, _ platform: KachatNames.SocialSource.Platform) -> [String] {
-        var notes: [String] = []
-        if p.avatar == nil {
-            notes.append(String(format: AppLocalization.string("No avatar on this %@ profile."), platform.displayName))
+    private func missingText(_ platform: KachatNames.SocialSource.Platform) -> String {
+        let key: String
+        switch kind {
+        case .avatar: key = "No avatar on this %@ profile."
+        case .banner: key = "No banner on this %@ profile."
+        case .bio: key = "No bio on this %@ profile."
         }
-        if p.banner == nil {
-            notes.append(String(format: AppLocalization.string(platform.hasBanner ? "No banner on this %@ profile." : "%@ doesn't share banners."), platform.displayName))
+        return String(format: AppLocalization.string(key), platform.displayName)
+    }
+
+    private func note(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon).foregroundColor(.secondary)
+            Text(verbatim: text).font(.footnote).foregroundColor(.secondary)
         }
-        if p.bio == nil {
-            notes.append(String(format: AppLocalization.string(platform.hasBio ? "No bio on this %@ profile." : "%@ doesn't share bios."), platform.displayName))
-        }
-        return notes
     }
 }
 
-/// The address profile (KACHAT_NAMES.md section 7): a social link (whose avatar, banner and bio
-/// KaChat shows), a Linktree link, and which of your names labels you - written as a
-/// `kchat:1:profile:` self-transfer. No free text and no uploads: what shows comes from a
-/// platform that moderates it.
+/// One profile field's source as the editor holds it: the platform picked and the handle typed.
+struct KachatSourceInput: Equatable {
+    var platform: KachatNames.SocialSource.Platform = .x
+    var handle = ""
+
+    init(platform: KachatNames.SocialSource.Platform = .x, handle: String = "") {
+        self.platform = platform
+        self.handle = handle
+    }
+
+    /// From a stored profile link.
+    init(stored link: String?, _ kind: KachatNames.SocialSource.Kind) {
+        if let s = KachatNames.SocialSource(link: link ?? "", for: kind) {
+            self.init(platform: s.platform, handle: s.displayHandle)
+        } else {
+            self.init()
+        }
+    }
+
+    var isEmpty: Bool { handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    func source(_ kind: KachatNames.SocialSource.Kind) -> KachatNames.SocialSource? {
+        KachatNames.SocialSource.from(platform: platform, handle: handle, for: kind)
+    }
+
+    func isBad(_ kind: KachatNames.SocialSource.Kind) -> Bool { !isEmpty && source(kind) == nil }
+
+    /// The source when the handle field holds a whole pasted link (rather than a handle).
+    func pastedSource(_ kind: KachatNames.SocialSource.Kind) -> KachatNames.SocialSource? {
+        let t = handle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.lowercased().hasPrefix("http") || (t.contains(".") && t.contains("/")) else { return nil }
+        return source(kind)
+    }
+}
+
+/// The address profile (KACHAT_NAMES.md section 7): where the avatar, banner and bio come from
+/// (a social profile link each - they can be different accounts), a Linktree link, and which of
+/// your names labels you - written as a `kchat:1:profile:` self-transfer. No free text and no
+/// uploads: what shows comes from a platform that moderates it.
 struct KachatLiveProfileEditor: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var registry = KachatNamesRegistry.shared
 
-    @State private var social = ""
-    @State private var socialLookup: KachatSocialLookup = .none
+    /// Each piece's source: a platform from the picker plus the handle typed after its prefix.
+    @State private var avatarIn = KachatSourceInput()
+    @State private var bannerIn = KachatSourceInput()
+    @State private var bioIn = KachatSourceInput()
+    @State private var avatarLookup: KachatSocialLookup = .none
+    @State private var bannerLookup: KachatSocialLookup = .none
+    @State private var bioLookup: KachatSocialLookup = .none
     @State private var linktree = ""
     @State private var primary = ""
     @State private var activeNames: [String] = []
@@ -1918,27 +1965,65 @@ struct KachatLiveProfileEditor: View {
     @State private var error: String?
     @AppStorage("kachat_profile_privacy_seen") private var privacySeen = false
 
+    private typealias Kind = KachatNames.SocialSource.Kind
+
     private var profile: KachatNames.Profile {
         var p = KachatNames.Profile()
-        p.social = social
-        p.linktree = linktree
+        p.avatar = avatarIn.source(.avatar)?.link
+        p.banner = bannerIn.source(.banner)?.link
+        p.bio = bioIn.source(.bio)?.link
+        p.linktree = KachatNames.Profile.linktreeLink(username: linktree)
         p.primaryName = primary.isEmpty ? nil : primary
         return p.sanitized()
     }
 
-    private var badSocial: Bool {
-        let t = social.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !t.isEmpty && KachatNames.SocialSource(link: t, for: .avatar) == nil
+    /// A field is saved only once its lookup found what it shows - what you reviewed.
+    private func notReviewed(_ input: KachatSourceInput, _ lookup: KachatSocialLookup) -> Bool {
+        !input.isEmpty && lookup != .found
     }
 
-    /// A social link is saved only once its lookup found something to show - what you reviewed.
-    private var socialNotReviewed: Bool {
-        !social.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && socialLookup != .found
+    private var blocked: Bool {
+        avatarIn.isBad(.avatar) || bannerIn.isBad(.banner) || bioIn.isBad(.bio) || badLinktree
+            || notReviewed(avatarIn, avatarLookup) || notReviewed(bannerIn, bannerLookup) || notReviewed(bioIn, bioLookup)
     }
 
+    /// The Linktree field holds just the username (`linktr.ee/` is shown in front of it).
     private var badLinktree: Bool {
         let t = linktree.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !t.isEmpty && KachatNames.Profile.linktreeLink(t) == nil
+        return !t.isEmpty && KachatNames.Profile.linktreeLink(username: t) == nil
+    }
+
+    /// Once one field's account is found, the empty fields take the same account where its
+    /// platform can fill them - one handle sets up the whole profile, and each stays editable.
+    private func fillEmpty(from input: KachatSourceInput) {
+        let fits = { (kind: Kind) in KachatNames.SocialSource.Platform.choices(for: kind).contains(input.platform) }
+        if avatarIn.isEmpty, fits(.avatar) { avatarIn = input }
+        if bannerIn.isEmpty, fits(.banner) { bannerIn = input }
+        if bioIn.isEmpty, fits(.bio) { bioIn = input }
+    }
+
+    /// Platform picker, the handle after the platform's prefix, and the preview of what it shows.
+    private func sourceField(_ input: Binding<KachatSourceInput>, _ kind: Kind, _ lookup: Binding<KachatSocialLookup>) -> some View {
+        Group {
+            Picker("Account on", selection: input.platform) {
+                ForEach(KachatNames.SocialSource.Platform.choices(for: kind), id: \.self) { p in
+                    Text(verbatim: p.displayName).tag(p)
+                }
+            }
+            .pickerStyle(.menu)
+            HStack(spacing: 0) {
+                Text(verbatim: input.wrappedValue.platform.prefix).foregroundColor(.secondary)
+                TextField(input.wrappedValue.platform == .discord ? LocalizedStringKey("invite") : LocalizedStringKey("handle"), text: input.handle)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .onChange(of: input.wrappedValue.handle) { _ in
+                        // A whole pasted link: switch the picker to its platform, keep the handle.
+                        if let pasted = input.wrappedValue.pastedSource(kind) {
+                            input.wrappedValue = KachatSourceInput(platform: pasted.platform, handle: pasted.displayHandle)
+                        }
+                    }
+            }
+            KachatSocialPreview(link: input.wrappedValue.source(kind)?.link ?? "", kind: kind, lookup: lookup)
+        }
     }
 
     var body: some View {
@@ -1951,24 +2036,33 @@ struct KachatLiveProfileEditor: View {
                     } icon: {
                         Image(systemName: "person.text.rectangle").foregroundColor(.accentColor)
                     }
+                } footer: {
+                    Text("Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them.")
                 }
                 Section {
-                    TextField("x.com/yourname", text: $social)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    KachatSocialPreview(link: social, lookup: $socialLookup)
-                } header: { Text("Social Profile") } footer: {
-                    if badSocial {
-                        Text("Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite.").foregroundColor(.red)
-                    } else {
-                        Text("Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord.")
+                    sourceField($avatarIn, .avatar, $avatarLookup)
+                } header: { Text("Avatar") } footer: {
+                    if avatarIn.isBad(.avatar) { invalidHandleNote }
+                }
+                Section {
+                    sourceField($bannerIn, .banner, $bannerLookup)
+                } header: { Text("Banner") } footer: {
+                    if bannerIn.isBad(.banner) { invalidHandleNote }
+                }
+                Section {
+                    sourceField($bioIn, .bio, $bioLookup)
+                } header: { Text("Bio") } footer: {
+                    if bioIn.isBad(.bio) { invalidHandleNote }
+                }
+                Section {
+                    HStack(spacing: 0) {
+                        Text(verbatim: "linktr.ee/").foregroundColor(.secondary)
+                        TextField("username", text: $linktree)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
-                }
-                Section {
-                    TextField("linktr.ee/yourname", text: $linktree)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                 } header: { Text("Links") } footer: {
                     if badLinktree {
-                        Text("Only a Linktree link (linktr.ee/yourname) can be added.").foregroundColor(.red)
+                        Text("Enter your Linktree username: letters, numbers, dots, dashes or underscores.").foregroundColor(.red)
                     } else {
                         Text("Add your Linktree to point people to your other accounts and websites.")
                     }
@@ -1989,7 +2083,7 @@ struct KachatLiveProfileEditor: View {
                     } label: {
                         HStack { Spacer(); if saving { ProgressView() } else { Text("Save Profile").font(.headline) }; Spacer() }
                     }
-                    .disabled(saving || !loaded || badSocial || badLinktree || socialNotReviewed)
+                    .disabled(saving || !loaded || blocked)
                 } footer: {
                     if let savedTx {
                         Text(verbatim: String(format: AppLocalization.string("Saved. Transaction %@"), String(savedTx.prefix(16)) + "...")).foregroundColor(.green)
@@ -2000,6 +2094,9 @@ struct KachatLiveProfileEditor: View {
                     }
                 }
             }
+            .onChange(of: avatarLookup) { v in if v == .found { fillEmpty(from: avatarIn) } }
+            .onChange(of: bannerLookup) { v in if v == .found { fillEmpty(from: bannerIn) } }
+            .onChange(of: bioLookup) { v in if v == .found { fillEmpty(from: bioIn) } }
             .navigationTitle("Edit .kachat Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2023,14 +2120,20 @@ struct KachatLiveProfileEditor: View {
         }
     }
 
+    private var invalidHandleNote: some View {
+        Text("That doesn't look like a handle on this platform.").foregroundColor(.red)
+    }
+
     private func load() async {
         guard let address = KachatNamesActions.shared.myAddress else { loaded = true; return }
         await registry.refreshIfStale()
         var p = registry.ownProfile(for: address)?.profile
         if p == nil { p = try? await registry.identity(address: address).profile }
         if let p {
-            social = p.social ?? ""
-            linktree = p.linktree ?? ""
+            avatarIn = KachatSourceInput(stored: p.avatar, .avatar)
+            bannerIn = KachatSourceInput(stored: p.banner, .banner)
+            bioIn = KachatSourceInput(stored: p.bio, .bio)
+            linktree = KachatNames.Profile.linktreeUsername(p.linktree)
         }
         if let key = KachatNamesRegistry.keyOf(address) {
             activeNames = ((try? await registry.names(owner: key, includeInactive: false)) ?? []).map(\.name)

@@ -194,12 +194,15 @@ of that, so **identity belongs to the address, and a name is only a label pointi
   | Field | Meaning |
   |---|---|
   | `v` | `1` |
-  | `social` | a **profile link** on X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram, LinkedIn, or a Discord server invite: the avatar, banner and bio come from it |
+  | `avatar` | where the avatar comes from: a **profile link** on X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram, LinkedIn, or a Discord server invite |
+  | `banner` | where the banner comes from: a profile link on X or YouTube, or a Discord server invite |
+  | `bio` | where the bio comes from: a profile link on X, YouTube, Telegram, Twitch, Kick, GitHub, or a Discord server invite |
   | `linktree` | a Linktree page, `https://linktr.ee/<name>`: the only other link a profile can carry |
   | `primaryName` | which of the address's `.kachat` names to show (optional) |
 
-  **Nothing anyone types is shown, and no picture is uploaded.** The record stores the two links
-  only. Each device looks up what the social profile currently shows and caches it for 24 hours
+  **Nothing anyone types is shown, and no picture is uploaded.** The record stores links only -
+  the three sources may be three different accounts (the editor picks a platform and takes the
+  handle). Each device looks up what each profile currently shows and caches it for 24 hours
   (`KachatSocialImageResolver`; no indexer involved):
   - avatar: every supported platform;
   - banner: X, YouTube, Discord;

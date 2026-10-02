@@ -241,22 +241,38 @@ never changes it.
   ```json
   {
     "v": 1,
-    "social": "https://x.com/name",
+    "avatar": "https://x.com/name",
+    "banner": "https://www.youtube.com/@name",
+    "bio": "https://t.me/name",
     "linktree": "https://linktr.ee/name",
     "primaryName": "alice"
   }
   ```
 
-  - Every field is optional. Drop unknown fields; that includes the old `avatar`, `banner`,
-    `bio` and `links`, which are not part of the format.
-  - `social` is a **profile link**, stored normalized by the app. Accept it only on X
-    (`https://x.com/<handle>`), YouTube (`https://www.youtube.com/@<handle>` or
-    `/channel|c|user/<id>`), Facebook, Instagram, TikTok (`/@<handle>`), Twitch, Kick, GitHub,
-    Telegram (`https://t.me/<handle>`), LinkedIn (`/in|company/<id>`), or a Discord server invite
-    (`https://discord.gg/<code>`). Drop anything else.
+  - Every field is optional. Drop unknown fields; that includes free-text fields such as a
+    display name.
+  - `avatar`, `banner` and `bio` are **profile links**: where each piece comes from. They may be
+    three different accounts, and they are never the picture or the text itself. The app stores
+    them normalized:
+
+    | Platform | Link | Allowed in |
+    |---|---|---|
+    | X | `https://x.com/<handle>` | avatar, banner, bio |
+    | YouTube | `https://www.youtube.com/@<handle>` or `/channel\|c\|user/<id>` | avatar, banner, bio |
+    | Discord server invite | `https://discord.gg/<code>` | avatar, banner, bio |
+    | Telegram | `https://t.me/<handle>` | avatar, bio |
+    | Twitch | `https://www.twitch.tv/<handle>` | avatar, bio |
+    | Kick | `https://kick.com/<handle>` | avatar, bio |
+    | GitHub | `https://github.com/<handle>` | avatar, bio |
+    | Facebook | `https://www.facebook.com/<handle>` | avatar |
+    | Instagram | `https://www.instagram.com/<handle>/` | avatar |
+    | TikTok | `https://www.tiktok.com/@<handle>` | avatar |
+    | LinkedIn | `https://www.linkedin.com/in\|company/<id>` | avatar |
+
+    Drop a link that isn't allowed in its field.
   - `linktree` must be `https://linktr.ee/<name>`. Drop anything else.
-  - Store and serve both as strings. **Never fetch, store or proxy pictures or bios**: each
-    app looks them up from the social profile itself, so the platform's moderation applies.
+  - Store and serve the links as strings. **Never fetch, store or proxy pictures or bios**: each
+    app looks them up itself, so each platform's moderation applies.
   - There is deliberately **no display-name field**.
 - **`primaryName`** is honored only while the address owns that name and it is `active`.
   - Otherwise the label falls back to the address's oldest `active` name, then to none.

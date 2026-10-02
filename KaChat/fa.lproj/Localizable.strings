@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@ بنر را به اشتراک نمی‌گذارد.";
 "No bio on this %@ profile." = "این نمایهٔ %@ بیوگرافی ندارد.";
 "%@ doesn't share bios." = "%@ بیوگرافی را به اشتراک نمی‌گذارد.";
+"Retry" = "تلاش دوباره";
+"Couldn't reach %@." = "دسترسی به %@ ممکن نشد.";
+"Account on" = "حساب در";
+"handle" = "شناسه";
+"invite" = "دعوت‌نامه";
+"username" = "نام کاربری";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "هر بخش از یک نمایهٔ اجتماعی که پیوند می‌دهید می‌آید، دقیقاً همان‌طور که آن پلتفرم نشان می‌دهد، پس نظارت آن اینجا هم اعمال می‌شود. می‌توانید یک حساب برای هر سه استفاده کنید یا آن‌ها را ترکیب کنید.";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "نام کاربری Linktree خود را وارد کنید: حروف، اعداد، نقطه، خط تیره یا زیرخط.";
+"That doesn't look like a handle on this platform." = "این شبیه شناسه‌ای در این پلتفرم نیست.";

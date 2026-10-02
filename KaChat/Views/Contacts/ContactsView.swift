@@ -36,9 +36,11 @@ struct ProfileView: View {
     /// Testnet: your `.kachat` label (KACHAT_NAMES.md section 7 - your primary name while you own
     /// it and it is active, else your oldest active name), shown as your name on the hero.
     @State private var kachatLabel: String?
-    /// The address profile's social link (avatar, banner and bio looked up on this device) and
-    /// Linktree link - testnet.
-    @State private var kachatSocialLink: String?
+    /// The address profile's sources (a social link each for avatar, banner and bio, looked up
+    /// on this device) and Linktree link - testnet.
+    @State private var kachatAvatarSource: String?
+    @State private var kachatBannerSource: String?
+    @State private var kachatBioSource: String?
     @State private var kachatLinktree: String?
     @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
     @ObservedObject private var socialImages = KachatSocialImageResolver.shared
@@ -580,7 +582,9 @@ struct ProfileView: View {
     private func loadKachatLabel(_ address: String) async {
         guard KachatNamesService.isEnabled else {
             kachatLabel = nil
-            kachatSocialLink = nil
+            kachatAvatarSource = nil
+            kachatBannerSource = nil
+            kachatBioSource = nil
             kachatLinktree = nil
             return
         }
@@ -588,7 +592,9 @@ struct ProfileView: View {
         let identity = try? await kachatRegistry.identity(address: address)
         kachatLabel = identity?.label
         let profile = kachatRegistry.ownProfile(for: address)?.profile ?? identity?.profile
-        kachatSocialLink = profile?.social
+        kachatAvatarSource = profile?.avatar
+        kachatBannerSource = profile?.banner
+        kachatBioSource = profile?.bio
         kachatLinktree = profile?.linktree
     }
 
@@ -608,9 +614,9 @@ struct ProfileView: View {
         }()
         // On testnet the .kachat profile (avatar, banner and bio looked up from its social link)
         // comes first; the KNS one otherwise.
-        let kachatSocial = socialImages.profile(for: kachatSocialLink)
-        let kachatBanner = kachatSocial?.banner
-        let kachatAvatar = kachatSocial?.avatar
+        let kachatBanner = socialImages.profile(for: kachatBannerSource)?.banner
+        let kachatAvatar = socialImages.profile(for: kachatAvatarSource)?.avatar
+        let kachatBio = socialImages.profile(for: kachatBioSource)?.bio
         return VStack(alignment: .leading, spacing: 0) {
             Group {
                 if let kachatBanner {
@@ -662,7 +668,7 @@ struct ProfileView: View {
                 Text(displayName)
                     .font(.title3.weight(.bold))
                     .lineLimit(1)
-                if let bio = kachatSocial?.bio {
+                if let bio = kachatBio {
                     Text(verbatim: bio)
                         .font(.subheadline)
                         .foregroundColor(.secondary)

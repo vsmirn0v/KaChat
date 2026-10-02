@@ -1121,3 +1121,12 @@
 "%@ doesn't share banners." = "%@ doesn't share banners.";
 "No bio on this %@ profile." = "No bio on this %@ profile.";
 "%@ doesn't share bios." = "%@ doesn't share bios.";
+"Retry" = "Retry";
+"Couldn't reach %@." = "Couldn't reach %@.";
+"Account on" = "Account on";
+"handle" = "handle";
+"invite" = "invite";
+"username" = "username";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them.";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Enter your Linktree username: letters, numbers, dots, dashes or underscores.";
+"That doesn't look like a handle on this platform." = "That doesn't look like a handle on this platform.";

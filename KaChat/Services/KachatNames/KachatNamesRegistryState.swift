@@ -132,10 +132,13 @@ extension KachatNames {
 
     struct Profile: Codable, Equatable {
         var v: Int = 1
-        /// Your profile on a social platform (`SocialSource`): KaChat shows its avatar, banner and
-        /// bio, looked up on each device, so the platform's moderation applies to all three. No
-        /// picture or free text is ever written to the chain.
-        var social: String?
+        /// Where each piece comes from: a profile link on a social platform (`SocialSource`) -
+        /// they may be three different accounts. KaChat shows that profile's avatar, banner or bio,
+        /// looked up on each device, so the platform's moderation applies. No picture or free text
+        /// is ever written to the chain.
+        var avatar: String?
+        var banner: String?
+        var bio: String?
         /// A Linktree page (`https://linktr.ee/<name>`): the one way to link anything else.
         var linktree: String?
         var primaryName: String?
@@ -145,6 +148,21 @@ extension KachatNames {
         private static func clean(_ s: String?) -> String? {
             guard let t = s?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
             return t
+        }
+
+        /// The Linktree username in a stored link (`https://linktr.ee/<name>` → `<name>`).
+        static func linktreeUsername(_ link: String?) -> String {
+            guard let l = linktreeLink(link) else { return "" }
+            return String(l.dropFirst("https://linktr.ee/".count))
+        }
+
+        /// What the Linktree field holds - a bare username, or a pasted link - as a stored link.
+        static func linktreeLink(username raw: String) -> String? {
+            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { return nil }
+            if t.lowercased().contains("linktr.ee") { return linktreeLink(t) }
+            let name = t.hasPrefix("@") ? String(t.dropFirst()) : t
+            return linktreeLink("https://linktr.ee/\(name)")
         }
 
         /// A pasted Linktree link, normalized to `https://linktr.ee/<name>`; nil for anything else.
@@ -164,7 +182,9 @@ extension KachatNames {
         /// normalized, anything else dropped; the primary name normalized.
         func sanitized() -> Profile {
             var p = Profile()
-            p.social = Profile.clean(social).flatMap { SocialSource(link: $0, for: .avatar)?.link }
+            p.avatar = Profile.clean(avatar).flatMap { SocialSource(link: $0, for: .avatar)?.link }
+            p.banner = Profile.clean(banner).flatMap { SocialSource(link: $0, for: .banner)?.link }
+            p.bio = Profile.clean(bio).flatMap { SocialSource(link: $0, for: .bio)?.link }
             p.linktree = Profile.linktreeLink(linktree)
             p.primaryName = Profile.clean(primaryName).map(Codec.normalize).flatMap { Codec.isValid($0) ? $0 : nil }
             return p
@@ -192,7 +212,7 @@ extension KachatNames {
     /// device looks the current picture up and caches it (`KachatSocialImageResolver`), so a
     /// picture the platform takes down disappears here too. No picture is ever uploaded.
     struct SocialSource: Equatable {
-        enum Kind: String { case avatar, banner }
+        enum Kind: String { case avatar, banner, bio }
 
         enum Platform: String, CaseIterable {
             case x, youtube, facebook, instagram, tiktok, twitch, kick, github, telegram, linkedin, discord
@@ -202,6 +222,32 @@ extension KachatNames {
 
             /// Platforms whose preview carries the person's own bio (see `bio(for:...)`).
             var hasBio: Bool { [.x, .youtube, .telegram, .twitch, .kick, .github, .discord].contains(self) }
+
+            /// What the handle field shows in front of the handle.
+            var prefix: String {
+                switch self {
+                case .x: return "x.com/"
+                case .youtube: return "youtube.com/@"
+                case .facebook: return "facebook.com/"
+                case .instagram: return "instagram.com/"
+                case .tiktok: return "tiktok.com/@"
+                case .twitch: return "twitch.tv/"
+                case .kick: return "kick.com/"
+                case .github: return "github.com/"
+                case .telegram: return "t.me/"
+                case .linkedin: return "linkedin.com/in/"
+                case .discord: return "discord.gg/"
+                }
+            }
+
+            /// The platforms that can fill a field, in picker order.
+            static func choices(for kind: Kind) -> [Platform] {
+                switch kind {
+                case .avatar: return [.x, .youtube, .instagram, .tiktok, .facebook, .twitch, .kick, .github, .telegram, .linkedin, .discord]
+                case .banner: return [.x, .youtube, .discord]
+                case .bio: return [.x, .youtube, .telegram, .twitch, .kick, .github, .discord]
+                }
+            }
 
             var displayName: String {
                 switch self {
@@ -290,9 +336,38 @@ extension KachatNames {
             }
             guard let platform else { return nil }
             if kind == .banner && !platform.hasBanner { return nil }
+            if kind == .bio && !platform.hasBio { return nil }
             self.platform = platform
             self.handle = handle
             self.link = link
+        }
+
+        /// A handle typed for `platform` (with or without `@`), or a whole pasted profile link -
+        /// which may name another platform: the caller switches its picker to `.platform`.
+        static func from(platform: Platform, handle raw: String, for kind: Kind) -> SocialSource? {
+            var h = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !h.isEmpty else { return nil }
+            let lower = h.lowercased()
+            if lower.hasPrefix("http") || (h.contains(".") && h.contains("/")) {
+                return SocialSource(link: h, for: kind)
+            }
+            if h.hasPrefix("@") { h.removeFirst() }
+            let link: String
+            switch platform {
+            case .youtube, .tiktok: link = platform.prefix + h
+            case .linkedin: link = h.hasPrefix("in/") || h.hasPrefix("company/") ? "linkedin.com/\(h)" : platform.prefix + h
+            default: link = platform.prefix + h
+            }
+            return SocialSource(link: link, for: kind)
+        }
+
+        /// The handle as the field shows it after `platform.prefix`.
+        var displayHandle: String {
+            switch platform {
+            case .youtube, .tiktok: return handle.hasPrefix("@") ? String(handle.dropFirst()) : handle
+            case .linkedin: return handle.hasPrefix("in/") ? String(handle.dropFirst(3)) : handle
+            default: return handle
+            }
         }
 
         // MARK: Reading the picture out of what the platform serves (pure, testable)
@@ -356,6 +431,25 @@ extension KachatNames {
             return (root["avatar_url"] as? String, trimmedBio(root["bio"] as? String))
         }
 
+        /// FxTwitter's user API (`api.fxtwitter.com/<handle>`): X's avatar (400 px), banner and bio
+        /// in one small JSON answer - X's own data, so X's moderation still applies. Nil when the
+        /// answer isn't a user (unknown or suspended account answers `code` 404).
+        static func fxTwitterProfile(fromJSON data: Data) -> SocialProfile? {
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            guard (root["code"] as? Int) == 200, let user = root["user"] as? [String: Any] else {
+                return (root["code"] as? Int) == 404 ? SocialProfile() : nil
+            }
+            var p = SocialProfile()
+            if let a = user["avatar_url"] as? String, a.hasPrefix("https://") {
+                p.avatar = a.replacingOccurrences(of: "_normal.", with: "_400x400.")
+            }
+            if let b = user["banner_url"] as? String, b.hasPrefix("https://") {
+                p.banner = b.hasSuffix("/1500x500") ? b : b + "/1500x500"
+            }
+            p.bio = trimmedBio(user["description"] as? String)
+            return p
+        }
+
         /// A Discord invite's server description.
         static func discordDescription(fromInviteJSON data: Data) -> String? {
             guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -411,6 +505,8 @@ extension KachatNames {
             case .banner:
                 guard let banner = guild["banner"] as? String, !banner.isEmpty else { return nil }
                 return "https://cdn.discordapp.com/banners/\(id)/\(banner).png?size=1024"
+            case .bio:
+                return nil // the server's description: `discordDescription(fromInviteJSON:)`
             }
         }
     }

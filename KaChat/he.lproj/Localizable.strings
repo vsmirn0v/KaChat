@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@ לא משתף באנרים.";
 "No bio on this %@ profile." = "לפרופיל ה-%@ הזה אין ביו.";
 "%@ doesn't share bios." = "%@ לא משתף ביו.";
+"Retry" = "נסה שוב";
+"Couldn't reach %@." = "לא ניתן להתחבר אל %@.";
+"Account on" = "חשבון ב-";
+"handle" = "שם משתמש";
+"invite" = "הזמנה";
+"username" = "שם משתמש";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "כל חלק מגיע מפרופיל ברשת חברתית שאתה מקשר, בדיוק כפי שהפלטפורמה מציגה אותו, כך שהפיקוח שלה חל גם כאן. אפשר להשתמש בחשבון אחד לשלושתם או לשלב.";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "הזן את שם המשתמש שלך ב-Linktree: אותיות, מספרים, נקודות, מקפים או קווים תחתונים.";
+"That doesn't look like a handle on this platform." = "זה לא נראה כמו שם משתמש בפלטפורמה הזו.";

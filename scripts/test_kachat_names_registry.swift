@@ -271,22 +271,27 @@ func runRules(_ r: Report) {
     r.eq(KN.label(owned: [owned[2]], primaryName: nil, graceMs: g, nowMs: now), nil, "label: no active name")
 
     var p = KN.Profile()
-    p.social = " x.com/KaspaCurrency/ "
+    p.avatar = " x.com/KaspaCurrency/ "
+    p.banner = "youtube.com/@KaspaCurrency"
+    p.bio = "instagram.com/instagram"
     p.linktree = "https://www.linktr.ee/kaspa?utm=1"
     p.primaryName = "Alice.kachat"
     let clean = p.sanitized()
-    r.eq(clean.social, "https://x.com/KaspaCurrency", "profile: social link normalized")
+    r.eq(clean.avatar, "https://x.com/KaspaCurrency", "profile: avatar source normalized")
+    r.eq(clean.banner, "https://www.youtube.com/@KaspaCurrency", "profile: banner from another account")
+    r.eq(clean.bio, nil, "profile: a bio source on a platform without bios is dropped")
     r.eq(clean.linktree, "https://linktr.ee/kaspa", "profile: Linktree link normalized")
     r.eq(clean.primaryName, "alice", "profile: primary name normalized")
     var other = KN.Profile()
-    other.social = "https://example.com/me"
+    other.avatar = "https://example.com/me"
+    other.banner = "instagram.com/instagram"
     other.linktree = "https://example.com/links"
     r.eq(other.sanitized(), KN.Profile(), "profile: unsupported social site and non-Linktree link dropped")
     let json = try! p.recordJSON()
     r.check(json.count <= 2048, "profile JSON within 2 KB")
-    r.eq(String(data: json, encoding: .utf8)!, "{\"linktree\":\"https://linktr.ee/kaspa\",\"primaryName\":\"alice\",\"social\":\"https://x.com/KaspaCurrency\",\"v\":1}", "profile JSON compact with sorted keys")
+    r.eq(String(data: json, encoding: .utf8)!, "{\"avatar\":\"https://x.com/KaspaCurrency\",\"banner\":\"https://www.youtube.com/@KaspaCurrency\",\"linktree\":\"https://linktr.ee/kaspa\",\"primaryName\":\"alice\",\"v\":1}", "profile JSON compact with sorted keys")
     r.eq(KN.Profile.parse(json), clean, "profile JSON round trip")
-    r.eq(KN.Profile.parse(Data("{\"v\":1,\"displayName\":\"x\",\"bio\":\"free text\",\"social\":\"ftp://a\"}".utf8)), KN.Profile(), "profile: unknown fields (bio, display name) and bad links dropped")
+    r.eq(KN.Profile.parse(Data("{\"v\":1,\"displayName\":\"x\",\"bio\":\"free text\",\"avatar\":\"ftp://a\"}".utf8)), KN.Profile(), "profile: free text, display names and bad links dropped")
     r.eq(KN.Profile.parse(Data("{\"v\":2}".utf8)), nil, "profile: only v 1")
 
     // what a social link shows
@@ -300,6 +305,26 @@ func runRules(_ r: Report) {
     r.eq(SS.bio(for: .x, openGraphDescription: String(repeating: "b", count: 400))?.count, 280, "bio cut to 280")
     let gh = SS.githubProfile(fromJSON: Data("{\"avatar_url\":\"https://avatars.githubusercontent.com/u/1\",\"bio\":\" hi \"}".utf8))
     r.check(gh.avatar == "https://avatars.githubusercontent.com/u/1" && gh.bio == "hi", "GitHub avatar and bio")
+    let fx = SS.fxTwitterProfile(fromJSON: Data("{\"code\":200,\"user\":{\"avatar_url\":\"https://pbs.twimg.com/profile_images/1/a_normal.jpg\",\"banner_url\":\"https://pbs.twimg.com/profile_banners/9/8\",\"description\":\"hi\"}}".utf8))
+    r.eq(fx, KN.SocialProfile(avatar: "https://pbs.twimg.com/profile_images/1/a_400x400.jpg", banner: "https://pbs.twimg.com/profile_banners/9/8/1500x500", bio: "hi"), "FxTwitter: avatar 400px, banner 1500x500, bio")
+    r.eq(SS.fxTwitterProfile(fromJSON: Data("{\"code\":404,\"message\":\"NOT_FOUND\"}".utf8)), KN.SocialProfile(), "FxTwitter: unknown account answers empty")
+    r.eq(SS.fxTwitterProfile(fromJSON: Data("{\"code\":500}".utf8)), nil, "FxTwitter: an error means fall back")
+    r.eq(SS(link: "instagram.com/instagram", for: .bio), nil, "no bio source on Instagram")
+    r.eq(SS.from(platform: .x, handle: "@KaspaCurrency", for: .avatar)?.link, "https://x.com/KaspaCurrency", "X handle with @")
+    r.eq(SS.from(platform: .youtube, handle: "MrBeast", for: .banner)?.link, "https://www.youtube.com/@MrBeast", "YouTube handle")
+    r.eq(SS.from(platform: .tiktok, handle: "tiktok", for: .avatar)?.link, "https://www.tiktok.com/@tiktok", "TikTok handle")
+    r.eq(SS.from(platform: .linkedin, handle: "company/linkedin", for: .avatar)?.link, "https://www.linkedin.com/company/linkedin", "LinkedIn company path")
+    r.eq(SS.from(platform: .discord, handle: "discord-developers", for: .bio)?.link, "https://discord.gg/discord-developers", "Discord invite code")
+    let pasted = SS.from(platform: .x, handle: "https://www.youtube.com/@MrBeast", for: .avatar)
+    r.check(pasted?.platform == .youtube && pasted?.displayHandle == "MrBeast", "a pasted link switches platform")
+    r.eq(SS.from(platform: .instagram, handle: "instagram", for: .banner), nil, "no banner from Instagram")
+    r.eq(SS.from(platform: .x, handle: "bad handle!", for: .avatar), nil, "invalid handle refused")
+    r.eq(KN.Profile.linktreeLink(username: "kaspa"), "https://linktr.ee/kaspa", "Linktree from a username")
+    r.eq(KN.Profile.linktreeLink(username: "@kaspa "), "https://linktr.ee/kaspa", "Linktree from @username")
+    r.eq(KN.Profile.linktreeLink(username: "https://linktr.ee/kaspa"), "https://linktr.ee/kaspa", "Linktree from a pasted link")
+    r.eq(KN.Profile.linktreeLink(username: "kas pa"), nil, "Linktree username with a space refused")
+    r.eq(KN.Profile.linktreeUsername("https://linktr.ee/kaspa"), "kaspa", "Linktree username shown back")
+    r.check(SS(link: "t.me/telegram", for: .bio) != nil, "bio source on Telegram")
     r.eq(SS.discordDescription(fromInviteJSON: Data("{\"guild\":{\"id\":\"1\",\"description\":\"Devs\"}}".utf8)), "Devs", "Discord server description")
 
     let k = Data(repeating: 0x10, count: 31) + Data([0x00])

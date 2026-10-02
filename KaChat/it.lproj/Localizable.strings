@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@ non condivide i banner.";
 "No bio on this %@ profile." = "Questo profilo %@ non ha una bio.";
 "%@ doesn't share bios." = "%@ non condivide le bio.";
+"Retry" = "Riprova";
+"Couldn't reach %@." = "Impossibile raggiungere %@.";
+"Account on" = "Account su";
+"handle" = "nome utente";
+"invite" = "invito";
+"username" = "nome utente";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "Ogni parte proviene da un profilo social che colleghi, esattamente come lo mostra quella piattaforma, quindi la sua moderazione vale anche qui. Puoi usare un account per tutte e tre o combinarli.";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "Inserisci il tuo nome utente Linktree: lettere, numeri, punti, trattini o trattini bassi.";
+"That doesn't look like a handle on this platform." = "Non sembra un nome utente di questa piattaforma.";

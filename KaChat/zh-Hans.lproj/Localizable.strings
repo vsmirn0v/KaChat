@@ -1120,3 +1120,12 @@
 "%@ doesn't share banners." = "%@ 不公开横幅。";
 "No bio on this %@ profile." = "这个 %@ 主页没有简介。";
 "%@ doesn't share bios." = "%@ 不公开简介。";
+"Retry" = "重试";
+"Couldn't reach %@." = "无法连接 %@。";
+"Account on" = "账号平台";
+"handle" = "用户名";
+"invite" = "邀请码";
+"username" = "用户名";
+"Each piece comes from a social profile you link, exactly as that platform shows it, so its moderation applies here too. You can use one account for all three, or mix them." = "每一项都来自你关联的社交主页，与该平台显示的完全一致，因此该平台的审核在这里同样适用。三项可以用同一个账号，也可以混用。";
+"Enter your Linktree username: letters, numbers, dots, dashes or underscores." = "请输入你的 Linktree 用户名：字母、数字、点、连字符或下划线。";
+"That doesn't look like a handle on this platform." = "这看起来不像该平台的用户名。";
