@@ -269,7 +269,7 @@ A `names` module in kachat-indexer (it already sees every block):
    accepted.
 6. **Large-fee transactions**: confirm on TN10 that nodes relay a transaction paying 35-8,000 KAS
    in fee (4000 × 2 years), and how the mempool treats the time-locked ones.
-7. From the contract build (`~/kachat-names/README.md`, "OPEN ISSUES"): register/renew are limited
+7. From the contract build (`~/kachat-domains/README.md`, "OPEN ISSUES"): register/renew are limited
    to 8 inputs and 8 outputs (the wallet consolidates first); the app must validate owner keys
    (an invalid key locks the name until it lapses); a registration is ~125-155k grams of storage
    mass; anyone may match a listing with a higher offer and keep at most 0.02 KAS (the app warns);
@@ -279,7 +279,7 @@ A `names` module in kachat-indexer (it already sees every block):
 ## 11. Plan
 
 1. Contracts + a Rust test harness running every entry through the consensus script engine
-   (new repo `kachat-names`, local until approved). **Done 2026-10-01**: `KachatGap` /
+   (repo `kachat-domains`, private on GitHub). **Done 2026-10-01**: `KachatGap` /
    `KachatName` / `KachatOffer` compile (3965 / 2002 / 897 bytes), 120 tests through rusty-kaspa's
    own `TransactionValidator` pass, and a mutation check deletes each of 37 security checks and
    confirms a test catches it.
