@@ -174,13 +174,20 @@ final class PushNotificationManager: ObservableObject {
         }
     }
 
+    /// False when this network has no usable push service address (testnet until its indexer
+    /// is published). Every push-service call is skipped then: a blank base would otherwise
+    /// produce path-only requests that iOS rejects as "unsupported URL".
+    private var hasPushService: Bool {
+        KasiaAPIClient.isUsableBaseURL(AppSettings.load().pushIndexerURL)
+    }
+
     func refreshRegistrationIfNeeded() {
         let settings = AppSettings.load()
         guard settings.notificationMode == .remotePush else { return }
         // No push service on this network (testnet has none yet). The service this device
         // registered with on the other network would keep pushing that network's messages
         // here, so tell it to stop, and stay unregistered.
-        if settings.pushIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !hasPushService {
             Task { await leavePushServiceOfOtherNetworkIfNeeded() }
             return
         }
@@ -279,6 +286,7 @@ final class PushNotificationManager: ObservableObject {
     /// contact, for the callee to decrypt on arrival (PUSH_EXTENSIONS.md §5).
     func requestRing(to address: String, callId: String, video: Bool, kind: String, payloadHex: String) async throws {
         guard let token = deviceToken else { throw PushError.noDeviceToken }
+        guard hasPushService else { throw PushError.noPushService }
         let settings = AppSettings.load()
         guard let url = URL(string: "\(settings.pushIndexerURL)\(ringEndpoint)") else {
             throw PushError.invalidResponse
@@ -388,6 +396,10 @@ final class PushNotificationManager: ObservableObject {
 
     /// Register device with indexer, including watched addresses
     func registerWithIndexer() async throws {
+        guard hasPushService else {
+            await leavePushServiceOfOtherNetworkIfNeeded()
+            throw PushError.noPushService
+        }
         await unregisterFromSupersededServiceIfNeeded()
         guard let token = deviceToken else {
             throw PushError.noDeviceToken
@@ -547,7 +559,8 @@ final class PushNotificationManager: ObservableObject {
         aliases: [String]
     ) async -> Bool {
         let settings = AppSettings.load()
-        guard let url = URL(string: "\(settings.pushIndexerURL)\(unregisterEndpoint)") else {
+        guard hasPushService,
+              let url = URL(string: "\(settings.pushIndexerURL)\(unregisterEndpoint)") else {
             return false
         }
 
@@ -635,6 +648,7 @@ final class PushNotificationManager: ObservableObject {
     /// Update watched addresses (call when contacts change)
     func updateWatchedAddresses() async {
         guard deviceToken != nil else { return }
+        guard hasPushService else { return }
 
         if !isRegistered {
             let watchedAddresses = collectWatchedAddresses()
@@ -979,6 +993,10 @@ final class PushNotificationManager: ObservableObject {
 
     func unregister() async {
         guard let token = deviceToken else { return }
+        guard hasPushService else {
+            await leavePushServiceOfOtherNetworkIfNeeded()
+            return
+        }
 
         let settings = AppSettings.load()
 
@@ -2436,9 +2454,12 @@ enum PushError: LocalizedError {
     case noWatchedAddresses
     case authFailed(reason: String)
     case ringFailed(statusCode: Int, reason: String?)
+    case noPushService
 
     var errorDescription: String? {
         switch self {
+        case .noPushService:
+            return NSLocalizedString("This network has no push service yet.", comment: "Push error: the current network has no push service address")
         case .permissionDenied:
             return "Notification permission denied"
         case .noDeviceToken:

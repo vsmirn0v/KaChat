@@ -6,6 +6,18 @@ enum KasiaAPIClientError: Error {
     case dpiPaginationExhausted(endpoint: String)
     /// The server answered 404/405/501: it does not serve this endpoint (an older indexer).
     case endpointUnsupported(endpoint: String)
+    /// This network has no indexer address set (blank in Settings), so there is nothing to ask.
+    case noIndexer
+}
+
+extension KasiaAPIClientError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .dpiPaginationExhausted(let endpoint): return "Pagination exhausted for \(endpoint)"
+        case .endpointUnsupported(let endpoint): return "Endpoint not served: \(endpoint)"
+        case .noIndexer: return "No indexer is configured for this network"
+        }
+    }
 }
 
 /// Gate for the per-request [KasiaAPI] log lines. The unified logging system rate-limits (and
@@ -249,6 +261,20 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
 
     var currentBaseURL: String? {
         return baseURL
+    }
+
+    /// False when this network has no usable indexer address (blank, or not an http(s) URL).
+    /// Testnet ships without one until its indexer is published; every indexer call is skipped
+    /// then instead of firing a path-only request that iOS rejects as "unsupported URL".
+    var hasIndexer: Bool {
+        Self.isUsableBaseURL(baseURL)
+    }
+
+    static func isUsableBaseURL(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", url.host?.isEmpty == false else { return false }
+        return true
     }
 
     // MARK: - Handshakes
@@ -495,6 +521,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
     /// without `get`'s HTTP/1.1 and fallback-session dance: the one caller is best-effort and
     /// falls back to `get` itself.
     private func postJSON<Body: Encodable, T: Decodable & Sendable>(endpoint: String, body: Body) async throws -> T {
+        guard hasIndexer else { throw KasiaAPIClientError.noIndexer }
         guard let url = URL(string: baseURL + endpoint) else {
             throw KasiaError.networkError("Invalid URL")
         }
@@ -737,6 +764,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
     }
 
     private func get<T: Decodable & Sendable>(endpoint: String, params: [String: String]) async throws -> T {
+        guard hasIndexer else { throw KasiaAPIClientError.noIndexer }
         var urlComponents = URLComponents(string: baseURL + endpoint)
         urlComponents?.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
 

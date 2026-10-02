@@ -810,7 +810,7 @@ extension ChatService {
         guard let wallet = WalletManager.shared.currentWallet else { return }
 
         await configureAPIIfNeeded()
-        guard isConfigured else { return }
+        guard isConfigured, apiClient.hasIndexer else { return }
 
         let privateKey = WalletManager.shared.getPrivateKey()
         ensureRoutingState(for: contactAddress, privateKey: privateKey)
@@ -1168,6 +1168,7 @@ extension ChatService {
         privateKey: Data
     ) async -> Bool {
         let settings = currentSettings
+        guard KasiaAPIClient.isUsableBaseURL(settings.indexerURL) else { return false }
         guard let url = URL(string: "\(settings.indexerURL)/v1/messages/tx/\(txId)") else {
             AppLog.log("[ChatService] Invalid URL for fetching message")
             return false

@@ -1166,3 +1166,4 @@
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "Testnet'teki .kachat kaydı güncelleniyor. Yeni kayıt yayına girince adlar burada yeniden açılır.";
 ".kachat Names" = ".kachat Adları";
 "This name isn't registered right now." = "Bu ad şu anda kayıtlı değil.";
+"This network has no push service yet." = "Bu ağda henüz anlık bildirim hizmeti yok.";

@@ -356,6 +356,7 @@ extension ChatService {
     private func runForegroundContactSweep() async -> ForegroundSweepOutcome {
         guard UIApplication.shared.applicationState == .active,
               isConfigured,
+              apiClient.hasIndexer,
               hasCompletedInitialSync,
               !isSyncInProgress,
               let wallet = WalletManager.shared.currentWallet,
@@ -505,6 +506,10 @@ extension ChatService {
             AppLog.log("[ChatService] fetchHandshakesOnly: API not configured")
             return
         }
+        guard apiClient.hasIndexer else {
+            AppLog.log("%@", "[ChatService] fetchHandshakesOnly: no indexer on this network, skipping")
+            return
+        }
 
         let nowMs = currentTimeMs()
         let fallbackSince = lastPollTime > syncReorgBufferMs ? lastPollTime - syncReorgBufferMs : lastPollTime
@@ -592,6 +597,12 @@ extension ChatService {
         await configureAPIIfNeeded()
         guard isConfigured else {
             AppLog.log("%@", "[ChatService] Skipping fetch - API not configured")
+            return
+        }
+        guard apiClient.hasIndexer else {
+            // Messages still arrive live over the node subscription; only the indexer catch-up
+            // is skipped until this network gets an indexer address.
+            AppLog.log("%@", "[ChatService] Skipping fetch - no indexer on this network")
             return
         }
 

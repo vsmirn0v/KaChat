@@ -8,6 +8,7 @@ import CryptoKit
 
 extension ChatService {
     func checkIndexerForHandshake(txId: String, myAddress: String) async -> HandshakeResponse? {
+        guard apiClient.hasIndexer else { return nil }
         // Query recent incoming handshakes from the indexer
         // Use a 60-second lookback window to narrow the search
         let recentBlockTime = UInt64(max(0, Date().timeIntervalSince1970 * 1000 - 60_000))
@@ -1248,6 +1249,7 @@ extension ChatService {
     }
 
     func resolveTransactionInfoFromIndexer(txId: String, ourAddress: String) async -> TransactionResolveInfo? {
+        guard apiClient.hasIndexer else { return nil }
         let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
         let baseStart = lastPollTime > 300_000 ? lastPollTime - 300_000 : lastPollTime
         let startCandidates: [UInt64] = baseStart > 0 ? [baseStart, 0] : [0]
@@ -1633,6 +1635,9 @@ extension ChatService {
         while !Task.isCancelled {
             do {
                 return try await operation()
+            } catch KasiaAPIClientError.noIndexer {
+                // No indexer on this network: retrying can't help, and it isn't a failure.
+                return nil
             } catch {
                 attempt += 1
                 if attempt >= maxAttempts {

@@ -1166,3 +1166,4 @@
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "تتم ترقية سجل .kachat على الشبكة التجريبية. ستُفتح الأسماء هنا مجددًا بمجرد تشغيل السجل الجديد.";
 ".kachat Names" = "أسماء .kachat";
 "This name isn't registered right now." = "هذا الاسم غير مسجل حاليًا.";
+"This network has no push service yet." = "لا توجد خدمة إشعارات فورية على هذه الشبكة بعد.";
