@@ -1825,7 +1825,10 @@ struct KachatSocialPreview: View {
     }
 
     var body: some View {
-        Group {
+        // A VStack, not a Group: a Group hands its modifiers to each child, so `.task` below
+        // would belong to whichever child shows - and switching from the spinner to the result
+        // would cancel it and start the lookup again, endlessly. The VStack is one stable view.
+        VStack(alignment: .leading, spacing: 0) {
             if let source {
                 switch lookup {
                 case .none, .looking:
@@ -2022,7 +2025,11 @@ struct KachatLiveProfileEditor: View {
                         }
                     }
             }
-            KachatSocialPreview(link: input.wrappedValue.source(kind)?.link ?? "", kind: kind, lookup: lookup)
+            // Only while the handle names an account: no empty row, and the lookup starts when it
+            // appears.
+            if let link = input.wrappedValue.source(kind)?.link {
+                KachatSocialPreview(link: link, kind: kind, lookup: lookup)
+            }
         }
     }
 

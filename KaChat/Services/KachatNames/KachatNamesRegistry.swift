@@ -526,8 +526,12 @@ final class KachatSocialImageResolver: ObservableObject {
 
     /// Looks the profile up now (the editor's preview), sharing a lookup in flight.
     @discardableResult
-    func resolve(_ source: KachatNames.SocialSource) async -> Lookup {
+    func resolve(_ source: KachatNames.SocialSource, maxAge: TimeInterval = 300) async -> Lookup {
         let key = source.link
+        // A recent answer is the answer: three fields on one account cost one request.
+        if let entry = entries[key], Date().timeIntervalSince(entry.checkedAt) < maxAge {
+            return .answered(entry.profile)
+        }
         if let running = inFlight[key] { return await running.value }
         let task = Task<Lookup, Never> { [weak self] in
             let started = Date()
