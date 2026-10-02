@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		KCNM00000000040001000000 /* KachatNamesBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000000040000000000 /* KachatNamesBuilder.swift */; };
+		KCNM00000000030001000000 /* KachatNamesManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000000030000000000 /* KachatNamesManifest.swift */; };
+		KCNM00000000020001000000 /* KachatNamesTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000000020000000000 /* KachatNamesTransaction.swift */; };
+		KCNM00000000010001000000 /* KachatNamesCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000000010000000000 /* KachatNamesCodec.swift */; };
 		KCB300000000010001000000 /* Blake3.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCB300000000010000000000 /* Blake3.swift */; };
 		19319293ACD84C2AB108D745 /* KNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A61ACF41FEA483D9EF0924F /* KNSService.swift */; };
 		3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4C922EA822400194F497F9 /* ChatInfoView.swift */; };
@@ -270,6 +274,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		KCNM00000000040000000000 /* KachatNamesBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesBuilder.swift; sourceTree = "<group>"; };
+		KCNM00000000030000000000 /* KachatNamesManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesManifest.swift; sourceTree = "<group>"; };
+		KCNM00000000020000000000 /* KachatNamesTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesTransaction.swift; sourceTree = "<group>"; };
+		KCNM00000000010000000000 /* KachatNamesCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesCodec.swift; sourceTree = "<group>"; };
 		KCB300000000010000000000 /* Blake3.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake3.swift; sourceTree = "<group>"; };
 		1C4C922EA822400194F497F9 /* ChatInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInfoView.swift; sourceTree = "<group>"; };
 		3F4C10012F72000100000001 /* LaunchRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchRouter.swift; sourceTree = "<group>"; };
@@ -604,6 +612,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		KCNMGRP00000000000000001 /* KachatNames */ = {
+			isa = PBXGroup;
+			children = (
+				KCNM00000000010000000000 /* KachatNamesCodec.swift */,
+				KCNM00000000020000000000 /* KachatNamesTransaction.swift */,
+				KCNM00000000030000000000 /* KachatNamesManifest.swift */,
+				KCNM00000000040000000000 /* KachatNamesBuilder.swift */,
+			);
+			path = KachatNames;
+			sourceTree = "<group>";
+		};
 		588DACE03026E3D300D94B9B /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -760,6 +779,7 @@
 				SWAP002A0000000000000001 /* ChangeNowAPIClient.swift */,
 				SWAP003A0000000000000001 /* SwapService.swift */,
 				LPRVA0000000000000001 /* LinkPreviewService.swift */,
+				KCNMGRP00000000000000001 /* KachatNames */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -1479,6 +1499,10 @@
 				BCRI00010001000100000001 /* PublicChatRoomInfoView.swift in Sources */,
 				BCAR00010001000100000001 /* PublicChatAudioRecording.swift in Sources */,
 				KCB300000000010001000000 /* Blake3.swift in Sources */,
+				KCNM00000000010001000000 /* KachatNamesCodec.swift in Sources */,
+				KCNM00000000020001000000 /* KachatNamesTransaction.swift in Sources */,
+				KCNM00000000030001000000 /* KachatNamesManifest.swift in Sources */,
+				KCNM00000000040001000000 /* KachatNamesBuilder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
