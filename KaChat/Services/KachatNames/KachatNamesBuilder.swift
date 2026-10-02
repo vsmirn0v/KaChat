@@ -238,8 +238,8 @@ extension KachatNames {
         private enum FeeMode {
             /// add the signer's funding inputs and a change output back to the signer
             case funded(maxInputs: Int)
-            /// no funding: take the network fee out of output `index`
-            case fromOutput(index: Int, cap: UInt64?)
+            /// no funding: take the network fee out of output `index`, which must keep `floor`
+            case fromOutput(index: Int, cap: UInt64?, floor: UInt64 = KachatNames.minChange)
         }
 
         private struct Draft {
@@ -360,7 +360,7 @@ extension KachatNames {
                 d.inputs = l.inputs
                 d.outputs = l.outputs
                 networkFee = l.withChange ? est : est + l.change
-            case .fromOutput(let index, let cap):
+            case .fromOutput(let index, let cap, let floor):
                 let totalIn = d.inputs.reduce(UInt64(0)) { $0 + $1.utxo.entry.amount }
                 let others = d.outputs.enumerated().filter { $0.offset != index }.reduce(UInt64(0)) { $0 + $1.element.output.value }
                 // provisional value (zero would break the KIP-9 storage-mass formula)
@@ -373,7 +373,7 @@ extension KachatNames {
                 }
                 guard totalIn >= taken + f else { throw Failure("\(d.op): inputs do not cover the outputs and the fee") }
                 let v = totalIn - taken - f
-                guard v >= minChange else { throw Failure("\(d.op): output \(index) would be only \(Builder.kas(v))") }
+                guard v >= floor else { throw Failure("\(d.op): output \(index) would be only \(Builder.kas(v))") }
                 d.outputs[index].output.value = v
                 networkFee = f
             }
@@ -514,6 +514,29 @@ extension KachatNames {
             d.payload = Codec.namePayload(op: "register", name: name)
             return try finish(d, wallet: wallet, fee: .funded(maxInputs: maxInputsFeeEntry), env: env)
         }
+
+        /// Spend an unused commit back to its owner (the name was taken meanwhile, or the owner
+        /// changed their mind): [commit (owner sig + redeem)] -> [P2PK(owner), the commit's value
+        /// less the network fee]. No funding, no payload (the name stays hidden), sequence 0.
+        func cancelCommit(env: Env, commit: CommitRecord) throws -> Plan {
+            guard commit.owner == env.me else { throw Failure("the commit for \(commit.name) is for another owner") }
+            guard let u = commit.utxo else { throw Failure("the commit for \(commit.name) is not on chain") }
+            guard commit.salt.count == 32 else { throw Failure("the salt is 32 bytes") }
+            let redeem = Codec.commitRedeem(commitment: Codec.commitment(name: commit.name, owner: env.me, salt: commit.salt), owner: env.me)
+            guard u.entry.script == Codec.p2shScript(redeem) else { throw Failure("commit UTXO script does not match the salt") }
+            guard u.entry.covenantId == nil else { throw Failure("a commit carries no covenant id") }
+            let d = Draft(
+                op: "cancel commit \(commit.name)",
+                inputs: [PlannedInput(utxo: u, unlock: .commit(redeem: redeem), role: .commit, label: "commit for \(commit.name) (owner sig)")],
+                outputs: [PlannedOutput(output: TxOutput(value: 0, script: Codec.p2pkScript(env.me)), label: "back to the owner")]
+            )
+            return try finish(d, wallet: [], fee: .fromOutput(index: 0, cap: nil, floor: cancelFloor), env: env)
+        }
+
+        /// The least a cancelled commit may return (its storage mass stays small: one 0.2 KAS
+        /// input, one output just under it).
+        static let cancelFloorValue: UInt64 = 10_000_000
+        private var cancelFloor: UInt64 { Builder.cancelFloorValue }
 
         // MARK: Name entries
 

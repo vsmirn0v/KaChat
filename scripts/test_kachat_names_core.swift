@@ -279,6 +279,8 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
                 plan = try b.release(env: env, parts: KN.ExitParts(below: gapRec(rec["below"]), name: nameRec(rec["name"]), above: gapRec(rec["above"])))
             case "reclaim":
                 plan = try b.reclaim(env: env, parts: KN.ExitParts(below: gapRec(rec["below"]), name: nameRec(rec["name"]), above: gapRec(rec["above"])))
+            case "cancelCommit":
+                plan = try b.cancelCommit(env: env, commit: commitRec(rec["commit"]))
             default:
                 r.check(false, "unknown op \(s(st["op"]))"); continue
             }
@@ -407,6 +409,7 @@ func writeFixedBudget(_ path: String, _ out: String) {
         case "refundOffer": plan = try! b.refundOffer(env: env, offer: offerRec(rec["offer"]))
         case "release": plan = try! b.release(env: env, parts: KN.ExitParts(below: gapRec(rec["below"]), name: nameRec(rec["name"]), above: gapRec(rec["above"])))
         case "reclaim": plan = try! b.reclaim(env: env, parts: KN.ExitParts(below: gapRec(rec["below"]), name: nameRec(rec["name"]), above: gapRec(rec["above"])))
+        case "cancelCommit": plan = try! b.cancelCommit(env: env, commit: commitRec(rec["commit"]))
         default: fatalError()
         }
         let tx = plan.unsignedTx
