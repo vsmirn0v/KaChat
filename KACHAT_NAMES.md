@@ -194,17 +194,22 @@ of that, so **identity belongs to the address, and a name is only a label pointi
   | Field | Meaning |
   |---|---|
   | `v` | `1` |
-  | `avatar` | a **profile link** on X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram, LinkedIn, or a Discord server invite |
-  | `banner` | a profile link on X or YouTube, or a Discord server invite |
-  | `bio` | ≤ 280 characters |
-  | `links` | `{ "website", "x", "github", "telegram", "discord", "nostr" }`, all optional |
+  | `social` | a **profile link** on X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram, LinkedIn, or a Discord server invite: the avatar, banner and bio come from it |
+  | `linktree` | a Linktree page, `https://linktr.ee/<name>`: the only other link a profile can carry |
   | `primaryName` | which of the address's `.kachat` names to show (optional) |
 
-  **Pictures are never uploaded.** The record stores the profile link only, and each device
-  looks up the picture that platform currently shows and caches it
-  (`KachatSocialImageResolver`; no indexer involved). The platform's own moderation therefore
-  applies: a picture it takes down, or an account it removes, disappears from KaChat at the
-  next lookup (24 h). A link the app can't reach keeps the last picture.
+  **Nothing anyone types is shown, and no picture is uploaded.** The record stores the two links
+  only. Each device looks up what the social profile currently shows and caches it for 24 hours
+  (`KachatSocialImageResolver`; no indexer involved):
+  - avatar: every supported platform;
+  - banner: X, YouTube, Discord;
+  - bio: X, YouTube, Telegram, Twitch, Kick, GitHub, Discord. Instagram, TikTok, Facebook and
+    LinkedIn don't show a real bio without signing in, so their profiles have none.
+
+  The platform's own moderation therefore applies to all three: anything it takes down, or an
+  account it removes, disappears from KaChat at the next lookup. A platform the app can't reach
+  keeps the last answer. Other websites and accounts are reachable only through the Linktree
+  page.
 
   There is deliberately no free-text display name: the label for an address is its name or its
   address, never something anyone can type (no impersonation by display name).

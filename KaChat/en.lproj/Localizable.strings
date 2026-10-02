@@ -1108,3 +1108,10 @@
 "Banners come from an X or YouTube profile link, or a Discord server invite." = "Banners come from an X or YouTube profile link, or a Discord server invite.";
 "Looking up the picture..." = "Looking up the picture...";
 "No picture found for this link." = "No picture found for this link.";
+"No bio on this platform." = "No bio on this platform.";
+"Looking up the profile..." = "Looking up the profile...";
+"Nothing found for this link." = "Nothing found for this link.";
+"Social Profile" = "Social Profile";
+"Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord.";
+"Only a Linktree link (linktr.ee/yourname) can be added." = "Only a Linktree link (linktr.ee/yourname) can be added.";
+"Add your Linktree to point people to your other accounts and websites." = "Add your Linktree to point people to your other accounts and websites.";

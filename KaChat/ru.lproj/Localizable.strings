@@ -1107,3 +1107,10 @@
 "Banners come from an X or YouTube profile link, or a Discord server invite." = "Баннеры берутся из ссылки на профиль X или YouTube либо из приглашения на сервер Discord.";
 "Looking up the picture..." = "Ищем изображение...";
 "No picture found for this link." = "Для этой ссылки изображение не найдено.";
+"No bio on this platform." = "На этой платформе нет описания профиля.";
+"Looking up the profile..." = "Ищем профиль...";
+"Nothing found for this link." = "По этой ссылке ничего не найдено.";
+"Social Profile" = "Профиль в соцсети";
+"Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "Аватар, баннер и описание берутся из этого профиля — ровно так, как их показывает платформа, поэтому её модерация действует и здесь. Баннеры берутся из X, YouTube и Discord, описания — из X, YouTube, Telegram, Twitch, Kick, GitHub и Discord.";
+"Only a Linktree link (linktr.ee/yourname) can be added." = "Можно добавить только ссылку Linktree (linktr.ee/yourname).";
+"Add your Linktree to point people to your other accounts and websites." = "Добавьте свой Linktree, чтобы направлять людей к другим вашим аккаунтам и сайтам.";

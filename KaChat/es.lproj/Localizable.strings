@@ -1107,3 +1107,10 @@
 "Banners come from an X or YouTube profile link, or a Discord server invite." = "Los banners vienen de un enlace de perfil de X o YouTube, o de una invitación a un servidor de Discord.";
 "Looking up the picture..." = "Buscando la imagen...";
 "No picture found for this link." = "No se encontró ninguna imagen para este enlace.";
+"No bio on this platform." = "Esta plataforma no tiene biografía.";
+"Looking up the profile..." = "Buscando el perfil...";
+"Nothing found for this link." = "No se encontró nada para este enlace.";
+"Social Profile" = "Perfil social";
+"Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "Tu avatar, banner y biografía vienen de este perfil, tal como los muestra esa plataforma, así que su moderación también se aplica aquí. Los banners vienen de X, YouTube y Discord; las biografías, de X, YouTube, Telegram, Twitch, Kick, GitHub y Discord.";
+"Only a Linktree link (linktr.ee/yourname) can be added." = "Solo se puede añadir un enlace de Linktree (linktr.ee/tunombre).";
+"Add your Linktree to point people to your other accounts and websites." = "Añade tu Linktree para llevar a la gente a tus otras cuentas y sitios web.";

@@ -271,26 +271,36 @@ func runRules(_ r: Report) {
     r.eq(KN.label(owned: [owned[2]], primaryName: nil, graceMs: g, nowMs: now), nil, "label: no active name")
 
     var p = KN.Profile()
-    p.avatar = " x.com/KaspaCurrency/ "
-    p.banner = "https://example.com/b.png"
-    p.bio = String(repeating: "x", count: 300)
-    p.links = .init(website: "https://k.app", x: "", github: nil, telegram: "  ", discord: nil, nostr: "npub1")
+    p.social = " x.com/KaspaCurrency/ "
+    p.linktree = "https://www.linktr.ee/kaspa?utm=1"
     p.primaryName = "Alice.kachat"
     let clean = p.sanitized()
-    r.eq(clean.avatar, "https://x.com/KaspaCurrency", "profile: avatar link normalized")
-    r.eq(clean.banner, nil, "profile: a link to a site that isn't a supported platform is dropped")
-    r.eq(clean.bio?.count, 280, "profile: bio cut to 280")
-    r.eq(clean.links, .init(website: "https://k.app", x: nil, github: nil, telegram: nil, discord: nil, nostr: "npub1"), "profile: blank links dropped")
+    r.eq(clean.social, "https://x.com/KaspaCurrency", "profile: social link normalized")
+    r.eq(clean.linktree, "https://linktr.ee/kaspa", "profile: Linktree link normalized")
     r.eq(clean.primaryName, "alice", "profile: primary name normalized")
+    var other = KN.Profile()
+    other.social = "https://example.com/me"
+    other.linktree = "https://example.com/links"
+    r.eq(other.sanitized(), KN.Profile(), "profile: unsupported social site and non-Linktree link dropped")
     let json = try! p.recordJSON()
     r.check(json.count <= 2048, "profile JSON within 2 KB")
-    r.check(String(data: json, encoding: .utf8)!.hasPrefix("{\"avatar\":\"https://x.com/KaspaCurrency\",\"bio\":"), "profile JSON compact with sorted keys")
+    r.eq(String(data: json, encoding: .utf8)!, "{\"linktree\":\"https://linktr.ee/kaspa\",\"primaryName\":\"alice\",\"social\":\"https://x.com/KaspaCurrency\",\"v\":1}", "profile JSON compact with sorted keys")
     r.eq(KN.Profile.parse(json), clean, "profile JSON round trip")
-    r.eq(KN.Profile.parse(Data("{\"v\":1,\"displayName\":\"x\",\"avatar\":\"ftp://a\"}".utf8)), KN.Profile(), "profile: unknown fields and bad schemes dropped")
+    r.eq(KN.Profile.parse(Data("{\"v\":1,\"displayName\":\"x\",\"bio\":\"free text\",\"social\":\"ftp://a\"}".utf8)), KN.Profile(), "profile: unknown fields (bio, display name) and bad links dropped")
     r.eq(KN.Profile.parse(Data("{\"v\":2}".utf8)), nil, "profile: only v 1")
-    var big = KN.Profile()
-    big.links = .init(website: String(repeating: "w", count: 1500), x: String(repeating: "x", count: 600), github: nil, telegram: nil, discord: nil, nostr: nil)
-    r.check((try? big.recordJSON()) == nil, "profile over 2 KB refused")
+
+    // what a social link shows
+    typealias SS = KN.SocialSource
+    r.eq(SS.decodeEntities("a &amp; b &#39;c&#x27; &#064;d &quot;e&quot; &amp;#39;"), "a & b 'c' @d \"e\" &#39;", "entities decoded one level")
+    let html = "<meta property=\"og:image\" content=\"https://pbs.twimg.com/profile_images/1/a_200x200.jpg\"/><meta property=\"og:description\" content=\"Builder &amp; miner\"/>"
+    r.eq(SS.openGraphImage(in: html).map(SS.xAvatar), "https://pbs.twimg.com/profile_images/1/a_400x400.jpg", "X avatar upgraded to 400px")
+    r.eq(SS.bio(for: .x, openGraphDescription: SS.openGraphDescription(in: html)), "Builder & miner", "X bio from og:description")
+    r.eq(SS.bio(for: .twitch, openGraphDescription: "Speedruns — Twitch streams live on Twitch!"), "Speedruns", "Twitch boilerplate cut")
+    r.eq(SS.bio(for: .instagram, openGraphDescription: "687M Followers, 305 Following"), nil, "no bio from Instagram's counts")
+    r.eq(SS.bio(for: .x, openGraphDescription: String(repeating: "b", count: 400))?.count, 280, "bio cut to 280")
+    let gh = SS.githubProfile(fromJSON: Data("{\"avatar_url\":\"https://avatars.githubusercontent.com/u/1\",\"bio\":\" hi \"}".utf8))
+    r.check(gh.avatar == "https://avatars.githubusercontent.com/u/1" && gh.bio == "hi", "GitHub avatar and bio")
+    r.eq(SS.discordDescription(fromInviteJSON: Data("{\"guild\":{\"id\":\"1\",\"description\":\"Devs\"}}".utf8)), "Devs", "Discord server description")
 
     let k = Data(repeating: 0x10, count: 31) + Data([0x00])
     r.eq(KN.step(k, by: -1).map(KN.hex), KN.hex(Data(repeating: 0x10, count: 30) + Data([0x0f, 0xff])), "key - 1 borrows")

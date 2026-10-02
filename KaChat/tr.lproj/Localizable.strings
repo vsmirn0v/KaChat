@@ -1107,3 +1107,10 @@
 "Banners come from an X or YouTube profile link, or a Discord server invite." = "Kapak görselleri bir X veya YouTube profil bağlantısından ya da Discord sunucu davetinden gelir.";
 "Looking up the picture..." = "Resim aranıyor...";
 "No picture found for this link." = "Bu bağlantı için resim bulunamadı.";
+"No bio on this platform." = "Bu platformda biyografi yok.";
+"Looking up the profile..." = "Profil aranıyor...";
+"Nothing found for this link." = "Bu bağlantı için bir şey bulunamadı.";
+"Social Profile" = "Sosyal Profil";
+"Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "Avatarınız, kapak görseliniz ve biyografiniz bu profilden, o platformun gösterdiği şekliyle gelir; bu yüzden onun moderasyonu burada da geçerlidir. Kapak görselleri X, YouTube ve Discord'dan; biyografiler X, YouTube, Telegram, Twitch, Kick, GitHub ve Discord'dan gelir.";
+"Only a Linktree link (linktr.ee/yourname) can be added." = "Yalnızca bir Linktree bağlantısı (linktr.ee/adiniz) eklenebilir.";
+"Add your Linktree to point people to your other accounts and websites." = "İnsanları diğer hesaplarınıza ve web sitelerinize yönlendirmek için Linktree'nizi ekleyin.";

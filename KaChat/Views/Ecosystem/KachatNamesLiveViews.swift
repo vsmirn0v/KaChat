@@ -1795,35 +1795,45 @@ struct KachatLiveDomainsTab: View {
 
 // MARK: - Edit .kachat Profile
 
-/// The picture a pasted profile link resolves to, looked up on this device: what other people
-/// will see. Empty until the link is a supported one.
+/// What a pasted social link shows - avatar, banner, bio - looked up on this device: exactly what
+/// other people will see. Empty until the link is a supported one.
 struct KachatSocialPreview: View {
     let link: String
-    let kind: KachatNames.SocialSource.Kind
 
     @ObservedObject private var resolver = KachatSocialImageResolver.shared
-    @State private var resolved: String?
+    @State private var resolved: KachatNames.SocialProfile?
     @State private var looking = false
     @State private var lookedUp = false
 
-    private var source: KachatNames.SocialSource? { KachatNames.SocialSource(link: link, for: kind) }
+    private var source: KachatNames.SocialSource? { KachatNames.SocialSource(link: link, for: .avatar) }
 
     var body: some View {
         Group {
             if source != nil {
-                HStack(spacing: 12) {
-                    if let resolved {
-                        if kind == .avatar {
-                            KNSAvatarView(avatarURLString: resolved, fallbackText: "", size: 56)
-                        } else {
-                            KNSBannerImageView(bannerURLString: resolved, height: 80, cornerRadius: 8)
+                if let resolved, !resolved.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if let banner = resolved.banner {
+                            KNSBannerImageView(bannerURLString: banner, height: 80, cornerRadius: 8)
                         }
-                    } else if looking {
+                        HStack(alignment: .top, spacing: 12) {
+                            KNSAvatarView(avatarURLString: resolved.avatar, fallbackText: "", size: 52)
+                            if let bio = resolved.bio {
+                                Text(verbatim: bio).font(.footnote).foregroundColor(.secondary)
+                            } else {
+                                Text("No bio on this platform.").font(.footnote).foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } else if looking {
+                    HStack(spacing: 10) {
                         ProgressView()
-                        Text("Looking up the picture...").font(.footnote).foregroundColor(.secondary)
-                    } else if lookedUp {
-                        Image(systemName: "photo.badge.exclamationmark").foregroundColor(.secondary)
-                        Text("No picture found for this link.").font(.footnote).foregroundColor(.secondary)
+                        Text("Looking up the profile...").font(.footnote).foregroundColor(.secondary)
+                    }
+                } else if lookedUp {
+                    HStack(spacing: 10) {
+                        Image(systemName: "person.crop.circle.badge.exclamationmark").foregroundColor(.secondary)
+                        Text("Nothing found for this link.").font(.footnote).foregroundColor(.secondary)
                     }
                 }
             }
@@ -1836,29 +1846,23 @@ struct KachatSocialPreview: View {
             try? await Task.sleep(nanoseconds: 600_000_000)
             if Task.isCancelled { return }
             looking = true
-            resolved = await resolver.resolve(source, kind: kind)
+            resolved = await resolver.resolve(source)
             looking = false
             lookedUp = true
         }
     }
 }
 
-/// The address profile (KACHAT_NAMES.md section 7): avatar, banner, bio, links and which of your
-/// names labels you - written as a `kchat:1:profile:` self-transfer. No display name: the label is
-/// always a name you own or your address.
+/// The address profile (KACHAT_NAMES.md section 7): a social link (whose avatar, banner and bio
+/// KaChat shows), a Linktree link, and which of your names labels you - written as a
+/// `kchat:1:profile:` self-transfer. No free text and no uploads: what shows comes from a
+/// platform that moderates it.
 struct KachatLiveProfileEditor: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var registry = KachatNamesRegistry.shared
 
-    @State private var avatar = ""
-    @State private var banner = ""
-    @State private var bio = ""
-    @State private var website = ""
-    @State private var x = ""
-    @State private var github = ""
-    @State private var telegram = ""
-    @State private var discord = ""
-    @State private var nostr = ""
+    @State private var social = ""
+    @State private var linktree = ""
     @State private var primary = ""
     @State private var activeNames: [String] = []
     @State private var loaded = false
@@ -1870,20 +1874,21 @@ struct KachatLiveProfileEditor: View {
 
     private var profile: KachatNames.Profile {
         var p = KachatNames.Profile()
-        p.avatar = avatar
-        p.banner = banner
-        p.bio = bio
-        p.links = .init(website: website, x: x, github: github, telegram: telegram, discord: discord, nostr: nostr)
+        p.social = social
+        p.linktree = linktree
         p.primaryName = primary.isEmpty ? nil : primary
         return p.sanitized()
     }
 
-    private func badLink(_ s: String, _ kind: KachatNames.SocialSource.Kind) -> Bool {
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !t.isEmpty && KachatNames.SocialSource(link: t, for: kind) == nil
+    private var badSocial: Bool {
+        let t = social.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !t.isEmpty && KachatNames.SocialSource(link: t, for: .avatar) == nil
     }
 
-    private var badImage: Bool { badLink(avatar, .avatar) || badLink(banner, .banner) }
+    private var badLinktree: Bool {
+        let t = linktree.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !t.isEmpty && KachatNames.Profile.linktreeLink(t) == nil
+    }
 
     var body: some View {
         NavigationStack {
@@ -1897,42 +1902,26 @@ struct KachatLiveProfileEditor: View {
                     }
                 }
                 Section {
-                    TextField("x.com/yourname", text: $avatar)
+                    TextField("x.com/yourname", text: $social)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    KachatSocialPreview(link: avatar, kind: .avatar)
-                } header: { Text("Avatar") } footer: {
-                    if badLink(avatar, .avatar) {
+                    KachatSocialPreview(link: social)
+                } header: { Text("Social Profile") } footer: {
+                    if badSocial {
                         Text("Paste a profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite.").foregroundColor(.red)
                     } else {
-                        Text("Paste your profile link from X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram or LinkedIn, or a Discord server invite. KaChat shows the picture that platform shows, so its moderation applies here too.")
+                        Text("Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord.")
                     }
                 }
                 Section {
-                    TextField("x.com/yourname", text: $banner)
+                    TextField("linktr.ee/yourname", text: $linktree)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    KachatSocialPreview(link: banner, kind: .banner)
-                } header: { Text("Banner") } footer: {
-                    if badLink(banner, .banner) {
-                        Text("Banners come from an X or YouTube profile link, or a Discord server invite.").foregroundColor(.red)
+                } header: { Text("Links") } footer: {
+                    if badLinktree {
+                        Text("Only a Linktree link (linktr.ee/yourname) can be added.").foregroundColor(.red)
                     } else {
-                        Text("Banners come from an X or YouTube profile link, or a Discord server invite.")
+                        Text("Add your Linktree to point people to your other accounts and websites.")
                     }
                 }
-                Section {
-                    TextField("Bio", text: $bio, axis: .vertical)
-                        .lineLimit(3...8)
-                        .onChange(of: bio) { v in if v.count > KachatNames.Profile.maxBio { bio = String(v.prefix(KachatNames.Profile.maxBio)) } }
-                } header: { Text("Bio") } footer: {
-                    Text(verbatim: "\(bio.count)/\(KachatNames.Profile.maxBio)")
-                }
-                Section {
-                    linkField("Website", $website)
-                    linkField("X", $x)
-                    linkField("GitHub", $github)
-                    linkField("Telegram", $telegram)
-                    linkField("Discord", $discord)
-                    linkField("Nostr", $nostr)
-                } header: { Text("Links") }
                 Section {
                     Picker("Primary name", selection: $primary) {
                         Text("None").tag("")
@@ -1949,7 +1938,7 @@ struct KachatLiveProfileEditor: View {
                     } label: {
                         HStack { Spacer(); if saving { ProgressView() } else { Text("Save Profile").font(.headline) }; Spacer() }
                     }
-                    .disabled(saving || !loaded || badImage)
+                    .disabled(saving || !loaded || badSocial || badLinktree)
                 } footer: {
                     if let savedTx {
                         Text(verbatim: String(format: AppLocalization.string("Saved. Transaction %@"), String(savedTx.prefix(16)) + "...")).foregroundColor(.green)
@@ -1983,31 +1972,14 @@ struct KachatLiveProfileEditor: View {
         }
     }
 
-    private func linkField(_ title: LocalizedStringKey, _ value: Binding<String>) -> some View {
-        HStack {
-            Text(title)
-            TextField("", text: value)
-                .multilineTextAlignment(.trailing)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-        }
-    }
-
     private func load() async {
         guard let address = KachatNamesActions.shared.myAddress else { loaded = true; return }
         await registry.refreshIfStale()
         var p = registry.ownProfile(for: address)?.profile
         if p == nil { p = try? await registry.identity(address: address).profile }
         if let p {
-            avatar = p.avatar ?? ""
-            banner = p.banner ?? ""
-            bio = p.bio ?? ""
-            website = p.links?.website ?? ""
-            x = p.links?.x ?? ""
-            github = p.links?.github ?? ""
-            telegram = p.links?.telegram ?? ""
-            discord = p.links?.discord ?? ""
-            nostr = p.links?.nostr ?? ""
+            social = p.social ?? ""
+            linktree = p.linktree ?? ""
         }
         if let key = KachatNamesRegistry.keyOf(address) {
             activeNames = ((try? await registry.names(owner: key, includeInactive: false)) ?? []).map(\.name)

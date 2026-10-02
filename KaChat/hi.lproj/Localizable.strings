@@ -1107,3 +1107,10 @@
 "Banners come from an X or YouTube profile link, or a Discord server invite." = "बैनर X या YouTube प्रोफ़ाइल लिंक, या Discord सर्वर इनवाइट से आते हैं।";
 "Looking up the picture..." = "तस्वीर खोजी जा रही है...";
 "No picture found for this link." = "इस लिंक के लिए कोई तस्वीर नहीं मिली।";
+"No bio on this platform." = "इस प्लेटफ़ॉर्म पर कोई बायो नहीं है।";
+"Looking up the profile..." = "प्रोफ़ाइल खोजी जा रही है...";
+"Nothing found for this link." = "इस लिंक के लिए कुछ नहीं मिला।";
+"Social Profile" = "सोशल प्रोफ़ाइल";
+"Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "आपका अवतार, बैनर और बायो इसी प्रोफ़ाइल से आते हैं, ठीक वैसे ही जैसे वह प्लेटफ़ॉर्म दिखाता है, इसलिए उसका मॉडरेशन यहाँ भी लागू होता है। बैनर X, YouTube और Discord से आते हैं; बायो X, YouTube, Telegram, Twitch, Kick, GitHub और Discord से।";
+"Only a Linktree link (linktr.ee/yourname) can be added." = "सिर्फ़ एक Linktree लिंक (linktr.ee/yourname) जोड़ा जा सकता है।";
+"Add your Linktree to point people to your other accounts and websites." = "लोगों को अपने दूसरे अकाउंट और वेबसाइट तक ले जाने के लिए अपना Linktree जोड़ें।";

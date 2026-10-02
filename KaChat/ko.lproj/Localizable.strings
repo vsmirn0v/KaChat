@@ -1107,3 +1107,10 @@
 "Banners come from an X or YouTube profile link, or a Discord server invite." = "배너는 X 또는 YouTube 프로필 링크, 또는 Discord 서버 초대 링크에서 가져옵니다.";
 "Looking up the picture..." = "사진을 찾는 중...";
 "No picture found for this link." = "이 링크에서 사진을 찾지 못했습니다.";
+"No bio on this platform." = "이 플랫폼에는 소개가 없습니다.";
+"Looking up the profile..." = "프로필을 찾는 중...";
+"Nothing found for this link." = "이 링크에서 아무것도 찾지 못했습니다.";
+"Social Profile" = "소셜 프로필";
+"Your avatar, banner and bio come from this profile, exactly as that platform shows them, so its moderation applies here too. Banners come from X, YouTube and Discord; bios from X, YouTube, Telegram, Twitch, Kick, GitHub and Discord." = "아바타, 배너, 소개는 이 프로필에서 해당 플랫폼이 보여주는 그대로 가져오므로 그 플랫폼의 관리 기준이 여기에도 적용됩니다. 배너는 X, YouTube, Discord에서, 소개는 X, YouTube, Telegram, Twitch, Kick, GitHub, Discord에서 가져옵니다.";
+"Only a Linktree link (linktr.ee/yourname) can be added." = "Linktree 링크(linktr.ee/yourname)만 추가할 수 있습니다.";
+"Add your Linktree to point people to your other accounts and websites." = "Linktree를 추가해 다른 계정과 웹사이트로 사람들을 안내하세요.";

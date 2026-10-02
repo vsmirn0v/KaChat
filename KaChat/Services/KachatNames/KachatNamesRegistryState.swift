@@ -131,22 +131,13 @@ extension KachatNames {
     // MARK: - Profile record (KACHAT_NAMES.md section 7, KACHAT_NAMES_INDEXER.md Part C)
 
     struct Profile: Codable, Equatable {
-        struct Links: Codable, Equatable {
-            var website: String?
-            var x: String?
-            var github: String?
-            var telegram: String?
-            var discord: String?
-            var nostr: String?
-
-            var isEmpty: Bool { [website, x, github, telegram, discord, nostr].allSatisfy { $0 == nil } }
-        }
-
         var v: Int = 1
-        var avatar: String?
-        var banner: String?
-        var bio: String?
-        var links: Links?
+        /// Your profile on a social platform (`SocialSource`): KaChat shows its avatar, banner and
+        /// bio, looked up on each device, so the platform's moderation applies to all three. No
+        /// picture or free text is ever written to the chain.
+        var social: String?
+        /// A Linktree page (`https://linktr.ee/<name>`): the one way to link anything else.
+        var linktree: String?
         var primaryName: String?
 
         static let maxBio = 280
@@ -156,20 +147,25 @@ extension KachatNames {
             return t
         }
 
-        /// The record as the indexer accepts it: blanks dropped, image URLs of another scheme
-        /// dropped, the bio cut to 280 characters, the primary name normalized.
+        /// A pasted Linktree link, normalized to `https://linktr.ee/<name>`; nil for anything else.
+        static func linktreeLink(_ raw: String?) -> String? {
+            guard var t = clean(raw) else { return nil }
+            if !t.lowercased().hasPrefix("http://") && !t.lowercased().hasPrefix("https://") { t = "https://" + t }
+            guard let comps = URLComponents(string: t), var host = comps.host?.lowercased() else { return nil }
+            if host.hasPrefix("www.") { host.removeFirst(4) }
+            guard host == "linktr.ee" else { return nil }
+            let parts = comps.path.split(separator: "/").map(String.init).filter { !$0.isEmpty }
+            guard parts.count == 1, let handle = parts.first, handle.count <= 60,
+                  handle.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }) else { return nil }
+            return "https://linktr.ee/\(handle)"
+        }
+
+        /// The record as the indexer accepts it: a supported social link and a Linktree link,
+        /// normalized, anything else dropped; the primary name normalized.
         func sanitized() -> Profile {
             var p = Profile()
-            // Avatar and banner are profile links on a platform that moderates its pictures (see
-            // `SocialSource`), stored normalized; anything else is dropped.
-            p.avatar = Profile.clean(avatar).flatMap { SocialSource(link: $0, for: .avatar)?.link }
-            p.banner = Profile.clean(banner).flatMap { SocialSource(link: $0, for: .banner)?.link }
-            p.bio = Profile.clean(bio).map { String($0.prefix(Profile.maxBio)) }
-            if let l = links {
-                let c = Links(website: Profile.clean(l.website), x: Profile.clean(l.x), github: Profile.clean(l.github),
-                              telegram: Profile.clean(l.telegram), discord: Profile.clean(l.discord), nostr: Profile.clean(l.nostr))
-                p.links = c.isEmpty ? nil : c
-            }
+            p.social = Profile.clean(social).flatMap { SocialSource(link: $0, for: .avatar)?.link }
+            p.linktree = Profile.linktreeLink(linktree)
             p.primaryName = Profile.clean(primaryName).map(Codec.normalize).flatMap { Codec.isValid($0) ? $0 : nil }
             return p
         }
@@ -290,11 +286,78 @@ extension KachatNames {
                 let tag = String(html[tagRange])
                 guard let c = tag.range(of: "content=[\"']([^\"']+)[\"']", options: .regularExpression) else { continue }
                 var value = String(tag[c]).replacingOccurrences(of: "content=", with: "")
-                value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                value = value.replacingOccurrences(of: "&amp;", with: "&").replacingOccurrences(of: "&#x2F;", with: "/")
+                value = decodeEntities(value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'")))
                 if value.lowercased().hasPrefix("https://") { return value }
             }
             return nil
+        }
+
+        /// The page's `og:description` (or `description`), entities decoded.
+        static func openGraphDescription(in html: String) -> String? {
+            for key in ["og:description", "description", "twitter:description"] {
+                let pattern = "<meta[^>]+(?:property|name)=[\"']\(NSRegularExpression.escapedPattern(for: key))[\"'][^>]*>"
+                guard let tagRange = html.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else { continue }
+                let tag = String(html[tagRange])
+                guard let c = tag.range(of: "content=\"([^\"]*)\"", options: .regularExpression)
+                        ?? tag.range(of: "content='([^']*)'", options: .regularExpression) else { continue }
+                let raw = String(tag[c]).dropFirst("content=".count).dropFirst().dropLast()
+                let value = decodeEntities(String(raw)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty { return value }
+            }
+            return nil
+        }
+
+        /// The bio a platform shows in its preview, where that text really is the person's own
+        /// (X, YouTube, Telegram, Kick, and Twitch without its boilerplate). Instagram, TikTok,
+        /// Facebook and LinkedIn only put follower counts or site text there: no bio from them.
+        /// GitHub and Discord come from their APIs instead.
+        static func bio(for platform: Platform, openGraphDescription d: String?) -> String? {
+            guard let d, !d.isEmpty else { return nil }
+            let text: String
+            switch platform {
+            case .x, .youtube, .telegram, .kick:
+                text = d
+            case .twitch:
+                // "<description> — Twitch streams live on Twitch! Check out their videos ..."
+                text = d.components(separatedBy: " — ").first ?? d
+            default:
+                return nil
+            }
+            return trimmedBio(text)
+        }
+
+        static func trimmedBio(_ s: String?) -> String? {
+            guard let t = s?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
+            return String(t.prefix(Profile.maxBio))
+        }
+
+        /// GitHub's public user API (`api.github.com/users/<name>`): avatar and bio.
+        static func githubProfile(fromJSON data: Data) -> (avatar: String?, bio: String?) {
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return (nil, nil) }
+            return (root["avatar_url"] as? String, trimmedBio(root["bio"] as? String))
+        }
+
+        /// A Discord invite's server description.
+        static func discordDescription(fromInviteJSON data: Data) -> String? {
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let guild = root["guild"] as? [String: Any] else { return nil }
+            return trimmedBio(guild["description"] as? String)
+        }
+
+        /// HTML entities as they appear in meta tags: named basics plus decimal and hex numbers.
+        static func decodeEntities(_ s: String) -> String {
+            guard s.contains("&") else { return s }
+            var out = s
+            for (k, v) in [("&quot;", "\""), ("&apos;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " ")] {
+                out = out.replacingOccurrences(of: k, with: v)
+            }
+            while let r = out.range(of: "&#(x[0-9a-fA-F]+|[0-9]+);", options: .regularExpression) {
+                let body = out[r].dropFirst(2).dropLast()
+                let scalar: UInt32? = body.first == "x" ? UInt32(body.dropFirst(), radix: 16) : UInt32(body)
+                out.replaceSubrange(r, with: scalar.flatMap(Unicode.Scalar.init).map { String(Character($0)) } ?? "")
+            }
+            // last, so "&amp;#39;" (double-encoded, as LinkedIn sends) decodes one level only
+            return out.replacingOccurrences(of: "&amp;", with: "&")
         }
 
         /// X's avatar from its page, upgraded from the 200px thumbnail to 400px.
@@ -331,6 +394,14 @@ extension KachatNames {
                 return "https://cdn.discordapp.com/banners/\(id)/\(banner).png?size=1024"
             }
         }
+    }
+
+    /// What a social profile link shows right now: avatar, banner (X, YouTube, Discord) and bio.
+    struct SocialProfile: Codable, Equatable {
+        var avatar: String?
+        var banner: String?
+        var bio: String?
+        var isEmpty: Bool { avatar == nil && banner == nil && bio == nil }
     }
 
     struct Identity: Equatable {
