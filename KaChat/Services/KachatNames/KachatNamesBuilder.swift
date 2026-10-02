@@ -14,6 +14,7 @@ extension KachatNames {
         case nameTransfer = "name.transfer"
         case nameList = "name.list"
         case nameBuy = "name.buy"
+        case nameExtend = "name.extend"
         case nameRenew = "name.renew"
         case nameRelease = "name.release"
         case nameReclaim = "name.reclaim"
@@ -24,17 +25,17 @@ extension KachatNames {
 
     /// Per-input compute budgets. The CLI measures each input in the script engine; the app has no
     /// engine, so it commits a fixed budget per entry that covers every case (README "Cost per
-    /// operation"; the vector generator checks every measured budget fits this table). An input
-    /// that needs more than it committed fails, so these only ever err on the side of a slightly
-    /// higher fee (100 grams per unit).
+    /// operation"; the vector generator checks every measured budget fits this table, the
+    /// vectors' `recommendedBudgets`). An input that needs more than it committed fails, so these
+    /// only ever err on the side of a slightly higher fee (100 grams per unit). Registry v2.
     struct Budgets: Equatable {
         var table: [BudgetRole: UInt16]
 
         static let recommended = Budgets(table: [
             .p2pk: 10, .commit: 10,
-            .gapRegister: 7, .gapMerge: 3, .gapAbsorbed: 0,
-            .nameTransfer: 11, .nameList: 11, .nameBuy: 1, .nameRenew: 1, .nameRelease: 10, .nameReclaim: 0,
-            .offerAccept: 3, .offerWithdraw: 10, .offerRefund: 0
+            .gapRegister: 8, .gapMerge: 4, .gapAbsorbed: 0,
+            .nameTransfer: 12, .nameList: 12, .nameBuy: 2, .nameExtend: 2, .nameRenew: 2, .nameRelease: 10, .nameReclaim: 0,
+            .offerAccept: 5, .offerWithdraw: 10, .offerRefund: 0
         ])
 
         subscript(role: BudgetRole) -> UInt16 {
@@ -173,7 +174,7 @@ extension KachatNames {
         var unsignedTx: Tx
         var entries: [UtxoEntry]
         var costs: Costs
-        /// Price paid as miner fee (register / renew).
+        /// Price paid as miner fee (register / extend / renew).
         var priceFee: UInt64
         var networkFee: UInt64
         var notes: [String]
@@ -462,7 +463,8 @@ extension KachatNames {
         }
 
         /// Register `commit.name` for `years`: [gap.register, commit, funding] ->
-        /// [gap (lo,key), gap (key,hi), name, change]; lock time `now`, commit sequence `tCommit`.
+        /// [gap (lo,key), gap (key,hi), name (periodStart = now), change]; lock time `now`, commit
+        /// sequence `tCommit`.
         func register(env: Env, wallet: [Utxo], gap: GapRecord, commit: CommitRecord, years: Int64, now: Int64) throws -> Plan {
             let name = commit.name
             try Codec.validate(name)
@@ -481,7 +483,7 @@ extension KachatNames {
             let nameLength = name.utf8.count
             let price = params.price(forLength: nameLength) * UInt64(years)
             let expires = now + years * yearMs
-            let fields = NameFields(name: name, owner: env.me, price: 0, expiresAt: expires)
+            let fields = NameFields(name: name, owner: env.me, price: 0, periodStart: now, expiresAt: expires)
             var notes: [String] = []
             let matureAt = commitUtxo.entry.blockDaaScore + params.tCommit
             if env.blockDaa < matureAt {
@@ -540,23 +542,85 @@ extension KachatNames {
 
         // MARK: Name entries
 
-        /// Anyone renews: expiresAt += years from the old expiry; the renewal price is miner fee.
+        /// The lock time of a renewal (ops.rs `renew_lock_time`): the registration-style `now`, but
+        /// never before the window opens -
+        /// `max(min(wall - 3 min, median time - 1 s), expiresAt - renewWindowMs)` (unix ms).
+        /// Final (and so valid) only while it is below the median time, i.e. once the window opened.
+        static func renewLockTime(env: Env, params: Params, expiresAt: Int64) -> Int64 {
+            max(registerNow(env: env), params.renewOpens(expiresAt: expiresAt))
+        }
+
+        /// Whether the renewal window is open at `env` (ops.rs `renew_window_open`): the virtual's
+        /// past median time is past `expiresAt - renewWindowMs`. Before that no renewal is valid
+        /// (the mempool keeps no future-dated transactions), so the app refuses to submit one.
+        static func renewWindowOpen(env: Env, params: Params, expiresAt: Int64) -> Bool {
+            Int64(env.blockTimeMs) > params.renewOpens(expiresAt: expiresAt)
+        }
+
+        /// Anyone extends the current period (a gift needs no signature): [name.extend(years),
+        /// funding] -> [continuation (periodStart kept, expiresAt + years), change]. Lock time 0,
+        /// every sequence 0. Valid any time while `expiresAt + years <= periodStart + maxYears`.
+        func extend(env: Env, wallet: [Utxo], name n: NameRecord, years: Int64) throws -> Plan {
+            guard years >= 1, years <= params.maxYears else { throw Failure("years must be 1..\(params.maxYears)") }
+            try checkLive(n.name, n.utxo, value: params.bond, covenant: registryId)
+            let f = n.fields
+            let room = params.extendableYears(f)
+            guard years <= room else {
+                throw Failure(
+                    "extend \(n.name) by \(years) y refused: its period (from \(f.periodStart)) may hold at most \(params.maxYears) y and it is "
+                        + "paid until \(f.expiresAt), so \(room) y can be added now; renew opens at \(params.renewOpens(expiresAt: f.expiresAt))"
+                )
+            }
+            let price = params.renewPrice(forLength: n.name.utf8.count) * UInt64(years)
+            let nf = f.extended(years)
+            var d = Draft(
+                op: "extend \(n.name) (\(years) y)",
+                inputs: [try nameInput(n, "extend", [.int(years)], role: .nameExtend, label: "name extend(\(years))")],
+                outputs: [PlannedOutput(output: nameOutput(nf), label: "name \(n.name)")]
+            )
+            d.priceFee = price
+            d.notes = [
+                "extension price \(Builder.kas(price)) left as miner fee",
+                "expiresAt \(f.expiresAt) -> \(nf.expiresAt); periodStart \(f.periodStart) kept (at most \(params.maxYears) y past it)"
+            ]
+            d.payload = Codec.namePayload(op: "extend", name: n.name)
+            return try finish(d, wallet: wallet, fee: .funded(maxInputs: maxInputsFeeEntry), env: env)
+        }
+
+        /// Anyone renews once the renewal window opened: [name.renew(years), funding] ->
+        /// [continuation (periodStart = old expiresAt, expiresAt + years), change]. Lock time =
+        /// `renewLockTime` (timestamp domain), every input sequence 0 (not final, as the CLTV
+        /// needs). Before the window opens the plan is built but not valid (a note says so); the
+        /// actions refuse to submit it.
         func renew(env: Env, wallet: [Utxo], name n: NameRecord, years: Int64) throws -> Plan {
             guard years >= 1, years <= params.maxYears else { throw Failure("years must be 1..\(params.maxYears)") }
             try checkLive(n.name, n.utxo, value: params.bond, covenant: registryId)
+            let f = n.fields
+            let opens = params.renewOpens(expiresAt: f.expiresAt)
+            guard opens >= 0, UInt64(opens) >= lockTimeThreshold else { throw Failure("\(n.name): expiresAt - renewWindowMs is not a timestamp") }
+            let lock = Builder.renewLockTime(env: env, params: params, expiresAt: f.expiresAt)
             let price = params.renewPrice(forLength: n.name.utf8.count) * UInt64(years)
-            let nf = n.fields.withExpiry(n.fields.expiresAt + years * yearMs)
+            let nf = f.renewed(years)
             var d = Draft(
                 op: "renew \(n.name) (\(years) y)",
                 inputs: [try nameInput(n, "renew", [.int(years)], role: .nameRenew, label: "name renew(\(years))")],
                 outputs: [PlannedOutput(output: nameOutput(nf), label: "name \(n.name)")]
             )
+            d.lockTime = UInt64(lock)
             d.priceFee = price
+            d.notes = [
+                "renewal price \(Builder.kas(price)) left as miner fee",
+                "new period: periodStart \(f.periodStart) -> \(nf.periodStart) (the old expiry), expiresAt -> \(nf.expiresAt)",
+                "lock time \(lock) >= window opening expiresAt - renewWindowMs = \(opens)"
+            ]
+            if !Builder.renewWindowOpen(env: env, params: params, expiresAt: f.expiresAt) {
+                d.notes.append("renewal window not open: it opens at \(opens) (the network median time \(env.blockTimeMs) must pass it); use extend to add years before")
+            }
             d.payload = Codec.namePayload(op: "renew", name: n.name)
             return try finish(d, wallet: wallet, fee: .funded(maxInputs: maxInputsFeeEntry), env: env)
         }
 
-        /// The owner transfers: new owner, listing cleared, expiry kept.
+        /// The owner transfers: new owner, listing cleared, period and expiry kept.
         func transfer(env: Env, wallet: [Utxo], name n: NameRecord, newOwner: Data) throws -> Plan {
             try requireOwner(env, n)
             try Builder.checkKey(newOwner, "the new owner")

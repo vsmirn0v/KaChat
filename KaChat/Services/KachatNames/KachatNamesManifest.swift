@@ -46,6 +46,8 @@ extension KachatNames {
         let tCommit: UInt64
         let maxYears: Int64
         let graceMs: Int64
+        /// `renew` is valid from `expiresAt - renewWindowMs` on (registry v2; 10 days)
+        let renewWindowMs: Int64
         /// sompi per year for names of 1, 2, 3, 4, 5+ bytes
         let prices: [UInt64]
         let renewPrices: [UInt64]
@@ -53,6 +55,21 @@ extension KachatNames {
 
         func price(forLength n: Int) -> UInt64 { prices[Codec.tier(n)] }
         func renewPrice(forLength n: Int) -> UInt64 { renewPrices[Codec.tier(n)] }
+
+        // MARK: The paid period (registry v2, KACHAT_NAMES.md 4.1; ops.rs)
+
+        /// The most years `extend` can add now: a period (from `periodStart`) holds at most
+        /// `maxYears` (ops.rs `extendable_years`).
+        func extendableYears(periodStart: Int64, expiresAt: Int64) -> Int64 {
+            let room = periodStart + maxYears * KachatNames.yearMs - expiresAt
+            return room < 0 ? 0 : min(room / KachatNames.yearMs, maxYears)
+        }
+
+        func extendableYears(_ f: NameFields) -> Int64 { extendableYears(periodStart: f.periodStart, expiresAt: f.expiresAt) }
+
+        /// When `renew` becomes valid: `expiresAt - renewWindowMs` (unix ms). The transaction is
+        /// final once the network's past median time passes its lock time, which is at least this.
+        func renewOpens(expiresAt: Int64) -> Int64 { expiresAt - renewWindowMs }
     }
 
     /// The deployment manifest `kachat-names-<network>.json` (written by the kachat-domains CLI's
@@ -63,17 +80,23 @@ extension KachatNames {
         static let supportedNetwork = "testnet-10"
         static let bundleResource = "kachat-names-testnet-10"
 
-        /// Template hashes of the pinned build (silverc v1.0.0 @ 3ed9733), the same on every
-        /// network (README "Sizes and template hashes"). The offer bakes the registry id, so it
-        /// is checked against the id instead.
+        /// Template hashes of the pinned build - registry v2 (silverc v1.0.0 @ 3ed9733), the same
+        /// on every network (kachat-domains README "Sizes and template hashes"). The offer bakes
+        /// the registry id, so it is checked against the id instead.
         static let pinnedTemplateHashes: [String: String] = [
+            "KachatGap": "182c463cf59f6d175f75339e4efc75d2065e8e7bb8dcc515e4769d3ff805dd46",
+            "KachatName": "e8ded947687947b565e10cbf6e6fec60e5c90cf992c7bce2298e6dce8db29d16"
+        ]
+        /// The registry v1 build (117-byte name state, no `extend`, no renewal window), which the
+        /// first testnet-10 genesis runs. Recognised only to say "outdated", never trusted.
+        static let v1TemplateHashes: [String: String] = [
             "KachatGap": "a182d59bbf460baff5ec99ca850b990d45fbafee4dfbe9a3a7a1afe21e7ba8ca",
             "KachatName": "42eddf19e7ea2bc78b9aa97937f21be0505ebcf964653508f74e179dd6c7e39d"
         ]
-        static let stateLengths: [String: Int] = ["KachatGap": 66, "KachatName": 117, "KachatOffer": 75]
+        static let stateLengths: [String: Int] = ["KachatGap": 66, "KachatName": 126, "KachatOffer": 75]
         static let entries: [String: [String]] = [
             "KachatGap": ["register", "merge", "absorbed"],
-            "KachatName": ["transfer", "list", "buy", "renew", "release", "reclaim"],
+            "KachatName": ["transfer", "list", "buy", "extend", "renew", "release", "reclaim"],
             "KachatOffer": ["accept", "withdraw", "refund"]
         ]
 
@@ -148,12 +171,20 @@ extension KachatNames {
             network = try Self.str(root["network"], "network")
             status = (root["status"] as? String) ?? ""
             guard let p = root["params"] as? [String: Any] else { throw Failure("manifest: params missing") }
+            // a registry v1 manifest (no renewal window, 117-byte name state) describes contracts
+            // this app no longer builds for: it waits for the v2 genesis
+            if p["renewWindowMs"] == nil
+                || ((root["artifacts"] as? [String: Any])?["KachatName"] as? [String: Any])?["templateHash"] as? String
+                    == Self.v1TemplateHashes["KachatName"] {
+                throw Failure.outdatedRegistry
+            }
             params = Params(
                 bond: try Self.u64(p["bond"], "bond"),
                 gapValue: try Self.u64(p["gapValue"], "gapValue"),
                 tCommit: try Self.u64(p["tCommit"], "tCommit"),
                 maxYears: Int64(try Self.u64(p["maxYears"], "maxYears")),
                 graceMs: Int64(try Self.u64(p["graceMs"], "graceMs")),
+                renewWindowMs: Int64(try Self.u64(p["renewWindowMs"], "renewWindowMs")),
                 prices: try Self.tiers(p["prices"], "prices"),
                 renewPrices: try Self.tiers(p["renewPrices"], "renewPrices"),
                 offerMaxFee: try Self.u64(p["offerMaxFee"], "offerMaxFee")
@@ -200,6 +231,7 @@ extension KachatNames {
                     throw Failure("manifest: \(t.contract) template hash does not match its prefix and suffix")
                 }
                 if let pinned = Self.pinnedTemplateHashes[t.contract], hex(t.templateHash) != pinned {
+                    if Self.v1TemplateHashes[t.contract] == hex(t.templateHash) { throw Failure.outdatedRegistry }
                     throw Failure("manifest: \(t.contract) is not the pinned build")
                 }
                 for e in Self.entries[t.contract] ?? [] where t.dispatchTags[e] == nil {
@@ -209,7 +241,8 @@ extension KachatNames {
             guard offer.suffix.range(of: registryCovenantId) != nil, offer.suffix.range(of: name.templateHash) != nil else {
                 throw Failure("manifest: the offer is not built for this registry id and name template")
             }
-            guard params.prices.count == 5, params.renewPrices.count == 5, params.maxYears >= 1, params.maxYears <= 31 else {
+            guard params.prices.count == 5, params.renewPrices.count == 5, params.maxYears >= 1, params.maxYears <= 31,
+                  params.renewWindowMs > 0, params.renewWindowMs < yearMs else {
                 throw Failure("manifest: params out of range")
             }
             guard genesisState.lo == zero32, genesisState.hi == ff32 else { throw Failure("manifest: genesis gap is not (00..00, ff..ff)") }

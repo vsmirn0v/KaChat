@@ -14,6 +14,12 @@ enum KachatNames {
         let message: String
         init(_ message: String) { self.message = message }
         var errorDescription: String? { message }
+
+        /// The manifest describes registry v1 (the first testnet-10 genesis): this app builds for
+        /// registry v2 (the 2-year cap) and waits for its genesis manifest. Not an error to show
+        /// as one: the screens say the registry is being set up.
+        static let outdatedRegistry = Failure("manifest: registry v1; this app needs the registry v2 manifest (new genesis pending)")
+        var isOutdatedRegistry: Bool { self == Failure.outdatedRegistry }
     }
 
     // MARK: - Constants (rusty-kaspa a41a333, kachat-domains params)
@@ -32,7 +38,7 @@ enum KachatNames {
     static let targetChange: UInt64 = 100_000_000
     /// Relay floor after Toccata: 100 sompi per gram of max(compute, normalized transient).
     static let minFeerate: Double = 100.0
-    /// register and renew sum at most 8 inputs and 8 outputs (the contracts' bounded loops).
+    /// register, extend and renew sum at most 8 inputs and 8 outputs (the contracts' bounded loops).
     static let maxInputsFeeEntry = 8
     /// Every other operation: keep transactions small anyway.
     static let maxInputs = 24
@@ -231,12 +237,15 @@ enum KachatNames {
             return d
         }
 
-        /// Name state, 117 bytes: `0x20 key 0x20 name 0x20 owner 0x08 price 0x08 expiresAt`.
+        /// Name state (registry v2), 126 bytes:
+        /// `0x20 key 0x20 name 0x20 owner 0x08 price 0x08 periodStart 0x08 expiresAt`
+        /// (price at bytes 100..108, periodStart 109..117, expiresAt 118..126).
         static func nameState(_ f: NameFields) -> Data {
             var d = Data([0x20]); d.append(f.key)
             d.append(0x20); d.append(f.paddedName)
             d.append(0x20); d.append(f.owner)
             d.append(0x08); d.append(num8(f.price))
+            d.append(0x08); d.append(num8(f.periodStart))
             d.append(0x08); d.append(num8(f.expiresAt))
             return d
         }
@@ -257,12 +266,13 @@ enum KachatNames {
 
         static func decodeNameState(_ s: Data) throws -> NameFields {
             let b = [UInt8](s)
-            guard b.count == 117, b[0] == 0x20, b[33] == 0x20, b[66] == 0x20, b[99] == 0x08, b[108] == 0x08 else {
+            guard b.count == 126, b[0] == 0x20, b[33] == 0x20, b[66] == 0x20, b[99] == 0x08, b[108] == 0x08, b[117] == 0x08 else {
                 throw Failure("not a name state")
             }
             return NameFields(
                 key: Data(b[1..<33]), paddedName: Data(b[34..<66]), owner: Data(b[67..<99]),
-                price: try decodeNum8(Data(b[100..<108])), expiresAt: try decodeNum8(Data(b[109..<117]))
+                price: try decodeNum8(Data(b[100..<108])), periodStart: try decodeNum8(Data(b[109..<117])),
+                expiresAt: try decodeNum8(Data(b[118..<126]))
             )
         }
 
@@ -415,34 +425,48 @@ enum KachatNames {
         var paddedName: Data
         var owner: Data
         var price: Int64
+        /// unix ms, the start of the current paid period (registry v2): register sets it to `now`,
+        /// `renew` to the old expiry; every other entry keeps it.
+        var periodStart: Int64
         var expiresAt: Int64
 
-        init(key: Data, paddedName: Data, owner: Data, price: Int64, expiresAt: Int64) {
+        init(key: Data, paddedName: Data, owner: Data, price: Int64, periodStart: Int64, expiresAt: Int64) {
             self.key = key
             self.paddedName = paddedName
             self.owner = owner
             self.price = price
+            self.periodStart = periodStart
             self.expiresAt = expiresAt
         }
 
-        init(name: String, owner: Data, price: Int64, expiresAt: Int64) {
-            self.init(key: Codec.key(name), paddedName: Codec.padded(name), owner: owner, price: price, expiresAt: expiresAt)
+        init(name: String, owner: Data, price: Int64, periodStart: Int64, expiresAt: Int64) {
+            self.init(key: Codec.key(name), paddedName: Codec.padded(name), owner: owner, price: price,
+                      periodStart: periodStart, expiresAt: expiresAt)
         }
 
         var name: String { Codec.unpadded(paddedName) }
         var encoded: Data { Codec.nameState(self) }
 
-        /// transfer / buy: new owner, listing cleared, expiry kept.
+        /// transfer / buy / offer accept: new owner, listing cleared, period and expiry kept.
         func withOwner(_ owner: Data) -> NameFields {
-            NameFields(key: key, paddedName: paddedName, owner: owner, price: 0, expiresAt: expiresAt)
+            NameFields(key: key, paddedName: paddedName, owner: owner, price: 0, periodStart: periodStart, expiresAt: expiresAt)
         }
 
+        /// list: the price, period and expiry kept.
         func withPrice(_ price: Int64) -> NameFields {
-            NameFields(key: key, paddedName: paddedName, owner: owner, price: price, expiresAt: expiresAt)
+            NameFields(key: key, paddedName: paddedName, owner: owner, price: price, periodStart: periodStart, expiresAt: expiresAt)
         }
 
-        func withExpiry(_ expiresAt: Int64) -> NameFields {
-            NameFields(key: key, paddedName: paddedName, owner: owner, price: price, expiresAt: expiresAt)
+        /// What `extend(years)` leaves: the same period start, the expiry `years` later.
+        func extended(_ years: Int64) -> NameFields {
+            NameFields(key: key, paddedName: paddedName, owner: owner, price: price, periodStart: periodStart,
+                       expiresAt: expiresAt + years * KachatNames.yearMs)
+        }
+
+        /// What `renew(years)` leaves: a new period from the old expiry, so no time is lost or gained.
+        func renewed(_ years: Int64) -> NameFields {
+            NameFields(key: key, paddedName: paddedName, owner: owner, price: price, periodStart: expiresAt,
+                       expiresAt: expiresAt + years * KachatNames.yearMs)
         }
     }
 

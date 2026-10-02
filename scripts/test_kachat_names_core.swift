@@ -111,7 +111,8 @@ func gapRec(_ j: Any?) -> KN.GapRecord {
 func nameRec(_ j: Any?) -> KN.NameRecord {
     let n = j as! J
     let name = s(n["name"])
-    let f = KN.NameFields(key: hx(n["key"]), paddedName: KN.Codec.padded(name), owner: hx(n["owner"]), price: i64(n["price"]), expiresAt: i64(n["expiresAt"]))
+    let f = KN.NameFields(key: hx(n["key"]), paddedName: KN.Codec.padded(name), owner: hx(n["owner"]), price: i64(n["price"]),
+                          periodStart: i64(n["periodStart"]), expiresAt: i64(n["expiresAt"]))
     return KN.NameRecord(fields: f, value: u64(n["value"]), utxo: utxo(n["utxo"]))
 }
 
@@ -167,8 +168,9 @@ func runCodecs(_ v: J, _ r: Report) {
     r.eqHex(gs, s(g["state"]), "gap state")
     r.eqHex(m.gap.script(gs), s(g["spk"]), "gap spk")
     let n = st["name"] as! J
-    let nf = KN.NameFields(name: s(n["name"]), owner: hx(n["owner"]), price: i64(n["price"]), expiresAt: i64(n["expiresAt"]))
+    let nf = KN.NameFields(name: s(n["name"]), owner: hx(n["owner"]), price: i64(n["price"]), periodStart: i64(n["periodStart"]), expiresAt: i64(n["expiresAt"]))
     r.eqHex(nf.encoded, s(n["state"]), "name state")
+    r.eq(nf.encoded.count, 126, "name state is 126 bytes (registry v2)")
     r.eqHex(m.name.script(nf.encoded), s(n["spk"]), "name spk")
     r.eq(try! KN.Codec.decodeNameState(nf.encoded), nf, "decode name state")
     r.eq(nf.name, s(n["name"]), "unpadded name")
@@ -228,6 +230,11 @@ func runManifest(_ v: J, _ r: Report) -> KN.Manifest {
 
 struct StepResult { let label: String; let ok: Bool; let firstFailure: String? }
 
+/// The set of { lock time } and every input sequence of a plan (extend: all zero).
+func tx0LockAndSequences(_ p: KN.Plan) -> Set<UInt64> {
+    Set([p.unsignedTx.lockTime] + p.unsignedTx.inputs.map(\.sequence))
+}
+
 func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
     let b = try! KN.Builder(manifest: m)
     var results: [StepResult] = []
@@ -258,9 +265,20 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
                 plan = try b.commit(env: env, wallet: wallet, name: s(args["name"]), salt: hx(args["salt"]))
             case "register":
                 plan = try b.register(env: env, wallet: wallet, gap: gapRec(rec["gap"]), commit: commitRec(rec["commit"]), years: i64(args["years"]), now: i64(args["now"]))
-                r.eq(KN.Builder.registerNow(env: env), i64(args["now"]) + (label.contains("lapse") ? 376 * 86_400_000 : 0), "\(label): registerNow")
+                r.eq(KN.Builder.registerNow(env: env), i64(args["now"]) + (label.contains("lapse") ? 741 * 86_400_000 : 0), "\(label): registerNow")
+            case "extend":
+                let n = nameRec(rec["name"])
+                r.check(i64(args["years"]) <= m.params.extendableYears(n.fields), "\(label): extendableYears covers the step")
+                plan = try b.extend(env: env, wallet: wallet, name: n, years: i64(args["years"]))
+                r.eq(tx0LockAndSequences(plan), [0], "\(label): lock time 0, every sequence 0")
             case "renew":
-                plan = try b.renew(env: env, wallet: wallet, name: nameRec(rec["name"]), years: i64(args["years"]))
+                let n = nameRec(rec["name"])
+                plan = try b.renew(env: env, wallet: wallet, name: n, years: i64(args["years"]))
+                let rule = max(min(env.wallMs - 180_000, Int64(env.blockTimeMs) - 1_000), n.fields.expiresAt - m.params.renewWindowMs)
+                r.eq(Int64(plan.unsignedTx.lockTime), rule, "\(label): lockTimeRules.renew")
+                r.eq(Int64(plan.unsignedTx.lockTime), KN.Builder.renewLockTime(env: env, params: m.params, expiresAt: n.fields.expiresAt), "\(label): renewLockTime")
+                r.check(KN.Builder.renewWindowOpen(env: env, params: m.params, expiresAt: n.fields.expiresAt), "\(label): the window is open")
+                r.eq(Set(plan.unsignedTx.inputs.map(\.sequence)), [0], "\(label): every sequence 0")
             case "transfer":
                 plan = try b.transfer(env: env, wallet: wallet, name: nameRec(rec["name"]), newOwner: hx(args["newOwner"]))
             case "list":
@@ -361,6 +379,92 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
     return results
 }
 
+/// The registry v2 period rules on their own (KACHAT_NAMES.md 4.1, ops.rs): what extend may add,
+/// when renew opens, its lock time, the refusals.
+func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
+    let p = m.params
+    let y = KN.yearMs
+    r.eq(p.renewWindowMs, 864_000_000, "renewWindowMs from the manifest")
+    r.eq(i64(v["renewWindowMs"]), p.renewWindowMs, "renewWindowMs matches the vectors")
+    let start: Int64 = 2_000_000_000_000
+    r.eq(p.extendableYears(periodStart: start, expiresAt: start + y), 1, "1-year registration: extend by 1")
+    r.eq(p.extendableYears(periodStart: start, expiresAt: start + 2 * y), 0, "2-year registration: no extend")
+    r.eq(p.extendableYears(periodStart: start, expiresAt: start + y + 1), 0, "a period holding just over a year: no extend")
+    r.eq(p.extendableYears(periodStart: start, expiresAt: start + 3 * y), 0, "over-full period: no extend")
+    r.eq(p.extendableYears(periodStart: start, expiresAt: start), 2, "empty period: 2 years")
+    let f = KN.NameFields(name: "alice", owner: Data(repeating: 7, count: 32), price: 0, periodStart: start, expiresAt: start + y)
+    r.eq(f.extended(1).periodStart, start, "extend keeps periodStart")
+    r.eq(f.extended(1).expiresAt, start + 2 * y, "extend adds a year")
+    r.eq(f.renewed(2).periodStart, start + y, "renew starts at the old expiry")
+    r.eq(f.renewed(2).expiresAt, start + 3 * y, "renew adds from the old expiry")
+    r.eq(f.withOwner(Data(repeating: 9, count: 32)).periodStart, start, "transfer keeps periodStart")
+    r.eq(f.withPrice(5).periodStart, start, "list keeps periodStart")
+    r.eq(try? KN.Codec.decodeNameState(f.encoded), f, "126-byte state round trip")
+    r.check((try? KN.Codec.decodeNameState(f.encoded.prefix(117))) == nil, "a 117-byte (v1) state is refused")
+    let opens = p.renewOpens(expiresAt: f.expiresAt)
+    r.eq(opens, f.expiresAt - 864_000_000, "renew opens 10 days before expiry")
+    let before = KN.Env(me: f.owner, blockDaa: 1, blockTimeMs: UInt64(opens - 60_000), wallMs: opens + 60_000)
+    r.check(!KN.Builder.renewWindowOpen(env: before, params: p, expiresAt: f.expiresAt), "window closed while the median time is before the opening")
+    r.eq(KN.Builder.renewLockTime(env: before, params: p, expiresAt: f.expiresAt), opens, "lock time never before the opening")
+    let at = KN.Env(me: f.owner, blockDaa: 1, blockTimeMs: UInt64(opens), wallMs: opens + 180_000)
+    r.check(!KN.Builder.renewWindowOpen(env: at, params: p, expiresAt: f.expiresAt), "window closed at exactly the opening (the median time must pass it)")
+    let after = KN.Env(me: f.owner, blockDaa: 1, blockTimeMs: UInt64(opens + 3_600_000), wallMs: opens + 3_700_000)
+    r.check(KN.Builder.renewWindowOpen(env: after, params: p, expiresAt: f.expiresAt), "window open an hour later")
+    r.eq(KN.Builder.renewLockTime(env: after, params: p, expiresAt: f.expiresAt), opens + 3_520_000, "lock time = wall - 3 min once open")
+    // the builders refuse what the contract refuses, and say so
+    let b = try! KN.Builder(manifest: m)
+    let steps = v["steps"] as! [J]
+    if let ext = steps.first(where: { s($0["op"]) == "extend" }) {
+        let env0 = ext["env"] as! J
+        let env = KN.Env(me: hx(env0["me"]), blockDaa: u64(env0["blockDaa"]), blockTimeMs: u64(env0["blockTimeMs"]), wallMs: i64(env0["wallMs"]))
+        var n = nameRec((ext["records"] as! J)["name"])
+        let wallet = (ext["wallet"] as! [Any]).map(utxo)
+        r.check((try? b.extend(env: env, wallet: wallet, name: n, years: 2)) == nil, "extend past 2 years from periodStart refused")
+        n.fields = n.fields.extended(1)
+        r.check((try? b.extend(env: env, wallet: wallet, name: n, years: 1)) == nil, "a second extend of a full period refused")
+        r.check((try? b.extend(env: env, wallet: wallet, name: n, years: 0)) == nil, "extend by 0 refused")
+        // renew before the window: built (a note says it is not open) with the opening as lock time
+        if let plan = try? b.renew(env: env, wallet: wallet, name: n, years: 1) {
+            r.eq(Int64(plan.unsignedTx.lockTime), p.renewOpens(expiresAt: n.fields.expiresAt), "early renew: lock time = the window opening")
+            r.check(plan.notes.contains { $0.hasPrefix("renewal window not open") }, "early renew: noted as not open")
+            r.check(!KN.Builder.renewWindowOpen(env: env, params: p, expiresAt: n.fields.expiresAt), "early renew: window closed")
+        } else {
+            r.check(false, "early renew plan not built")
+        }
+        r.check((try? b.renew(env: env, wallet: wallet, name: n, years: 3)) == nil, "renew by 3 refused")
+    } else {
+        r.check(false, "no extend step in the vectors")
+    }
+    // the fixed budgets are the vectors' table, entry for entry
+    let recommended = v["recommendedBudgets"] as! [String: Any]
+    r.eq(Set(recommended.keys), Set(KN.BudgetRole.allCases.map(\.rawValue)), "budget roles = recommendedBudgets keys")
+    for role in KN.BudgetRole.allCases {
+        r.eq(UInt64(KN.Budgets.recommended[role]), u64(recommended[role.rawValue]), "recommended budget \(role.rawValue)")
+    }
+    // a registry v1 manifest is recognised as outdated, never trusted
+    var v1 = v["manifest"] as! J
+    var params = v1["params"] as! J
+    params.removeValue(forKey: "renewWindowMs")
+    v1["params"] = params
+    do {
+        _ = try KN.Manifest.decode(JSONSerialization.data(withJSONObject: v1))
+        r.check(false, "a manifest without renewWindowMs decoded")
+    } catch {
+        r.check((error as? KN.Failure)?.isOutdatedRegistry == true, "a manifest without renewWindowMs is the outdated registry: \(error)")
+    }
+    // the bundled manifest: either a verified v2 one, or the v1 one the app shows as "setting up"
+    if let bundled = try? Data(contentsOf: URL(fileURLWithPath: "KaChat/Resources/kachat-names-testnet-10.json")) {
+        do {
+            let bm = try KN.Manifest.decode(bundled)
+            try bm.verify()
+            print("bundled manifest: registry v2, verified")
+        } catch {
+            r.check((error as? KN.Failure)?.isOutdatedRegistry == true, "the bundled manifest neither verifies nor is the outdated v1 one: \(error)")
+            print("bundled manifest: registry v1 (outdated) - the app shows .kachat as setting up until the v2 genesis manifest is bundled")
+        }
+    }
+}
+
 func runVectors(_ path: String) -> Bool {
     let v = try! JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as! J
     let r = Report()
@@ -369,6 +473,8 @@ func runVectors(_ path: String) -> Bool {
     runCodecs(v, r)
     print("blake3 + codecs: \(r.pass) checks pass, \(r.fail) fail")
     let m = runManifest(v, r)
+    runPeriodRules(v, m, r)
+    print("+ manifest and period rules: \(r.pass) checks pass, \(r.fail) fail")
     let results = runSteps(v, m, r)
     for res in results {
         print((res.ok ? "MATCH  " : "DIFFER ") + res.label + (res.firstFailure.map { "   <- " + $0 } ?? ""))
@@ -399,6 +505,7 @@ func writeFixedBudget(_ path: String, _ out: String) {
         switch s(st["op"]) {
         case "commit": plan = try! b.commit(env: env, wallet: wallet, name: s(args["name"]), salt: hx(args["salt"]))
         case "register": plan = try! b.register(env: env, wallet: wallet, gap: gapRec(rec["gap"]), commit: commitRec(rec["commit"]), years: i64(args["years"]), now: i64(args["now"]))
+        case "extend": plan = try! b.extend(env: env, wallet: wallet, name: nameRec(rec["name"]), years: i64(args["years"]))
         case "renew": plan = try! b.renew(env: env, wallet: wallet, name: nameRec(rec["name"]), years: i64(args["years"]))
         case "transfer": plan = try! b.transfer(env: env, wallet: wallet, name: nameRec(rec["name"]), newOwner: hx(args["newOwner"]))
         case "list": plan = try! b.list(env: env, wallet: wallet, name: nameRec(rec["name"]), price: u64(args["price"]))
