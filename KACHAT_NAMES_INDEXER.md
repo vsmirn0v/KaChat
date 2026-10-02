@@ -103,6 +103,14 @@ All of these are version-1 transactions (Toccata) with output covenant bindings.
   - the params: `bond`, `gapValue`, `tCommit` (600 DAA), `maxYears` (2), `graceMs` (10 days),
     `prices` and `renewPrices` per length (5+ chars 35 KAS, 4 = 250, 3 = 1000, 2 = 2000,
     1 = 4000, all per year), and `offerMaxFee` (0.02 KAS)
+- **Testnet-10 is live (2026-10-02):**
+  - registry id `9444187f09a3e77450e125d448b21eb79b3c54b692a5b3f3e8af38343b9a7a51`
+  - genesis tx `cba68dd1b07f374410270f1e609a3e71deaf42d3bd3b5849ac9b0e9cc687f45f`, accepted at DAA
+    585,767,203
+  - genesis gap at output 0 (`00..00`, `ff..ff`), 1 TKAS
+  - The manifest is `manifests/kachat-names-testnet-10.json` in `kachat-domains`. Index from
+    the genesis transaction forward; the manifest's `genesis.scanFrom` block is a safe starting
+    point.
 - Load it from config, e.g. `KACHAT_NAMES_MANIFEST=/path/kachat-names-testnet-10.json`.
 - The module stays **off** until a manifest is configured.
 - **Trust rule:** an output counts only if it carries `registryCovenantId` **and** its lineage
