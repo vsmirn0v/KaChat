@@ -177,6 +177,13 @@ final class PushNotificationManager: ObservableObject {
     func refreshRegistrationIfNeeded() {
         let settings = AppSettings.load()
         guard settings.notificationMode == .remotePush else { return }
+        // No push service on this network (testnet has none yet). The service this device
+        // registered with on the other network would keep pushing that network's messages
+        // here, so tell it to stop, and stay unregistered.
+        if settings.pushIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Task { await leavePushServiceOfOtherNetworkIfNeeded() }
+            return
+        }
         guard permissionStatus == .authorized || permissionStatus == .provisional else { return }
         guard registrationContinuation == nil else { return }
 
@@ -943,6 +950,31 @@ final class PushNotificationManager: ObservableObject {
         urlRequest.timeoutInterval = 20
         _ = try? await URLSession.shared.data(for: urlRequest)
         AppLog.log("[Push] Sent unregister to superseded push service: %@", oldBase)
+    }
+
+    /// On a network with no push service: one DELETE to the service the device last registered
+    /// with (unsigned - the signed form binds the address of the network being left, and this
+    /// one is the other encoding), then the device counts as unregistered. Messages that still
+    /// arrive from it are dropped by the network check in the extension and the app.
+    private func leavePushServiceOfOtherNetworkIfNeeded() async {
+        let defaults = UserDefaults.standard
+        let registeredBase = defaults.string(forKey: registeredBaseURLDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if isRegistered || defaults.bool(forKey: registeredDefaultsKey) {
+            isRegistered = false
+            persistRegistrationStatus(false)
+        }
+        guard !registeredBase.isEmpty else { return }
+        defaults.removeObject(forKey: registeredBaseURLDefaultsKey)
+        guard let token = deviceToken,
+              let url = URL(string: "\(registeredBase)\(unregisterEndpoint)") else { return }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "DELETE"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try? JSONEncoder().encode(PushUnregisterRequest(deviceToken: token, auth: nil))
+        urlRequest.timeoutInterval = 20
+        _ = try? await URLSession.shared.data(for: urlRequest)
+        AppLog.log("[Push] No push service on this network; sent unregister to %@", registeredBase)
     }
 
     func unregister() async {

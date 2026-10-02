@@ -77,6 +77,21 @@ extension ChatService {
         let cached = ChatListSnapshotStore.load(walletAddress: walletAddress)
         guard !cached.isEmpty else { return }
         conversations = cached
+        dropOtherNetworkConversations()
+    }
+
+    /// Removes conversations whose contact is on the other network - mainnet chats that pushes
+    /// filed into the testnet account before `addMessageToConversation` checked the network -
+    /// from the list and from this wallet's store.
+    func dropOtherNetworkConversations() {
+        let stray = conversations.filter { !NetworkType.isOnActiveNetwork($0.contact.address) }
+        guard !stray.isEmpty else { return }
+        conversations.removeAll { !NetworkType.isOnActiveNetwork($0.contact.address) }
+        AppLog.log("[ChatService] Removed %d conversations that belong to the other network", stray.count)
+        for conversation in stray {
+            let address = conversation.contact.address
+            Task { await MessageStore.shared.deleteConversation(contactAddress: address) }
+        }
     }
 
     /// Debounced wrapper around `persistChatListSnapshotIfPossible()` - `conversations`'s `didSet`
@@ -276,6 +291,7 @@ extension ChatService {
             .map { (key: $0.lastMessage?.timestamp ?? .distantPast, value: $0) }
             .sorted { $0.key < $1.key }
             .map(\.value)
+        dropOtherNetworkConversations()
         rebuildPendingOutgoingQueue()
         cleanupSuppressedPaymentMessages()
     }

@@ -161,6 +161,24 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
 
+        // Another network's message: the app runs on testnet (kaspatest: wallet address) and a
+        // push service from mainnet still reached this device, or the reverse. The same key
+        // decrypts it, so without this it would show, and be queued into the wrong network's
+        // chats. Silent, and not stored.
+        if let walletAddress = getWalletAddress(),
+           let walletNetwork = Self.addressNetwork(walletAddress),
+           let senderNetwork = Self.addressNetwork(senderAddress),
+           walletNetwork != senderNetwork {
+            content.title = ""
+            content.subtitle = ""
+            content.body = ""
+            content.sound = nil
+            content.badge = nil
+            content.interruptionLevel = .passive
+            contentHandler(content)
+            return
+        }
+
         // Message Requests (NO_HANDSHAKE_MESSAGING.md): one "New message request" per new sender,
         // then nothing from them until the app has accepted them; nothing at all from a blocked
         // address. Payments land in your own chat and ring as before.
@@ -685,6 +703,14 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     // MARK: - Shared Data Access
+
+    /// "kaspa" or "kaspatest" by an address's prefix; nil without one.
+    static func addressNetwork(_ address: String) -> String? {
+        let lower = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lower.hasPrefix("kaspatest:") { return "kaspatest" }
+        if lower.hasPrefix("kaspa:") { return "kaspa" }
+        return nil
+    }
 
     /// The shared contact list, but ONLY when it belongs to the wallet currently signed in.
     ///
@@ -1360,7 +1386,11 @@ class NotificationService: UNNotificationServiceExtension {
         let defaults = UserDefaults(suiteName: appGroupIdentifier)
         let configured = (defaults?.string(forKey: "shared_kaspa_rest_api_url") ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = configured.isEmpty ? "https://api.kaspa.org" : configured
+        // Not synced yet: the network's default, judged by the wallet address the app shared.
+        let onTestnet = getWalletAddress().flatMap { Self.addressNetwork($0) } == "kaspatest"
+        let base = configured.isEmpty
+            ? (onTestnet ? "https://api-tn10.kaspa.org" : "https://api.kaspa.org")
+            : configured
         return URL(string: base.hasSuffix("/") ? "\(base)transactions/\(txId)" : "\(base)/transactions/\(txId)")
     }
 

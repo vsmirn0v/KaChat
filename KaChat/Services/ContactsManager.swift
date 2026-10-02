@@ -386,7 +386,15 @@ final class ContactsManager: ObservableObject {
         if let scopedData = userDefaults.data(forKey: contactsKey),
            let decodedContacts = try? JSONDecoder().decode([Contact].self, from: scopedData) {
             let migrated = migrateLegacyDefaultAliases(decodedContacts, contactsKey: contactsKey)
-            contacts = sortContacts(clearKasDomainAliasesOnce(migrated, contactsKey: contactsKey))
+            // Contacts of the other network (created for mainnet senders whose pushes reached
+            // this account after a switch to testnet) are not this account's - drop them.
+            let onNetwork = migrated.filter { NetworkType.isOnActiveNetwork($0.address) }
+            if onNetwork.count < migrated.count, let data = try? JSONEncoder().encode(onNetwork) {
+                userDefaults.set(data, forKey: contactsKey)
+                AppLog.log("[ContactsManager] Removed %d contacts that belong to the other network",
+                      migrated.count - onNetwork.count)
+            }
+            contacts = sortContacts(clearKasDomainAliasesOnce(onNetwork, contactsKey: contactsKey))
             return
         }
 

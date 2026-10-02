@@ -2832,6 +2832,12 @@ extension ChatService {
     }
 
     func addMessageToConversation(_ message: ChatMessage, contactAddress: String) {
+        // Another network's message (a push from the service this device registered with on
+        // the other network) never enters this network's chats.
+        guard NetworkType.isOnActiveNetwork(contactAddress) else {
+            AppLog.log("[ChatService] Dropped a message from the other network: %@", String(contactAddress.prefix(14)))
+            return
+        }
         // A deleted contact's address is tombstoned - this check must run before
         // `getOrCreateContact`, which would otherwise silently resurrect it. Time-aware for the
         // same reason the handshake gate is: a message mined AFTER the deletion is new traffic,

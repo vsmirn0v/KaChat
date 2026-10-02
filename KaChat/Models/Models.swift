@@ -1666,6 +1666,28 @@ enum NetworkType: String, Codable, CaseIterable {
         case .testnet: return "Testnet"
         }
     }
+
+    /// The network an address belongs to, by its prefix (`kaspa:` / `kaspatest:`); nil for an
+    /// address without one.
+    init?(address: String) {
+        let lower = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lower.hasPrefix("kaspatest:") {
+            self = .testnet
+        } else if lower.hasPrefix("kaspa:") {
+            self = .mainnet
+        } else {
+            return nil
+        }
+    }
+
+    /// False only for an address that names the OTHER network than the one the app runs on -
+    /// e.g. a mainnet sender in a push that reached a device switched to testnet. One key is
+    /// one account on both networks, so such a message decrypts fine and would otherwise land
+    /// in the wrong network's chats.
+    static func isOnActiveNetwork(_ address: String) -> Bool {
+        guard let network = NetworkType(address: address) else { return true }
+        return network == AppSettings.load().networkType
+    }
 }
 
 /// App-wide appearance override. "System" (the default) just follows the device's own Light/Dark
