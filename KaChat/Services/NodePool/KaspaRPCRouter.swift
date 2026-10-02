@@ -57,8 +57,8 @@ final class KaspaRPCRouter: ObservableObject {
 
     /// Initialize the router for a network
     func initialize(network: NetworkType) async {
-        // Load persisted records
-        await registry.load()
+        // Load persisted records - this network's list only
+        await registry.load(network: network)
 
         // Initialize seed nodes
         await registry.initializeSeeds(for: network)

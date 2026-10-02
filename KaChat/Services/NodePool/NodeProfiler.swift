@@ -964,6 +964,17 @@ actor NodeProfiler {
                 profile.networkName = networkName
             }
 
+            // A node on the other network (a mainnet peer gossiped into a testnet pool, or the
+            // reverse) would answer this network's addresses with that chain's coins - drop it.
+            if let networkName, !networkName.isEmpty,
+               let record = await registry.get(endpoint),
+               !NodeRegistry.belongs(record, to: networkType) {
+                AppLog.log("[NodeProfiler] Dropping %@: it is on %@, not %@",
+                      endpoint.key, networkName, networkType.displayName)
+                await registry.remove(endpoint)
+                return false
+            }
+
             // DPI check: Request connected peer info (10-20KB payload)
             // This detects DPI-blocked nodes where large transfers fail
             // Only run once per epoch to avoid redundant checks

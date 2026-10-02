@@ -4,8 +4,8 @@ import Foundation
 
 /// Protocol for persisting node records
 protocol NodeStore: Sendable {
-    func loadAll() throws -> [NodeRecord]
-    func saveAll(_ records: [NodeRecord]) throws
+    func loadAll(network: NetworkType) throws -> [NodeRecord]
+    func saveAll(_ records: [NodeRecord], network: NetworkType) throws
 }
 
 struct ActivePoolRebalanceResult: Sendable {
@@ -24,25 +24,30 @@ struct PrefixPerformanceStats: Sendable {
 
 // MARK: - UserDefaults Node Store
 
-/// Simple UserDefaults-based storage for node records
+/// Simple UserDefaults-based storage for node records, one list per network: a mainnet node
+/// answers a `kaspatest:` address with the mainnet chain's coins, so the two pools must never
+/// mix. Mainnet keeps the original key, so an existing pool carries over.
 final class UserDefaultsNodeStore: NodeStore, @unchecked Sendable {
-    private let key = "com.kachat.nodepool.records"
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
-    func loadAll() throws -> [NodeRecord] {
-        guard let data = defaults.data(forKey: key) else {
+    static func key(for network: NetworkType) -> String {
+        network == .mainnet ? "com.kachat.nodepool.records" : "com.kachat.nodepool.records.testnet"
+    }
+
+    func loadAll(network: NetworkType) throws -> [NodeRecord] {
+        guard let data = defaults.data(forKey: Self.key(for: network)) else {
             return []
         }
         return try JSONDecoder().decode([NodeRecord].self, from: data)
     }
 
-    func saveAll(_ records: [NodeRecord]) throws {
+    func saveAll(_ records: [NodeRecord], network: NetworkType) throws {
         let data = try JSONEncoder().encode(records)
-        defaults.set(data, forKey: key)
+        defaults.set(data, forKey: Self.key(for: network))
     }
 }
 
@@ -59,6 +64,9 @@ actor NodeRegistry {
     private var saveTask: Task<Void, Never>?
     /// When set (Kaspium-style fixed-node mode), `upsert` refuses every endpoint except this one.
     private var trustedNodeKey: String?
+    /// The network this registry's records belong to - set by `load(network:)`, and the list
+    /// every save writes to.
+    private(set) var network: NetworkType = .mainnet
 
     // Configuration
     private let maxNodes = 3000
@@ -70,12 +78,33 @@ actor NodeRegistry {
         self.store = store
     }
 
-    /// Load records from store
-    func load() {
+    /// Whether a node belongs to `network`, judged by the network name it reported when profiled
+    /// or, before that, by its gRPC port family. A node with neither (e.g. a TLS node on 443,
+    /// never profiled) is given the benefit of the doubt until its first profile.
+    static func belongs(_ record: NodeRecord, to network: NetworkType) -> Bool {
+        if let name = record.profile.networkName?.lowercased(), !name.isEmpty {
+            return network == .mainnet ? name == "kaspa-mainnet" : name.hasPrefix("kaspa-testnet")
+        }
+        let mainnetPorts: Set<Int> = [15110, 15111, 16110, 16111]
+        let testnetPorts: Set<Int> = [15210, 15211, 16210, 16211]
+        let otherPorts = network == .mainnet ? testnetPorts : mainnetPorts
+        return !otherPorts.contains(record.endpoint.port)
+    }
+
+    /// Load the records saved for `network`. Records of the other network are dropped: before
+    /// the per-network lists, both shared one list.
+    func load(network: NetworkType) {
+        self.network = network
+        records = [:]
         guard let store = store else { return }
         do {
-            let loaded = try store.loadAll()
-            records = Dictionary(uniqueKeysWithValues: loaded.map { ($0.endpoint.key, $0) })
+            let all = try store.loadAll(network: network)
+            let loaded = all.filter { Self.belongs($0, to: network) }
+            if loaded.count < all.count {
+                AppLog.log("[NodeRegistry] Dropped %d saved %@ records that belong to the other network",
+                      all.count - loaded.count, network.displayName)
+            }
+            records = Dictionary(loaded.map { ($0.endpoint.key, $0) }, uniquingKeysWith: { first, _ in first })
 
             // Quarantine and circuit-breaker verdicts are in-session protection, not a
             // permanent blacklist: persisted across launches they can depopulate the boot race
@@ -200,14 +229,16 @@ actor NodeRegistry {
     }
 
     /// UserDefaults key holding the pre-pin snapshot of the registry (see setTrustedNode).
-    private static let prePinStashKey = "com.kachat.nodepool.records.prepin"
+    private var prePinStashKey: String {
+        network == .mainnet ? "com.kachat.nodepool.records.prepin" : "com.kachat.nodepool.records.prepin.testnet"
+    }
 
     /// Snapshot every non-pinned record so the discovered pool survives the pinned period.
     private func stashRecordsBeforePinning(excluding pinnedKey: String) {
         let toStash = records.values.filter { $0.endpoint.key != pinnedKey }
         guard !toStash.isEmpty else { return }
         if let data = try? JSONEncoder().encode(Array(toStash)) {
-            UserDefaults.standard.set(data, forKey: Self.prePinStashKey)
+            UserDefaults.standard.set(data, forKey: prePinStashKey)
             AppLog.log("[NodeRegistry] Stashed %d node records before pinning", toStash.count)
         }
     }
@@ -216,13 +247,13 @@ actor NodeRegistry {
     /// consumed: records rejoin the normal lifecycle and are re-persisted with everything else.
     /// Stale entries are harmless - they fail their probes like any other node and get pruned.
     private func restoreStashedRecords() -> Int {
-        guard let data = UserDefaults.standard.data(forKey: Self.prePinStashKey),
+        guard let data = UserDefaults.standard.data(forKey: prePinStashKey),
               let stashed = try? JSONDecoder().decode([NodeRecord].self, from: data) else {
             return 0
         }
-        UserDefaults.standard.removeObject(forKey: Self.prePinStashKey)
+        UserDefaults.standard.removeObject(forKey: prePinStashKey)
         var restored = 0
-        for record in stashed where records[record.endpoint.key] == nil {
+        for record in stashed where records[record.endpoint.key] == nil && Self.belongs(record, to: network) {
             // Same sanitize as load(): quarantine/circuit verdicts from the stash era are not
             // evidence about the present, and would depopulate the instant-switch race.
             var fresh = record
@@ -692,7 +723,7 @@ actor NodeRegistry {
     func persistNow() {
         guard isDirty, let store = store else { return }
         do {
-            try store.saveAll(Array(records.values))
+            try store.saveAll(Array(records.values), network: network)
             isDirty = false
             AppLog.log("[NodeRegistry] Persisted %d node records", records.count)
         } catch {
@@ -720,7 +751,7 @@ private extension NodeRegistry {
 extension NodeRegistry {
     /// Migrate from old GrpcEndpoint format
     func migrateFromOldFormat(_ oldEndpoints: [GrpcEndpoint]) {
-        for old in oldEndpoints {
+        for old in oldEndpoints where old.networkType == network {
             guard let endpoint = Endpoint(url: old.url) else { continue }
 
             if records[endpoint.key] == nil {

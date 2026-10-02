@@ -148,8 +148,8 @@ final class NodePoolService: ObservableObject {
         // from a launch minutes ago on some other network.
         await resetBlockedNetworkDetection(reason: "initialize")
 
-        // Load persisted records FIRST
-        await registry.load()
+        // Load persisted records FIRST - this network's list only
+        await registry.load(network: network)
 
         // Initialize seed nodes
         await registry.initializeSeeds(for: network)
