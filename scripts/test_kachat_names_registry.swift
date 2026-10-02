@@ -54,6 +54,11 @@ func view(_ st: J, at: Int64) -> KN.TxView {
 
 func outpointKey(_ u: J) -> String { "\(s(u["txid"])):\(u64(u["index"]))" }
 
+/// The vectors' end-to-end plan (README "The end-to-end run", registry v2): commits, three
+/// registrations, extend, renew, transfer, list, buy, three offers (accept, refund, withdraw),
+/// release, reclaim. The steps after it are edge cases on their own synthetic records.
+let e2eCount = 19
+
 /// Every record a step was built from must be in the walked state, exactly.
 func checkRecords(_ st: J, _ state: KN.RegistryState, _ r: Report) {
     let label = s(st["label"])
@@ -78,6 +83,7 @@ func checkRecords(_ st: J, _ state: KN.RegistryState, _ r: Report) {
             r.eq(f.key, s(n["key"]), "\(label): key")
             r.eq(f.owner, s(n["owner"]), "\(label): owner")
             r.eq(f.price, i64(n["price"]), "\(label): price")
+            r.eq(f.periodStart, i64(n["periodStart"]), "\(label): periodStart")
             r.eq(f.expiresAt, i64(n["expiresAt"]), "\(label): expiresAt")
             r.eq(f.value, u64(n["value"]), "\(label): value")
         }
@@ -109,7 +115,7 @@ func seeded(_ st: J, _ m: KN.Manifest) -> KN.RegistryState {
     if let n = rec["name"] as? J {
         let u = n["utxo"] as! J
         state.names.append(.init(txid: s(u["txid"]), index: UInt32(u64(u["index"])), name: s(n["name"]), key: s(n["key"]), owner: s(n["owner"]),
-                                 price: i64(n["price"]), expiresAt: i64(n["expiresAt"]), value: u64(n["value"])))
+                                 price: i64(n["price"]), periodStart: i64(n["periodStart"]), expiresAt: i64(n["expiresAt"]), value: u64(n["value"])))
     }
     if let o = rec["offer"] as? J {
         let u = o["utxo"] as! J
@@ -122,7 +128,7 @@ func seeded(_ st: J, _ m: KN.Manifest) -> KN.RegistryState {
 func runWalker(_ v: J, _ r: Report) {
     let m = try! KN.Manifest.decode(JSONSerialization.data(withJSONObject: v["manifest"]!))
     let steps = v["steps"] as! [J]
-    let e2e = Array(steps.prefix(18))
+    let e2e = Array(steps.prefix(e2eCount))
     var state = KN.RegistryState.atGenesis(m)
     var ops: [String] = []
     for (i, st) in e2e.enumerated() {
@@ -136,7 +142,7 @@ func runWalker(_ v: J, _ r: Report) {
         do { try state.checkInvariants() } catch { r.check(false, "\(s(st["label"])): invariants: \(error)") }
     }
     r.eq(ops, [
-        "register alpha-tn", "register bravo-tn", "register lapse-tn", "renew alpha-tn", "transfer alpha-tn", "list alpha-tn",
+        "register alpha-tn", "register bravo-tn", "register lapse-tn", "extend alpha-tn", "renew lapse-tn", "transfer alpha-tn", "list alpha-tn",
         "sale alpha-tn", "offer bravo-tn", "offer_accepted bravo-tn", "offer_accept bravo-tn", "offer alpha-tn", "offer_refund alpha-tn",
         "offer alpha-tn", "offer_withdraw alpha-tn", "release bravo-tn", "reclaim lapse-tn"
     ], "e2e events")
@@ -148,15 +154,19 @@ func runWalker(_ v: J, _ r: Report) {
     let alpha = state.name("alpha-tn")
     r.check(alpha?.registeredTxId == KN.hex(hx((e2e[3]["expected"] as! J)["txid"])), "registration tx carried through every transition")
     r.eq(alpha?.registeredAt, 1_003, "registration time carried through every transition")
+    let alphaRegister = (e2e[3]["args"] as! J)
+    r.eq(alpha?.periodStart, i64(alphaRegister["now"]), "alpha-tn: periodStart = register's now, kept by extend, transfer, list and buy")
+    r.eq(alpha?.expiresAt, i64(alphaRegister["now"]) + 2 * KN.yearMs, "alpha-tn: registered for 1 year, extended by 1")
     // applying again changes nothing
     let snapshot = state
     for (i, st) in e2e.enumerated() { _ = try? state.apply(view(st, at: Int64(1_000 + i)), manifest: m) }
     r.eq(state, snapshot, "re-applying is a no-op")
 
     // the edge cases, each on a state seeded with its own records
-    for st in steps.dropFirst(18) {
+    for st in steps.dropFirst(e2eCount) {
         var seededState = seeded(st, m)
         let label = s(st["label"])
+        let before = ((st["records"] as! J)["name"] as? J).map { (periodStart: i64($0["periodStart"]), expiresAt: i64($0["expiresAt"])) }
         do {
             let events = try seededState.apply(view(st, at: 5), manifest: m)
             let op = s(st["op"])
@@ -165,6 +175,14 @@ func runWalker(_ v: J, _ r: Report) {
             case "register": r.eq(seededState.names.count, 1, "\(label): name created"); r.eq(seededState.gaps.count, 2, "\(label): gaps split")
             case "reclaim": r.eq(seededState.names.count, 0, "\(label): name gone"); r.eq(seededState.gaps.count, 1, "\(label): gaps merged")
             case "acceptOffer": r.eq(seededState.offers.count, 0, "\(label): offer gone")
+            case "extend", "renew":
+                let years = i64((st["args"] as! J)["years"])
+                let after = seededState.names.first
+                r.eq(events.first?.op, op, "\(label): event")
+                r.eq(events.first?.years, years, "\(label): event years")
+                r.eq(after?.expiresAt, before.map { $0.expiresAt + years * KN.yearMs }, "\(label): expiresAt + years")
+                // extend keeps the period; renew starts the next one at the old expiry
+                r.eq(after?.periodStart, op == "extend" ? before?.periodStart : before?.expiresAt, "\(label): periodStart")
             default: break
             }
             if op == "acceptOffer" {
@@ -204,7 +222,7 @@ func runWalker(_ v: J, _ r: Report) {
 /// simulated UTXO set, spends found through addresses, transactions handed back newest first.
 func runWalk(_ v: J, _ r: Report) async {
     let m = try! KN.Manifest.decode(JSONSerialization.data(withJSONObject: v["manifest"]!))
-    let steps = Array((v["steps"] as! [J]).prefix(18))
+    let steps = Array((v["steps"] as! [J]).prefix(e2eCount))
     let txs = steps.enumerated().map { view($0.element, at: Int64(1_000 + $0.offset)) }
     var created: [String: Data] = [:]       // outpoint -> script
     var spentBy: [String: String] = [:]     // outpoint -> txid
@@ -218,7 +236,7 @@ func runWalk(_ v: J, _ r: Report) async {
     var expected = KN.RegistryState.atGenesis(m)
     for t in txs { _ = try? expected.apply(t, manifest: m) }
 
-    for upTo in [3, 6, 10, 18] {
+    for upTo in [3, 6, 7, 8, 11, e2eCount] {
         let visible = Array(txs.prefix(upTo))
         let visibleIds = Set(visible.map(\.idHex))
         var walked = KN.RegistryState.atGenesis(m)
@@ -327,6 +345,28 @@ func runRules(_ r: Report) {
     r.check(SS(link: "t.me/telegram", for: .bio) != nil, "bio source on Telegram")
     r.eq(SS.discordDescription(fromInviteJSON: Data("{\"guild\":{\"id\":\"1\",\"description\":\"Devs\"}}".utf8)), "Devs", "Discord server description")
 
+    // the paid period on a NameInfo (registry v2)
+    let params = KN.Params(bond: 1, gapValue: 1, tCommit: 600, maxYears: 2, graceMs: g, renewWindowMs: 864_000_000,
+                           prices: [1, 1, 1, 1, 1], renewPrices: [1, 1, 1, 1, 1], offerMaxFee: 1)
+    var period = info("period", exp: now + KN.yearMs, reg: 1)
+    r.eq(period.extendableYears(params), 0, "period unknown: no extend")
+    r.eq(period.fields, nil, "period unknown: no on-chain state")
+    period.periodStart = now
+    r.eq(period.extendableYears(params), 1, "1 year paid of 2: extend by 1")
+    r.eq(period.fields?.periodStart, now, "fields carry periodStart")
+    r.check(!period.renewOpen(params, nowMs: now), "renewal closed a year before expiry")
+    r.eq(period.renewOpens(params), now + KN.yearMs - 864_000_000, "renewal opens 10 days before expiry")
+    r.check(period.renewOpen(params, nowMs: now + KN.yearMs - 864_000_000), "renewal open at the opening")
+    period.expiresAt = now + 2 * KN.yearMs
+    r.eq(period.extendableYears(params), 0, "2 years paid: no extend")
+
+    // a cache written before registry v2 (no periodStart, format 1) is dropped
+    let v1Cache = Data("""
+    {"version":1,"network":"testnet-10","registryCovenantId":"00","gaps":[],"names":[{"txid":"00","index":0,"name":"a","key":"00","owner":"00","price":0,"expiresAt":1,"value":1}],"offers":[],"applied":[],"events":[]}
+    """.utf8)
+    r.check((try? JSONDecoder().decode(KN.RegistryState.self, from: v1Cache)) == nil, "a registry v1 cache does not decode")
+    r.eq(KN.RegistryState.formatVersion, 2, "cache format 2 (registry v2)")
+
     let k = Data(repeating: 0x10, count: 31) + Data([0x00])
     r.eq(KN.step(k, by: -1).map(KN.hex), KN.hex(Data(repeating: 0x10, count: 30) + Data([0x0f, 0xff])), "key - 1 borrows")
     r.eq(KN.step(k, by: 1).map(KN.hex), KN.hex(Data(repeating: 0x10, count: 31) + Data([0x01])), "key + 1")
@@ -365,6 +405,14 @@ func runREST(_ r: Report) {
     r.eq(n?.price, 5_000_000_000, "indexer price string")
     r.eq(n?.outpoint.index, 2, "indexer outpoint")
     r.eq(n?.key, KN.Codec.key("alice"), "indexer key recomputed from the name")
+    r.eq(n?.periodStart, nil, "indexer without periodStart: unknown")
+    let withPeriod = Data("""
+    {"name":"alice","registered":true,"ownerKey":"\(String(repeating: "ab", count: 32))","price":"0","periodStart":1790000000000,
+     "expiresAt":1822000000000,"outpoint":{"txId":"\(String(repeating: "cd", count: 32))","index":0}}
+    """.utf8)
+    let np = try! JSONDecoder().decode(KN.IndexerAPI.NameJSON.self, from: withPeriod).info { _ in nil }
+    r.eq(np?.periodStart, 1_790_000_000_000, "indexer periodStart")
+    r.eq(np?.fields?.periodStart, 1_790_000_000_000, "indexer record spendable with its periodStart")
     let free = Data("""
     {"name":"bob","key":"00","registered":false,"gap":{"lo":"\(String(repeating: "00", count: 32))","hi":"\(String(repeating: "ff", count: 32))","outpoint":{"txId":"\(String(repeating: "ee", count: 32))","index":0}}}
     """.utf8)
@@ -376,8 +424,15 @@ func runREST(_ r: Report) {
 /// Read-only walk of the live testnet-10 registry through the REST API.
 func runLive() async -> Bool {
     let base = "https://api-tn10.kaspa.org"
-    let m = try! KN.Manifest.decode(Data(contentsOf: URL(fileURLWithPath: "KaChat/Resources/kachat-names-testnet-10.json")))
-    do { try m.verify() } catch { print("live: manifest does not verify: \(error)"); return false }
+    let m: KN.Manifest
+    do {
+        m = try KN.Manifest.decode(Data(contentsOf: URL(fileURLWithPath: "KaChat/Resources/kachat-names-testnet-10.json")))
+        try m.verify()
+    } catch {
+        // the bundled manifest stays registry v1 until the v2 genesis: nothing live to walk yet
+        print("live: the bundled manifest does not verify: \(error)")
+        return false
+    }
     func get(_ path: String) async throws -> Any {
         let (data, resp) = try await URLSession.shared.data(from: URL(string: base + path)!)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw KN.Failure("GET \(path): \((resp as? HTTPURLResponse)?.statusCode ?? 0)") }

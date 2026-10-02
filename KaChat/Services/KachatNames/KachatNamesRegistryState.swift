@@ -40,6 +40,10 @@ extension KachatNames {
         /// sompi; 0 = not listed
         var price: UInt64
         var expiresAt: Int64
+        /// unix ms, the start of the current paid period (registry v2); nil when the source did
+        /// not say (an indexer without the field): then the name can't be spent from this record
+        /// and Extend isn't offered.
+        var periodStart: Int64?
         var outpoint: Outpoint
         /// unix ms of the registration, when known
         var registeredAt: Int64?
@@ -50,13 +54,28 @@ extension KachatNames {
         var display: String { "\(name).kachat" }
         var isListed: Bool { price > 0 }
 
-        var fields: NameFields {
-            NameFields(key: key, paddedName: Codec.padded(name), owner: owner, price: Int64(price), expiresAt: expiresAt)
+        /// The on-chain state, when the period start is known.
+        var fields: NameFields? {
+            periodStart.map { NameFields(key: key, paddedName: Codec.padded(name), owner: owner, price: Int64(price), periodStart: $0, expiresAt: expiresAt) }
         }
 
         func status(graceMs: Int64, nowMs: Int64 = KachatNames.nowMs()) -> Status {
             .of(expiresAt: expiresAt, graceMs: graceMs, nowMs: nowMs)
         }
+
+        // MARK: The paid period (registry v2, KACHAT_NAMES.md 4.1)
+
+        /// Whole years `extend` can add now (0 when the period start is unknown).
+        func extendableYears(_ p: Params) -> Int64 {
+            periodStart.map { p.extendableYears(periodStart: $0, expiresAt: expiresAt) } ?? 0
+        }
+
+        /// When the renewal window opens: `expiresAt - renewWindowMs` (unix ms).
+        func renewOpens(_ p: Params) -> Int64 { p.renewOpens(expiresAt: expiresAt) }
+
+        /// The renewal window by the wall clock (what the screens show; the transaction itself
+        /// waits for the network's median time, a couple of minutes behind).
+        func renewOpen(_ p: Params, nowMs: Int64 = KachatNames.nowMs()) -> Bool { nowMs >= renewOpens(p) }
     }
 
     /// An unregistered interval `(lo, hi)` of the key space.
@@ -96,7 +115,7 @@ extension KachatNames {
     /// the source; the screens show them through `party`.
     struct Event: Codable, Identifiable, Equatable {
         var txId: String
-        /// register, transfer, list, delist, sale, renew, release, reclaim, offer_accepted, offer
+        /// register, transfer, list, delist, sale, extend, renew, release, reclaim, offer_accepted, offer
         var op: String
         var name: String?
         var at: Int64?
@@ -612,6 +631,8 @@ extension KachatNames {
             var key: String
             var owner: String
             var price: Int64
+            /// unix ms, the start of the current paid period (registry v2)
+            var periodStart: Int64
             var expiresAt: Int64
             var value: UInt64
             var registeredAt: Int64?
@@ -630,7 +651,8 @@ extension KachatNames {
             var createdAt: Int64?
         }
 
-        static let formatVersion = 1
+        /// 2: registry v2 (names carry periodStart); an older cache is dropped and walked again.
+        static let formatVersion = 2
         static let appliedKeep = 4096
         static let eventsKeep = 1000
 
@@ -705,9 +727,15 @@ extension KachatNames {
         static func info(_ n: Name) -> NameInfo {
             NameInfo(
                 name: n.name, key: (try? unhex32(n.key)) ?? zero32, owner: (try? unhex32(n.owner)) ?? zero32,
-                price: UInt64(max(n.price, 0)), expiresAt: n.expiresAt, outpoint: outpoint(n.txid, n.index),
+                price: UInt64(max(n.price, 0)), expiresAt: n.expiresAt, periodStart: n.periodStart, outpoint: outpoint(n.txid, n.index),
                 registeredAt: n.registeredAt, registeredTxId: n.registeredTxId, updatedAt: n.updatedAt
             )
+        }
+
+        /// A tracked name's on-chain state.
+        static func fields(_ n: Name) -> NameFields {
+            NameFields(key: (try? unhex32(n.key)) ?? zero32, paddedName: Codec.padded(n.name), owner: (try? unhex32(n.owner)) ?? zero32,
+                       price: n.price, periodStart: n.periodStart, expiresAt: n.expiresAt)
         }
 
         static func info(_ g: Gap) -> GapInfo {
@@ -729,7 +757,7 @@ extension KachatNames {
                 out.append(("\(g.txid):\(g.index)", m.gap.script(Codec.gapState(lo: lo, hi: hi)), true))
             }
             for n in names {
-                out.append(("\(n.txid):\(n.index)", m.name.script(RegistryState.info(n).fields.encoded), true))
+                out.append(("\(n.txid):\(n.index)", m.name.script(RegistryState.fields(n).encoded), true))
             }
             for o in offers {
                 out.append(("\(o.txid):\(o.index)", m.offer.script(RegistryState.info(o).fields.encoded), false))
@@ -848,7 +876,7 @@ extension KachatNames {
                     let k = blake3(nameBytes)
                     var padded = nameBytes.prefix(32)
                     padded.append(Data(repeating: 0, count: 32 - padded.count))
-                    let f = NameFields(key: k, paddedName: Data(padded), owner: owner, price: 0, expiresAt: now + years * yearMs)
+                    let f = NameFields(key: k, paddedName: Data(padded), owner: owner, price: 0, periodStart: now, expiresAt: now + years * yearMs)
                     predicted.append((UInt16(i), .gap(lo: g.lo, hi: hex(k))))
                     predicted.append((UInt16(i), .gap(lo: hex(k), hi: g.hi)))
                     predicted.append((UInt16(i), .name(f, name: name)))
@@ -868,7 +896,7 @@ extension KachatNames {
             for (i, n) in nameIns {
                 let sp: Spend
                 do { sp = try RegistryState.decodeSpend(m.name, tx.inputs[i].signatureScript) } catch { throw Failure("\(short): name input \(i): \(error.localizedDescription)") }
-                let f = RegistryState.info(n).fields
+                let f = RegistryState.fields(n)
                 guard sp.redeem == m.name.redeem(f.encoded) else {
                     throw Failure("\(short): name input \(i) reveals a redeem script that is not the tracked name state")
                 }
@@ -891,9 +919,15 @@ extension KachatNames {
                     let to = try RegistryState.arg32(sp.args, 0)
                     predicted.append((UInt16(i), .name(f.withOwner(to), name: n.name)))
                     events.append(Event(txId: id, op: "sale", name: n.name, at: tx.at, from: n.owner, to: hex(to), price: UInt64(max(n.price, 0)), years: nil))
-                case "renew":
+                case "extend":
+                    // periodStart kept, expiresAt + years (the contract checked the 2-year cap)
                     let years = try RegistryState.argInt(sp.args, 0)
-                    predicted.append((UInt16(i), .name(f.withExpiry(f.expiresAt + years * yearMs), name: n.name)))
+                    predicted.append((UInt16(i), .name(f.extended(years), name: n.name)))
+                    events.append(Event(txId: id, op: "extend", name: n.name, at: tx.at, from: nil, to: nil, price: nil, years: years))
+                case "renew":
+                    // a new period from the old expiry
+                    let years = try RegistryState.argInt(sp.args, 0)
+                    predicted.append((UInt16(i), .name(f.renewed(years), name: n.name)))
                     events.append(Event(txId: id, op: "renew", name: n.name, at: tx.at, from: nil, to: nil, price: nil, years: years))
                 case "release":
                     events.append(Event(txId: id, op: "release", name: n.name, at: tx.at, from: n.owner, to: nil, price: nil, years: nil))
@@ -948,7 +982,8 @@ extension KachatNames {
                     let k = hex(f.key)
                     let before = carried[k]
                     names.append(Name(
-                        txid: id, index: UInt32(idx), name: name, key: k, owner: hex(f.owner), price: f.price, expiresAt: f.expiresAt,
+                        txid: id, index: UInt32(idx), name: name, key: k, owner: hex(f.owner), price: f.price,
+                        periodStart: f.periodStart, expiresAt: f.expiresAt,
                         value: value, registeredAt: before?.registeredAt ?? tx.at, registeredTxId: before?.registeredTxId ?? id, updatedAt: tx.at
                     ))
                 }
@@ -1006,6 +1041,8 @@ extension KachatNames {
             let owner: String?
             let ownerKey: String?
             let price: String?
+            /// registry v2: the start of the current paid period (unix ms); optional
+            let periodStart: Int64?
             let expiresAt: Int64?
             let outpoint: OutpointJSON?
             let registeredAt: Int64?
@@ -1021,7 +1058,7 @@ extension KachatNames {
                 guard let owner = ownerKey.flatMap({ try? unhex32($0) }) ?? owner.flatMap(keyOf), owner.count == 32 else { return nil }
                 return NameInfo(
                     name: n, key: Codec.key(n), owner: owner, price: price.flatMap(UInt64.init) ?? 0, expiresAt: expiresAt,
-                    outpoint: op, registeredAt: registeredAt, registeredTxId: registeredTxId, updatedAt: updatedAt
+                    periodStart: periodStart, outpoint: op, registeredAt: registeredAt, registeredTxId: registeredTxId, updatedAt: updatedAt
                 )
             }
         }
