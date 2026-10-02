@@ -1165,3 +1165,4 @@
 "Setting up" = "Sedang disiapkan";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "Registri .kachat di Testnet sedang ditingkatkan. Nama dibuka lagi di sini setelah registri baru aktif.";
 ".kachat Names" = "Nama .kachat";
+"This name isn't registered right now." = "Nama ini sedang tidak terdaftar.";

@@ -1165,3 +1165,4 @@
 "Setting up" = "설정 중";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "테스트넷의 .kachat 레지스트리를 업그레이드하고 있어요. 새 레지스트리가 가동되면 여기서 이름이 다시 열려요.";
 ".kachat Names" = ".kachat 이름";
+"This name isn't registered right now." = "이 이름은 현재 등록되어 있지 않습니다.";

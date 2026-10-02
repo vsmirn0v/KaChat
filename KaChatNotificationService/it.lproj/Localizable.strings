@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "Nuova richiesta di messaggio";
 "%@ wants to chat with you." = "%@ vuole chattare con te.";
+"New offer on %@" = "Nuova offerta per %@";
+"%@ offered for it." = "Offerti %@ per questo nome.";
+"Someone made an offer for it." = "Qualcuno ha fatto un'offerta per questo nome.";
+"%@ sold" = "%@ venduto";
+"%@ was paid to you." = "Ti sono stati pagati %@.";
+"Your listing was bought." = "Il tuo nome in vendita è stato acquistato.";
+"Offer accepted" = "Offerta accettata";
+"%@ is yours now." = "%@ ora è tuo.";
+"Renew %@" = "Rinnova %@";
+"Renewal is open: renew now to keep it." = "Il rinnovo è aperto: rinnova ora per tenerlo.";
+"%@ expires soon" = "%@ scade presto";
+"%d days left to renew it." = "Restano %d giorni per rinnovarlo.";
+"1 day left to renew it." = "Resta 1 giorno per rinnovarlo.";
+"%@ has expired" = "%@ è scaduto";
+"Renew within 10 days or anyone can claim it." = "Rinnovalo entro 10 giorni o chiunque potrà prenderlo.";

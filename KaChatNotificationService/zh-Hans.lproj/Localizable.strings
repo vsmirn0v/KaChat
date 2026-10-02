@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "新的消息请求";
 "%@ wants to chat with you." = "%@ 想和你聊天。";
+"New offer on %@" = "%@ 有新报价";
+"%@ offered for it." = "有人为它出价 %@。";
+"Someone made an offer for it." = "有人为它出价。";
+"%@ sold" = "%@ 已售出";
+"%@ was paid to you." = "你收到了 %@。";
+"Your listing was bought." = "你上架的名称已被购买。";
+"Offer accepted" = "报价已接受";
+"%@ is yours now." = "%@ 现在归你了。";
+"Renew %@" = "续期 %@";
+"Renewal is open: renew now to keep it." = "续期已开放：立即续期以保留它。";
+"%@ expires soon" = "%@ 即将到期";
+"%d days left to renew it." = "还有 %d 天可续期。";
+"1 day left to renew it." = "还有 1 天可续期。";
+"%@ has expired" = "%@ 已过期";
+"Renew within 10 days or anyone can claim it." = "请在 10 天内续期，否则任何人都可以领取。";

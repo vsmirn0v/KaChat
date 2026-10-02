@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "בקשת הודעה חדשה";
 "%@ wants to chat with you." = "%@ רוצה לשוחח איתך.";
+"New offer on %@" = "הצעה חדשה על %@";
+"%@ offered for it." = "הוצעו עליו %@.";
+"Someone made an offer for it." = "מישהו הגיש עליו הצעה.";
+"%@ sold" = "%@ נמכר";
+"%@ was paid to you." = "שולמו לך %@.";
+"Your listing was bought." = "השם שהצעת למכירה נקנה.";
+"Offer accepted" = "ההצעה התקבלה";
+"%@ is yours now." = "%@ שלך עכשיו.";
+"Renew %@" = "חדש את %@";
+"Renewal is open: renew now to keep it." = "החידוש פתוח: חדש עכשיו כדי לשמור עליו.";
+"%@ expires soon" = "%@ יפוג בקרוב";
+"%d days left to renew it." = "נותרו %d ימים לחידוש.";
+"1 day left to renew it." = "נותר יום אחד לחידוש.";
+"%@ has expired" = "%@ פג";
+"Renew within 10 days or anyone can claim it." = "חדש תוך 10 ימים, אחרת כל אחד יוכל לתבוע אותו.";

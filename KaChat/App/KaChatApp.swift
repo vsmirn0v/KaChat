@@ -949,6 +949,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             return
         }
 
+        // A .kachat name event (offer, sale, accepted offer, renewal reminder - thread
+        // "kachat-names", set by the notification extension): open that name.
+        if threadIdentifier == "kachat-names" {
+            let name = response.notification.request.content.userInfo["name"] as? String
+            Task { @MainActor in
+                KachatDeepLink.pendingName = name.map { KachatNames.Codec.normalize($0) }
+                PendingTabRoute.pending = .kachatNames
+                NotificationCenter.default.post(name: .openKachatName, object: nil)
+            }
+            completionHandler()
+            return
+        }
+
         // Own-address activity (spending / cold-storage receive) notification tapped: these
         // are wallet events, not chats - the thread id must never fall through to the
         // contact-address branch below (it would stage a bogus pendingChatNavigation). Cold
@@ -1189,6 +1202,8 @@ extension Notification.Name {
     static let openKNSProfileEditor = Notification.Name("openKNSProfileEditor")
     static let openKaPost = Notification.Name("openKaPost")
     static let openPortfolio = Notification.Name("openPortfolio")
+    /// A `.kachat` name notification was tapped: the name is in `KachatDeepLink.pendingName`.
+    static let openKachatName = Notification.Name("openKachatName")
     static let openColdStorage = Notification.Name("openColdStorage")
     static let openPublicChat = Notification.Name("openBroadcast")
     /// Open Customize Dock. Posted rather than pushed because that screen EDITS the dock, and the

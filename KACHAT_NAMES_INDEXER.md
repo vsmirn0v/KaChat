@@ -344,25 +344,35 @@ address or outpoint, and 503 while the module is syncing or has no manifest.
 ## Part E - push
 
 These use the existing push registrations, routed by the address each device registered as its
-`primaryAddress`.
+`primaryAddress`. **The app is ready for them** (2026-10-02): its notification extension writes
+each one in the phone's language, and tapping it opens the name.
 
-| Event | To | When |
-|---|---|---|
-| `name_offer` | the name's current owner | an offer for one of their names is created |
-| `name_sold` | the seller | `buy` on their listing, or one of their offers accepted |
-| `name_offer_accepted` | the buyer | their offer was accepted |
-| `name_expiring` | the owner | 30, 7 and 1 days before `expiresAt` (once each, by a scheduler) |
-| `name_grace` | the owner | at `expiresAt` |
+| `event` | To | When | Extra fields |
+|---|---|---|---|
+| `name_offer` | the name's current owner | an offer for one of their names is created | `amount` (sompi string) |
+| `name_sold` | the seller | `buy` on their listing, or one of their offers accepted | `amount` (sompi string; what they were paid) |
+| `name_offer_accepted` | the buyer | their offer was accepted | - |
+| `name_renewal_open` | the owner | the renewal window opens: `expiresAt − renewWindowMs` (10 days, registry v2) | - |
+| `name_expiring` | the owner | 3 days and 1 day before `expiresAt` (once each, by a scheduler) | `days` (number: 3 or 1) |
+| `name_grace` | the owner | at `expiresAt` | - |
 
-The APNs payload is the same shape as the existing app pushes. The alert is localised by the app:
+Registry v2 changes the reminder schedule. Renewing is only possible from 10 days before expiry,
+so a 30- or 7-day reminder would arrive when the owner can't act yet. Send `name_renewal_open`
+when the window opens, then the 3-day and 1-day `name_expiring`. Skip any reminder if the name
+was renewed (its `expiresAt` moved) or released in the meantime.
+
+The APNs payload has the same shape as the existing app pushes:
 
 ```json
-{ "aps": { "alert": {"title-loc-key": "…", "loc-args": ["alice"]}, "mutable-content": 1 },
-  "type": "name_event", "event": "name_sold", "name": "alice", "tx_id": "…" }
+{ "aps": { "alert": {"title": "alice.kachat sold", "body": "Your listing was bought."},
+           "mutable-content": 1, "sound": "default" },
+  "type": "name_event", "event": "name_sold", "name": "alice", "tx_id": "…", "amount": "3500000000" }
 ```
 
-For a first version, `title`/`body` in plain English are fine. The app's notification extension
-rewrites them.
+- **Keep `mutable-content: 1`.** The extension replaces the title and body, so plain-English
+  text is fine.
+- `name` is without `.kachat`.
+- The amount unit (KAS or TKAS) is added by the app from the network the phone runs on.
 
 ---
 

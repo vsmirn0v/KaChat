@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "Yêu cầu nhắn tin mới";
 "%@ wants to chat with you." = "%@ muốn trò chuyện với bạn.";
+"New offer on %@" = "Đề nghị mới cho %@";
+"%@ offered for it." = "Có người đề nghị %@ cho tên này.";
+"Someone made an offer for it." = "Có người đã gửi đề nghị cho tên này.";
+"%@ sold" = "%@ đã bán";
+"%@ was paid to you." = "Bạn đã nhận %@.";
+"Your listing was bought." = "Tên bạn đăng bán đã được mua.";
+"Offer accepted" = "Đề nghị đã được chấp nhận";
+"%@ is yours now." = "%@ giờ là của bạn.";
+"Renew %@" = "Gia hạn %@";
+"Renewal is open: renew now to keep it." = "Đã mở gia hạn: gia hạn ngay để giữ tên.";
+"%@ expires soon" = "%@ sắp hết hạn";
+"%d days left to renew it." = "Còn %d ngày để gia hạn.";
+"1 day left to renew it." = "Còn 1 ngày để gia hạn.";
+"%@ has expired" = "%@ đã hết hạn";
+"Renew within 10 days or anyone can claim it." = "Gia hạn trong 10 ngày, nếu không ai cũng có thể lấy.";

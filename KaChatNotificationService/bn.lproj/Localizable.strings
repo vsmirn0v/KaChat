@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "নতুন মেসেজ অনুরোধ";
 "%@ wants to chat with you." = "%@ আপনার সঙ্গে চ্যাট করতে চান।";
+"New offer on %@" = "%@-এ নতুন অফার";
+"%@ offered for it." = "এর জন্য %@ অফার করা হয়েছে।";
+"Someone made an offer for it." = "কেউ এর জন্য একটি অফার করেছে।";
+"%@ sold" = "%@ বিক্রি হয়েছে";
+"%@ was paid to you." = "আপনাকে %@ পরিশোধ করা হয়েছে।";
+"Your listing was bought." = "আপনার তালিকাভুক্ত নাম কেনা হয়েছে।";
+"Offer accepted" = "অফার গৃহীত হয়েছে";
+"%@ is yours now." = "%@ এখন আপনার।";
+"Renew %@" = "%@ নবায়ন করুন";
+"Renewal is open: renew now to keep it." = "নবায়ন খোলা: রাখতে এখনই নবায়ন করুন।";
+"%@ expires soon" = "%@ শীঘ্রই মেয়াদোত্তীর্ণ হবে";
+"%d days left to renew it." = "নবায়নের জন্য %d দিন বাকি।";
+"1 day left to renew it." = "নবায়নের জন্য ১ দিন বাকি।";
+"%@ has expired" = "%@-এর মেয়াদ শেষ";
+"Renew within 10 days or anyone can claim it." = "১০ দিনের মধ্যে নবায়ন করুন, নইলে যে কেউ দাবি করতে পারবে।";

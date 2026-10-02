@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "Yeni mesaj isteği";
 "%@ wants to chat with you." = "%@ seninle sohbet etmek istiyor.";
+"New offer on %@" = "%@ için yeni teklif";
+"%@ offered for it." = "Bunun için %@ teklif edildi.";
+"Someone made an offer for it." = "Biri bunun için teklif verdi.";
+"%@ sold" = "%@ satıldı";
+"%@ was paid to you." = "Size %@ ödendi.";
+"Your listing was bought." = "Satıştaki adınız satın alındı.";
+"Offer accepted" = "Teklif kabul edildi";
+"%@ is yours now." = "%@ artık sizin.";
+"Renew %@" = "%@ adını yenileyin";
+"Renewal is open: renew now to keep it." = "Yenileme açık: korumak için şimdi yenileyin.";
+"%@ expires soon" = "%@ yakında sona eriyor";
+"%d days left to renew it." = "Yenilemek için %d gün kaldı.";
+"1 day left to renew it." = "Yenilemek için 1 gün kaldı.";
+"%@ has expired" = "%@ sona erdi";
+"Renew within 10 days or anyone can claim it." = "10 gün içinde yenileyin, yoksa herkes alabilir.";

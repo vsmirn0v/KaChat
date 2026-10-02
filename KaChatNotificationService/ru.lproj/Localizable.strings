@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "Новый запрос на переписку";
 "%@ wants to chat with you." = "%@ хочет пообщаться с вами.";
+"New offer on %@" = "Новое предложение за %@";
+"%@ offered for it." = "За него предложили %@.";
+"Someone made an offer for it." = "Кто-то сделал предложение.";
+"%@ sold" = "%@ продано";
+"%@ was paid to you." = "Вам заплатили %@.";
+"Your listing was bought." = "Ваше имя на продаже купили.";
+"Offer accepted" = "Предложение принято";
+"%@ is yours now." = "%@ теперь ваше.";
+"Renew %@" = "Продлите %@";
+"Renewal is open: renew now to keep it." = "Продление открыто: продлите сейчас, чтобы сохранить имя.";
+"%@ expires soon" = "%@ скоро истекает";
+"%d days left to renew it." = "Осталось %d дн. на продление.";
+"1 day left to renew it." = "Остался 1 день на продление.";
+"%@ has expired" = "Срок %@ истёк";
+"Renew within 10 days or anyone can claim it." = "Продлите в течение 10 дней, иначе его сможет занять любой.";

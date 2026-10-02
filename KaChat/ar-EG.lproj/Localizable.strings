@@ -1165,3 +1165,4 @@
 "Setting up" = "جارٍ الإعداد";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "تتم ترقية سجل .kachat على الشبكة التجريبية. ستُفتح الأسماء هنا مجددًا بمجرد تشغيل السجل الجديد.";
 ".kachat Names" = "أسماء .kachat";
+"This name isn't registered right now." = "الاسم ده مش متسجل دلوقتي.";

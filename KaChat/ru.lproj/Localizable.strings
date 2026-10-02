@@ -1165,3 +1165,4 @@
 "Setting up" = "Настраивается";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "Реестр .kachat в Testnet обновляется. Имена снова откроются здесь, как только заработает новый реестр.";
 ".kachat Names" = "Имена .kachat";
+"This name isn't registered right now." = "Это имя сейчас не зарегистрировано.";

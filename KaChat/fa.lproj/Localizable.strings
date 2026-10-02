@@ -1165,3 +1165,4 @@
 "Setting up" = "در حال راه‌اندازی";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "رجیستری .kachat در تست‌نت در حال ارتقاست. نام‌ها به محض فعال شدن رجیستری جدید دوباره اینجا باز می‌شوند.";
 ".kachat Names" = "نام‌های .kachat";
+"This name isn't registered right now." = "این نام در حال حاضر ثبت نشده است.";

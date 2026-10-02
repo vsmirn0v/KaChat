@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "새 메시지 요청";
 "%@ wants to chat with you." = "%@ 님이 채팅을 원합니다.";
+"New offer on %@" = "%@에 새 제안";
+"%@ offered for it." = "%@의 제안이 들어왔습니다.";
+"Someone made an offer for it." = "누군가 제안을 보냈습니다.";
+"%@ sold" = "%@ 판매됨";
+"%@ was paid to you." = "%@이(가) 지급되었습니다.";
+"Your listing was bought." = "판매 중인 이름이 구매되었습니다.";
+"Offer accepted" = "제안이 수락되었습니다";
+"%@ is yours now." = "이제 %@은(는) 당신의 것입니다.";
+"Renew %@" = "%@ 갱신";
+"Renewal is open: renew now to keep it." = "갱신이 열렸습니다: 유지하려면 지금 갱신하세요.";
+"%@ expires soon" = "%@ 곧 만료";
+"%d days left to renew it." = "갱신까지 %d일 남았습니다.";
+"1 day left to renew it." = "갱신까지 1일 남았습니다.";
+"%@ has expired" = "%@ 만료됨";
+"Renew within 10 days or anyone can claim it." = "10일 안에 갱신하지 않으면 누구나 가져갈 수 있습니다.";

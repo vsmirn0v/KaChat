@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "New message request";
 "%@ wants to chat with you." = "%@ wants to chat with you.";
+"New offer on %@" = "New offer on %@";
+"%@ offered for it." = "%@ offered for it.";
+"Someone made an offer for it." = "Someone made an offer for it.";
+"%@ sold" = "%@ sold";
+"%@ was paid to you." = "%@ was paid to you.";
+"Your listing was bought." = "Your listing was bought.";
+"Offer accepted" = "Offer accepted";
+"%@ is yours now." = "%@ is yours now.";
+"Renew %@" = "Renew %@";
+"Renewal is open: renew now to keep it." = "Renewal is open: renew now to keep it.";
+"%@ expires soon" = "%@ expires soon";
+"%d days left to renew it." = "%d days left to renew it.";
+"1 day left to renew it." = "1 day left to renew it.";
+"%@ has expired" = "%@ has expired";
+"Renew within 10 days or anyone can claim it." = "Renew within 10 days or anyone can claim it.";

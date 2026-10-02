@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "درخواست پیام جدید";
 "%@ wants to chat with you." = "%@ می‌خواهد با شما گفتگو کند.";
+"New offer on %@" = "پیشنهاد جدید برای %@";
+"%@ offered for it." = "%@ برای آن پیشنهاد شد.";
+"Someone made an offer for it." = "کسی برای آن پیشنهادی داد.";
+"%@ sold" = "%@ فروخته شد";
+"%@ was paid to you." = "%@ به شما پرداخت شد.";
+"Your listing was bought." = "نام در فروش شما خریداری شد.";
+"Offer accepted" = "پیشنهاد پذیرفته شد";
+"%@ is yours now." = "%@ اکنون مال شماست.";
+"Renew %@" = "%@ را تمدید کنید";
+"Renewal is open: renew now to keep it." = "تمدید باز است: برای نگه داشتن، همین حالا تمدید کنید.";
+"%@ expires soon" = "%@ به‌زودی منقضی می‌شود";
+"%d days left to renew it." = "%d روز برای تمدید باقی مانده.";
+"1 day left to renew it." = "۱ روز برای تمدید باقی مانده.";
+"%@ has expired" = "%@ منقضی شد";
+"Renew within 10 days or anyone can claim it." = "ظرف ۱۰ روز تمدید کنید وگرنه هر کسی می‌تواند آن را بگیرد.";

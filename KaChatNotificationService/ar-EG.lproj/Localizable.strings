@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "طلب رسالة جديد";
 "%@ wants to chat with you." = "يريد %@ الدردشة معك.";
+"New offer on %@" = "عرض جديد على %@";
+"%@ offered for it." = "اتعرض %@ عليه.";
+"Someone made an offer for it." = "حد قدّم عرض عليه.";
+"%@ sold" = "%@ اتباع";
+"%@ was paid to you." = "اتدفعلك %@.";
+"Your listing was bought." = "الاسم المعروض بتاعك اتشرى.";
+"Offer accepted" = "العرض اتقبل";
+"%@ is yours now." = "%@ بقى بتاعك.";
+"Renew %@" = "جدّد %@";
+"Renewal is open: renew now to keep it." = "التجديد مفتوح: جدّد دلوقتي علشان تحتفظ بيه.";
+"%@ expires soon" = "%@ هيخلص قريب";
+"%d days left to renew it." = "فاضل %d أيام علشان تجدده.";
+"1 day left to renew it." = "فاضل يوم واحد علشان تجدده.";
+"%@ has expired" = "%@ خلص";
+"Renew within 10 days or anyone can claim it." = "جدّده خلال 10 أيام وإلا أي حد يقدر ياخده.";

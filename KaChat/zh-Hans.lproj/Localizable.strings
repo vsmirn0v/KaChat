@@ -1165,3 +1165,4 @@
 "Setting up" = "正在设置";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "测试网上的 .kachat 注册表正在升级。新注册表上线后，名称会在这里重新开放。";
 ".kachat Names" = ".kachat 名称";
+"This name isn't registered right now." = "这个名称目前未注册。";

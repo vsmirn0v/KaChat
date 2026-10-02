@@ -1165,3 +1165,4 @@
 "Setting up" = "Đang thiết lập";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "Sổ đăng ký .kachat trên Testnet đang được nâng cấp. Tên sẽ mở lại ở đây khi sổ đăng ký mới hoạt động.";
 ".kachat Names" = "Tên .kachat";
+"This name isn't registered right now." = "Tên này hiện chưa được đăng ký.";

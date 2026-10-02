@@ -218,6 +218,11 @@ struct MainTabView: View {
             PendingTabRoute.pending = nil
             routeToWalletTab(.portfolio)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openKachatName)) { _ in
+            // A .kachat name notification: the .kachat screen (dock or Kaspa Hub) opens the name.
+            PendingTabRoute.pending = nil
+            routeToFeature(.kachatNames)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openColdStorage)) { _ in
             // Cold-storage address-activity notification tapped: the Storage tab, or the next
             // best wallet surface when it's hidden.
@@ -409,7 +414,11 @@ struct MainTabView: View {
     private func consumePendingNotificationRoute() {
         if let tab = PendingTabRoute.pending {
             PendingTabRoute.pending = nil
-            routeToWalletTab(tab)
+            if tab == .kachatNames {
+                routeToFeature(.kachatNames)
+            } else {
+                routeToWalletTab(tab)
+            }
             return
         }
         if PublicChatService.shared.pendingPublicChatNavigation != nil {

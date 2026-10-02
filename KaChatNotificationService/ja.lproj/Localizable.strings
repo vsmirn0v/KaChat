@@ -328,3 +328,18 @@
 /* 5.2: Message Requests, Private chats */
 "New message request" = "新しいメッセージリクエスト";
 "%@ wants to chat with you." = "%@ があなたとチャットしたいようです。";
+"New offer on %@" = "%@ に新しいオファー";
+"%@ offered for it." = "%@ のオファーがありました。";
+"Someone made an offer for it." = "誰かがオファーを出しました。";
+"%@ sold" = "%@ が売れました";
+"%@ was paid to you." = "%@ が支払われました。";
+"Your listing was bought." = "出品していた名前が購入されました。";
+"Offer accepted" = "オファーが承諾されました";
+"%@ is yours now." = "%@ はあなたのものになりました。";
+"Renew %@" = "%@ を更新";
+"Renewal is open: renew now to keep it." = "更新できるようになりました。保持するには今すぐ更新してください。";
+"%@ expires soon" = "%@ の期限が近づいています";
+"%d days left to renew it." = "更新まであと %d 日です。";
+"1 day left to renew it." = "更新まであと 1 日です。";
+"%@ has expired" = "%@ の期限が切れました";
+"Renew within 10 days or anyone can claim it." = "10 日以内に更新しないと、誰でも取得できるようになります。";

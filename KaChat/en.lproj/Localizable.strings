@@ -1166,3 +1166,4 @@
 "Setting up" = "Setting up";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live.";
 ".kachat Names" = ".kachat Names";
+"This name isn't registered right now." = "This name isn't registered right now.";

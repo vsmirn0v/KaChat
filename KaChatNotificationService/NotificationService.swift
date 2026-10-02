@@ -67,6 +67,13 @@ class NotificationService: UNNotificationServiceExtension {
         // Extract push data from userInfo
         let userInfo = request.content.userInfo
 
+        // .kachat name events (KACHAT_NAMES_INDEXER.md Part E): offers, sales, renewal reminders.
+        if (userInfo["type"] as? String) == "name_event" {
+            handleNameEvent(content: content, userInfo: userInfo)
+            contentHandler(content)
+            return
+        }
+
         // Public Chat-room pushes (thread-id `public chat:<channel>`, see PUSH_EXTENSIONS.md §2).
         // They carry none of the tx_id/sender/type keys the 1:1 pipeline below needs, so
         // without this they'd fall straight through the guard untouched. Public Chat content is
@@ -703,6 +710,60 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     // MARK: - Shared Data Access
+
+    /// A `.kachat` name event, written in the device's language. Payload (indexer Part E):
+    /// `event` (name_offer, name_sold, name_offer_accepted, name_renewal_open, name_expiring,
+    /// name_grace), `name` (without .kachat), optional `amount` (sompi string) and `days`.
+    /// Thread "kachat-names": the app opens the name when it's tapped.
+    private func handleNameEvent(content: UNMutableNotificationContent, userInfo: [AnyHashable: Any]) {
+        content.threadIdentifier = "kachat-names"
+        guard let rawName = userInfo["name"] as? String, !rawName.isEmpty else { return }
+        let name = rawName.lowercased().hasSuffix(".kachat") ? rawName.lowercased() : rawName.lowercased() + ".kachat"
+        var amount: String?
+        if let sompiText = userInfo["amount"] as? String, let sompi = UInt64(sompiText) {
+            amount = Self.kasText(sompi) + " " + unitLabel("KAS")
+        } else if let sompi = (userInfo["amount"] as? NSNumber)?.uint64Value {
+            amount = Self.kasText(sompi) + " " + unitLabel("KAS")
+        }
+        let days = (userInfo["days"] as? NSNumber)?.intValue ?? Int((userInfo["days"] as? String) ?? "")
+        func L(_ key: String, _ comment: String) -> String { NSLocalizedString(key, comment: comment) }
+        switch userInfo["event"] as? String {
+        case "name_offer":
+            content.title = String(format: L("New offer on %@", "Push title: someone made an offer for one of your .kachat names"), name)
+            content.body = amount.map { String(format: L("%@ offered for it.", "Push body: the offer amount"), $0) }
+                ?? L("Someone made an offer for it.", "Push body: an offer without amount")
+        case "name_sold":
+            content.title = String(format: L("%@ sold", "Push title: your listed .kachat name was bought"), name)
+            content.body = amount.map { String(format: L("%@ was paid to you.", "Push body: what the sale paid"), $0) }
+                ?? L("Your listing was bought.", "Push body: a sale without amount")
+        case "name_offer_accepted":
+            content.title = L("Offer accepted", "Push title: the owner accepted your offer for a .kachat name")
+            content.body = String(format: L("%@ is yours now.", "Push body: the .kachat name you made an offer for"), name)
+        case "name_renewal_open":
+            content.title = String(format: L("Renew %@", "Push title: the renewal window of your .kachat name opened"), name)
+            content.body = L("Renewal is open: renew now to keep it.", "Push body: renewal window opened")
+        case "name_expiring":
+            content.title = String(format: L("%@ expires soon", "Push title: your .kachat name is about to expire"), name)
+            if let days, days > 1 {
+                content.body = String(format: L("%d days left to renew it.", "Push body: days left before expiry"), days)
+            } else {
+                content.body = L("1 day left to renew it.", "Push body: one day left before expiry")
+            }
+        case "name_grace":
+            content.title = String(format: L("%@ has expired", "Push title: your .kachat name expired"), name)
+            content.body = L("Renew within 10 days or anyone can claim it.", "Push body: grace period started")
+        default:
+            break // an event this build doesn't know: keep the server's text
+        }
+        content.sound = .default
+    }
+
+    /// Sompi as KAS text: up to 8 decimals, trailing zeros dropped.
+    static func kasText(_ sompi: UInt64) -> String {
+        var s = String(format: "%.8f", Double(sompi) / 100_000_000)
+        while s.contains(".") && (s.hasSuffix("0") || s.hasSuffix(".")) { s.removeLast() }
+        return s
+    }
 
     /// `text` with KAS shown as TKAS when the app runs on testnet (its shared wallet address is
     /// `kaspatest:`) - the extension's copy of the app's `KaspaUnit.label`.

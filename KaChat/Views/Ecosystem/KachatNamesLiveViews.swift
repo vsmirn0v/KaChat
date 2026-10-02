@@ -2482,3 +2482,70 @@ struct KachatYearsText: View {
         if years == 1 { Text("1 year") } else { Text("\(years) years") }
     }
 }
+
+
+// MARK: - Opening a name from a notification
+
+/// Where a tapped `.kachat` name notification lands. Kept until the `.kachat` screen is on
+/// screen to take it, so a cold start from the notification still opens the name.
+@MainActor
+enum KachatDeepLink {
+    static var pendingName: String?
+}
+
+/// A name to open, by name: the destination looks it up itself.
+struct KachatNameRoute: Hashable, Identifiable {
+    let name: String
+    var id: String { name }
+}
+
+/// The name a notification pointed at: its live detail once looked up.
+struct KachatNameRouteView: View {
+    let name: String
+    @State private var info: KachatNames.NameInfo?
+    @State private var missing = false
+
+    var body: some View {
+        Group {
+            if let info {
+                KachatLiveNameDetail(info: info)
+            } else if missing {
+                VStack(spacing: 10) {
+                    Text(verbatim: "\(name).kachat").font(.headline)
+                    Text("This name isn't registered right now.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding(32)
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            if case .registered(let found)? = try? await KachatNamesRegistry.shared.lookup(name) {
+                info = found
+            } else {
+                missing = true
+            }
+        }
+    }
+}
+
+/// `navigationDestination(item:)` on iOS 17, the `isPresented:` form on iOS 16 (as the chat list
+/// does - see ChatDetailNavigationDestination).
+struct KachatNameRouteDestination: ViewModifier {
+    @Binding var route: KachatNameRoute?
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.navigationDestination(item: $route) { KachatNameRouteView(name: $0.name) }
+        } else {
+            content.navigationDestination(isPresented: Binding(
+                get: { route != nil },
+                set: { if !$0 { route = nil } }
+            )) {
+                if let route { KachatNameRouteView(name: route.name) }
+            }
+        }
+    }
+}

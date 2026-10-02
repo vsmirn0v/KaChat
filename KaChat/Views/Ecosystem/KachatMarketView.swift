@@ -62,6 +62,8 @@ struct KachatMarketView: View {
     @StateObject private var live = KachatHubModel()
     @ObservedObject private var actions = KachatNamesActions.shared
     @State private var claimTarget: KachatClaimTarget?
+    /// A name opened from a notification (`KachatDeepLink`).
+    @State private var nameRoute: KachatNameRoute?
 
     var body: some View {
         NavigationStack {
@@ -104,6 +106,9 @@ struct KachatMarketView: View {
             .sheet(item: $claimTarget) { target in
                 KachatClaimSheet(target: target)
             }
+            .modifier(KachatNameRouteDestination(route: $nameRoute))
+            .onAppear { takePendingName() }
+            .onReceive(NotificationCenter.default.publisher(for: .openKachatName)) { _ in takePendingName() }
             .background(Color(.systemGroupedBackground))
             .navigationTitle(".kachat")
             .navigationBarTitleDisplayMode(.inline)
@@ -121,6 +126,13 @@ struct KachatMarketView: View {
             }
             .sheet(isPresented: $showHowItWorks) { howItWorksSheet }
         }
+    }
+
+    /// Opens the name a tapped notification pointed at (testnet only, where names are live).
+    private func takePendingName() {
+        guard let name = KachatDeepLink.pendingName, KachatLive.isEnabled else { return }
+        KachatDeepLink.pendingName = nil
+        nameRoute = KachatNameRoute(name: name)
     }
 
     // MARK: - Hero and search
