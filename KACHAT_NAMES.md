@@ -150,10 +150,14 @@ days left.
 
 Decided 2026-10-02 and **built** the same day: the contracts, harness, CLI and vectors in
 kachat-domains (README "Registry v2"), and the app's core, chain walker, actions and screens
-(section 9). **Genesis pending**: the live testnet-10 registry `9444187f…7a51` still runs the v1
-contracts (no `periodStart`, renewals stack without limit) and v2 can't spend its UTXOs, so v2
-needs a new genesis and manifest. Until the app bundles that manifest, its `.kachat` screens on
-testnet say "Setting up" (section 9).
+(section 9). **Live on testnet-10** since 2026-10-02:
+- registry `82f4315c8f7b3e0e76fc2f77466fe7651d2c1fac4e0b5810d4da878a9cfa0f89`;
+- genesis tx `e20325f70db06192b619e6ef161b45b4a24b3cde58b5d2b0188532395175a426`, accepted at DAA
+  586,328,979;
+- the manifest is bundled in the app.
+
+The v1 registry `9444187f…7a51` (v1 contracts, only its genesis gap) is retired; its manifest is
+archived in kachat-domains `manifests/v1/`.
 
 - **New state field.** The name state gains `periodStart` (unix ms), the start of the current paid
   period. Register sets it to `now`.
@@ -377,7 +381,7 @@ screens run on the live registry. Mainnet is unchanged: mockups, "Coming soon", 
 
 | File | What |
 |---|---|
-| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled (registry `9444187f…7a51`, **v1**: refused as outdated until the v2 genesis manifest replaces it) |
+| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled (registry v2 `82f4315c…0f89`, genesis `e20325f7…a426`) |
 | `KaChat/Services/KachatNames/KachatNamesRegistryState.swift` | pure: status (B5), label rule, profile record, REST tx parser, indexer shapes, the walker state and its decoder (`apply`, a port of the CLI's `Registry::apply`), the walk loop |
 | `KaChat/Services/KachatNames/KachatNamesRegistry.swift` | `@MainActor` reads: lookup, by owner, listings, lapsed, offers, history, activity, exit gaps, identity; source = names indexer or chain walker; cache in Application Support |
 | `KaChat/Services/KachatNames/KachatNamesActions.swift` | `@MainActor` actions (extend, renew, transfer, list, buy, offer, withdraw, refund, accept, release, reclaim, profile), quotes, the resumable registration driver, cancel commit |
