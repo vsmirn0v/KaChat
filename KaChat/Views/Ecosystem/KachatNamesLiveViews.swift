@@ -59,6 +59,14 @@ enum KachatLive {
 
     static func date(_ ms: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(ms) / 1000) }
 
+    /// A unix-ms day as a row value ("Oct 12, 2027"), in the in-app language.
+    static func day(_ ms: Int64) -> String {
+        date(ms).formatted(Date.FormatStyle(date: .abbreviated, time: .omitted).locale(AppLocalization.locale))
+    }
+
+    /// The registry parameters, once the manifest is verified.
+    @MainActor static var params: KachatNames.Params? { KachatNamesService.shared.manifest?.params }
+
     /// An event party: an address (indexer) or an x-only key in hex (walker), as a short address.
     static func party(_ s: String?) -> String? {
         guard let s, !s.isEmpty else { return nil }
@@ -78,6 +86,7 @@ enum KachatLive {
         case "list": return "tag"
         case "delist": return "tag.slash"
         case "sale", "offer_accepted": return "cart"
+        case "extend": return "calendar.badge.plus"
         case "renew": return "arrow.clockwise"
         case "release": return "arrow.uturn.backward"
         case "reclaim": return "arrow.3.trianglepath"
@@ -93,6 +102,7 @@ enum KachatLive {
         case "delist": return "Delisted"
         case "sale": return "Sold"
         case "offer_accepted", "offer_accept": return "Offer accepted"
+        case "extend": return "Extended"
         case "renew": return "Renewed"
         case "release": return "Released"
         case "reclaim": return "Reclaimed"
@@ -183,6 +193,8 @@ struct KachatStatusPill: View {
 struct KachatLiveNameRow: View {
     let info: KachatNames.NameInfo
     var showPrice = true
+    /// My Names: say when an active name's renewal window is open.
+    var showRenewal = false
 
     private var status: KachatNames.Status { info.status(graceMs: KachatNamesRegistry.shared.graceMs) }
 
@@ -211,7 +223,14 @@ struct KachatLiveNameRow: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 8)
-            if showPrice && info.isListed && status == .active {
+            if showRenewal && status == .active, let p = KachatLive.params, info.renewOpen(p) {
+                Text("Renewal open")
+                    .font(.caption2.weight(.bold))
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.orange.opacity(0.15)))
+            } else if showPrice && info.isListed && status == .active {
                 Text(verbatim: KaspaUnit.amount(info.price))
                     .font(.subheadline.weight(.semibold))
             } else if status != .active {
@@ -688,7 +707,7 @@ struct KachatLiveMyNamesPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            KachatLiveSectionHeader(title: "My Names", detail: "Renew, list, transfer or release them, and pick the one KaChat shows for you.")
+            KachatLiveSectionHeader(title: "My Names", detail: "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you.")
             if model.mine.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "at.circle")
@@ -705,7 +724,7 @@ struct KachatLiveMyNamesPage: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(model.mine.enumerated()), id: \.element.id) { index, n in
-                        NavigationLink { KachatListingDetailView(info: n) } label: { KachatLiveNameRow(info: n) }
+                        NavigationLink { KachatListingDetailView(info: n) } label: { KachatLiveNameRow(info: n, showRenewal: true) }
                             .buttonStyle(.plain)
                         if index < model.mine.count - 1 { Divider().padding(.leading, 62) }
                     }
@@ -1192,7 +1211,7 @@ struct KachatClaimSheet: View {
                 Section {
                     stepRow(1, "A hidden commit goes on chain first. Nobody can see which name it is for.")
                     stepRow(2, "About a minute later KaChat registers the name by itself. Keep the app open; if you leave, it continues next time.")
-                    stepRow(3, "The name is yours for the years you paid. Renew it any time before it expires.")
+                    stepRow(3, "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it.")
                 } header: {
                     Text("How claiming works")
                 }
@@ -1268,7 +1287,7 @@ struct KachatLiveNameDetail: View {
     @ObservedObject private var actions = KachatNamesActions.shared
 
     private enum Sheet: Identifiable {
-        case buy, offer, renew, list, delist, transfer, release, reclaim
+        case buy, offer, extend, renew, list, delist, transfer, release, reclaim
         var id: Int { hashValue }
     }
 
@@ -1349,6 +1368,16 @@ struct KachatLiveNameDetail: View {
                         .foregroundColor(.secondary)
                 }
             }
+            if let start = info.periodStart {
+                // registry v2: the paid period, from its start to the expiry (at most 2 years)
+                Label {
+                    Text("Paid from \(KachatLive.date(start), format: .dateTime.year().month().day()) to \(KachatLive.date(info.expiresAt), format: .dateTime.year().month().day())")
+                } icon: {
+                    Image(systemName: "calendar")
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
             switch status {
             case .grace where mine:
                 Text("Expired - renew to keep it. Until the grace period ends nobody else can take it.")
@@ -1372,21 +1401,16 @@ struct KachatLiveNameDetail: View {
     private var actionButtons: some View {
         VStack(spacing: 10) {
             if mine {
+                periodActions
                 HStack(spacing: 10) {
-                    actionButton("Renew", "arrow.clockwise", prominent: status != .active) { sheet = .renew }
                     actionButton(info.isListed ? "Change Price" : "List for Sale", "tag") { sheet = .list }
                         .disabled(status != .active)
+                    actionButton("Transfer", "arrow.left.arrow.right") { sheet = .transfer }
                 }
                 HStack(spacing: 10) {
-                    actionButton("Transfer", "arrow.left.arrow.right") { sheet = .transfer }
                     if info.isListed {
                         actionButton("Delist", "tag.slash") { sheet = .delist }
-                    } else {
-                        actionButton("Set as Primary", "person.crop.circle.badge.checkmark") { confirmPrimary = true }
-                            .disabled(status != .active)
                     }
-                }
-                if info.isListed {
                     actionButton("Set as Primary", "person.crop.circle.badge.checkmark") { confirmPrimary = true }
                         .disabled(status != .active)
                 }
@@ -1412,6 +1436,45 @@ struct KachatLiveNameDetail: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    /// Registry v2: "Extend" while the paid period holds less than 2 years (labelled "Extend to
+    /// 2 years" when that fills it), "Renew" once the renewal window is open (10 days before
+    /// the expiry, and on through grace and lapse), otherwise "Renewal opens on <date>".
+    @ViewBuilder
+    private var periodActions: some View {
+        if let p = KachatLive.params {
+            let extendable = info.extendableYears(p)
+            let renewOpen = info.renewOpen(p)
+            if extendable > 0 || renewOpen {
+                HStack(spacing: 10) {
+                    if extendable > 0 {
+                        if KachatExtendSheet.fillsPeriod(info, years: extendable, params: p) {
+                            actionButton("Extend to \(p.maxYears) years", "calendar.badge.plus", prominent: status != .active && !renewOpen) { sheet = .extend }
+                        } else {
+                            actionButton("Extend", "calendar.badge.plus", prominent: status != .active && !renewOpen) { sheet = .extend }
+                        }
+                    }
+                    if renewOpen {
+                        actionButton("Renew", "arrow.clockwise", prominent: status != .active) { sheet = .renew }
+                    }
+                }
+            }
+            if !renewOpen {
+                Button {} label: {
+                    Label {
+                        Text("Renewal opens on \(KachatLive.date(info.renewOpens(p)), format: .dateTime.year().month().day())")
+                    } icon: {
+                        Image(systemName: "calendar.badge.clock")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.bordered)
+                .disabled(true)
+            }
+        }
     }
 
     private func actionButton(_ title: LocalizedStringKey, _ icon: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
@@ -1529,6 +1592,7 @@ struct KachatLiveNameDetail: View {
         switch s {
         case .buy: KachatBuySheet(info: info)
         case .offer: KachatOfferSheet(info: info)
+        case .extend: KachatExtendSheet(info: info)
         case .renew: KachatRenewSheet(info: info)
         case .list: KachatListSheet(info: info)
         case .delist:
@@ -1674,22 +1738,74 @@ struct KachatLiveOfferSheet: View {
     }
 }
 
+/// Registry v2 `extend`: years added to the current paid period (periodStart kept), up to 2
+/// years past its start - in practice a 1-year name extended to 2. Anyone may extend any name.
+struct KachatExtendSheet: View {
+    let info: KachatNames.NameInfo
+    @State private var years: Int64 = 1
+
+    private var params: KachatNames.Params? { KachatLive.params }
+    private var maxYears: Int64 { params?.maxYears ?? 2 }
+    /// The years that still fit in the period (in practice 1).
+    private var available: Int64 { max(1, params.map { info.extendableYears($0) } ?? 1) }
+    private var perYear: UInt64 { params?.renewPrice(forLength: info.name.utf8.count) ?? 0 }
+
+    /// Whether extending by `years` fills the period to exactly `maxYears`.
+    static func fillsPeriod(_ info: KachatNames.NameInfo, years: Int64, params p: KachatNames.Params) -> Bool {
+        guard let start = info.periodStart else { return false }
+        return info.expiresAt + years * KachatNames.yearMs == start + p.maxYears * KachatNames.yearMs
+    }
+
+    private var title: LocalizedStringKey {
+        if let params, Self.fillsPeriod(info, years: years, params: params) { return "Extend to \(maxYears) years" }
+        return "Extend"
+    }
+
+    var body: some View {
+        KachatTxSheet(
+            title: title, confirmTitle: "Extend",
+            authReason: KachatLive.authReason, doneTitle: "Extended",
+            footer: "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners.",
+            rows: [
+                .init(title: "Name", value: info.display),
+                .init(title: "Price per year", value: KaspaUnit.amount(perYear)),
+                .init(title: "Expires", value: KachatLive.day(info.expiresAt)),
+                .init(title: "New expiry", value: KachatLive.day(info.expiresAt + years * KachatNames.yearMs))
+            ],
+            operation: .extend(info, years: min(years, available)), operationKey: "extend-\(years)"
+        ) {
+            if available > 1 {
+                Section {
+                    Picker("Years", selection: $years) {
+                        ForEach(1...Int(available), id: \.self) { y in
+                            KachatYearsText(years: y).tag(Int64(y))
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+        }
+    }
+}
+
+/// Registry v2 `renew`: the next period, from the current expiry, for 1 or 2 years - only once
+/// the renewal window is open (10 days before the expiry; the detail screen says when).
 struct KachatRenewSheet: View {
     let info: KachatNames.NameInfo
     @State private var years: Int64 = 1
 
-    private var maxYears: Int64 { KachatNamesService.shared.manifest?.params.maxYears ?? 2 }
-    private var perYear: UInt64 { KachatNamesService.shared.manifest?.params.renewPrice(forLength: info.name.utf8.count) ?? 0 }
+    private var maxYears: Int64 { KachatLive.params?.maxYears ?? 2 }
+    private var perYear: UInt64 { KachatLive.params?.renewPrice(forLength: info.name.utf8.count) ?? 0 }
 
     var body: some View {
         KachatTxSheet(
             title: "Renew", confirmTitle: "Renew",
             authReason: KachatLive.authReason, doneTitle: "Renewed",
-            footer: "A renewal adds to the current expiry, even after it passed. The price goes to the miners.",
+            footer: "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners.",
             rows: [
                 .init(title: "Name", value: info.display),
                 .init(title: "Price per year", value: KaspaUnit.amount(perYear)),
-                .init(title: "New expiry", value: KachatLive.date(info.expiresAt + years * KachatNames.yearMs).formatted(date: .abbreviated, time: .omitted))
+                .init(title: "New period", value: "\(KachatLive.day(info.expiresAt)) – \(KachatLive.day(info.expiresAt + years * KachatNames.yearMs))")
             ],
             operation: .renew(info, years: years), operationKey: "renew-\(years)"
         ) {
