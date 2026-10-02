@@ -649,10 +649,12 @@ let mainnetDNSSeeds: [DNSSeed] = [
     DNSSeed(hostname: "kaspa.aspectron.org", port: 16110),
 ]
 
-/// Pre-provisioned DNS seeds for testnet
+/// Pre-provisioned DNS seeds for testnet-10 - rusty-kaspa's own `TESTNET_PARAMS.dns_seeders`
+/// (the older seeder1/2-testnet.kaspad.net names no longer resolve).
 let testnetDNSSeeds: [DNSSeed] = [
-    DNSSeed(hostname: "seeder1-testnet.kaspad.net", port: 16210),
-    DNSSeed(hostname: "seeder2-testnet.kaspad.net", port: 16210),
+    DNSSeed(hostname: "seeder1-tn.kaspad.net", port: 16210),
+    DNSSeed(hostname: "dnsseeder-kaspa-testnet.x-con.at", port: 16210),
+    DNSSeed(hostname: "n-testnet-10.kaspa.ws", port: 16210),
 ]
 
 // MARK: - Bootstrap Fallback Nodes (last resort)
