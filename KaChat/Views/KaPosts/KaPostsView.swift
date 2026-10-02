@@ -3644,15 +3644,19 @@ struct KaPostsView: View {
                     // always a plain https URL, so URL(string:) handed AsyncImage something it
                     // could not fetch and the banner silently never appeared. That view resolves
                     // the value the same way every other banner in the app does, and caches it.
-                    ZStack(alignment: .bottomLeading) {
-                        bannerFallback
-                            .frame(height: 140)
-                            .clipped()
+                    // The whole banner at the full width (its own proportions, no crop); the
+                    // gradient only when there is no banner.
+                    if KNSProfileLinkBuilder.websiteURL(from: myInfo?.profile?.bannerUrl) != nil {
                         KNSBannerImageView(
                             bannerURLString: myInfo?.profile?.bannerUrl,
                             height: 140,
-                            cornerRadius: 0
+                            cornerRadius: 0,
+                            fitsWidth: true
                         )
+                    } else {
+                        bannerFallback
+                            .frame(height: 140)
+                            .clipped()
                     }
 
                     // Avatar overlapping the banner, X-style.
@@ -3843,15 +3847,19 @@ struct KaPostsView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // Through KNSBannerImageView - see the matching note on the own-profile
                     // banner for why a bare AsyncImage never loaded a KNS bannerUrl.
-                    ZStack(alignment: .bottomLeading) {
-                        bannerFallback
-                            .frame(height: 140)
-                            .clipped()
+                    // The whole banner at the full width (its own proportions, no crop); the
+                    // gradient only when there is no banner.
+                    if KNSProfileLinkBuilder.websiteURL(from: info?.profile?.bannerUrl) != nil {
                         KNSBannerImageView(
                             bannerURLString: info?.profile?.bannerUrl,
                             height: 140,
-                            cornerRadius: 0
+                            cornerRadius: 0,
+                            fitsWidth: true
                         )
+                    } else {
+                        bannerFallback
+                            .frame(height: 140)
+                            .clipped()
                     }
 
                     KNSAvatarView(

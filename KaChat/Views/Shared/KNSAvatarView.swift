@@ -167,6 +167,10 @@ struct KNSBannerImageView: View {
     let bannerURLString: String?
     var height: CGFloat = 110
     var cornerRadius: CGFloat = 10
+    /// Show the whole banner: the full width, at the picture's own proportions (no crop).
+    /// `height` is then only the placeholder's while it loads. Shapes outside 1.5:1 to 8:1 are
+    /// held to those bounds and shown whole inside them.
+    var fitsWidth: Bool = false
 
     @State private var loadedImage: UIImage?
     @State private var isLoading = false
@@ -189,16 +193,30 @@ struct KNSBannerImageView: View {
                 //
                 // An overlay is laid out against its base's size and can never change it, so the
                 // canvas below is the only thing that decides how much room this takes.
-                Color.clear
-                    .frame(maxWidth: .infinity)
-                    .frame(height: height)
-                    .overlay {
-                        Image(uiImage: loadedImage)
-                            .resizable()
-                            .scaledToFill()
-                    }
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                if fitsWidth {
+                    // Same overlay rule; the canvas just takes the picture's proportions, so the
+                    // whole banner shows at the full width.
+                    Color.clear
+                        .aspectRatio(Self.fitRatio(loadedImage), contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .overlay {
+                            Image(uiImage: loadedImage)
+                                .resizable()
+                                .scaledToFit()
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                } else {
+                    Color.clear
+                        .frame(maxWidth: .infinity)
+                        .frame(height: height)
+                        .overlay {
+                            Image(uiImage: loadedImage)
+                                .resizable()
+                                .scaledToFill()
+                        }
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                }
             } else if KNSProfileImageDescriptor.from(raw: bannerURLString) != nil {
                 if isLoading || !didFail {
                     RoundedRectangle(cornerRadius: cornerRadius)
@@ -213,6 +231,12 @@ struct KNSBannerImageView: View {
         .task(id: KNSProfileImageDescriptor.from(raw: bannerURLString)?.cacheIdentity) {
             await loadBannerIfNeeded()
         }
+    }
+
+    /// Width / height of the canvas for a fitted banner, held to 1.5...8.
+    private static func fitRatio(_ image: UIImage) -> CGFloat {
+        guard image.size.height > 0 else { return 3 }
+        return min(8, max(1.5, image.size.width / image.size.height))
     }
 
     @MainActor

@@ -2110,7 +2110,7 @@ struct KachatSocialPreview: View {
             case .avatar:
                 KNSAvatarView(avatarURLString: resolved?.avatar, fallbackText: "", size: 64)
             case .banner:
-                KNSBannerImageView(bannerURLString: resolved?.banner, height: 90, cornerRadius: 8)
+                KNSBannerImageView(bannerURLString: resolved?.banner, height: 90, cornerRadius: 8, fitsWidth: true)
             case .bio:
                 Text(verbatim: resolved?.bio ?? "").font(.subheadline)
             }

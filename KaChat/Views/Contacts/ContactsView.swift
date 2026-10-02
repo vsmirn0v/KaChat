@@ -620,10 +620,10 @@ struct ProfileView: View {
         return VStack(alignment: .leading, spacing: 0) {
             Group {
                 if let kachatBanner {
-                    KNSBannerImageView(bannerURLString: kachatBanner, height: 140, cornerRadius: 0)
+                    KNSBannerImageView(bannerURLString: kachatBanner, height: 140, cornerRadius: 0, fitsWidth: true)
                 } else if !KachatNamesService.isEnabled, let bannerURL = knsProfileInfo?.profile?.bannerUrl,
                    KNSProfileLinkBuilder.websiteURL(from: bannerURL) != nil {
-                    KNSBannerImageView(bannerURLString: bannerURL, height: 140, cornerRadius: 0)
+                    KNSBannerImageView(bannerURLString: bannerURL, height: 140, cornerRadius: 0, fitsWidth: true)
                 } else {
                     LinearGradient(
                         colors: [Color.accentColor.opacity(0.55), Color.accentColor.opacity(0.15)],
@@ -858,7 +858,8 @@ struct ProfileView: View {
                 KNSBannerImageView(
                     bannerURLString: profileInfo.profile?.bannerUrl,
                     height: 140,
-                    cornerRadius: 0
+                    cornerRadius: 0,
+                    fitsWidth: true
                 )
             }
 

@@ -169,12 +169,13 @@ struct ChatInfoView: View {
             Form {
                 Section {
                     if let kachatBanner {
-                        KNSBannerImageView(bannerURLString: kachatBanner, height: 110, cornerRadius: 10)
+                        KNSBannerImageView(bannerURLString: kachatBanner, height: 110, cornerRadius: 10, fitsWidth: true)
                     } else if usesKNSProfile, KNSProfileLinkBuilder.websiteURL(from: knsProfile?.bannerUrl) != nil {
                         KNSBannerImageView(
                             bannerURLString: knsProfile?.bannerUrl,
                             height: 110,
-                            cornerRadius: 10
+                            cornerRadius: 10,
+                            fitsWidth: true
                         )
                     }
 
