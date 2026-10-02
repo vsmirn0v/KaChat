@@ -257,6 +257,48 @@ A `names` module in kachat-indexer (it already sees every block):
 - Identity: one `/identity/{address}` lookup feeds every profile card, chat header and contact row;
   Edit .kachat Profile writes the profile record and works with no name at all.
 
+### App transaction core (iOS, phase 4a)
+
+The kachat-domains CLI's builders (`tools/kachat-names-cli/src/ops.rs`) ported to Swift, testnet-10
+only. No screen calls it yet.
+
+| File | What |
+|---|---|
+| `KaChat/Utilities/Blake3.swift` | BLAKE3, hash and keyed hash (rusty-kaspa's keyed BLAKE3 domains for v1 txids) |
+| `KaChat/Services/KachatNames/KachatNamesCodec.swift` | name rules, `key = blake3(name)`, commit hash + script, `num8`, script numbers, state codecs, minimal pushes, P2SH/P2PK, template hash, covenant id, payload markers |
+| `KaChat/Services/KachatNames/KachatNamesTransaction.swift` | version-1 tx (covenant bindings, compute budgets, storage-mass commitment), rest/full preimages, v1 txid, tx hash, SIGHASH_ALL sighash, compute / transient / storage mass, fee |
+| `KaChat/Services/KachatNames/KachatNamesManifest.swift` | the manifest and its verification |
+| `KaChat/Services/KachatNames/KachatNamesBuilder.swift` | commit, register, renew, transfer, list, buy, offer, accept/withdraw/refund offer, release, reclaim |
+| `KaChat/Services/KachatNames/KachatNamesService.swift` | `@MainActor`: testnet gate, manifest loading, DAG point, funding and live registry UTXOs, P256K signing, protowire conversion, submit, profile record |
+
+- **Manifest**: `kachat-names-testnet-10.json` from the app bundle when present, else the indexer's
+  `GET /names/manifest` (the chat indexer URL). Before use: network `testnet-10`, every template hash
+  recomputed from its prefix and suffix (gap and name pinned to the README's hashes), every dispatch
+  tag present, the offer baked with this registry id and name template, the genesis output equal to
+  the genesis gap `(00..00, ff..ff)` worth `gapValue`, and `registryCovenantId ==
+  covenant_id(genesis outpoint, [(0, gap)])`. A dry-run manifest is refused.
+- **Compute budgets**: the CLI measures each input in the script engine; the app has none, so it
+  commits a fixed budget per entry (register 7, merge 3, absorbed 0, transfer/list 11, buy 1, renew 1,
+  release 10, reclaim 0, accept 3, withdraw 10, refund 0, commit/P2PK 10). Budgets are not in the
+  sighash or the txid; a higher one only costs 100 grams per unit.
+- **Signing**: BIP-340 Schnorr with the wallet key (P256K), SIGHASH_ALL over the v1 sighash. The
+  builders leave 65-byte placeholders, so sizes and fees are final before signing.
+- **Submission**: `Protowire_RpcTransaction` with `version = 1`, `computeBudget` (and `sigOpCount = 0`)
+  on inputs, `covenant` on registry outputs and `storageMass`, through `NodePoolService`. The
+  protowire is regenerated from rusty-kaspa a41a333 (`scripts/regenerate_protowire.sh`).
+- **Verified against vectors**: `KaChatTests/KachatNamesVectors.json`, written by kachat-domains'
+  `kachat-names-vectors` from the CLI's own builders (the whole e2e plan plus nine edge cases, each
+  validated by rusty-kaspa's consensus validator). `scripts/test_kachat_names_core.swift` checks the
+  pure core byte for byte, with the recorded signatures fed in: inputs, sequences, budgets, outputs,
+  covenant bindings, lock time, payload, masses, fee, rest and full preimages, every sighash, every
+  signature script, txid and tx hash. All 27 transactions match. It also checks codecs, BLAKE3 against
+  the official vectors and Rust `blake3::hash`, and the manifest checks. With the app's fixed budgets
+  instead of the measured ones, all 27 rebuilt transactions pass `kachat-names-vectors check` (signed
+  with the vectors' key and run through the consensus validator, under their budgets, standardness
+  and the relay floor).
+- **Not verified without a device build**: P256K signing itself, the protowire conversion and the
+  gRPC submit path (`KachatNamesService`), and the manifest fetch.
+
 ## 10. Open points
 
 1. **Renewal price**: the same tiers as registration (35 / 250 / 1000 / 2000 / 4000 KAS per
@@ -286,5 +328,6 @@ A `names` module in kachat-indexer (it already sees every block):
 2. TN10 genesis + manifest; register / renew / transfer / list / buy / offer / reclaim end to end
    on testnet.
 3. Indexer `names` + profiles module (handoff to the indexer AI, like the other indexer docs).
-4. iOS wiring: Swift transaction builder, live `.kachat` screens, identity lookups, profiles.
+4. iOS wiring: Swift transaction builder, live `.kachat` screens, identity lookups, profiles. The
+   transaction core is done (phase 4a, section 9 "App transaction core"); screens come next.
 5. Review / audit, then mainnet genesis.

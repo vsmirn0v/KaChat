@@ -54,6 +54,7 @@ The app uses MVVM architecture with global singleton services injected via Swift
 | `KNSService` | Kaspa Name Service API client for domain resolution |
 | `KasiaTransactionBuilder` | Constructs signed Kaspa transactions |
 | `ChessTournamentService` | Chess tournaments: watches `#chess-arena` through `PublicChatService`, reduces it with `ChessTournamentEngine` (pure, deterministic - the indexer ports it), sends create/join/move/resign/claim/chat as broadcast transactions. Views in `Views/Chess/` |
+| `KachatNamesService` | `.kachat` names (testnet-10 only, no UI yet): loads and verifies the registry manifest, signs (P256K, v1 SIGHASH_ALL) and submits the version-1 covenant transactions built by the pure core in `Services/KachatNames/` (`KachatNames.Builder`, a port of the kachat-domains CLI checked against `KaChatTests/KachatNamesVectors.json` by `scripts/test_kachat_names_core.swift`; see KACHAT_NAMES.md "App transaction core") |
 | `CallService` | Voice/video calls over Nextcloud Talk + WebRTC (`NextcloudTalkClient`, `WebRTCClient`, `CallView`); ringing rides the 1:1 chat as `call_*` envelopes. `CallKitManager` mirrors every call into CallKit (lock-screen ringing, Recents, system audio session); `VoIPPushManager` receives the PushKit VoIP push the caller's phone requests from the push service so a closed app rings |
 
 ### Messaging Protocol
@@ -268,7 +269,7 @@ Companion targets at the repo root: `KaChatNotificationService/` (push decryptio
 ## Key Dependencies
 
 - **P256K** (swift-secp256k1, SPM): secp256k1 elliptic curve library for key derivation and signing
-- **grpc-swift + SwiftProtobuf** (SPM): gRPC stack for the node pool (`KaChat/Generated/*` holds the generated protobuf/gRPC sources)
+- **grpc-swift + SwiftProtobuf** (SPM): gRPC stack for the node pool (`KaChat/Generated/*` holds the generated protobuf/gRPC sources, regenerated from rusty-kaspa's protos by `scripts/regenerate_protowire.sh`)
 - **Opus** (`external/opus/Opus.xcframework`, vendored): audio codec for voice messages, linked through the Objective-C bridge `OpusBridge.h/m`
 
 ## Patterns to Follow
