@@ -2314,10 +2314,20 @@ struct ChatDetailView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // Up to seven rows (pay, camera, photo, voice, file, chess, a handshake), so a fixed
-        // height doesn't fit every case; medium expands to large for the tallest.
-        .presentationDetents([.medium, .large])
+        // Sized to its rows (pay, camera, photo, voice, chess, plus file and a handshake when
+        // they apply), like the group chat's sheet: at .medium the rows overflowed and, centred,
+        // pushed the title off the top until the sheet was dragged to full height.
+        .presentationDetents([.height(composerPlusSheetHeight), .large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// Header plus ~80pt per two-line row - the same measure the group chat's "+" sheet uses
+    /// (340 for three rows, 420 for four).
+    private var composerPlusSheetHeight: CGFloat {
+        var rows = 5
+        if nextcloudService.isConnected { rows += 1 }
+        if canSendRequestToCommunicate && !inboxSupported { rows += 1 }
+        return 100 + CGFloat(rows) * 80
     }
 
 
