@@ -1203,3 +1203,4 @@
 "Copies the transaction ID to your clipboard." = "Copies the transaction ID to your clipboard.";
 "Transaction ID copied" = "Transaction ID copied";
 "This payment isn't on chain yet." = "This payment isn't on chain yet.";
+"Opens the .kachat marketplace" = "Opens the .kachat marketplace";

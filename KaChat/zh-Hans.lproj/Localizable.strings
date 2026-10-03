@@ -1202,3 +1202,4 @@
 "Copies the transaction ID to your clipboard." = "将交易 ID 复制到剪贴板。";
 "Transaction ID copied" = "已复制交易 ID";
 "This payment isn't on chain yet." = "此付款尚未上链。";
+"Opens the .kachat marketplace" = "打开 .kachat 市场";

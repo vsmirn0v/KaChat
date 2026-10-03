@@ -1202,3 +1202,4 @@
 "Copies the transaction ID to your clipboard." = "İşlem kimliğini panoya kopyalar.";
 "Transaction ID copied" = "İşlem kimliği kopyalandı";
 "This payment isn't on chain yet." = "Bu ödeme henüz zincirde değil.";
+"Opens the .kachat marketplace" = ".kachat pazar yerini açar";

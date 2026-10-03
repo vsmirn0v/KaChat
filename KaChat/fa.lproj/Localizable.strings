@@ -1202,3 +1202,4 @@
 "Copies the transaction ID to your clipboard." = "شناسه تراکنش را در کلیپ‌بورد کپی می‌کند.";
 "Transaction ID copied" = "شناسه تراکنش کپی شد";
 "This payment isn't on chain yet." = "این پرداخت هنوز روی زنجیره نیست.";
+"Opens the .kachat marketplace" = "بازار .kachat را باز می‌کند";

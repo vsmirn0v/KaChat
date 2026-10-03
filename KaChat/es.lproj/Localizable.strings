@@ -1202,3 +1202,4 @@
 "Copies the transaction ID to your clipboard." = "Copia el ID de la transacción al portapapeles.";
 "Transaction ID copied" = "ID de transacción copiado";
 "This payment isn't on chain yet." = "Este pago aún no está on-chain.";
+"Opens the .kachat marketplace" = "Abre el mercado de .kachat";

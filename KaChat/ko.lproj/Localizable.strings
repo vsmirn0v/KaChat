@@ -1202,3 +1202,4 @@
 "Copies the transaction ID to your clipboard." = "거래 ID를 클립보드에 복사합니다.";
 "Transaction ID copied" = "거래 ID가 복사되었습니다";
 "This payment isn't on chain yet." = "이 결제는 아직 온체인에 없습니다.";
+"Opens the .kachat marketplace" = ".kachat 마켓플레이스를 엽니다";

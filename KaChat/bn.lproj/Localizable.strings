@@ -1202,3 +1202,4 @@
 "Copies the transaction ID to your clipboard." = "লেনদেন আইডি ক্লিপবোর্ডে কপি করে।";
 "Transaction ID copied" = "লেনদেন আইডি কপি হয়েছে";
 "This payment isn't on chain yet." = "এই পেমেন্টটি এখনও অন-চেইনে নেই।";
+"Opens the .kachat marketplace" = ".kachat মার্কেটপ্লেস খোলে";

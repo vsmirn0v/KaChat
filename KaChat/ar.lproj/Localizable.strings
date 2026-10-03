@@ -1202,3 +1202,4 @@
 "Copies the transaction ID to your clipboard." = "ينسخ معرّف المعاملة إلى الحافظة.";
 "Transaction ID copied" = "تم نسخ معرّف المعاملة";
 "This payment isn't on chain yet." = "هذه الدفعة ليست على السلسلة بعد.";
+"Opens the .kachat marketplace" = "يفتح سوق .kachat";

@@ -1957,6 +1957,10 @@ struct KachatLiveDomainsTab: View {
     @ObservedObject private var service = KachatNamesService.shared
     @State private var names: [KachatNames.NameInfo] = []
     @State private var loaded = false
+    /// The .kachat marketplace, opened by Inscribe as a sheet over Your Domains: a new name
+    /// lands back here as soon as it is swiped away, and it works whether or not .kachat is in
+    /// the dock or Kaspa Hub.
+    @State private var showMarketplace = false
 
     var body: some View {
         ScrollView {
@@ -1985,9 +1989,6 @@ struct KachatLiveDomainsTab: View {
                             .foregroundColor(.accentColor)
                         Text("No .kachat names yet")
                             .font(.headline)
-                        Text("Claim one in Kaspa Hub > .kachat.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 40)
@@ -2006,6 +2007,38 @@ struct KachatLiveDomainsTab: View {
         }
         .refreshable { await registry.refresh() }
         .task(id: registry.revision) { await load() }
+        .safeAreaInset(edge: .bottom) {
+            if loaded && !service.registryUpgrading {
+                inscribeButton
+            }
+        }
+        .sheet(isPresented: $showMarketplace, onDismiss: {
+            Task { await registry.refresh() }
+        }) {
+            KachatMarketView()
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// Pinned under the list like the other name services' "Get a domain" button, in the same
+    /// glass capsule with a teal outline (the cards above are accent-filled).
+    private var inscribeButton: some View {
+        Button {
+            showMarketplace = true
+        } label: {
+            Text("Inscribe")
+                .font(.subheadline)
+                .fontWeight(.bold)
+                .foregroundColor(.accentColor)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(Capsule().fill(.regularMaterial))
+                .overlay(Capsule().stroke(Color.accentColor, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
+        .padding(.bottom, 16)
+        .accessibilityHint(Text("Opens the .kachat marketplace"))
     }
 
     private func badge(_ n: KachatNames.NameInfo) -> String? {
