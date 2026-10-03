@@ -143,8 +143,9 @@ struct ChatDetailView: View {
     /// True while "jump to the first message" is pulling the rest of the stored history in, so a
     /// second tap on the header cannot start the sweep again underneath the first.
     @State private var isJumpingToChatStart = false
-    /// The completed payment, driving the sent-confirmation half sheet.
-    @State private var sentTransaction: SentTransaction?
+    /// The payment bubble that was tapped, driving its details half sheet (amount, memo, View in
+    /// Explorer, Copy Transaction ID). It replaced the sent-confirmation sheet after a send.
+    @State private var paymentDetailMessage: ChatMessage?
     /// The oldest message in the data model as of the last count change, so the window
     /// re-derivation below can tell HEAD growth (a background prefetch of older history, which
     /// must stay hidden) from TAIL growth (a message arriving, which must be rendered). nil means
@@ -236,8 +237,6 @@ struct ChatDetailView: View {
     @State private var isEstimatingPaymentFee = false
     @State private var paymentFeeTask: Task<Void, Never>?
     @State private var paymentError: String?
-    /// A just-sent payment's confirmation, shown once the payment sheet has gone down.
-    @State private var pendingSentTransaction: SentTransaction?
     @State private var spendingBalanceSompi: UInt64?
     /// Post-send retry schedule for the Available pill (see scheduleSpendingBalanceRetries).
     @State private var spendingBalanceRetryTask: Task<Void, Never>?
@@ -967,17 +966,11 @@ struct ChatDetailView: View {
         .sheet(isPresented: $showPaymentSheet, onDismiss: {
             isPaymentFocused = false
             paymentFeeTask?.cancel()
-            if let sent = pendingSentTransaction {
-                pendingSentTransaction = nil
-                sentTransaction = sent
-            }
         }) {
             paymentSheet
         }
-        .sheet(item: $sentTransaction) { sent in
-            SentConfirmationSheet(transaction: sent) { sentTransaction = nil }
-                .presentationDetents([.height(sent.sheetHeight)])
-                .presentationDragIndicator(.visible)
+        .sheet(item: $paymentDetailMessage) { message in
+            paymentDetailSheet(for: message)
         }
         .sheet(item: $reactionsSheetTarget) { target in
             // In a 1:1 chat there are only ever two people, so the name is either yours or
@@ -2787,6 +2780,81 @@ struct ChatDetailView: View {
     /// main published chatting balance (already kept fresh by the normal refresh/UTXO-push
     /// cycle), drops the underline, and is not tappable: Manage Spending Addresses is
     /// irrelevant to chatting-address sends.
+    // MARK: - Payment details sheet
+
+    /// A tapped payment bubble: what moved (amount, direction, memo, when), and the transaction -
+    /// View in Explorer and Copy Transaction ID. A payment still waiting to go on chain has no
+    /// transaction yet, so it says so instead.
+    private func paymentDetailSheet(for message: ChatMessage) -> some View {
+        let parts = MessageBubbleView.paymentCardParts(for: message)
+        let isOnChain = !message.txId.hasPrefix("pending_")
+            && message.deliveryStatus != .pending
+            && message.deliveryStatus != .failed
+        let explorerURL = isOnChain ? settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) : nil
+        return VStack(spacing: 12) {
+            VStack(spacing: 6) {
+                Image("KaspaLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 40, height: 40)
+                Text(message.isOutgoing ? "Sent" : "Received")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.secondary)
+                if let parts {
+                    Text(verbatim: "\(parts.amountText) \(KaspaUnit.symbol)")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    if let note = parts.note {
+                        Text(note)
+                            .font(.subheadline)
+                            .multilineTextAlignment(.center)
+                    }
+                } else {
+                    Text(message.content)
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+                }
+                Text(verbatim: message.timestamp.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 24)
+            .padding(.bottom, 4)
+
+            if let explorerURL {
+                ActionSheetRow(
+                    title: "View in Explorer",
+                    subtitle: "Opens this transaction in the block explorer.",
+                    systemImage: "safari"
+                ) {
+                    paymentDetailMessage = nil
+                    UIApplication.shared.open(explorerURL)
+                }
+                ActionSheetRow(
+                    title: "Copy Transaction ID",
+                    subtitle: "Copies the transaction ID to your clipboard.",
+                    systemImage: "doc.on.doc"
+                ) {
+                    UIPasteboard.general.string = message.txId
+                    paymentDetailMessage = nil
+                    showToast(AppLocalization.string("Transaction ID copied"), style: .success)
+                }
+            } else {
+                Text("This payment isn't on chain yet.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
+
     // MARK: - Send KAS sheet
 
     /// Longest memo a payment carries. It rides encrypted in the payment payload and shows in
@@ -3200,7 +3268,9 @@ struct ChatDetailView: View {
         Task {
             do {
                 let note = paymentNote.trimmingCharacters(in: .whitespacesAndNewlines)
-                let txId = try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: note)
+                // nil means DEFERRED (no confirmed inputs yet) - the retry timer owns it; either
+                // way the payment bubble is already in the chat.
+                _ = try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: note)
                 await MainActor.run {
                     Haptics.success()
                     amountText = ""
@@ -3210,17 +3280,8 @@ struct ChatDetailView: View {
                     isEstimatingPaymentFee = false
                     // The send may have consumed the contact's last unused pool address.
                     paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
-                    // nil means DEFERRED, not sent (no confirmed inputs yet) - the retry timer
-                    // owns it, and there is no transaction to confirm.
-                    if let txId {
-                        // Shown by the payment sheet's onDismiss: a sheet can't present while
-                        // another is still going down.
-                        pendingSentTransaction = SentTransaction(
-                            txId: txId,
-                            amountSompi: amountSompi,
-                            recipient: contactsManager.displayName(for: contact)
-                        )
-                    }
+                    // No confirmation sheet: tapping the payment bubble gives the transaction
+                    // (View in Explorer, Copy Transaction ID).
                     showPaymentSheet = false
                 }
                 // The active spending address rotates to a fresh one after a successful send -
@@ -3544,7 +3605,8 @@ struct ChatDetailView: View {
             onRespondToChessInvite: (chessEnvelope != nil && !message.isOutgoing)
                 ? { accepted in respondToChessInvite(gameId: chessEnvelope!.gameId, accepted: accepted) }
                 : nil,
-            onOpenChessGame: chessEnvelope != nil ? { activeChessGameId = chessEnvelope!.gameId } : nil
+            onOpenChessGame: chessEnvelope != nil ? { activeChessGameId = chessEnvelope!.gameId } : nil,
+            onOpenPayment: message.messageType == .payment ? { paymentDetailMessage = message } : nil
         )
         let bubble = rawBubble
             .allowsHitTesting(!isSelectingMessages)

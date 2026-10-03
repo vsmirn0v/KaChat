@@ -1199,3 +1199,7 @@
 "Switch between Kaspa and your currency" = "Switch between Kaspa and your currency";
 "Send Photo or Video via Nextcloud" = "Send Photo or Video via Nextcloud";
 "Couldn't load that video. Please try another." = "Couldn't load that video. Please try another.";
+"Opens this transaction in the block explorer." = "Opens this transaction in the block explorer.";
+"Copies the transaction ID to your clipboard." = "Copies the transaction ID to your clipboard.";
+"Transaction ID copied" = "Transaction ID copied";
+"This payment isn't on chain yet." = "This payment isn't on chain yet.";

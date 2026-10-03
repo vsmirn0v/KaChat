@@ -1198,3 +1198,7 @@
 "Switch between Kaspa and your currency" = "بدّل بين Kaspa وعملتك";
 "Send Photo or Video via Nextcloud" = "ابعت صورة أو فيديو عن طريق Nextcloud";
 "Couldn't load that video. Please try another." = "مقدرناش نحمّل الفيديو ده. جرّب واحد تاني.";
+"Opens this transaction in the block explorer." = "بيفتح المعاملة دي في مستكشف البلوكات.";
+"Copies the transaction ID to your clipboard." = "بينسخ رقم المعاملة للحافظة.";
+"Transaction ID copied" = "اتنسخ رقم المعاملة";
+"This payment isn't on chain yet." = "الدفعة دي لسه مش على السلسلة.";

@@ -1198,3 +1198,7 @@
 "Switch between Kaspa and your currency" = "Beralih antara Kaspa dan mata uang Anda";
 "Send Photo or Video via Nextcloud" = "Kirim Foto atau Video via Nextcloud";
 "Couldn't load that video. Please try another." = "Tidak dapat memuat video itu. Silakan coba yang lain.";
+"Opens this transaction in the block explorer." = "Membuka transaksi ini di penjelajah blok.";
+"Copies the transaction ID to your clipboard." = "Menyalin ID transaksi ke papan klip.";
+"Transaction ID copied" = "ID transaksi disalin";
+"This payment isn't on chain yet." = "Pembayaran ini belum on-chain.";

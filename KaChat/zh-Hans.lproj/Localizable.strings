@@ -1198,3 +1198,7 @@
 "Switch between Kaspa and your currency" = "在 Kaspa 和你的货币之间切换";
 "Send Photo or Video via Nextcloud" = "通过 Nextcloud 发送照片或视频";
 "Couldn't load that video. Please try another." = "无法加载该视频，请换一个试试。";
+"Opens this transaction in the block explorer." = "在区块浏览器中打开此交易。";
+"Copies the transaction ID to your clipboard." = "将交易 ID 复制到剪贴板。";
+"Transaction ID copied" = "已复制交易 ID";
+"This payment isn't on chain yet." = "此付款尚未上链。";

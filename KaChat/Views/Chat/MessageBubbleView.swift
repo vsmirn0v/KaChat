@@ -70,6 +70,9 @@ struct MessageBubbleView: View {
     /// Non-nil only for an incoming, not-yet-responded-to invite.
     let onRespondToChessInvite: ((Bool) -> Void)?
     let onOpenChessGame: (() -> Void)?
+    /// Tapping a payment card opens its details (View in Explorer, Copy Transaction ID). nil where
+    /// the host has no such sheet - the card then only takes the double-tap to react.
+    let onOpenPayment: (() -> Void)?
     /// When true, an incoming photo from this contact stays hidden behind a "Show Photo" tap
     /// instead of auto-decoding - driven by `ContactsManager.shouldAutoDisplayPhotos(for:settings:)`.
     var photosBlocked: Bool = false
@@ -113,7 +116,8 @@ struct MessageBubbleView: View {
         chessSummary: ChessGameSummary? = nil,
         isLatestChessMessage: Bool = false,
         onRespondToChessInvite: ((Bool) -> Void)? = nil,
-        onOpenChessGame: (() -> Void)? = nil
+        onOpenChessGame: (() -> Void)? = nil,
+        onOpenPayment: (() -> Void)? = nil
     ) {
         self.message = message
         self.onCopy = onCopy
@@ -143,6 +147,7 @@ struct MessageBubbleView: View {
         self.isLatestChessMessage = isLatestChessMessage
         self.onRespondToChessInvite = onRespondToChessInvite
         self.onOpenChessGame = onOpenChessGame
+        self.onOpenPayment = onOpenPayment
     }
 
     /// The reply's own text, or the raw content when this isn't a reply - matches public chat
@@ -295,7 +300,10 @@ struct MessageBubbleView: View {
                             // then also keeps its "Payment" capsule - see
                             // shouldShowMessageTypeIndicator).
                             paymentCardBubble(paymentParts)
-                                .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
+                                .modifier(PaymentCardTaps(
+                                    onOpen: onOpenPayment,
+                                    onDoubleTap: { activeQuickReactionMessageId = message.id }
+                                ))
                         } else {
                             messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
                                 .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
@@ -939,7 +947,7 @@ struct MessageBubbleView: View {
     /// "Received 0.2 KAS — thanks!" and their localized equivalents). Both regular detected
     /// payments and pool payment_notice bubbles produce this exact shape (ChatService formats
     /// them from the same "Sent/Received %@ KAS" templates), so one parser covers both paths.
-    private struct PaymentCardParts {
+    struct PaymentCardParts {
         let amountText: String
         let note: String?
     }
@@ -947,6 +955,11 @@ struct MessageBubbleView: View {
     /// nil when the content doesn't look like a standard payment phrase (foreign/legacy data) -
     /// the bubble then falls back to the classic text rendering with its "Payment" capsule.
     private var paymentCardParts: PaymentCardParts? {
+        Self.paymentCardParts(for: message)
+    }
+
+    /// The same parse for a host showing a payment's details (see `ChatDetailView`).
+    static func paymentCardParts(for message: ChatMessage) -> PaymentCardParts? {
         guard message.messageType == .payment else { return nil }
         guard message.content.utf8.count <= 512 else { return nil }
         // Note separator matches the "Sent %@ KAS — %@" template family.
@@ -3519,6 +3532,24 @@ struct NextcloudAudioBubble: View {
             data = bytes
         } else {
             failed = true
+        }
+    }
+}
+
+/// A payment card's taps: one opens its details (when the host offers them), two react. With no
+/// details to open it keeps the plain simultaneous double-tap it always had.
+private struct PaymentCardTaps: ViewModifier {
+    let onOpen: (() -> Void)?
+    let onDoubleTap: () -> Void
+
+    func body(content: Content) -> some View {
+        if let onOpen {
+            content
+                .onTapGesture(count: 2, perform: onDoubleTap)
+                .onTapGesture(perform: onOpen)
+        } else {
+            content
+                .simultaneousGesture(TapGesture(count: 2).onEnded(onDoubleTap))
         }
     }
 }

@@ -303,6 +303,9 @@ The input bubble is the text field only. Everything else is in the "+" sheet:
   note, ≤140 chars, shown in the bubble) and `HoldToSendButton` (0.8 s hold). The sender's
   bubble keeps the memo from send time, because the memo is encrypted to the recipient and can't
   be read back from the chain.
+- **After paying:** no confirmation sheet. Tapping a payment bubble (sent or received) opens its
+  details half sheet: amount, memo, time, View in Explorer (the Settings explorer) and Copy
+  Transaction ID. A payment that isn't on chain yet says so instead.
 
 ## Documentation
 

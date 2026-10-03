@@ -1198,3 +1198,7 @@
 "Switch between Kaspa and your currency" = "Chuyển giữa Kaspa và tiền tệ của bạn";
 "Send Photo or Video via Nextcloud" = "Gửi ảnh hoặc video qua Nextcloud";
 "Couldn't load that video. Please try another." = "Không thể tải video đó. Vui lòng thử video khác.";
+"Opens this transaction in the block explorer." = "Mở giao dịch này trong trình khám phá khối.";
+"Copies the transaction ID to your clipboard." = "Sao chép ID giao dịch vào bộ nhớ tạm.";
+"Transaction ID copied" = "Đã sao chép ID giao dịch";
+"This payment isn't on chain yet." = "Khoản thanh toán này chưa lên chuỗi.";

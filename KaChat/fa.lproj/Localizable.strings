@@ -1198,3 +1198,7 @@
 "Switch between Kaspa and your currency" = "جابه‌جایی بین Kaspa و ارز شما";
 "Send Photo or Video via Nextcloud" = "ارسال عکس یا ویدیو از طریق Nextcloud";
 "Couldn't load that video. Please try another." = "بارگیری این ویدیو ممکن نشد. ویدیوی دیگری را امتحان کنید.";
+"Opens this transaction in the block explorer." = "این تراکنش را در کاوشگر بلاک باز می‌کند.";
+"Copies the transaction ID to your clipboard." = "شناسه تراکنش را در کلیپ‌بورد کپی می‌کند.";
+"Transaction ID copied" = "شناسه تراکنش کپی شد";
+"This payment isn't on chain yet." = "این پرداخت هنوز روی زنجیره نیست.";

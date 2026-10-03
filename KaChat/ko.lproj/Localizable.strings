@@ -1198,3 +1198,7 @@
 "Switch between Kaspa and your currency" = "Kaspa와 통화 간 전환";
 "Send Photo or Video via Nextcloud" = "Nextcloud로 사진 또는 동영상 전송";
 "Couldn't load that video. Please try another." = "해당 동영상을 불러올 수 없습니다. 다른 동영상을 시도해 주세요.";
+"Opens this transaction in the block explorer." = "블록 탐색기에서 이 거래를 엽니다.";
+"Copies the transaction ID to your clipboard." = "거래 ID를 클립보드에 복사합니다.";
+"Transaction ID copied" = "거래 ID가 복사되었습니다";
+"This payment isn't on chain yet." = "이 결제는 아직 온체인에 없습니다.";

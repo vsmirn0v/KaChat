@@ -1198,3 +1198,7 @@
 "Switch between Kaspa and your currency" = "Kaspa और अपनी मुद्रा के बीच बदलें";
 "Send Photo or Video via Nextcloud" = "Nextcloud से फ़ोटो या वीडियो भेजें";
 "Couldn't load that video. Please try another." = "वह वीडियो लोड नहीं हो सका। कृपया कोई दूसरा आज़माएँ।";
+"Opens this transaction in the block explorer." = "इस लेन-देन को ब्लॉक एक्सप्लोरर में खोलता है।";
+"Copies the transaction ID to your clipboard." = "लेन-देन ID को क्लिपबोर्ड पर कॉपी करता है।";
+"Transaction ID copied" = "लेन-देन ID कॉपी हो गई";
+"This payment isn't on chain yet." = "यह भुगतान अभी ऑन-चेन नहीं है।";

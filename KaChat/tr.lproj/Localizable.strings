@@ -1198,3 +1198,7 @@
 "Switch between Kaspa and your currency" = "Kaspa ile para biriminiz arasında geçiş yap";
 "Send Photo or Video via Nextcloud" = "Fotoğraf veya Videoyu Nextcloud ile Gönder";
 "Couldn't load that video. Please try another." = "Bu video yüklenemedi. Lütfen başka birini deneyin.";
+"Opens this transaction in the block explorer." = "Bu işlemi blok gezgininde açar.";
+"Copies the transaction ID to your clipboard." = "İşlem kimliğini panoya kopyalar.";
+"Transaction ID copied" = "İşlem kimliği kopyalandı";
+"This payment isn't on chain yet." = "Bu ödeme henüz zincirde değil.";
