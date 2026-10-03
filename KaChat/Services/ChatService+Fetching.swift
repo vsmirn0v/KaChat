@@ -648,21 +648,27 @@ extension ChatService {
 
     /// Reclassify payment messages that should be handshakes.
     /// After self-stash recovery, we know which contacts have handshakes via ourAliases/conversationAliases.
-    /// If a conversation has alias data but no handshake message, the earliest payment is the handshake.
-    func reclassifyMisidentifiedHandshakes() {
+    /// If a conversation has alias data but no handshake message, the earliest payment MAY be the
+    /// handshake (a UTXO notification can classify a handshake tx as a payment) - but only the
+    /// chain can say so. This used to rewrite that payment on the guess alone, which turned real
+    /// payments into "[Handshake sent]" in any chat that simply had no handshake bubble (e.g. one
+    /// opened without a handshake). Now the candidate's payload is read from the Kaspa REST API
+    /// and it is reclassified only when it really is a handshake; a failed lookup changes nothing.
+    /// Outgoing payments an earlier version rewrote that way are put back.
+    func reclassifyMisidentifiedHandshakes() async {
         var reclassified = 0
 
         for (contactAddress, aliases) in ourAliases where !aliases.isEmpty {
-            guard let convIndex = conversations.firstIndex(where: { $0.contact.address == contactAddress }) else { continue }
-            let conv = conversations[convIndex]
+            guard let conv = conversations.first(where: { $0.contact.address == contactAddress }) else { continue }
 
             // Check if outgoing handshake message exists
             let hasOutgoingHandshake = conv.messages.contains { $0.messageType == .handshake && $0.isOutgoing }
             if !hasOutgoingHandshake {
-                // Find the earliest outgoing payment — it's the handshake
+                // The earliest outgoing on-chain payment is the candidate.
                 if let earliestPayment = conv.messages
-                    .filter({ $0.messageType == .payment && $0.isOutgoing })
-                    .min(by: { $0.blockTime < $1.blockTime }) {
+                    .filter({ $0.messageType == .payment && $0.isOutgoing && $0.deliveryStatus == .sent })
+                    .min(by: { $0.blockTime < $1.blockTime }),
+                   await onChainPayloadKind(txId: earliestPayment.txId) == .handshake {
                     AppLog.log("[ChatService] Reclassifying outgoing payment %@ as handshake for %@",
                           String(earliestPayment.txId.prefix(12)), String(contactAddress.suffix(10)))
                     replaceMessageType(txId: earliestPayment.txId, contactAddress: contactAddress, newType: .handshake, newContent: "[Handshake sent]")
@@ -672,16 +678,15 @@ extension ChatService {
         }
 
         for contactAddress in conversationAliases.keys {
-            guard let convIndex = conversations.firstIndex(where: { $0.contact.address == contactAddress }) else { continue }
-            let conv = conversations[convIndex]
+            guard let conv = conversations.first(where: { $0.contact.address == contactAddress }) else { continue }
 
             // Check if incoming handshake message exists
             let hasIncomingHandshake = conv.messages.contains { $0.messageType == .handshake && !$0.isOutgoing }
             if !hasIncomingHandshake {
-                // Find the earliest incoming payment — it's the handshake
                 if let earliestPayment = conv.messages
                     .filter({ $0.messageType == .payment && !$0.isOutgoing })
-                    .min(by: { $0.blockTime < $1.blockTime }) {
+                    .min(by: { $0.blockTime < $1.blockTime }),
+                   await onChainPayloadKind(txId: earliestPayment.txId) == .handshake {
                     let content = "[Request to communicate]"
                     AppLog.log("[ChatService] Reclassifying incoming payment %@ as handshake for %@",
                           String(earliestPayment.txId.prefix(12)), String(contactAddress.suffix(10)))
@@ -690,6 +695,8 @@ extension ChatService {
                 }
             }
         }
+
+        await restorePaymentsMisreadAsHandshakes()
 
         if reclassified > 0 {
             AppLog.log("[ChatService] Reclassified %d payment(s) as handshake(s)", reclassified)
@@ -712,6 +719,58 @@ extension ChatService {
     }
 
     /// Replace a message's type and content in a conversation
+    enum OnChainPayloadKind: Equatable {
+        case handshake
+        case payment
+        case other
+    }
+
+    /// What a transaction's payload is, read from the Kaspa REST API. nil when it can't be read
+    /// (offline, not indexed yet, a local pending id) - callers must treat that as "don't know".
+    func onChainPayloadKind(txId: String) async -> OnChainPayloadKind? {
+        if let known = onChainPayloadKinds[txId] { return known }
+        guard !txId.hasPrefix("pending_"),
+              let tx = await fetchKaspaFullTransaction(txId: txId, retries: 1, delayNs: 0) else { return nil }
+        return payloadKind(of: tx)
+    }
+
+    /// Classifies (and caches) a fetched transaction's payload. nil when it has none readable.
+    private func payloadKind(of tx: KaspaFullTransactionResponse) -> OnChainPayloadKind? {
+        guard let payloadHex = tx.payload, let data = Self.hexStringToData(payloadHex) else { return nil }
+        let kind: OnChainPayloadKind
+        if ["kchat:1:handshake:", "ciph_msg:1:handshake:"].contains(where: { data.starts(with: Data($0.utf8)) }) {
+            kind = .handshake
+        } else if ["kchat:1:pay:", "ciph_msg:1:pay:", "ciph_msg:pay:"].contains(where: { data.starts(with: Data($0.utf8)) }) {
+            kind = .payment
+        } else {
+            kind = .other
+        }
+        onChainPayloadKinds[tx.transactionId] = kind
+        return kind
+    }
+
+    /// Puts back outgoing payments that the old guess-based reclassification turned into
+    /// "[Handshake sent]": the chain says payment, and output 0 of a KaChat payment is what the
+    /// recipient got. The memo can't be recovered (it is encrypted to the recipient).
+    private func restorePaymentsMisreadAsHandshakes() async {
+        let candidates: [(contactAddress: String, txId: String)] = conversations.flatMap { conversation in
+            conversation.messages
+                .filter { $0.isOutgoing && $0.messageType == .handshake && $0.content == "[Handshake sent]" }
+                .map { (conversation.contact.address, $0.txId) }
+        }
+        for candidate in candidates {
+            // Known handshakes cost nothing; anything else is fetched once, for its outputs too.
+            if let known = onChainPayloadKinds[candidate.txId], known != .payment { continue }
+            guard !candidate.txId.hasPrefix("pending_"),
+                  let tx = await fetchKaspaFullTransaction(txId: candidate.txId, retries: 1, delayNs: 0),
+                  payloadKind(of: tx) == .payment,
+                  let paid = tx.outputs.first(where: { ($0.index ?? 0) == 0 }) ?? tx.outputs.first else { continue }
+            let content = String(format: KaspaUnit.label(AppLocalization.string("Sent %@ KAS")), formatKasAmount(paid.amount))
+            AppLog.log("[ChatService] Restoring payment %@ that was misread as a handshake", String(candidate.txId.prefix(12)))
+            replaceMessageType(txId: candidate.txId, contactAddress: candidate.contactAddress, newType: .payment, newContent: content)
+        }
+    }
+
     func replaceMessageType(txId: String, contactAddress: String, newType: ChatMessage.MessageType, newContent: String) {
         guard let convIndex = conversations.firstIndex(where: { $0.contact.address == contactAddress }) else { return }
         updateConversation(at: convIndex) { conversation in

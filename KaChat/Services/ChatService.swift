@@ -446,6 +446,9 @@ final class ChatService: ObservableObject {
     }
     var syncMaxBlockTime: UInt64?
     var isConfigured = false
+    /// On-chain payload kinds already read (see `onChainPayloadKind`), so each transaction is
+    /// fetched at most once per launch.
+    var onChainPayloadKinds: [String: OnChainPayloadKind] = [:]
     /// True after startPolling() completes its full initial sync (Phases 1-4).
     /// Prevents redundant heavy re-sync on Mac Catalyst window reopen.
     var hasCompletedInitialSync = false

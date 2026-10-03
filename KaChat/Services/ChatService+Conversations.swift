@@ -808,7 +808,7 @@ extension ChatService {
         // Reclassify misidentified handshakes:
         // If self-stash confirms we have handshakes with a contact but conversation has
         // no handshake messages, the earliest payment is likely the handshake (Bug 4 fix)
-        reclassifyMisidentifiedHandshakes()
+        await reclassifyMisidentifiedHandshakes()
 
         // Migrate legacy aliases to deterministic routing states (one-time)
         if let privKey = privateKey {
@@ -2418,12 +2418,20 @@ extension ChatService {
         if pendingTxId == nil {
             let formattedAmount = formatKasAmount(amountSompi)
             let pendingTimestamp = Date()
-            let pendingTemplate = KaspaUnit.label(AppLocalization.string("Sent %@ KAS"))
+            // The memo goes in now: it is encrypted to the recipient, so this device can never
+            // read it back from the chain - the local bubble is the only place it can show.
+            let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+            let pendingContent: String
+            if trimmedNote.isEmpty {
+                pendingContent = String(format: KaspaUnit.label(AppLocalization.string("Sent %@ KAS")), formattedAmount)
+            } else {
+                pendingContent = String(format: KaspaUnit.label(AppLocalization.string("Sent %@ KAS — %@")), formattedAmount, trimmedNote)
+            }
             let pendingMessage = ChatMessage(
                 txId: activePendingTxId,
                 senderAddress: wallet.publicAddress,
                 receiverAddress: contact.address,
-                content: String(format: pendingTemplate, formattedAmount),
+                content: pendingContent,
                 timestamp: pendingTimestamp,
                 blockTime: UInt64(pendingTimestamp.timeIntervalSince1970 * 1000),
                 acceptingBlock: nil,
