@@ -284,19 +284,25 @@ Companion targets at the repo root: `KaChatNotificationService/` (push decryptio
 
 ## UI Patterns
 
-### Send Mode Menu (ChatDetailView)
+### Chat Composer (ChatDetailView / GroupChatDetailView)
 
-The send button supports multiple modes (message, payment, audio) via a drag-to-select menu:
+The input bubble is the text field only. Everything else is in the "+" sheet:
 
-- **Tap**: Execute current mode action (send message, payment, or start recording)
-- **Long Press (0.35s)**: Show mode selection menu
-- **Drag-to-Select**: While holding, drag finger to menu items to highlight, release to select
-
-Implementation uses:
-- `DragGesture` with timer-based long press detection
-- Named coordinate space (`chatCoordinateSpace`) for consistent positioning
-- `connectionEpoch` pattern to track gesture ownership
-- Haptic feedback at each interaction stage
+- **1:1 order:** Pay in Kaspa, Camera, Photo, Voice Message, File (Nextcloud only), Play Chess,
+  and Send Handshake where needed.
+- **Groups:** Camera, Photo, Voice Message, File. A group has no single recipient for pay or chess.
+- **On chain or via Nextcloud:** with a Nextcloud server connected, Camera / Photo / Voice Message
+  open `ComposerMediaRouteStep` (`Views/Chat/ComposerMediaRoute.swift`) and ask every time. That
+  choice replaced the old "Send Media via Nextcloud" setting.
+  - Via Nextcloud: full-quality uploads, videos from the camera or the library, and voice notes
+    up to `ComposerMediaLimits.nextcloudVoiceSeconds` (5 min, app-wide).
+  - On chain: compressed photos and ~10 s voice notes.
+  - Paste, drop and share-extension photos go on chain.
+- **Paying:** Pay in Kaspa (and `startInPaymentMode`) opens the Send KAS sheet, not a composer
+  mode. It has an exact amount (KAS or fiat, Max), an encrypted memo (the payment payload's
+  note, ≤140 chars, shown in the bubble) and `HoldToSendButton` (0.8 s hold). The sender's
+  bubble keeps the memo from send time, because the memo is encrypted to the recipient and can't
+  be read back from the chain.
 
 ## Documentation
 
