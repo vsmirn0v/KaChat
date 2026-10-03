@@ -1192,3 +1192,7 @@
 "Record a voice message and send it to the group." = "음성 메시지를 녹음해 그룹에 보냅니다.";
 "\"File\" in a chat's + menu opens this folder first." = "채팅 + 메뉴의 \"파일\"은 이 폴더를 먼저 엽니다.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "채팅의 + 메뉴에서 카메라, 사진, 음성 메시지는 온체인으로 보낼지 Nextcloud로 보낼지 매번 묻습니다. Nextcloud로 보내면 파일이 원본 화질로 이 서버의 %@ 폴더에 업로드되고 채팅에는 공유 링크가 전송됩니다(음성 메시지는 최대 5분). 링크가 담긴 메시지는 종단 간 암호화되지만, 파일 자체는 서버에 암호화되지 않은 채 저장되며 추측할 수 없는 링크를 가진 누구나 접근할 수 있습니다.";
+"to %@" = "%@에게";
+"Hold to Send" = "길게 눌러 보내기";
+"Add a memo (encrypted)" = "메모 추가(암호화됨)";
+"Switch between Kaspa and your currency" = "Kaspa와 통화 간 전환";

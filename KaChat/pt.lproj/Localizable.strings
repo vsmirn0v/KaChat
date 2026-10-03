@@ -1192,3 +1192,7 @@
 "Record a voice message and send it to the group." = "Grave uma mensagem de voz e envie ao grupo.";
 "\"File\" in a chat's + menu opens this folder first." = "\"Arquivo\" no menu + de um chat abre esta pasta primeiro.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "No menu + de um chat, Câmera, Foto e Mensagem de voz perguntam se o envio é on-chain ou via Nextcloud. Via Nextcloud, o arquivo é enviado em qualidade total para a pasta %@ deste servidor e o chat leva um link de compartilhamento (mensagens de voz de até 5 minutos). A mensagem com o link continua criptografada de ponta a ponta, mas o arquivo fica armazenado sem criptografia no seu servidor e pode ser acessado por qualquer pessoa que tenha o link impossível de adivinhar.";
+"to %@" = "para %@";
+"Hold to Send" = "Segure para enviar";
+"Add a memo (encrypted)" = "Adicione uma nota (criptografada)";
+"Switch between Kaspa and your currency" = "Alternar entre Kaspa e sua moeda";

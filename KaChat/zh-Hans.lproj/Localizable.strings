@@ -1192,3 +1192,7 @@
 "Record a voice message and send it to the group." = "录制一条语音消息并发送到群组。";
 "\"File\" in a chat's + menu opens this folder first." = "聊天 + 菜单中的“文件”会先打开此文件夹。";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "在聊天的 + 菜单中，相机、照片和语音消息每次都会询问是链上发送还是通过 Nextcloud 发送。通过 Nextcloud 时，文件以原画质上传到此服务器的 %@ 文件夹，聊天中发送分享链接（语音消息最长 5 分钟）。包含链接的消息仍保持端到端加密，但文件本身在你的服务器上未加密存储，任何拥有这个无法猜测的链接的人都能访问。";
+"to %@" = "发送给 %@";
+"Hold to Send" = "按住发送";
+"Add a memo (encrypted)" = "添加备注（已加密）";
+"Switch between Kaspa and your currency" = "在 Kaspa 和你的货币之间切换";

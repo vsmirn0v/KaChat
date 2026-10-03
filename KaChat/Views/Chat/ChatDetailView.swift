@@ -66,7 +66,7 @@ struct ChatDetailView: View {
 
     init(contact: Contact, startInPaymentMode: Bool = false) {
         _contact = State(initialValue: contact)
-        _inputMode = State(initialValue: startInPaymentMode ? .payment : .message)
+        _openPaymentOnAppear = State(initialValue: startInPaymentMode)
     }
 
     @State private var messageText = ""
@@ -222,6 +222,22 @@ struct ChatDetailView: View {
     @State private var highlightedMessageID: UUID?
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
+    /// The "Send KAS" sheet (amount, encrypted memo, hold to send). It replaced the composer's
+    /// old payment mode; every way into a payment (the "+" sheet, "Pay in Kaspa" elsewhere in
+    /// the app, the audio bar's Send KAS) opens it.
+    @State private var showPaymentSheet = false
+    /// Opened with `startInPaymentMode`: presented once the push has landed, not mid-transition.
+    @State private var openPaymentOnAppear = false
+    /// Set by the "+" sheet's Pay in Kaspa: the payment sheet opens when that sheet is gone.
+    @State private var openPaymentAfterPlusSheet = false
+    /// The payment's memo, encrypted to the recipient with the payment (shown in its bubble).
+    @State private var paymentNote = ""
+    @State private var paymentFeeSompi: UInt64?
+    @State private var isEstimatingPaymentFee = false
+    @State private var paymentFeeTask: Task<Void, Never>?
+    @State private var paymentError: String?
+    /// A just-sent payment's confirmation, shown once the payment sheet has gone down.
+    @State private var pendingSentTransaction: SentTransaction?
     @State private var spendingBalanceSompi: UInt64?
     /// Post-send retry schedule for the Available pill (see scheduleSpendingBalanceRetries).
     @State private var spendingBalanceRetryTask: Task<Void, Never>?
@@ -827,11 +843,6 @@ struct ChatDetailView: View {
                             pinToBottomThroughKeyboardTransition()
                         }
                     }
-                    .onChange(of: isPaymentFocused) { focused in
-                        if focused {
-                            pinToBottomThroughKeyboardTransition()
-                        }
-                    }
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 1)
                             .onChanged { _ in
@@ -953,6 +964,16 @@ struct ChatDetailView: View {
         } message: {
             Text("This only deletes the message from this device - the recipient still has their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
         }
+        .sheet(isPresented: $showPaymentSheet, onDismiss: {
+            isPaymentFocused = false
+            paymentFeeTask?.cancel()
+            if let sent = pendingSentTransaction {
+                pendingSentTransaction = nil
+                sentTransaction = sent
+            }
+        }) {
+            paymentSheet
+        }
         .sheet(item: $sentTransaction) { sent in
             SentConfirmationSheet(transaction: sent) { sentTransaction = nil }
                 .presentationDetents([.height(sent.sheetHeight)])
@@ -1013,14 +1034,6 @@ struct ChatDetailView: View {
                 }
             }
         }
-        .confirmationDialog("Small Amount", isPresented: $showDustWarning, titleVisibility: .visible) {
-            Button("Send Anyway") {
-                executePayment(amountSompi: pendingDustAmountSompi)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            KaspaUnit.text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
-        }
         .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
             TextField(KaspaUnit.label(AppLocalization.string("Fee (KAS)")), text: $feeEditorText)
                 .keyboardType(.decimalPad)
@@ -1037,7 +1050,14 @@ struct ChatDetailView: View {
         .onChange(of: amountText) { newValue in
             schedulePaymentFee(for: newValue)
         }
+        .onChange(of: paymentNote) { _ in
+            schedulePaymentFee(for: amountText)
+        }
         .onAppear {
+            if openPaymentOnAppear {
+                openPaymentOnAppear = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { openPaymentSheet() }
+            }
             if !hasPerformedInitialSetup {
                 // Full setup on first appearance (fresh navigation push)
                 initialLayoutReady = false
@@ -1132,11 +1152,11 @@ struct ChatDetailView: View {
             guard let myAddress, knsService.profileCache[myAddress] == nil else { return }
             _ = await knsService.fetchProfile(for: myAddress)
         }
-        .task(id: inputMode) {
+        .task(id: showPaymentSheet) {
             // Payments spend from the current spending (primary) address, not the chatting
             // address - the "Available" bubble shown while composing a payment should match,
             // not the identity wallet's own balance.
-            guard inputMode == .payment else { return }
+            guard showPaymentSheet else { return }
             await loadSpendingBalance()
         }
         .task(id: walletManager.currentWallet?.spendingAddressIndex) {
@@ -1145,7 +1165,7 @@ struct ChatDetailView: View {
             // Available bubble. setActiveSpendingAddress republishes currentWallet with the new
             // spendingAddressIndex, which re-keys this task; without it the bubble kept showing
             // the old primary's balance until payment mode was re-entered or a send completed.
-            guard inputMode == .payment else { return }
+            guard showPaymentSheet else { return }
             await loadSpendingBalance()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { notification in
@@ -1153,7 +1173,7 @@ struct ChatDetailView: View {
             // the always-post event - the user-notification path deliberately suppresses
             // self-send change, which is exactly what a private-mode payment's rotation
             // produces, so without this the pill sat at 0 until payment mode was re-entered.
-            guard inputMode == .payment else { return }
+            guard showPaymentSheet else { return }
             guard let involved = notification.userInfo?[AddressActivityNotifier.utxoActivityAddressesKey] as? [String],
                   let primary = walletManager.currentSpendingAddress(),
                   involved.contains(primary) else { return }
@@ -1199,6 +1219,7 @@ struct ChatDetailView: View {
             showFeeEditor = false
             showDustWarning = false
             showCamera = false
+            showPaymentSheet = false
             // Tear down current conversation (same as onDisappear)
             chatService.setDraft(messageText, for: contact.address)
             chatService.leaveConversation()
@@ -1218,9 +1239,13 @@ struct ChatDetailView: View {
             // to call positionInitialViewport with the proxy.
             contact = newContact
             messageText = ""
-            inputMode = startInPaymentMode ? .payment : .message
+            inputMode = .message
             amountText = ""
             fiatAmountState.reset()
+            if startInPaymentMode {
+                // After the sheets dismissed above have gone.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { openPaymentSheet() }
+            }
             initialViewportPositioned = false
             didInitialScroll = false
             topVisibleMessageId = nil
@@ -1664,13 +1689,11 @@ struct ChatDetailView: View {
 
     private enum InputMode {
         case message
-        case payment
         case audio
 
         var icon: String {
             switch self {
             case .message: return "arrow.up.circle.fill"
-            case .payment: return "k.circle.fill"
             case .audio: return "mic.circle.fill"
             }
         }
@@ -1838,12 +1861,6 @@ struct ChatDetailView: View {
                             feeBubble
                                 .layoutPriority(1)
                         }
-                        if shouldShowAvailableBalanceBubble {
-                            // No allowsHitTesting(false) here: the bubble is tappable (opens
-                            // Manage Addresses), and hit-testing disabled on an ancestor can't
-                            // be re-enabled from inside the bubble itself.
-                            availableBalanceBubble
-                        }
                         Spacer(minLength: 0)
                     }
                     .padding(.leading, 32)
@@ -1990,8 +2007,6 @@ struct ChatDetailView: View {
                 EmptyView()
             } else if inputMode == .message && pendingPhotoImage == nil && messageText.isEmpty {
                 composerPlusMenu
-            } else if shouldShowComposerQuickActions {
-                composerQuickActions
             } else if shouldShowAudioModeSwitchActions {
                 HStack(spacing: 8) {
                     audioModeSwitchActions
@@ -2079,7 +2094,13 @@ struct ChatDetailView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(Text("More options"))
         // Reopens on the options step, never on whichever step it was closed from.
-        .sheet(isPresented: $showComposerPlusSheet, onDismiss: { composerSheetStep = .options }) {
+        .sheet(isPresented: $showComposerPlusSheet, onDismiss: {
+            composerSheetStep = .options
+            if openPaymentAfterPlusSheet {
+                openPaymentAfterPlusSheet = false
+                openPaymentSheet()
+            }
+        }) {
             composerPlusSheet
         }
         // Second step after "Play Chess": pick a time control. The blitz presets send the tc
@@ -2215,8 +2236,9 @@ struct ChatDetailView: View {
                 systemImage: "k.circle",
                 customIcon: Image("KaspaLogo")
             ) {
+                // Opens once this sheet is gone (see the sheet's onDismiss).
+                openPaymentAfterPlusSheet = true
                 showComposerPlusSheet = false
-                switchMode(.payment)
             }
             // Camera, Photo and Voice Message each ask on chain or via Nextcloud when a server is
             // connected (that choice replaced the "Send Media via Nextcloud" setting), and go
@@ -2313,17 +2335,6 @@ struct ChatDetailView: View {
         }
     }
 
-    private var shouldShowComposerQuickActions: Bool {
-        switch inputMode {
-        case .message:
-            return pendingPhotoImage == nil && messageText.isEmpty
-        case .payment:
-            return amountText.isEmpty
-        case .audio:
-            return false
-        }
-    }
-
     private var shouldShowAudioModeSwitchActions: Bool {
         inputMode == .audio && !hasAudioDraft
     }
@@ -2364,26 +2375,6 @@ struct ChatDetailView: View {
         !isRespondingHandshake && contact.address != walletManager.currentWallet?.publicAddress
     }
 
-    /// Only ever reached for `.payment` now — the `.message` entry point moved to
-    /// composerPlusMenu, and `.audio` has nothing to show here (see shouldShowComposerQuickActions).
-    /// Deliberately no mic here: the message button is the only mode exit from payment mode —
-    /// audio stays reachable through message mode's in-bubble mic and "+" menu as usual.
-    private var composerQuickActions: some View {
-        HStack(spacing: 8) {
-            switch inputMode {
-            case .message, .audio:
-                EmptyView()
-            case .payment:
-                composerQuickActionButton(
-                    title: "Send message",
-                    icon: "text.bubble.fill"
-                ) {
-                    switchMode(.message)
-                }
-            }
-        }
-    }
-
     private var audioModeSwitchActions: some View {
         HStack(spacing: 8) {
             composerQuickActionButton(
@@ -2398,7 +2389,8 @@ struct ChatDetailView: View {
                 icon: "KaspaLogo",
                 isAssetImage: true
             ) {
-                switchMode(.payment)
+                switchMode(.message)
+                openPaymentSheet()
             }
         }
     }
@@ -2445,11 +2437,6 @@ struct ChatDetailView: View {
             if isSendActionBusy {
                 ProgressView()
                     .font(.title)
-            } else if inputMode == .payment {
-                Image("KaspaLogo")
-                    .resizable()
-                    .scaledToFit()
-                    .padding(9)
             } else {
                 Image(systemName: currentButtonIcon)
                     .font(.title)
@@ -2459,9 +2446,6 @@ struct ChatDetailView: View {
     }
 
     private var currentButtonIcon: String {
-        if inputMode == .payment {
-            return "k.circle.fill"
-        }
         if inputMode == .audio {
             // While recording, this button's only job is "stop early" - in case the full
             // ~10s auto-cutoff is more than the user wants. Once there's a finished preview,
@@ -2490,10 +2474,6 @@ struct ChatDetailView: View {
         return false
     }
 
-    private var canSendPayment: Bool {
-        return true
-    }
-
     private var canSend: Bool {
         switch inputMode {
         case .message:
@@ -2505,8 +2485,6 @@ struct ChatDetailView: View {
                 return !isSending && !isCompressingPhoto
             }
             return true
-        case .payment:
-            return canSendPayment
         case .audio:
             return !isSending
         }
@@ -2612,71 +2590,6 @@ struct ChatDetailView: View {
         isMessageFocused = true
     }
 
-    private var paymentField: some View {
-        HStack {
-            // Toggles KAS/fiat entry mode, matching Cold Storage's send flow - the leading icon is
-            // the toggle now, so the conversion label further along is purely informational.
-            Button {
-                fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
-            } label: {
-                if fiatAmountState.isFiatMode {
-                    Text(currencySymbol(for: portfolioViewModel.currentCurrency))
-                        .font(.title3.weight(.semibold))
-                        .foregroundColor(.accentColor)
-                        .frame(width: 22, height: 22)
-                } else {
-                    Image("KaspaLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 22, height: 22)
-                }
-            }
-            .buttonStyle(.plain)
-
-            TextField(
-                fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.label(AppLocalization.string("Amount (KAS)")),
-                text: Binding(
-                    get: { fiatAmountState.displayText },
-                    set: { newValue in
-                        let sanitized = sanitizedAmount(newValue)
-                        amountText = fiatAmountState.onDisplayTextChange(sanitized, priceInCurrency: portfolioViewModel.currentPriceUsd)
-                    }
-                )
-            )
-                .keyboardType(.decimalPad)
-                // No keyboard toolbar here. The payment bar has its own send button right
-                // beside the field, so a checkmark to dismiss was one control too many - and a
-                // keyboard toolbar on a view that can be popped is what left a black band where
-                // the keyboard had been when you went back with it still open.
-                .focused($isPaymentFocused)
-            if let conversionLabel = fiatAmountState.conversionLabelText(
-                priceInCurrency: portfolioViewModel.currentPriceUsd,
-                currency: portfolioViewModel.currentCurrency
-            ) {
-                Text(conversionLabel)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            Button("Max") {
-                Task {
-                    do {
-                        let maxSompi = try await chatService.estimateMaxPaymentAmount(to: contact)
-                        await MainActor.run {
-                            let kas = Double(maxSompi) / 100_000_000.0
-                            amountText = fiatAmountState.setMaxKas(kas, priceInCurrency: portfolioViewModel.currentPriceUsd)
-                        }
-                    } catch {
-                        AppLog.log("[ChatDetail] Max calculation failed: %@", error.localizedDescription)
-                    }
-                }
-            }
-            .font(.caption)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(glassBackground(cornerRadius: 20))
-    }
-
     private var inputField: some View {
         Group {
             switch inputMode {
@@ -2709,8 +2622,6 @@ struct ChatDetailView: View {
                     .padding(.vertical, 8)
                     .background(glassBackground(cornerRadius: 20))
                 }
-            case .payment:
-                paymentField
             case .audio:
                 HStack {
                     if isRecording {
@@ -2857,6 +2768,230 @@ struct ChatDetailView: View {
     /// main published chatting balance (already kept fresh by the normal refresh/UTXO-push
     /// cycle), drops the underline, and is not tappable: Manage Spending Addresses is
     /// irrelevant to chatting-address sends.
+    // MARK: - Send KAS sheet
+
+    /// Longest memo a payment carries. It rides encrypted in the payment payload and shows in
+    /// the payment bubble, so it stays note-sized.
+    private static let maxPaymentMemoLength = 140
+
+    private var paymentAmountSompi: UInt64 {
+        parseAmountSompi(amountText.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func openPaymentSheet() {
+        isMessageFocused = false
+        amountText = ""
+        fiatAmountState.reset()
+        paymentNote = ""
+        paymentError = nil
+        paymentFeeSompi = nil
+        isEstimatingPaymentFee = false
+        paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
+        showPaymentSheet = true
+    }
+
+    private func submitPayment() {
+        let amountSompi = paymentAmountSompi
+        guard amountSompi > 0, !isSending else { return }
+        paymentError = nil
+        isPaymentFocused = false
+        // 0.10000001 KAS = 10_000_001 sompi (network dust limit)
+        if amountSompi < 10_000_001 {
+            pendingDustAmountSompi = amountSompi
+            showDustWarning = true
+            return
+        }
+        executePayment(amountSompi: amountSompi)
+    }
+
+    /// "Send KAS": who it goes to, the exact amount (KAS or fiat), an encrypted memo, the fee
+    /// and available balance, and a hold-to-send button - holding rather than tapping, so a
+    /// payment can't go out on a stray touch.
+    private var paymentSheet: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 4) {
+                Text(KaspaUnit.label(AppLocalization.string("Send KAS")))
+                    .font(.headline)
+                Text("to \(contactsManager.displayName(for: contact))")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.top, 24)
+
+            paymentAmountEntry
+
+            paymentMemoField
+
+            HStack(spacing: 6) {
+                paymentFeePill
+                    .layoutPriority(1)
+                availableBalanceBubble
+            }
+            .frame(maxWidth: .infinity)
+
+            if let paymentError {
+                Text(paymentError)
+                    .font(.footnote)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            } else if paymentAmountSompi > 0 && paymentAmountSompi < 10_000_001 {
+                KaspaUnit.text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
+                    .font(.footnote)
+                    .foregroundColor(.orange)
+                    .multilineTextAlignment(.center)
+            }
+
+            HoldToSendButton(
+                title: "Hold to Send",
+                isBusy: isSending,
+                isEnabled: paymentAmountSompi > 0 && !isSending,
+                action: submitPayment
+            )
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isSending)
+        .onAppear {
+            // The amount is the first thing to type.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { isPaymentFocused = true }
+        }
+        .confirmationDialog("Small Amount", isPresented: $showDustWarning, titleVisibility: .visible) {
+            Button("Send Anyway") {
+                executePayment(amountSompi: pendingDustAmountSompi)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            KaspaUnit.text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
+        }
+    }
+
+    /// The big centred amount with its unit, and under it the KAS/fiat switch (showing the
+    /// converted value) and Max.
+    private var paymentAmountEntry: some View {
+        let display = fiatAmountState.displayText
+        let fontSize: CGFloat = display.count <= 7 ? 52 : (display.count <= 10 ? 40 : 30)
+        let price = portfolioViewModel.currentPriceUsd
+        return VStack(spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                TextField(
+                    "0",
+                    text: Binding(
+                        get: { fiatAmountState.displayText },
+                        set: { newValue in
+                            let sanitized = sanitizedAmount(newValue)
+                            amountText = fiatAmountState.onDisplayTextChange(sanitized, priceInCurrency: price)
+                        }
+                    )
+                )
+                .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                .multilineTextAlignment(.center)
+                .keyboardType(.decimalPad)
+                .fixedSize()
+                .focused($isPaymentFocused)
+                .accessibilityLabel(Text(KaspaUnit.label(AppLocalization.string("Amount (KAS)"))))
+
+                Text(verbatim: fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.symbol)
+                    .font(.system(size: fontSize * 0.55, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture { isPaymentFocused = true }
+
+            HStack(spacing: 10) {
+                if price != nil {
+                    Button {
+                        fiatAmountState.toggleMode(priceInCurrency: price)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.caption.weight(.semibold))
+                            if let conversion = fiatAmountState.conversionLabelText(
+                                priceInCurrency: price,
+                                currency: portfolioViewModel.currentCurrency
+                            ) {
+                                Text(verbatim: conversion)
+                            } else {
+                                Text(verbatim: fiatAmountState.isFiatMode ? KaspaUnit.symbol : portfolioViewModel.currentCurrency.code)
+                            }
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(glassBackground(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Switch between Kaspa and your currency"))
+                }
+
+                Button {
+                    Task {
+                        do {
+                            let maxSompi = try await chatService.estimateMaxPaymentAmount(to: contact)
+                            await MainActor.run {
+                                let kas = Double(maxSompi) / 100_000_000.0
+                                amountText = fiatAmountState.setMaxKas(kas, priceInCurrency: portfolioViewModel.currentPriceUsd)
+                            }
+                        } catch {
+                            AppLog.log("[ChatDetail] Max calculation failed: %@", error.localizedDescription)
+                        }
+                    }
+                } label: {
+                    Text("Max")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(glassBackground(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var paymentMemoField: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "lock.fill")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            TextField("Add a memo (encrypted)", text: $paymentNote, axis: .vertical)
+                .lineLimit(1...3)
+                .onChange(of: paymentNote) { newValue in
+                    if newValue.count > Self.maxPaymentMemoLength {
+                        paymentNote = String(newValue.prefix(Self.maxPaymentMemoLength))
+                    }
+                }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(glassBackground(cornerRadius: 22))
+    }
+
+    private var paymentFeePill: some View {
+        Group {
+            if isEstimatingPaymentFee {
+                KaspaUnit.text("fee: -------- KAS")
+            } else if let fee = paymentFeeSompi {
+                Text(localizedFeeText(fee))
+            } else {
+                KaspaUnit.text("fee: -- KAS")
+            }
+        }
+        .font(.caption2)
+        .foregroundColor(.secondary)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(glassBackground(cornerRadius: 14))
+    }
+
     private var availableBalanceBubble: some View {
         let privacyOn = isChatsPaymentPrivacyOn
         let balanceSompi = privacyOn ? spendingBalanceSompi : walletManager.currentWallet?.balanceSompi
@@ -2962,14 +3097,10 @@ struct ChatDetailView: View {
 
     private func switchMode(_ mode: InputMode) {
         // Check if keyboard is currently open
-        let wasKeyboardOpen = isMessageFocused || isPaymentFocused
+        let wasKeyboardOpen = isMessageFocused
 
         feeEstimateSompi = nil
         isEstimatingFee = false
-        if mode != .payment {
-            amountText = ""
-            fiatAmountState.reset()
-        }
         if mode != .message { messageText = "" }
         if mode != .audio {
             cancelRecording()
@@ -2984,22 +3115,14 @@ struct ChatDetailView: View {
         if wasKeyboardOpen {
             switch mode {
             case .message:
-                isPaymentFocused = false
                 isMessageFocused = true
-            case .payment:
-                isMessageFocused = false
-                isPaymentFocused = true
             case .audio:
                 // Close keyboard for audio mode
                 isMessageFocused = false
-                isPaymentFocused = false
             }
         }
 
         inputMode = mode
-        if mode == .payment {
-            paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
-        }
     }
 
     private func sanitizedAmount(_ value: String) -> String {
@@ -3035,18 +3158,6 @@ struct ChatDetailView: View {
             } else {
                 sendMessage()
             }
-        case .payment:
-            let normalized = amountText.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalized.isEmpty else { return }
-            let amountSompi = parseAmountSompi(normalized)
-            guard amountSompi > 0 else { return }
-            // 0.10000001 KAS = 10_000_001 sompi (network dust limit)
-            if amountSompi < 10_000_001 {
-                pendingDustAmountSompi = amountSompi
-                showDustWarning = true
-                return
-            }
-            executePayment(amountSompi: amountSompi)
         case .audio:
             if isRecording {
                 stopRecording()
@@ -3069,23 +3180,29 @@ struct ChatDetailView: View {
         isSending = true
         Task {
             do {
-                let txId = try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: "")
+                let note = paymentNote.trimmingCharacters(in: .whitespacesAndNewlines)
+                let txId = try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: note)
                 await MainActor.run {
+                    Haptics.success()
                     amountText = ""
                     fiatAmountState.reset()
-                    feeEstimateSompi = nil
-                    isEstimatingFee = false
+                    paymentNote = ""
+                    paymentFeeSompi = nil
+                    isEstimatingPaymentFee = false
                     // The send may have consumed the contact's last unused pool address.
                     paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
                     // nil means DEFERRED, not sent (no confirmed inputs yet) - the retry timer
                     // owns it, and there is no transaction to confirm.
                     if let txId {
-                        sentTransaction = SentTransaction(
+                        // Shown by the payment sheet's onDismiss: a sheet can't present while
+                        // another is still going down.
+                        pendingSentTransaction = SentTransaction(
                             txId: txId,
                             amountSompi: amountSompi,
                             recipient: contactsManager.displayName(for: contact)
                         )
                     }
+                    showPaymentSheet = false
                 }
                 // The active spending address rotates to a fresh one after a successful send -
                 // refresh so "Available" reflects that new address, not the one just spent from.
@@ -3096,7 +3213,9 @@ struct ChatDetailView: View {
                 scheduleSpendingBalanceRetries()
             } catch {
                 await MainActor.run {
-                    self.error = displayErrorMessage(error)
+                    Haptics.error()
+                    // Shown in the payment sheet, which is still up.
+                    self.paymentError = displayErrorMessage(error)
                 }
             }
             await MainActor.run {
@@ -3697,19 +3816,13 @@ struct ChatDetailView: View {
         switch inputMode {
         case .message:
             return pendingPhotoImage != nil || !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case .payment:
-            return !amountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .audio:
             return isRecording || isEncodingAudio || recordedAudioPreviewURL != nil
         }
     }
 
-    private var shouldShowAvailableBalanceBubble: Bool {
-        inputMode == .payment
-    }
-
     private var shouldShowComposerHelperRow: Bool {
-        shouldShowFeeBubble || shouldShowAvailableBalanceBubble
+        shouldShowFeeBubble
     }
 
     private func commitFeeOverride() {
@@ -3778,34 +3891,27 @@ struct ChatDetailView: View {
     private static let nextcloudLinkPayloadSize = 96
 
     private func schedulePaymentFee(for text: String) {
-        feeEstimateTask?.cancel()
+        paymentFeeTask?.cancel()
+        guard showPaymentSheet else { return }
 
         let normalized = text.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard inputMode == .payment else { return }
         let amountSompi = parseAmountSompi(normalized)
         guard amountSompi > 0 else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
+            paymentFeeSompi = nil
+            isEstimatingPaymentFee = false
             return
         }
+        let note = paymentNote.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        isEstimatingFee = true
-        feeEstimateTask = Task {
+        isEstimatingPaymentFee = true
+        paymentFeeTask = Task {
             try? await Task.sleep(nanoseconds: 200_000_000)
             if Task.isCancelled { return }
-            do {
-                let estimate = try await chatService.estimatePaymentFee(to: contact, amountSompi: amountSompi, note: "")
-                if Task.isCancelled { return }
-                await MainActor.run {
-                    feeEstimateSompi = estimate
-                    isEstimatingFee = false
-                }
-            } catch {
-                if Task.isCancelled { return }
-                await MainActor.run {
-                    feeEstimateSompi = nil
-                    isEstimatingFee = false
-                }
+            let estimate = try? await chatService.estimatePaymentFee(to: contact, amountSompi: amountSompi, note: note)
+            if Task.isCancelled { return }
+            await MainActor.run {
+                paymentFeeSompi = estimate
+                isEstimatingPaymentFee = false
             }
         }
     }
@@ -4786,6 +4892,63 @@ final class ScrollViewIntrospectorView: UIView {
                 return
             }
             candidate = view.superview
+        }
+    }
+}
+
+/// A send button that fires only after a press is held (0.8s): the fill sweeps across while
+/// holding and resets if released early. VoiceOver gets a plain activate action instead.
+private struct HoldToSendButton: View {
+    let title: LocalizedStringKey
+    let isBusy: Bool
+    let isEnabled: Bool
+    let action: () -> Void
+
+    @State private var progress: CGFloat = 0
+    private let holdDuration: Double = 0.8
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(Color.accentColor.opacity(isEnabled || isBusy ? 1 : 0.4))
+            GeometryReader { geometry in
+                Capsule()
+                    .fill(Color.white.opacity(0.28))
+                    .frame(width: geometry.size.width * progress)
+            }
+            HStack(spacing: 8) {
+                if isBusy {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Text(title)
+                        .font(.headline)
+                }
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+        }
+        .frame(height: 56)
+        .clipShape(Capsule())
+        .contentShape(Capsule())
+        .onLongPressGesture(minimumDuration: holdDuration, maximumDistance: 40, perform: {
+            guard isEnabled, !isBusy else { return }
+            action()
+        }, onPressingChanged: { pressing in
+            guard isEnabled, !isBusy else { return }
+            if pressing {
+                Haptics.impact(.light)
+                withAnimation(.linear(duration: holdDuration)) { progress = 1 }
+            } else {
+                withAnimation(.easeOut(duration: 0.2)) { progress = 0 }
+            }
+        })
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            guard isEnabled, !isBusy else { return }
+            action()
         }
     }
 }

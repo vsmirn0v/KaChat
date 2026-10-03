@@ -1192,3 +1192,7 @@
 "Record a voice message and send it to the group." = "سجّل رسالة صوتية وابعتها للجروب.";
 "\"File\" in a chat's + menu opens this folder first." = "\"ملف\" في قائمة + بتاعة الشات بيفتح الفولدر ده الأول.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "في قائمة + بتاعة الشات، الكاميرا والصورة والرسالة الصوتية بيسألوك تبعت على السلسلة ولا عن طريق Nextcloud. عن طريق Nextcloud، الملف بيترفع بجودة كاملة على فولدر %@ في السيرفر ده والشات فيه لينك مشاركة (الرسايل الصوتية لحد 5 دقايق). الرسالة اللي فيها اللينك بتفضل متشفرة من طرف لطرف، بس الملف نفسه متخزن من غير تشفير على السيرفر بتاعك وأي حد معاه اللينك اللي مستحيل يتخمن يقدر يوصله.";
+"to %@" = "لـ %@";
+"Hold to Send" = "اضغط مطوّل عشان تبعت";
+"Add a memo (encrypted)" = "ضيف ملاحظة (متشفرة)";
+"Switch between Kaspa and your currency" = "بدّل بين Kaspa وعملتك";

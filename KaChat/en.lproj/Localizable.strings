@@ -1193,3 +1193,7 @@
 "Record a voice message and send it to the group." = "Record a voice message and send it to the group.";
 "\"File\" in a chat's + menu opens this folder first." = "\"File\" in a chat's + menu opens this folder first.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link.";
+"to %@" = "to %@";
+"Hold to Send" = "Hold to Send";
+"Add a memo (encrypted)" = "Add a memo (encrypted)";
+"Switch between Kaspa and your currency" = "Switch between Kaspa and your currency";

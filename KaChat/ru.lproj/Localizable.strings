@@ -1192,3 +1192,7 @@
 "Record a voice message and send it to the group." = "Запишите голосовое сообщение и отправьте в группу.";
 "\"File\" in a chat's + menu opens this folder first." = "«Файл» в меню + чата сначала открывает эту папку.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "В меню + чата пункты «Камера», «Фото» и «Голосовое сообщение» спрашивают, отправить в блокчейн или через Nextcloud. Через Nextcloud файл загружается в полном качестве в папку %@ этого сервера, а в чате будет ссылка (голосовые сообщения до 5 минут). Сообщение со ссылкой остаётся со сквозным шифрованием, но сам файл хранится на вашем сервере без шифрования и доступен любому, у кого есть неугадываемая ссылка.";
+"to %@" = "для %@";
+"Hold to Send" = "Удерживайте для отправки";
+"Add a memo (encrypted)" = "Добавить заметку (зашифрована)";
+"Switch between Kaspa and your currency" = "Переключить между Kaspa и вашей валютой";
