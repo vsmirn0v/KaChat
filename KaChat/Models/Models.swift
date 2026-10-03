@@ -2344,6 +2344,10 @@ struct AppSettings: Codable {
     static let defaultIndexerURL = "https://kachat.duckdns.org"
     static let defaultKaPostIndexerURL = "https://kachat.duckdns.org"
     static let defaultPublicChatIndexerURL = defaultKaPostIndexerURL
+    /// The testnet-10 KaChat indexer (Kaspa-Quick-Start's `kachat-testnet` publish target): chat,
+    /// push, KaPosts, public chats and `.kachat` names, all on one name with the mainnet route split.
+    /// Port 7443: 443 on that address is answered by another proxy (the gift service's certificate).
+    static let defaultTestnetIndexerURL = "https://tnkachat.duckdns.org:7443"
     /// Retired default - the public K social indexer (`mainnet.kaspatalk.net`). KaPosts now
     /// runs on KaChat's own indexer, which enforces two-way KaChat-only exclusivity server-side
     /// and is a fresh network with no relation to the K social graph. Anyone still on the old
@@ -2808,14 +2812,30 @@ struct AppSettings: Codable {
             connectionProfiles[NetworkType.testnet.rawValue]?.kaspaRestAPIURL = AppSettings.defaultKaspaTestnetURL
         }
         if networkType == .testnet {
-            // Testnet has no KaChat indexer infrastructure yet, so a blank field means "none" -
-            // not the mainnet default the migrations above substitute for a blank. Read the
-            // stored values as they are.
-            indexerURL = try container.decodeIfPresent(String.self, forKey: .indexerURL) ?? ""
-            kaPostIndexerURL = try container.decodeIfPresent(String.self, forKey: .kaPostIndexerURL) ?? ""
-            publicChatIndexerURL = try container.decodeIfPresent(String.self, forKey: .publicChatIndexerURL) ?? ""
-            pushIndexerURL = try container.decodeIfPresent(String.self, forKey: .pushIndexerURL) ?? ""
+            // The mainnet migrations above substitute mainnet hosts for a blank; on testnet a
+            // blank (left over from before testnet had an indexer) means the testnet indexer.
+            // Custom URLs are kept.
+            func testnetIndexer(_ key: CodingKeys) throws -> String {
+                let stored = try container.decodeIfPresent(String.self, forKey: key) ?? ""
+                return stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? AppSettings.defaultTestnetIndexerURL : stored
+            }
+            indexerURL = try testnetIndexer(.indexerURL)
+            kaPostIndexerURL = try testnetIndexer(.kaPostIndexerURL)
+            publicChatIndexerURL = try testnetIndexer(.publicChatIndexerURL)
+            pushIndexerURL = try testnetIndexer(.pushIndexerURL)
             translationServiceURL = try container.decodeIfPresent(String.self, forKey: .translationServiceURL) ?? ""
+        }
+        // The same for the stashed testnet profile, used when switching back to testnet.
+        if var stashed = connectionProfiles[NetworkType.testnet.rawValue] {
+            func filled(_ value: String) -> String {
+                value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppSettings.defaultTestnetIndexerURL : value
+            }
+            stashed.indexerURL = filled(stashed.indexerURL)
+            stashed.kaPostIndexerURL = filled(stashed.kaPostIndexerURL)
+            stashed.publicChatIndexerURL = filled(stashed.publicChatIndexerURL)
+            stashed.pushIndexerURL = filled(stashed.pushIndexerURL)
+            connectionProfiles[NetworkType.testnet.rawValue] = stashed
         }
         kaspaExplorer = try container.decodeIfPresent(KaspaExplorer.self, forKey: .kaspaExplorer) ?? .default
         trustedNodeAddress = try container.decodeIfPresent(String.self, forKey: .trustedNodeAddress) ?? AppSettings.defaultTrustedNodeAddress
@@ -3109,8 +3129,8 @@ struct ConnectionProfile: Codable, Equatable {
     var trustedNodeAddress: String
     var savedNodeAddresses: [SavedNodeAddress]
 
-    /// What a network starts with. Testnet: the public testnet REST API and automatic node
-    /// discovery; KaChat's own indexers blank, because there is no testnet infrastructure yet.
+    /// What a network starts with. Testnet: the public testnet REST API, automatic node
+    /// discovery, and KaChat's testnet-10 indexer for chat, push, KaPosts and public chats.
     static func defaults(for network: NetworkType) -> ConnectionProfile {
         switch network {
         case .mainnet:
@@ -3126,10 +3146,10 @@ struct ConnectionProfile: Codable, Equatable {
             )
         case .testnet:
             return ConnectionProfile(
-                indexerURL: "",
-                kaPostIndexerURL: "",
-                publicChatIndexerURL: "",
-                pushIndexerURL: "",
+                indexerURL: AppSettings.defaultTestnetIndexerURL,
+                kaPostIndexerURL: AppSettings.defaultTestnetIndexerURL,
+                publicChatIndexerURL: AppSettings.defaultTestnetIndexerURL,
+                pushIndexerURL: AppSettings.defaultTestnetIndexerURL,
                 translationServiceURL: AppSettings.defaultTranslationServiceURL,
                 kaspaRestAPIURL: AppSettings.defaultKaspaTestnetURL,
                 trustedNodeAddress: "",

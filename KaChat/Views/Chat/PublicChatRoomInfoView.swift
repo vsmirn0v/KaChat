@@ -77,7 +77,7 @@ struct PublicChatRoomInfoView: View {
         guard configured.isEmpty else { return configured }
         return settings.networkType == .mainnet
             ? AppSettings.defaultPublicChatIndexerURL
-            : String(localized: "No testnet indexer yet")
+            : AppSettings.defaultTestnetIndexerURL
     }
 
     var body: some View {

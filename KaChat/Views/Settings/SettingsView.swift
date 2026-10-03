@@ -2251,12 +2251,11 @@ struct ConnectionSettingsView: View {
 
     }
 
-    /// The field hint: the mainnet default, or - on testnet, where KaChat runs no indexers yet -
-    /// a note that the field is empty on purpose.
+    /// The field hint: the network's default (on testnet, the testnet-10 indexer).
     private func indexerPlaceholder(_ mainnetDefault: String) -> String {
         settingsViewModel.settings.networkType == .mainnet
             ? mainnetDefault
-            : String(localized: "No testnet indexer yet")
+            : AppSettings.defaultTestnetIndexerURL
     }
 
     /// One tab per kind of connection, so the page stays short as the app talks to more
@@ -2393,8 +2392,7 @@ struct ConnectionSettingsView: View {
         // no error anywhere pointing at the setting that caused it.
         // Blank falls back to the network's default rather than being written through - an
         // empty base URL builds a request that fails as "unsupported URL" and reads as the
-        // server being down, which is exactly how the KNS field broke. The exception is testnet,
-        // whose default for KaChat's own indexers IS blank: there are none yet.
+        // server being down, which is exactly how the KNS field broke.
         let defaults = ConnectionProfile.defaults(for: settingsViewModel.settings.networkType)
         settingsViewModel.settings.indexerURL = normalizedOrDefault(indexerURL, defaults.indexerURL)
         settingsViewModel.settings.kaPostIndexerURL = normalizedOrDefault(kaPostIndexerURL, defaults.kaPostIndexerURL)
