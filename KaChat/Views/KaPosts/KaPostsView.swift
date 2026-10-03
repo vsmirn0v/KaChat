@@ -1235,8 +1235,9 @@ struct KaPostsView: View {
     }
 
     private func computePosts(for tab: FeedTab) -> [DraftPost] {
-        // Session posts first (newest local compose on top), then remote feed - deduped by
-        // remote id once Phase B starts round-tripping our own posts.
+        // Session posts merged into the remote feed by time (deduped by remote id once our own
+        // posts round-trip). They used to be stacked on top of the whole feed, which pinned a
+        // just-sent post above everything posted after it until the session ended.
         let localRemoteIds = Set(posts.compactMap(\.remoteId))
         // A poll we posted this session keeps its local card, but takes the indexer's counts
         // (and our recorded vote) once the feed carries them.
@@ -1247,10 +1248,10 @@ struct KaPostsView: View {
             merged.poll = remotePoll
             return merged
         }
-        let combined = local + remotePosts.filter { remote in
+        let combined = Self.mergeNewestFirst(local: local, remote: remotePosts.filter { remote in
             guard let remoteId = remote.remoteId else { return true }
             return !localRemoteIds.contains(remoteId)
-        }
+        })
         // Muted and blocked authors' content is hidden EVERYWHERE (the difference between the
         // two is interaction rights, which only matters once real wiring lands).
         let visible = combined.filter { !moderationStore.isHidden($0.posterAddress) }
@@ -1280,6 +1281,27 @@ struct KaPostsView: View {
     private struct ScoredPost {
         let score: Int
         let post: DraftPost
+    }
+
+    /// Interleaves session posts into the remote feed, newest first. The remote list keeps the
+    /// server's order exactly (it is already reverse-chronological, and re-sorting it could
+    /// shuffle rows the server ordered by block); each local post goes in just above the first
+    /// remote post older than it. A local post older than the whole loaded window goes last.
+    private static func mergeNewestFirst(local: [DraftPost], remote: [DraftPost]) -> [DraftPost] {
+        guard !local.isEmpty else { return remote }
+        let localSorted = local.sorted { $0.timestamp > $1.timestamp }
+        var merged: [DraftPost] = []
+        merged.reserveCapacity(localSorted.count + remote.count)
+        var li = 0
+        for post in remote {
+            while li < localSorted.count, localSorted[li].timestamp >= post.timestamp {
+                merged.append(localSorted[li])
+                li += 1
+            }
+            merged.append(post)
+        }
+        merged.append(contentsOf: localSorted[li...])
+        return merged
     }
 
     /// A post's comments minus muted/blocked authors - used for both display and counts.
