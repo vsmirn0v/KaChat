@@ -2078,11 +2078,12 @@ struct ChatDetailView: View {
             Haptics.impact(.light)
             showComposerPlusSheet = true
         } label: {
+            // Same size as the group chat's + and the composer's other 44pt buttons.
             Image(systemName: "plus")
-                .font(.body)
+                .font(.title3)
                 .foregroundColor(.accentColor)
-                .frame(width: 36, height: 36)
-                .background(glassBackground(cornerRadius: 12))
+                .frame(width: 44, height: 44)
+                .background(glassBackground(cornerRadius: 14))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("More options"))
