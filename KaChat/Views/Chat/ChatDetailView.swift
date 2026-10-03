@@ -89,7 +89,14 @@ struct ChatDetailView: View {
     @State private var showComposerPlusSheet = false
     /// The composer sheet's second step: which time control to play. Kept in the SAME sheet -
     /// dismissing into a dialog to answer one follow-up question loses the thread of the action.
-    @State private var composerSheetShowsChess = false
+    /// Which step the composer's "+" sheet shows: the options, a time control for chess, or -
+    /// with Nextcloud connected - where a camera shot / photo / voice note goes.
+    @State private var composerSheetStep: ComposerSheetStep = .options
+    private enum ComposerSheetStep: Equatable {
+        case options
+        case chess
+        case media(ComposerMediaKind)
+    }
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
@@ -239,21 +246,19 @@ struct ChatDetailView: View {
     @State private var recorderDelegate = AudioRecorderDelegate()
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showPhotoPickerFromMenu = false
-    /// The photo / voice note in the composer came from the "+" menu's on-chain rows. Those
-    /// mean exactly what they say: the bytes go on chain even while "Send Media via Nextcloud"
-    /// is on. Cleared when the attachment is sent or discarded; a recording started from the
-    /// composer bar resets the voice flag.
-    @State private var onChainPhotoRequested = false
-    @State private var onChainVoiceRequested = false
+    /// The photo / voice note in the composer was sent "via Nextcloud" from the "+" sheet.
+    /// Everything else (on-chain rows, paste, drop, share extension) goes on chain. Cleared when
+    /// the attachment is sent or discarded.
+    @State private var nextcloudPhotoRequested = false
+    @State private var nextcloudVoiceRequested = false
     @State private var showNextcloudPicker = false
-    /// Drives the connected-state composer layout: with a Nextcloud server linked, the + menu
-    /// drops Send Photo / Send Audio in favor of "Send from Nextcloud", and the message bar
-    /// grows camera + mic buttons whose captures ride the Nextcloud auto-upload send path.
+    /// With a Nextcloud server linked, the "+" sheet's Camera / Photo / Voice Message rows ask
+    /// on chain or via Nextcloud, and File appears.
     @ObservedObject private var nextcloudService = NextcloudService.shared
     @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
     /// The exact bytes the pending photo was attached from (picker/camera/paste/drop), kept so
-    /// "Send Media via Nextcloud" can upload the untouched original (HEIC/PNG/JPEG, full
+    /// a photo sent via Nextcloud can upload the untouched original (HEIC/PNG/JPEG, full
     /// resolution) instead of a re-encode of the decoded UIImage. Cleared with the pending photo.
     @State private var pendingPhotoOriginalData: Data?
     @State private var isCompressingPhoto = false
@@ -269,15 +274,17 @@ struct ChatDetailView: View {
     @FocusState private var isPaymentFocused: Bool
 
     private let maxRecordingDuration: TimeInterval = 10 // seconds (on-chain payload cap)
-    /// Nextcloud-uploaded voice notes aren't payload-bound — only the server carries them —
-    /// so the ceiling relaxes to 10 minutes while "Send Media via Nextcloud" is active.
-    private let maxNextcloudRecordingDuration: TimeInterval = 600
 
+    /// Nextcloud-uploaded voice notes aren't payload-bound - only the server carries them - so
+    /// a "Record via Nextcloud" note runs to the app-wide Nextcloud ceiling.
     private var effectiveMaxRecordingDuration: TimeInterval {
-        (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
-            ? maxNextcloudRecordingDuration
-            : maxRecordingDuration
+        voiceViaNextcloud ? ComposerMediaLimits.nextcloudVoiceSeconds : maxRecordingDuration
     }
+
+    /// The pending photo / voice note goes via Nextcloud: chosen in the "+" sheet, and the server
+    /// is still connected.
+    private var photoViaNextcloud: Bool { nextcloudPhotoRequested && nextcloudService.isConnected }
+    private var voiceViaNextcloud: Bool { nextcloudVoiceRequested && nextcloudService.isConnected }
     private let maxAudioBytes: Int = 13_000
     private let opusBitrate: Int32 = 6_000
     private let opusSampleRate: Double = 48_000
@@ -1861,14 +1868,18 @@ struct ChatDetailView: View {
             CameraCaptureView(
                 onCapture: { data in
                     showCamera = false
-                    _ = attachImageData(data)
+                    if !attachImageData(data) { nextcloudPhotoRequested = false }
                 },
-                onCancel: { showCamera = false },
-                // Video mode only exists when the Nextcloud media route can carry the file —
-                // there is no on-chain path that fits a video.
-                onCaptureVideo: (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+                onCancel: {
+                    showCamera = false
+                    nextcloudPhotoRequested = false
+                },
+                // Video mode only exists on "Take Photo via Nextcloud" - there is no on-chain
+                // path that fits a video.
+                onCaptureVideo: photoViaNextcloud
                     ? { fileURL in
                         showCamera = false
+                        nextcloudPhotoRequested = false
                         sendNextcloudVideo(fileURL)
                     }
                     : nil
@@ -1921,8 +1932,9 @@ struct ChatDetailView: View {
         }
     }
 
-    private func takePhoto() {
+    private func takePhoto(viaNextcloud: Bool = false) {
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            nextcloudPhotoRequested = viaNextcloud
             showCamera = true
         } else {
             self.error = "Camera not available on this device."
@@ -2067,7 +2079,7 @@ struct ChatDetailView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(Text("More options"))
         // Reopens on the options step, never on whichever step it was closed from.
-        .sheet(isPresented: $showComposerPlusSheet, onDismiss: { composerSheetShowsChess = false }) {
+        .sheet(isPresented: $showComposerPlusSheet, onDismiss: { composerSheetStep = .options }) {
             composerPlusSheet
         }
         // Second step after "Play Chess": pick a time control. The blitz presets send the tc
@@ -2090,22 +2102,55 @@ struct ChatDetailView: View {
                     return
                 }
                 await MainActor.run {
-                    // The library picker is only reachable through "Send On-Chain Photo".
-                    onChainPhotoRequested = true
-                    if !attachImageData(data) { onChainPhotoRequested = false }
+                    // The route was chosen in the "+" sheet before the picker opened.
+                    if !attachImageData(data) { nextcloudPhotoRequested = false }
                 }
             }
         }
     }
 
     /// The composer's "+" options, as a half sheet - each with a line saying what it does.
-    /// "Play Chess" swaps this for the time-control step rather than dismissing into a dialog.
+    /// "Play Chess" swaps this for the time-control step, and Camera / Photo / Voice Message for
+    /// the on-chain-or-Nextcloud step, rather than dismissing into a dialog.
     @ViewBuilder
     private var composerPlusSheet: some View {
-        if composerSheetShowsChess {
-            chessTimeControlSheet
-        } else {
+        switch composerSheetStep {
+        case .options:
             composerPlusOptions
+        case .chess:
+            chessTimeControlSheet
+        case .media(let kind):
+            ComposerMediaRouteStep(kind: kind, onChoose: { viaNextcloud in
+                showComposerPlusSheet = false
+                startMedia(kind, viaNextcloud: viaNextcloud)
+            }, onBack: { composerSheetStep = .options })
+            .presentationDetents([.height(330)])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// A "+" sheet media row: asks on chain or via Nextcloud when a server is connected,
+    /// otherwise goes straight to the on-chain path.
+    private func chooseMedia(_ kind: ComposerMediaKind) {
+        if nextcloudService.isConnected {
+            composerSheetStep = .media(kind)
+        } else {
+            showComposerPlusSheet = false
+            startMedia(kind, viaNextcloud: false)
+        }
+    }
+
+    private func startMedia(_ kind: ComposerMediaKind, viaNextcloud: Bool) {
+        switch kind {
+        case .camera:
+            // After the sheet is gone: a full-screen cover can't present from under it.
+            DispatchQueue.main.async { takePhoto(viaNextcloud: viaNextcloud) }
+        case .photo:
+            nextcloudPhotoRequested = viaNextcloud
+            DispatchQueue.main.async { showPhotoPickerFromMenu = true }
+        case .voice:
+            switchMode(.audio)
+            startRecording(viaNextcloud: viaNextcloud)
         }
     }
 
@@ -2137,7 +2182,7 @@ struct ChatDetailView: View {
                 startChessFromSheet(nil)
             }
 
-            Button("Back") { composerSheetShowsChess = false }
+            Button("Back") { composerSheetStep = .options }
                 .font(.subheadline.weight(.semibold))
                 .padding(.top, 4)
 
@@ -2152,7 +2197,7 @@ struct ChatDetailView: View {
 
     private func startChessFromSheet(_ timeControl: ChessTimeControl?) {
         showComposerPlusSheet = false
-        composerSheetShowsChess = false
+        composerSheetStep = .options
         startChessGame(timeControl: timeControl)
     }
 
@@ -2163,46 +2208,56 @@ struct ChatDetailView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            // The on-chain options are always here. They used to disappear when "Send Media via
-            // Nextcloud" was on, on the theory that the composer bar's camera and mic covered
-            // capture - but those upload through the server, and a user who wants a photo or a
-            // voice note to live on chain rather than on their Nextcloud had no way left to send
-            // one. The two are different things, so both are offered, named for what they do.
+            // Pay first: the Kaspa logo left the input bubble, so this is the way into payment mode.
             ActionSheetRow(
-                title: "Send On-Chain Photo",
-                subtitle: "Pick an image from your library and send it on chain.",
-                systemImage: "photo"
+                title: "Pay in Kaspa",
+                subtitle: "Send Kaspa to this contact.",
+                systemImage: "k.circle",
+                customIcon: Image("KaspaLogo")
             ) {
                 showComposerPlusSheet = false
-                DispatchQueue.main.async { showPhotoPickerFromMenu = true }
+                switchMode(.payment)
+            }
+            // Camera, Photo and Voice Message each ask on chain or via Nextcloud when a server is
+            // connected (that choice replaced the "Send Media via Nextcloud" setting), and go
+            // straight on chain when none is.
+            ActionSheetRow(
+                title: "Camera",
+                subtitle: "Take a photo and send it.",
+                systemImage: "camera"
+            ) {
+                chooseMedia(.camera)
             }
             ActionSheetRow(
-                title: "Send On-Chain Voice Message",
-                subtitle: "Record a voice message and send it on chain.",
-                systemImage: "mic.circle.fill"
+                title: "Photo",
+                subtitle: "Pick an image from your library and send it.",
+                systemImage: "photo"
             ) {
-                showComposerPlusSheet = false
-                switchMode(.audio)
-                startRecording(onChain: true)
+                chooseMedia(.photo)
+            }
+            ActionSheetRow(
+                title: "Voice Message",
+                subtitle: "Record a voice message and send it.",
+                systemImage: "mic"
+            ) {
+                chooseMedia(.voice)
             }
             if nextcloudService.isConnected {
                 ActionSheetRow(
-                    title: "Send from Nextcloud",
-                    subtitle: "Pick a file from your connected server.",
-                    systemImage: "externaldrive.connected.to.line.below"
+                    title: "File",
+                    subtitle: "Send any file from your Nextcloud. It shows as a preview.",
+                    systemImage: "doc"
                 ) {
                     showComposerPlusSheet = false
                     DispatchQueue.main.async { showNextcloudPicker = true }
                 }
             }
-            // Send Kaspa left this menu: the Kaspa logo inside the input bubble is the
-            // one entry point to payment mode now.
             ActionSheetRow(
                 title: "Play Chess",
                 subtitle: "Invite this contact to a game on chain.",
                 systemImage: "checkerboard.rectangle"
             ) {
-                composerSheetShowsChess = true
+                composerSheetStep = .chess
             }
             // Only where first contact still needs one: an indexer without inbox lookups.
             if canSendRequestToCommunicate && !inboxSupported {
@@ -2224,8 +2279,8 @@ struct ChatDetailView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // Up to five rows now (both on-chain options, Nextcloud, chess, a handshake), so a fixed
-        // height no longer fits every case; medium expands to large for the tallest.
+        // Up to seven rows (pay, camera, photo, voice, file, chess, a handshake), so a fixed
+        // height doesn't fit every case; medium expands to large for the tallest.
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
@@ -2649,50 +2704,6 @@ struct ChatDetailView: View {
                             onPasteImageData: handlePastedImageData
                         )
 
-                        // Quick-access camera, replacing what used to be a "Camera" entry in the
-                        // "+" menu - living right in the compose bubble instead since it's the
-                        // most common non-text action. When "Send Media via Nextcloud" is on,
-                        // captures ride the auto-upload send path automatically.
-                        Button {
-                            takePhoto()
-                        } label: {
-                            Image(systemName: "camera")
-                                .font(.title3)
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text("Take Photo"))
-
-                        // Its voice-note sibling: one tap starts recording, same as the old
-                        // "+"-menu entry — and the finished note likewise uploads via Nextcloud
-                        // whenever the toggle is on.
-                        Button {
-                            switchMode(.audio)
-                            startRecording()
-                        } label: {
-                            Image(systemName: "mic")
-                                .font(.title3)
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.leading, 6)
-                        .accessibilityLabel(Text("Record Voice Message"))
-
-                        // Third inline shortcut: jump straight into payment mode - the same
-                        // switchMode(.payment) path as the "+" menu's Send Kaspa entry, which
-                        // stays available too. In payment mode the whole input row is replaced
-                        // by paymentField, so this icon disappears with the rest of the bubble.
-                        Button {
-                            switchMode(.payment)
-                        } label: {
-                            Image("KaspaLogo")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 24, height: 24)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.leading, 6)
-                        .accessibilityLabel(KaspaUnit.text("Send KAS"))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -3048,7 +3059,8 @@ struct ChatDetailView: View {
                 }
                 sendAudio()
             } else {
-                startRecording()
+                // Recording again after discarding one keeps the route chosen in the "+" sheet.
+                startRecording(viaNextcloud: nextcloudVoiceRequested)
             }
         }
     }
@@ -3751,7 +3763,7 @@ struct ChatDetailView: View {
         }
         // Via Nextcloud, the chain only carries the ~80-byte share link — the photo bytes live
         // on the server — so the fee shown is the link-message fee, not the envelope fee.
-        let payloadSize = (nextcloudService.isConnected && nextcloudService.mediaSendEnabled && !onChainPhotoRequested)
+        let payloadSize = photoViaNextcloud
             ? Self.nextcloudLinkPayloadSize
             : ImagePrep.estimatedWirePayloadSize()
         feeEstimateSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
@@ -3798,8 +3810,8 @@ struct ChatDetailView: View {
         }
     }
 
-    private func startRecording(onChain: Bool = false) {
-        onChainVoiceRequested = onChain
+    private func startRecording(viaNextcloud: Bool = false) {
+        nextcloudVoiceRequested = viaNextcloud
         Task {
             let granted = await requestRecordPermission()
             guard granted else {
@@ -3932,7 +3944,7 @@ struct ChatDetailView: View {
         pendingPhotoImage = nil
         pendingPhotoOriginalData = nil
         photoPickerItem = nil
-        onChainPhotoRequested = false
+        nextcloudPhotoRequested = false
         feeEstimateSompi = nil
         isEstimatingFee = false
     }
@@ -4010,13 +4022,12 @@ struct ChatDetailView: View {
             isSending = false
         }
 
-        // "Send Media via Nextcloud" (1:1 chats only — this view; groups/public chats keep their
-        // own send paths): upload the best-quality bytes we have and send the public share link
-        // as a normal text message (the recipient's link-preview feature renders it as a media
-        // bubble). Any upload/share failure falls back to the on-chain envelope below, with a
-        // toast so the sender knows the full-quality upload didn't happen. A photo picked
-        // through "Send On-Chain Photo" skips all of this: on chain is what was asked for.
-        if !onChainPhotoRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+        // "Via Nextcloud" (chosen in the "+" sheet): upload the best-quality bytes we have and
+        // send the public share link as a normal text message (the recipient's link-preview
+        // feature renders it as a media bubble). Any upload/share failure falls back to the
+        // on-chain envelope below, with a toast so the sender knows the full-quality upload
+        // didn't happen. An on-chain photo skips all of this.
+        if photoViaNextcloud {
             var shareURL: URL?
             do {
                 guard let upload = nextcloudPhotoUpload(for: image) else {
@@ -4044,6 +4055,7 @@ struct ChatDetailView: View {
                         pendingPhotoImage = nil
                         pendingPhotoOriginalData = nil
                         photoPickerItem = nil
+                        nextcloudPhotoRequested = false
                         feeEstimateSompi = nil
                         isEstimatingFee = false
                     }
@@ -4072,7 +4084,7 @@ struct ChatDetailView: View {
                 pendingPhotoImage = nil
                 pendingPhotoOriginalData = nil
                 photoPickerItem = nil
-                onChainPhotoRequested = false
+                nextcloudPhotoRequested = false
                 feeEstimateSompi = nil
                 isEstimatingFee = false
             }
@@ -4094,7 +4106,7 @@ struct ChatDetailView: View {
         // Nextcloud mode: preview the full-length original — that's what actually uploads.
         // The WebM decode below reflects only the payload-capped on-chain encode (~9s), which
         // would make a long recording sound truncated in preview while sending fine.
-        if !onChainVoiceRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected,
+        if voiceViaNextcloud,
            let originalURL = nextcloudOriginalRecordingURL,
            FileManager.default.fileExists(atPath: originalURL.path) {
             do {
@@ -4163,7 +4175,7 @@ struct ChatDetailView: View {
         return (decoded.url, decoded.duration)
     }
 
-    // MARK: - Nextcloud media send helpers ("Send Media via Nextcloud" toggle)
+    // MARK: - Nextcloud media send helpers ("via Nextcloud" in the "+" sheet)
 
     /// Human-sortable timestamp for uploaded media filenames (photo_20260811-101502.jpg).
     private static let mediaTimestampFormatter: DateFormatter = {
@@ -4314,7 +4326,7 @@ struct ChatDetailView: View {
 
         // Via Nextcloud, the recording uploads to the server and the chain only carries the
         // share link — the fee is the link-message fee regardless of recording length.
-        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled && !onChainVoiceRequested {
+        if voiceViaNextcloud {
             if let wallet = walletManager.currentWallet,
                let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) {
                 recordingFeeSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
@@ -4405,7 +4417,7 @@ struct ChatDetailView: View {
         await waitForRecordingFile(url)
         // Nextcloud mode: stash the full-length original BEFORE the payload-capped encode —
         // the M4A upload exports from this copy so long recordings survive intact.
-        if !onChainVoiceRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+        if voiceViaNextcloud {
             let keepURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("kachat-voice-original-\(UUID().uuidString).caf")
             if (try? FileManager.default.copyItem(at: url, to: keepURL)) != nil {
@@ -4530,14 +4542,14 @@ struct ChatDetailView: View {
             let payloadData = try Data(contentsOf: url)
             let mime = mimeType(for: url)
 
-            // "Send Media via Nextcloud" (1:1 chats only — this view): upload an AAC .m4a of
+            // "Record via Nextcloud" (chosen in the "+" sheet): upload an AAC .m4a of
             // the recording and send the public share link instead of the on-chain WebM/Opus
             // envelope. The .m4a re-export matters: the recipient's link-preview audio card
             // streams through AVPlayer, which cannot decode WebM/Opus, so uploading the
             // envelope bytes verbatim would produce an unplayable card. Any failure falls
-            // back to the on-chain path below, with a toast. "Send On-Chain Voice Message"
-            // skips all of this.
-            if !onChainVoiceRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+            // back to the on-chain path below, with a toast. An on-chain voice note skips all
+            // of this.
+            if voiceViaNextcloud {
                 recordingFeeTask?.cancel()
                 isSending = true
                 var shareURL: URL?

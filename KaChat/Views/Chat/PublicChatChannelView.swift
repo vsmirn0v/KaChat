@@ -17,18 +17,30 @@ struct PublicChatChannelView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var knsService = KNSService.shared
-    /// Drives the "Send Media via Nextcloud" voice path, mirroring 1:1/group chat: with the
-    /// toggle active, mic captures upload to the server and the room only carries the share link.
+    /// With a Nextcloud server linked, the mic asks on chain or via Nextcloud, mirroring the
+    /// 1:1/group "+" sheet: via Nextcloud, the recording uploads to the server and the room only
+    /// carries the share link.
     @ObservedObject private var nextcloudService = NextcloudService.shared
     @StateObject private var recorder = PublicChatAudioRecorder()
+    @State private var nextcloudVoiceRequested = false
+    @State private var showVoiceRouteSheet = false
 
-    /// Nextcloud-uploaded voice notes aren't payload-bound - only the server carries them - so
-    /// the recording ceiling relaxes to 10 minutes while "Send Media via Nextcloud" is active,
-    /// mirroring `ChatDetailView.effectiveMaxRecordingDuration`.
+    /// Nextcloud-uploaded voice notes aren't payload-bound - only the server carries them - so a
+    /// "Record via Nextcloud" note runs to the app-wide Nextcloud ceiling, mirroring
+    /// `ChatDetailView.effectiveMaxRecordingDuration`.
     private var effectiveMaxRecordingDuration: TimeInterval {
-        (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
-            ? 600
-            : PublicChatAudioRecorder.maxDuration
+        voiceViaNextcloud ? ComposerMediaLimits.nextcloudVoiceSeconds : PublicChatAudioRecorder.maxDuration
+    }
+
+    private var voiceViaNextcloud: Bool { nextcloudVoiceRequested && nextcloudService.isConnected }
+
+    private func startVoiceMessage() {
+        if nextcloudService.isConnected {
+            showVoiceRouteSheet = true
+        } else {
+            nextcloudVoiceRequested = false
+            recorder.start()
+        }
     }
 
     @State private var messageText = ""
@@ -871,7 +883,7 @@ struct PublicChatChannelView: View {
         Group {
             if messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button {
-                    recorder.start()
+                    startVoiceMessage()
                 } label: {
                     Image(systemName: "mic.fill")
                         .font(.title3)
@@ -881,6 +893,15 @@ struct PublicChatChannelView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("Record voice message"))
+                .sheet(isPresented: $showVoiceRouteSheet) {
+                    ComposerMediaRouteStep(kind: .voice, onChoose: { viaNextcloud in
+                        showVoiceRouteSheet = false
+                        nextcloudVoiceRequested = viaNextcloud
+                        recorder.start()
+                    }, onBack: { showVoiceRouteSheet = false })
+                    .presentationDetents([.height(330)])
+                    .presentationDragIndicator(.visible)
+                }
             } else {
                 Button {
                     send()
@@ -1011,7 +1032,7 @@ struct PublicChatChannelView: View {
         // Via Nextcloud, the recording uploads to the server and the chain only carries the
         // share link - the fee is the link-message fee regardless of recording length,
         // mirroring 1:1 chat's identical branch.
-        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled {
+        if voiceViaNextcloud {
             isEstimatingFee = false
             feeEstimateSompi = publicChatService.estimatePublicChatFee(
                 channel: channelName,
@@ -1066,9 +1087,10 @@ struct PublicChatChannelView: View {
     }
 
     private func stopAndSendRecording() {
-        // Snapshot once, so the toggle flipping mid-send can't strand the stashed original -
-        // mirrors `GroupChatDetailView.sendRecording`.
-        let nextcloudActive = nextcloudService.mediaSendEnabled && nextcloudService.isConnected
+        // Snapshot once, so a disconnect mid-send can't strand the stashed original - mirrors
+        // `GroupChatDetailView.sendRecording`.
+        let nextcloudActive = voiceViaNextcloud
+        nextcloudVoiceRequested = false
         let recordedSeconds = recorder.elapsedSeconds
         Task {
             // Nextcloud mode: stash the full-length original PCM BEFORE the payload-capped WebM
@@ -1087,7 +1109,7 @@ struct PublicChatChannelView: View {
             do {
                 let recorded = try await recorder.stopAndEncode(keepOriginalPCMAt: originalPCMURL)
 
-                // "Send Media via Nextcloud": upload an AAC .m4a of the recording and send the
+                // "Record via Nextcloud": upload an AAC .m4a of the recording and send the
                 // public share link as a plain text public chat (the link-preview feature renders
                 // it as a playable audio card). The .m4a re-export matters: the recipients'
                 // audio card streams through AVPlayer, which cannot decode WebM/Opus. Mirrors
@@ -1143,7 +1165,7 @@ struct PublicChatChannelView: View {
         }
     }
 
-    // MARK: - Nextcloud media send helpers ("Send Media via Nextcloud" toggle)
+    // MARK: - Nextcloud media send helpers ("Record via Nextcloud")
 
     /// Human-sortable timestamp for uploaded media filenames (voice_20260811-101502.m4a) -
     /// duplicated from `ChatDetailView` (private there), matching this file's convention of

@@ -3530,14 +3530,13 @@ struct NextcloudSettingsView: View {
                         }
                     }
                 } footer: {
-                    Text("\"Send from Nextcloud\" in chats opens this folder first.")
-                }
-                Section {
-                    Toggle("Send Media via Nextcloud", isOn: $service.mediaSendEnabled)
-                } header: {
-                    Text("Chat Media")
-                } footer: {
-                    Text("When on, photos and voice messages you send in private chats upload in full quality to this server's \(NextcloudService.mediaFolderPath) folder, and the chat carries a share link instead — recipients see a normal media bubble. The message with the link stays end-to-end encrypted, but the files themselves are stored unencrypted on your server and are reachable by anyone who has the unguessable link. When off, media is embedded in the encrypted on-chain payload as before.")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\"File\" in a chat's + menu opens this folder first.")
+                        // The old "Send Media via Nextcloud" switch is gone: Camera, Photo and Voice
+                        // Message in a chat's + menu ask on chain or via Nextcloud every time. What
+                        // that choice means for privacy still belongs here.
+                        Text("In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's \(NextcloudService.mediaFolderPath) folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link.")
+                    }
                 }
                 Section {
                     // Custom binding: the setter must go through setAutoSyncEnabled so the

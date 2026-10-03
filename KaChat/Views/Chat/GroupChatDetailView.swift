@@ -137,21 +137,23 @@ struct GroupChatDetailView: View {
     @State private var profileContact: Contact?
 
     @State private var photoPickerItem: PhotosPickerItem?
-    /// Set by the "+" menu's on-chain rows: the attachment goes on chain even while "Send Media
-    /// via Nextcloud" is on. Mirrors ChatDetailView.
-    @State private var onChainPhotoRequested = false
-    @State private var onChainVoiceRequested = false
+    /// The photo / voice note was sent "via Nextcloud" from the "+" sheet; everything else goes
+    /// on chain. Mirrors ChatDetailView.
+    @State private var nextcloudPhotoRequested = false
+    @State private var nextcloudVoiceRequested = false
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
     /// The exact bytes the pending photo was attached from (picker/camera/paste), kept so
-    /// "Send Media via Nextcloud" can upload the untouched original (HEIC/PNG/JPEG, full
+    /// a photo sent via Nextcloud can upload the untouched original (HEIC/PNG/JPEG, full
     /// resolution) instead of a re-encode of the decoded UIImage. Cleared with the pending
     /// photo - mirrors `ChatDetailView.pendingPhotoOriginalData` exactly.
     @State private var pendingPhotoOriginalData: Data?
     @State private var isSendingPhoto = false
     @State private var showNextcloudPicker = false
     @State private var showPlusSheet = false
+    /// The "+" sheet's second step (on chain or via Nextcloud), or nil for the options.
+    @State private var plusSheetMediaStep: ComposerMediaKind?
     /// The sender whose avatar was tapped; non-nil presents `senderSheet`.
     @State private var senderSheetTarget: SenderSheetTarget?
     private struct SenderSheetTarget: Identifiable {
@@ -159,20 +161,20 @@ struct GroupChatDetailView: View {
         let isOwnMessage: Bool
         var id: String { address }
     }
-    /// Drives the connected-state composer layout, mirroring 1:1 chat's `ChatDetailView`: with a
-    /// Nextcloud server linked, the + menu drops Send Photo / Send Audio in favor of "Send from
-    /// Nextcloud", and the message bar's camera/mic captures ride the Nextcloud auto-upload path.
+    /// With a Nextcloud server linked, the "+" sheet's Camera / Photo / Voice Message rows ask
+    /// on chain or via Nextcloud, and File appears. Mirrors 1:1 chat's `ChatDetailView`.
     @ObservedObject private var nextcloudService = NextcloudService.shared
     @StateObject private var recorder = PublicChatAudioRecorder()
 
     /// Nextcloud-uploaded voice notes aren't payload-bound - only the server carries them - so
-    /// the recording ceiling relaxes to 10 minutes while "Send Media via Nextcloud" is active,
-    /// mirroring `ChatDetailView.effectiveMaxRecordingDuration`.
+    /// a "Record via Nextcloud" note runs to the app-wide Nextcloud ceiling, mirroring
+    /// `ChatDetailView.effectiveMaxRecordingDuration`.
     private var effectiveMaxRecordingDuration: TimeInterval {
-        (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
-            ? 600
-            : PublicChatAudioRecorder.maxDuration
+        voiceViaNextcloud ? ComposerMediaLimits.nextcloudVoiceSeconds : PublicChatAudioRecorder.maxDuration
     }
+
+    private var photoViaNextcloud: Bool { nextcloudPhotoRequested && nextcloudService.isConnected }
+    private var voiceViaNextcloud: Bool { nextcloudVoiceRequested && nextcloudService.isConnected }
 
     /// `@mention` inline autocomplete - see `GroupMentionCodec`'s doc comment for the wire
     /// format. `mentionQuery` is the text typed after an unclosed "@" at the cursor (reported by
@@ -942,6 +944,7 @@ struct GroupChatDetailView: View {
                 onCapture: { data in
                     showCamera = false
                     guard let image = UIImage(data: data) else {
+                        nextcloudPhotoRequested = false
                         errorMessage = "Couldn't load that photo. Please try another."
                         return
                     }
@@ -950,12 +953,16 @@ struct GroupChatDetailView: View {
                     pendingPhotoOriginalData = data
                     schedulePhotoFeeEstimate()
                 },
-                onCancel: { showCamera = false },
-                // Video mode only exists when the Nextcloud media route can carry the file -
-                // there is no on-chain path that fits a video. Mirrors 1:1 chat exactly.
-                onCaptureVideo: (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+                onCancel: {
+                    showCamera = false
+                    nextcloudPhotoRequested = false
+                },
+                // Video mode only exists on "Take Photo via Nextcloud" - there is no on-chain
+                // path that fits a video. Mirrors 1:1 chat exactly.
+                onCaptureVideo: photoViaNextcloud
                     ? { fileURL in
                         showCamera = false
+                        nextcloudPhotoRequested = false
                         sendNextcloudVideo(fileURL)
                     }
                     : nil
@@ -1000,8 +1007,9 @@ struct GroupChatDetailView: View {
         isComposerFocused = true
     }
 
-    private func takePhoto() {
+    private func takePhoto(viaNextcloud: Bool = false) {
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            nextcloudPhotoRequested = viaNextcloud
             showCamera = true
         } else {
             errorMessage = "Camera not available on this device."
@@ -1117,7 +1125,7 @@ struct GroupChatDetailView: View {
         isEstimatingFee = false
         // Via Nextcloud, the chain only carries the ~80-byte share link - the photo bytes live
         // on the server - so the fee shown is the link-message fee, not the envelope fee.
-        let rawBytes = (nextcloudService.isConnected && nextcloudService.mediaSendEnabled && !onChainPhotoRequested)
+        let rawBytes = photoViaNextcloud
             ? Self.nextcloudLinkPayloadSize
             : Self.groupPhotoTargetBytes
         feeEstimateSompi = groupChatService.estimateGroupMediaFee(rawBytes: rawBytes)
@@ -1130,7 +1138,7 @@ struct GroupChatDetailView: View {
         guard recorder.state == .recording else { return }
         // Via Nextcloud, the recording uploads to the server and the chain only carries the
         // share link - the fee is the link-message fee regardless of recording length.
-        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled && !onChainVoiceRequested {
+        if voiceViaNextcloud {
             feeEstimateSompi = groupChatService.estimateGroupMediaFee(rawBytes: Self.nextcloudLinkPayloadSize)
             isEstimatingFee = false
             return
@@ -1288,35 +1296,6 @@ struct GroupChatDetailView: View {
                     onMentionQuery: { mentionQuery = $0 }
                 )
 
-                // Quick-access camera, replacing what used to be a "Camera" entry in the "+" menu
-                // - living right in the compose bubble instead since it's the most common
-                // non-text action. Matches 1:1 chat's textRow. When "Send Media via Nextcloud"
-                // is on, captures ride the auto-upload send path automatically.
-                Button {
-                    takePhoto()
-                } label: {
-                    Image(systemName: "camera")
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("Take Photo"))
-
-                // Its voice-note sibling: one tap starts recording, same as the "+"-menu entry -
-                // and the finished note likewise uploads via Nextcloud whenever the toggle is on.
-                // Matches 1:1 chat's textRow mic button.
-                Button {
-                    feeEstimateSompi = nil
-                    onChainVoiceRequested = false
-                    recorder.start()
-                } label: {
-                    Image(systemName: "mic")
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, 6)
-                .accessibilityLabel(Text("Record Voice Message"))
             }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -1336,46 +1315,60 @@ struct GroupChatDetailView: View {
         }
     }
 
-    /// "+" menu - Camera, Send Photo, Send Audio Message only, deliberately no "Send Kaspa"/chess
-    /// (see file doc).
-    /// Mentioning someone is no longer here - type "@" in the composer instead, see
-    /// `mentionSuggestions`.
     /// The composer's "+" options, as a half sheet - each with a line saying what it does.
-    /// Mirrors 1:1's composerPlusSheet.
+    /// Mirrors 1:1's composerPlusSheet, minus Pay in Kaspa and chess (a group has no single
+    /// recipient for either). Mentioning someone isn't here - type "@" in the composer instead,
+    /// see `mentionSuggestions`.
+    @ViewBuilder
     private var plusSheet: some View {
+        if let kind = plusSheetMediaStep {
+            ComposerMediaRouteStep(kind: kind, onChoose: { viaNextcloud in
+                showPlusSheet = false
+                startMedia(kind, viaNextcloud: viaNextcloud)
+            }, onBack: { plusSheetMediaStep = nil })
+            .presentationDetents([.height(330)])
+            .presentationDragIndicator(.visible)
+        } else {
+            plusOptions
+        }
+    }
+
+    private var plusOptions: some View {
         VStack(spacing: 12) {
             Text("Send")
                 .font(.headline)
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            // The on-chain options are always here, as in 1:1 chats. They used to disappear when
-            // "Send Media via Nextcloud" was on, but a photo or a voice note sent through the
-            // server and one sent on chain are different things, and a member who wanted the
-            // on-chain one had no way left to send it.
+            // Camera, Photo and Voice Message each ask on chain or via Nextcloud when a server is
+            // connected (that choice replaced the "Send Media via Nextcloud" setting), and go
+            // straight on chain when none is.
             ActionSheetRow(
-                title: "Send On-Chain Photo",
-                subtitle: "Pick an image from your library and send it on chain.",
-                systemImage: "photo"
+                title: "Camera",
+                subtitle: "Take a photo and send it to the group.",
+                systemImage: "camera"
             ) {
-                showPlusSheet = false
-                DispatchQueue.main.async { showPhotoPicker = true }
+                chooseMedia(.camera)
             }
             ActionSheetRow(
-                title: "Send On-Chain Voice Message",
-                subtitle: "Record a voice message and send it to the group on chain.",
-                systemImage: "mic.circle.fill"
+                title: "Photo",
+                subtitle: "Pick an image from your library and send it to the group.",
+                systemImage: "photo"
             ) {
-                showPlusSheet = false
-                feeEstimateSompi = nil
-                onChainVoiceRequested = true
-                recorder.start()
+                chooseMedia(.photo)
+            }
+            ActionSheetRow(
+                title: "Voice Message",
+                subtitle: "Record a voice message and send it to the group.",
+                systemImage: "mic"
+            ) {
+                chooseMedia(.voice)
             }
             if nextcloudService.isConnected {
                 ActionSheetRow(
-                    title: "Send from Nextcloud",
-                    subtitle: "Pick a file from your connected server.",
-                    systemImage: "externaldrive.connected.to.line.below"
+                    title: "File",
+                    subtitle: "Send any file from your Nextcloud. It shows as a preview.",
+                    systemImage: "doc"
                 ) {
                     showPlusSheet = false
                     DispatchQueue.main.async { showNextcloudPicker = true }
@@ -1387,9 +1380,33 @@ struct GroupChatDetailView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // Three rows with two-line subtitles when Nextcloud is connected; 320 clipped the last.
-        .presentationDetents([.height(360)])
+        // Four rows with subtitles when Nextcloud is connected.
+        .presentationDetents([.height(nextcloudService.isConnected ? 420 : 340)])
         .presentationDragIndicator(.visible)
+    }
+
+    private func chooseMedia(_ kind: ComposerMediaKind) {
+        if nextcloudService.isConnected {
+            plusSheetMediaStep = kind
+        } else {
+            showPlusSheet = false
+            startMedia(kind, viaNextcloud: false)
+        }
+    }
+
+    private func startMedia(_ kind: ComposerMediaKind, viaNextcloud: Bool) {
+        switch kind {
+        case .camera:
+            // After the sheet is gone: a full-screen cover can't present from under it.
+            DispatchQueue.main.async { takePhoto(viaNextcloud: viaNextcloud) }
+        case .photo:
+            nextcloudPhotoRequested = viaNextcloud
+            DispatchQueue.main.async { showPhotoPicker = true }
+        case .voice:
+            feeEstimateSompi = nil
+            nextcloudVoiceRequested = viaNextcloud
+            recorder.start()
+        }
     }
 
     /// The sender half sheet a tapped avatar opens: what the avatar's popup menu used to offer,
@@ -1493,7 +1510,7 @@ struct GroupChatDetailView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("More options"))
-        .sheet(isPresented: $showPlusSheet) { plusSheet }
+        .sheet(isPresented: $showPlusSheet, onDismiss: { plusSheetMediaStep = nil }) { plusSheet }
         .sheet(item: $senderSheetTarget) { senderSheet(for: $0) }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
         .sheet(isPresented: $showNextcloudPicker) {
@@ -1512,8 +1529,7 @@ struct GroupChatDetailView: View {
                 }
                 await MainActor.run {
                     isComposerFocused = false
-                    // The library picker is only reachable through "Send On-Chain Photo".
-                    onChainPhotoRequested = true
+                    // The route was chosen in the "+" sheet before the picker opened.
                     pendingPhotoImage = image
                     pendingPhotoOriginalData = data
                     schedulePhotoFeeEstimate()
@@ -1539,7 +1555,7 @@ struct GroupChatDetailView: View {
             Button {
                 pendingPhotoImage = nil
                 pendingPhotoOriginalData = nil
-                onChainPhotoRequested = false
+                nextcloudPhotoRequested = false
                 feeEstimateSompi = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -1662,13 +1678,13 @@ struct GroupChatDetailView: View {
         isSendingPhoto = true
         errorMessage = nil
         Task {
-            // "Send Media via Nextcloud": upload the best-quality bytes we have and send the
-            // public share link as a normal group text message (the members' link-preview
+            // "Via Nextcloud" (chosen in the "+" sheet): upload the best-quality bytes we have and
+            // send the public share link as a normal group text message (the members' link-preview
             // feature renders it as a media bubble). Any upload/share failure falls back to the
             // on-chain envelope below, with a toast so the sender knows the full-quality upload
-            // didn't happen. Mirrors `ChatDetailView.sendPendingPhotoAsync`. A photo picked
-            // through "Send On-Chain Photo" skips this and goes on chain as asked.
-            if !onChainPhotoRequested, NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+            // didn't happen. Mirrors `ChatDetailView.sendPendingPhotoAsync`. An on-chain photo
+            // skips this.
+            if photoViaNextcloud {
                 var shareURL: URL?
                 do {
                     guard let upload = nextcloudPhotoUpload(for: pendingPhotoImage) else {
@@ -1692,6 +1708,7 @@ struct GroupChatDetailView: View {
                         await MainActor.run {
                             self.pendingPhotoImage = nil
                             self.pendingPhotoOriginalData = nil
+                            self.nextcloudPhotoRequested = false
                             self.isSendingPhoto = false
                         }
                     } catch {
@@ -1713,7 +1730,7 @@ struct GroupChatDetailView: View {
                 await MainActor.run {
                     self.pendingPhotoImage = nil
                     self.pendingPhotoOriginalData = nil
-                    self.onChainPhotoRequested = false
+                    self.nextcloudPhotoRequested = false
                     self.isSendingPhoto = false
                 }
             } catch {
@@ -1726,10 +1743,10 @@ struct GroupChatDetailView: View {
     }
 
     private func sendRecording() {
-        // Snapshot once, so the toggle flipping mid-send can't strand the stashed original.
-        // "Send On-Chain Voice Message" never goes through the server.
-        let nextcloudActive = !onChainVoiceRequested && NextcloudService.shared.mediaSendEnabled && NextcloudService.shared.isConnected
-        onChainVoiceRequested = false
+        // Snapshot once, so a disconnect mid-send can't strand the stashed original. An on-chain
+        // voice note never goes through the server.
+        let nextcloudActive = voiceViaNextcloud
+        nextcloudVoiceRequested = false
         Task {
             // Nextcloud mode: stash the full-length original PCM BEFORE the payload-capped WebM
             // encode - the encode truncates to ~13KB (≈9s), and exporting the M4A from that
@@ -1748,7 +1765,7 @@ struct GroupChatDetailView: View {
             do {
                 let recorded = try await recorder.stopAndEncode(keepOriginalPCMAt: originalPCMURL)
 
-                // "Send Media via Nextcloud": upload an AAC .m4a of the recording and send the
+                // "Record via Nextcloud": upload an AAC .m4a of the recording and send the
                 // public share link instead of the on-chain WebM/Opus envelope. The .m4a
                 // re-export matters: the recipients' link-preview audio card streams through
                 // AVPlayer, which cannot decode WebM/Opus, so uploading the envelope bytes
@@ -1789,7 +1806,7 @@ struct GroupChatDetailView: View {
         }
     }
 
-    // MARK: - Nextcloud media send helpers ("Send Media via Nextcloud" toggle)
+    // MARK: - Nextcloud media send helpers ("via Nextcloud" in the "+" sheet)
 
     /// Human-sortable timestamp for uploaded media filenames (photo_20260811-101502.jpg) -
     /// duplicated from `ChatDetailView` (private there), matching this file's convention of

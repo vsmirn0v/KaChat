@@ -44,6 +44,7 @@
 		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
 		B7A11C0E4D3F48A2915E7C21 /* PostTranslationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */; };
 		BCAR00010001000100000001 /* PublicChatAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* PublicChatAudioRecording.swift */; };
+		CMRS00010001000100000001 /* ComposerMediaRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = CMRS00010001000000000001 /* ComposerMediaRoute.swift */; };
 		BCCV00010001000100000001 /* PublicChatChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* PublicChatChannelView.swift */; };
 		BCHS00010001000100000001 /* HiddenPublicChatSendersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCHS00010001000000000001 /* HiddenPublicChatSendersView.swift */; };
 		BCLV00010001000100000001 /* PublicChatListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCLV00010001000000000001 /* PublicChatListView.swift */; };
@@ -319,6 +320,7 @@
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
 		B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaNetworkStatsService.swift; sourceTree = "<group>"; };
 		BCAR00010001000000000001 /* PublicChatAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatAudioRecording.swift; sourceTree = "<group>"; };
+		CMRS00010001000000000001 /* ComposerMediaRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerMediaRoute.swift; sourceTree = "<group>"; };
 		BCCV00010001000000000001 /* PublicChatChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatChannelView.swift; sourceTree = "<group>"; };
 		BCHS00010001000000000001 /* HiddenPublicChatSendersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenPublicChatSendersView.swift; sourceTree = "<group>"; };
 		BCLV00010001000000000001 /* PublicChatListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicChatListView.swift; sourceTree = "<group>"; };
@@ -916,6 +918,7 @@
 				BCHS00010001000000000001 /* HiddenPublicChatSendersView.swift */,
 				BCRI00010001000000000001 /* PublicChatRoomInfoView.swift */,
 				BCAR00010001000000000001 /* PublicChatAudioRecording.swift */,
+				CMRS00010001000000000001 /* ComposerMediaRoute.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -1518,6 +1521,7 @@
 				BCHS00010001000100000001 /* HiddenPublicChatSendersView.swift in Sources */,
 				BCRI00010001000100000001 /* PublicChatRoomInfoView.swift in Sources */,
 				BCAR00010001000100000001 /* PublicChatAudioRecording.swift in Sources */,
+				CMRS00010001000100000001 /* ComposerMediaRoute.swift in Sources */,
 				KCB300000000010001000000 /* Blake3.swift in Sources */,
 				KCNM00000000010001000000 /* KachatNamesCodec.swift in Sources */,
 				KCNM00000000020001000000 /* KachatNamesTransaction.swift in Sources */,

@@ -193,14 +193,6 @@ final class NextcloudService: ObservableObject {
     /// MainTabView renders it as a toast; nil hides it.
     @Published var syncStatusToast: String?
 
-    /// "Send Media via Nextcloud" toggle (Settings > Storage > Nextcloud). When on, photos and
-    /// voice recordings sent in 1:1 chats upload to the connected server and the chat message
-    /// is the public share link (the recipient's link-preview feature renders it as a native
-    /// media bubble / audio card) instead of embedding the bytes in the on-chain payload.
-    /// Per wallet account.
-    @Published var mediaSendEnabled: Bool = false {
-        didSet { persistSetting(mediaSendEnabled, baseKey: Self.mediaSendKey) }
-    }
 
     /// The active wallet's address - every credential/settings read and write is scoped to it.
     /// nil (signed out / no wallet yet) presents as disconnected and persists nothing.
@@ -380,7 +372,6 @@ final class NextcloudService: ObservableObject {
             account = nil
             talkCallsAvailable = false
             autoBackupEnabled = false
-            mediaSendEnabled = false
             pendingSyncDirty = false
             lastAutoSyncAt = nil
             lastKnownBackupETag = nil
@@ -395,7 +386,6 @@ final class NextcloudService: ObservableObject {
             account = nil
         }
         autoBackupEnabled = resolveAndMigrateAutoSyncEnabled()
-        mediaSendEnabled = scopedKey(Self.mediaSendKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
         pendingSyncDirty = scopedKey(Self.pendingSyncKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
         let lastStamp = scopedKey(Self.lastAutoBackupKey).map { UserDefaults.standard.double(forKey: $0) } ?? 0
         lastAutoSyncAt = lastStamp > 0 ? Date(timeIntervalSince1970: lastStamp) : nil
