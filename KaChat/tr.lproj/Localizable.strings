@@ -1196,3 +1196,5 @@
 "Hold to Send" = "Göndermek için basılı tut";
 "Add a memo (encrypted)" = "Not ekle (şifreli)";
 "Switch between Kaspa and your currency" = "Kaspa ile para biriminiz arasında geçiş yap";
+"Send Photo or Video via Nextcloud" = "Fotoğraf veya Videoyu Nextcloud ile Gönder";
+"Couldn't load that video. Please try another." = "Bu video yüklenemedi. Lütfen başka birini deneyin.";

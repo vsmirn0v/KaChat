@@ -1196,3 +1196,5 @@
 "Hold to Send" = "পাঠাতে চেপে ধরুন";
 "Add a memo (encrypted)" = "একটি নোট যোগ করুন (এনক্রিপ্টেড)";
 "Switch between Kaspa and your currency" = "Kaspa ও আপনার মুদ্রার মধ্যে বদলান";
+"Send Photo or Video via Nextcloud" = "Nextcloud দিয়ে ছবি বা ভিডিও পাঠান";
+"Couldn't load that video. Please try another." = "ভিডিওটি লোড করা যায়নি। অনুগ্রহ করে অন্য একটি চেষ্টা করুন।";

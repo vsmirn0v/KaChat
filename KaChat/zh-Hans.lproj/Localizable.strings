@@ -1196,3 +1196,5 @@
 "Hold to Send" = "按住发送";
 "Add a memo (encrypted)" = "添加备注（已加密）";
 "Switch between Kaspa and your currency" = "在 Kaspa 和你的货币之间切换";
+"Send Photo or Video via Nextcloud" = "通过 Nextcloud 发送照片或视频";
+"Couldn't load that video. Please try another." = "无法加载该视频，请换一个试试。";

@@ -1196,3 +1196,5 @@
 "Hold to Send" = "भेजने के लिए दबाकर रखें";
 "Add a memo (encrypted)" = "नोट जोड़ें (एन्क्रिप्टेड)";
 "Switch between Kaspa and your currency" = "Kaspa और अपनी मुद्रा के बीच बदलें";
+"Send Photo or Video via Nextcloud" = "Nextcloud से फ़ोटो या वीडियो भेजें";
+"Couldn't load that video. Please try another." = "वह वीडियो लोड नहीं हो सका। कृपया कोई दूसरा आज़माएँ।";

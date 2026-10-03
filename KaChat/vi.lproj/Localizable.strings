@@ -1196,3 +1196,5 @@
 "Hold to Send" = "Giữ để gửi";
 "Add a memo (encrypted)" = "Thêm ghi chú (đã mã hóa)";
 "Switch between Kaspa and your currency" = "Chuyển giữa Kaspa và tiền tệ của bạn";
+"Send Photo or Video via Nextcloud" = "Gửi ảnh hoặc video qua Nextcloud";
+"Couldn't load that video. Please try another." = "Không thể tải video đó. Vui lòng thử video khác.";

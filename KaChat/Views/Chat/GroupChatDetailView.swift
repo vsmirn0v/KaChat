@@ -1512,7 +1512,12 @@ struct GroupChatDetailView: View {
         .accessibilityLabel(Text("More options"))
         .sheet(isPresented: $showPlusSheet, onDismiss: { plusSheetMediaStep = nil }) { plusSheet }
         .sheet(item: $senderSheetTarget) { senderSheet(for: $0) }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $photoPickerItem,
+            // Videos only go via Nextcloud - there is no on-chain path that fits one.
+            matching: nextcloudPhotoRequested ? .any(of: [.images, .videos]) : .images
+        )
         .sheet(isPresented: $showNextcloudPicker) {
             NextcloudPickerView { url, _ in
                 stageNextcloudLink(url)
@@ -1522,6 +1527,20 @@ struct GroupChatDetailView: View {
             guard let newItem else { return }
             Task {
                 defer { photoPickerItem = nil }
+                if newItem.isMovie {
+                    guard let movie = try? await newItem.loadTransferable(type: PickedMovieFile.self) else {
+                        await MainActor.run {
+                            nextcloudPhotoRequested = false
+                            errorMessage = "Couldn't load that video. Please try another."
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        nextcloudPhotoRequested = false
+                        sendNextcloudVideo(movie.url)
+                    }
+                    return
+                }
                 guard let data = try? await newItem.loadTransferable(type: Data.self),
                       let image = UIImage(data: data) else {
                     await MainActor.run { errorMessage = "Couldn't load that photo. Please try another." }

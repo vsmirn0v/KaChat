@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 
 /// What a "+"-sheet media row captures. With a Nextcloud server linked, each of these asks where
 /// the media goes - on chain or via Nextcloud - every time, which is what replaced the old
@@ -78,7 +80,7 @@ struct ComposerMediaRouteStep: View {
     private var nextcloudTitle: String {
         switch kind {
         case .camera: return "Take Photo via Nextcloud"
-        case .photo: return "Send Photo via Nextcloud"
+        case .photo: return "Send Photo or Video via Nextcloud"
         case .voice: return "Record via Nextcloud"
         }
     }
@@ -86,8 +88,33 @@ struct ComposerMediaRouteStep: View {
     private var nextcloudSubtitle: String {
         switch kind {
         case .camera: return "Full quality, or a video. Uploads to your Nextcloud; the chat carries the link."
-        case .photo: return "Full quality. Uploads to your Nextcloud; the chat carries the link."
+        case .photo: return "Full quality, or a video. Uploads to your Nextcloud; the chat carries the link."
         case .voice: return "Up to 5 minutes. Uploads to your Nextcloud; the chat carries the link."
         }
+    }
+}
+
+/// A video picked from the photo library ("Send Photo or Video via Nextcloud"), copied to a temp
+/// file the caller owns - the Nextcloud video send deletes it once uploaded.
+struct PickedMovieFile: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { movie in
+            SentTransferredFile(movie.url)
+        } importing: { received in
+            let ext = received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension
+            let copy = FileManager.default.temporaryDirectory
+                .appendingPathComponent("kachat-picked-video-\(UUID().uuidString).\(ext)")
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return PickedMovieFile(url: copy)
+        }
+    }
+}
+
+extension PhotosPickerItem {
+    /// The library item is a video rather than a still.
+    var isMovie: Bool {
+        supportedContentTypes.contains { $0.conforms(to: .movie) }
     }
 }

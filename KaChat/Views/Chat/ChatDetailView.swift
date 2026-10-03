@@ -2106,7 +2106,12 @@ struct ChatDetailView: View {
         // Second step after "Play Chess": pick a time control. The blitz presets send the tc
         // fields on the invite; "Casual" omits them entirely, which is the exact legacy wire
         // shape - so casual games with old-version contacts stay byte-compatible.
-        .photosPicker(isPresented: $showPhotoPickerFromMenu, selection: $photoPickerItem, matching: .images)
+        .photosPicker(
+            isPresented: $showPhotoPickerFromMenu,
+            selection: $photoPickerItem,
+            // Videos only go via Nextcloud - there is no on-chain path that fits one.
+            matching: nextcloudPhotoRequested ? .any(of: [.images, .videos]) : .images
+        )
         .sheet(isPresented: $showNextcloudPicker) {
             NextcloudPickerView { url, file in
                 stageNextcloudLink(url, file: file)
@@ -2116,6 +2121,20 @@ struct ChatDetailView: View {
             guard let newItem else { return }
             Task {
                 defer { photoPickerItem = nil }
+                if newItem.isMovie {
+                    guard let movie = try? await newItem.loadTransferable(type: PickedMovieFile.self) else {
+                        await MainActor.run {
+                            nextcloudPhotoRequested = false
+                            self.error = "Couldn't load that video. Please try another."
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        nextcloudPhotoRequested = false
+                        sendNextcloudVideo(movie.url)
+                    }
+                    return
+                }
                 guard let data = try? await newItem.loadTransferable(type: Data.self) else {
                     await MainActor.run {
                         self.error = "Couldn't load that photo. Please try another."

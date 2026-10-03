@@ -1196,3 +1196,5 @@
 "Hold to Send" = "長押しで送信";
 "Add a memo (encrypted)" = "メモを追加（暗号化）";
 "Switch between Kaspa and your currency" = "Kaspaと通貨を切り替え";
+"Send Photo or Video via Nextcloud" = "Nextcloudで写真または動画を送信";
+"Couldn't load that video. Please try another." = "その動画を読み込めませんでした。別の動画をお試しください。";
