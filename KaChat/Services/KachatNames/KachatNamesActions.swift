@@ -511,7 +511,7 @@ final class KachatNamesActions: ObservableObject {
     /// Loads the current wallet's registrations and drives the open ones. Call on appear and
     /// when the app becomes active.
     func resume() {
-        guard KachatNamesService.isEnabled, let address = myAddress else {
+        guard KachatNamesService.isLaunched, let address = myAddress else {
             driver?.cancel()
             driver = nil
             pending = []
@@ -526,7 +526,7 @@ final class KachatNamesActions: ObservableObject {
         guard driver == nil, pending.contains(where: { $0.needsDriving }) else { return }
         driver = Task { @MainActor [weak self] in
             while let self, !Task.isCancelled {
-                guard KachatNamesService.isEnabled, let address = self.myAddress, address == self.pendingWallet,
+                guard KachatNamesService.isLaunched, let address = self.myAddress, address == self.pendingWallet,
                       !self.service.registryUpgrading,
                       self.pending.contains(where: { $0.needsDriving }) else { break }
                 for p in self.pending where p.needsDriving {

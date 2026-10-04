@@ -51,7 +51,8 @@ extension KaspaUnit {
 // MARK: - Shared pieces
 
 enum KachatLive {
-    static var isEnabled: Bool { KachatNamesService.isEnabled }
+    /// The registry is live on this network (testnet only for now) - reads and actions run.
+    static var isEnabled: Bool { KachatNamesService.isLaunched }
     /// What the device lock prompt says before any .kachat transaction is signed.
     static var authReason: String { AppLocalization.string("Confirm this .kachat transaction") }
     /// testnet-10 runs at 10 blocks per second
@@ -279,7 +280,9 @@ final class KachatHubModel: ObservableObject {
 
     func start() async {
         guard KachatLive.isEnabled else {
+            // Not launched here (mainnet): the same pages, empty, under "Coming soon".
             ready = nil
+            loaded = true
             return
         }
         do {
@@ -2378,9 +2381,14 @@ struct KachatLiveProfileEditor: View {
                     } label: {
                         HStack { Spacer(); Text("Save Profile").font(.headline); Spacer() }
                     }
-                    .disabled(!loaded || blocked)
+                    // Mainnet shows the editor, but nothing is written until .kachat launches there.
+                    .disabled(!loaded || blocked || !KachatNamesService.isLaunched)
                 } footer: {
-                    Text("Saving writes your profile to the chain from your address to itself, for a network fee. Profiles are public.")
+                    if KachatNamesService.isLaunched {
+                        Text("Saving writes your profile to the chain from your address to itself, for a network fee. Profiles are public.")
+                    } else {
+                        Text("Profiles can be saved once .kachat launches on mainnet.")
+                    }
                 }
             }
             .sheet(isPresented: $showSave) {

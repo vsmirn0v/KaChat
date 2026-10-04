@@ -88,7 +88,7 @@ struct KachatSetupGuideView: View {
                 }
                 .padding(12)
                 .background(fieldBackground)
-                if KachatNamesService.isEnabled {
+                if KachatNamesService.isLaunched {
                     Text("On Testnet, claim one in Kaspa Hub > .kachat.")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -98,7 +98,7 @@ struct KachatSetupGuideView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            if !KachatNamesService.isEnabled {
+            if !KachatNamesService.isLaunched {
                 comingSoonNote
             }
 

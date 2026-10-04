@@ -1216,3 +1216,4 @@
 "Show a fresh address to get paid." = "Menampilkan alamat baru untuk menerima pembayaran.";
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "Alamat baru yang belum pernah dipakai. Kaspa yang dikirim ke sini masuk ke akun ini dan tampil di saldo belanja Anda. Gunakan alamat ini untuk semua hal yang tidak terkait obrolan atau domain.";
 "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "Alamat ini hanya untuk obrolan dan domain. 1 Kaspa cukup untuk sekitar 500 interaksi di aplikasi. Harga domain berkisar 35 hingga 4.000 Kaspa, tergantung namanya.";
+"Profiles can be saved once .kachat launches on mainnet." = "Profil bisa disimpan setelah .kachat diluncurkan di mainnet.";

@@ -8,8 +8,10 @@ import Security
 /// Schnorr signing with the wallet key (P256K, SIGHASH_ALL over the version-1 sighash), the
 /// protowire conversion with the Toccata fields, and submission through `NodePoolService`.
 ///
-/// Testnet-10 only: every entry point refuses unless `AppSettings.networkType == .testnet`, and the
-/// manifest itself must be for testnet-10. Mainnet stays off until the contracts are audited.
+/// Transactions are testnet-10 only: every entry point refuses unless `AppSettings.networkType ==
+/// .testnet`, and the manifest itself must be for testnet-10. The mainnet registry stays off until
+/// the contracts are audited - but the .kachat UI and identity are on for every network (see
+/// `isEnabled` / `isLaunched`).
 ///
 /// Phase 4a: no UI calls this yet. A screen will: `loadManifest()`, read the records it needs (the
 /// indexer's `/names/...` endpoints), confirm them with `liveRegistryUtxo`, `environment(...)`,
@@ -62,7 +64,14 @@ final class KachatNamesService: ObservableObject {
     // MARK: - Gate
 
     /// The only network names may run on until an audit.
-    nonisolated static var isEnabled: Bool { AppSettings.load().networkType == .testnet }
+    /// The .kachat UI and identity - on every network since 2026-10-04: mainnet shows the same
+    /// screens as testnet (and people by their .kachat name, not KNS), in a "Coming soon" state
+    /// until its registry launches. Every UI change lands on both networks. The KNS branches this
+    /// guards are kept, unreachable, as a switch-back.
+    nonisolated static var isEnabled: Bool { true }
+    /// Whether this network has a live registry the app reads and transacts with (lookups,
+    /// listings, registrations, profile saves, resolving typed names): testnet-10 only for now.
+    nonisolated static var isLaunched: Bool { AppSettings.load().networkType == .testnet }
 
     /// Whether `error` means the registry is being upgraded (a v1 manifest), not a failure.
     nonisolated static func isRegistryUpgrading(_ error: Error) -> Bool {

@@ -106,7 +106,7 @@ final class KachatNamesRegistry: ObservableObject {
 
     /// Walks the chain forward (no indexer) or just marks fresh data (indexer). Safe to call often.
     func refresh(forceSourceCheck: Bool = false) async {
-        guard KachatNamesService.isEnabled else { return }
+        guard KachatNamesService.isLaunched else { return }
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
@@ -235,7 +235,7 @@ final class KachatNamesRegistry: ObservableObject {
     /// set Your Domains lists). Drives the "Contains domain" tag on Manage Addresses and KasSigner.
     /// Empty off testnet; an address whose lookup fails just isn't tagged.
     func ownersOfNames(among addresses: [String]) async -> Set<String> {
-        guard KachatNamesService.isEnabled, !addresses.isEmpty else { return [] }
+        guard KachatNamesService.isLaunched, !addresses.isEmpty else { return [] }
         if refreshedAt == nil { await refresh() }
         var owners = Set<String>()
         for address in addresses {
@@ -393,7 +393,7 @@ final class KachatNamesRegistry: ObservableObject {
     /// profile always wins for its own address. When an answer lands, views that read contact
     /// names re-render (ContactsManager is told).
     func cachedIdentity(for address: String) -> KachatNames.Identity? {
-        guard KachatNamesService.isEnabled else { return nil }
+        guard KachatNamesService.isLaunched else { return nil }
         let key = address.lowercased()
         guard key.hasPrefix("kaspatest:") else { return nil }
         let entry = identities[key]

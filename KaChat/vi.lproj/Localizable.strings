@@ -1216,3 +1216,4 @@
 "Show a fresh address to get paid." = "Hiện một địa chỉ mới để nhận thanh toán.";
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "Một địa chỉ mới, chưa từng dùng. Kaspa gửi đến đây sẽ vào tài khoản này và hiện trong số dư chi tiêu của bạn. Hãy dùng địa chỉ này cho mọi việc không liên quan đến trò chuyện hoặc tên miền.";
 "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "Địa chỉ này chỉ dành cho trò chuyện và tên miền. 1 Kaspa đủ cho khoảng 500 lượt tương tác trong ứng dụng. Tên miền có giá từ 35 đến 4.000 Kaspa tùy theo tên.";
+"Profiles can be saved once .kachat launches on mainnet." = "Có thể lưu hồ sơ khi .kachat ra mắt trên mainnet.";

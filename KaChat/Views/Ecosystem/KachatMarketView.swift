@@ -80,7 +80,9 @@ struct KachatMarketView: View {
                         tabs: Page.allCases.map { (tab: $0, title: $0.title) },
                         selection: $page
                     )
-                    if live.isLive {
+                    // Live, or not launched here (mainnet): the same pages - empty on mainnet. The
+                    // placeholder pages remain only for a testnet registry that is setting up.
+                    if live.isLive || !KachatNamesService.isLaunched {
                         switch page {
                         case .market: KachatLiveMarketPage(model: live)
                         case .myNames: KachatLiveMyNamesPage(model: live)

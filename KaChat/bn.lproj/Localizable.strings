@@ -1216,3 +1216,4 @@
 "Show a fresh address to get paid." = "পেমেন্ট পেতে একটি নতুন ঠিকানা দেখায়।";
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "একটি নতুন ঠিকানা, আগে কখনও ব্যবহার হয়নি। এখানে পাঠানো Kaspa এই অ্যাকাউন্টে আসে এবং আপনার খরচযোগ্য ব্যালান্সে দেখায়। চ্যাট বা ডোমেইনের সাথে সম্পর্কহীন সবকিছুর জন্য এই ঠিকানা ব্যবহার করুন।";
 "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "এই ঠিকানাটি শুধু চ্যাট ও ডোমেইনের জন্য। 1 Kaspa দিয়ে অ্যাপে প্রায় 500টি কাজ করা যায়। নাম অনুযায়ী ডোমেইনের দাম 35 থেকে 4,000 Kaspa।";
+"Profiles can be saved once .kachat launches on mainnet." = ".kachat মেইননেটে চালু হলে প্রোফাইল সেভ করা যাবে।";

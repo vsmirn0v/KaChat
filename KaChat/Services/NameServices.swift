@@ -68,11 +68,12 @@ enum NameServiceTLD: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Whether the app can read this service yet. `.kachat` only on testnet (testnet-10 registry).
-    var isLive: Bool { self != .kachat || KachatNamesService.isEnabled }
+    /// Whether the app can read this service yet. `.kachat` only where its registry is launched
+    /// (testnet-10 for now).
+    var isLive: Bool { self != .kachat || KachatNamesService.isLaunched }
 
-    /// The tab Your Domains opens on: `.kachat` once it is live, KNS until then.
-    static var defaultTab: NameServiceTLD { NameServiceTLD.kachat.isLive ? .kachat : .kas }
+    /// The tab Your Domains opens on: `.kachat` (its UI is on everywhere, live or not).
+    static var defaultTab: NameServiceTLD { KachatNamesService.isEnabled ? .kachat : .kas }
 }
 
 /// Name normalization for the outside name services - adjudication-critical: a normalizer that
