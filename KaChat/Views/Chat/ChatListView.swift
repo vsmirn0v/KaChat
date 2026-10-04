@@ -42,7 +42,15 @@ struct ChatListView: View {
     @State private var createRoomError: String?
     @FocusState private var createRoomFieldFocused: Bool
     private enum CreateRoute: Hashable {
-        case joinRoom, fundChatting, receive
+        case joinRoom
+    }
+    /// The QR options leave the New sheet: it goes down and the full white QR page comes up in
+    /// its own sheet, like Profile's.
+    @State private var afterCreateSheet: (() -> Void)?
+    @State private var qrScreen: ChatsQRScreen?
+    private enum ChatsQRScreen: String, Identifiable {
+        case fundChatting, receive
+        var id: String { rawValue }
     }
     /// From a profile link: the person whose User Info is up.
     @State private var linkedProfileContact: Contact?
@@ -342,9 +350,36 @@ struct ChatListView: View {
             PublicChatsSettingsView()
                 .environmentObject(publicChats)
         }
-        .sheet(isPresented: $showCreateSheet, onDismiss: resetCreateSheet) {
+        .sheet(isPresented: $showCreateSheet, onDismiss: {
+            resetCreateSheet()
+            let next = afterCreateSheet
+            afterCreateSheet = nil
+            next?()
+        }) {
             createSheet
                 .environmentObject(walletManager)
+        }
+        .sheet(item: $qrScreen) { screen in
+            NavigationStack {
+                Group {
+                    switch screen {
+                    case .fundChatting:
+                        if let wallet = walletManager.currentWallet {
+                            ChattingAddressQRView(address: wallet.publicAddress, balanceSompi: wallet.balanceSompi)
+                        }
+                    case .receive:
+                        ProfileView.ReceiveKaspaQRView()
+                    }
+                }
+                .navigationTitle(screen == .fundChatting ? "Chatting Address" : "Receive Kaspa")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { qrScreen = nil }
+                    }
+                }
+            }
+            .environmentObject(walletManager)
         }
         .onChange(of: editMode) { newValue in
             if newValue == .inactive {
@@ -658,7 +693,7 @@ struct ChatListView: View {
                 pushCreate(.joinRoom)
             }
             ActionSheetRow(title: "Fund Chatting Address", subtitle: "Show the QR code to add Kaspa for sending messages.", systemImage: "qrcode") {
-                pushCreate(.fundChatting)
+                closeCreateSheet { qrScreen = .fundChatting }
             }
             ActionSheetRow(
                 title: "Receive Kaspa",
@@ -666,7 +701,7 @@ struct ChatListView: View {
                 systemImage: "k.circle",
                 customIcon: Image("KaspaLogo")
             ) {
-                pushCreate(.receive)
+                closeCreateSheet { qrScreen = .receive }
             }
 
             Spacer(minLength: 0)
@@ -682,17 +717,6 @@ struct ChatListView: View {
         case .joinRoom:
             createJoinRoom
                 .navigationTitle("New Public Chat")
-                .navigationBarTitleDisplayMode(.inline)
-        case .fundChatting:
-            NewSheetQRCard(
-                address: walletManager.currentWallet?.publicAddress,
-                caption: "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time."
-            )
-            .navigationTitle("Chatting Address")
-            .navigationBarTitleDisplayMode(.inline)
-        case .receive:
-            NewSheetReceiveCard()
-                .navigationTitle("Receive Kaspa")
                 .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -776,13 +800,19 @@ struct ChatListView: View {
         selectedPublicRoom = normalized
     }
 
-    /// The menu, the room name and the two QR cards all fit this one height, so moving between
-    /// them is a plain push - no resize under a sliding screen (that showed half the dark menu
-    /// and half a white QR page mid-animation). Only the create forms open at full height.
+    /// The menu and the room name share this one height, so moving between them is a plain push.
+    /// The create forms open at full height; the QR options leave for their own white sheet.
     static let createSheetHeight: PresentationDetent = .height(580)
 
     private func pushCreate(_ route: CreateRoute) {
         createPath.append(route)
+    }
+
+    /// Closes the New sheet and runs `action` once it's gone (a sheet can't present while
+    /// another is still going down).
+    private func closeCreateSheet(then action: @escaping () -> Void) {
+        afterCreateSheet = action
+        showCreateSheet = false
     }
 
     private func resetCreateSheet() {
@@ -2288,90 +2318,6 @@ struct MessageRequestsView: View {
                     Button("Done") { dismiss() }
                 }
             }
-        }
-    }
-}
-
-/// A QR card for the Chats New sheet: the code on a white card, the address and a caption, on
-/// the sheet's own background, sized to the sheet's menu height. Tap to copy. The full-screen
-/// white Profile QR page didn't fit in a sheet - it needed a resize and clashed with the menu.
-private struct NewSheetQRCard: View {
-    let address: String?
-    let caption: String
-    @State private var qrImage: UIImage?
-    @State private var copied = false
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Group {
-                if let qrImage {
-                    Image(uiImage: qrImage)
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    ProgressView()
-                }
-            }
-            .frame(width: 190, height: 190)
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.accentColor, lineWidth: 2.5))
-
-            if let address {
-                Text(verbatim: address)
-                    .font(.caption.monospaced())
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 24)
-            }
-            Text(LocalizedStringKey(caption))
-                .font(.footnote)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 28)
-            Label(copied ? "Address copied" : "Tap to copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                .font(.footnote.weight(.semibold))
-                .foregroundColor(.accentColor)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.top, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard let address else { return }
-            UIPasteboard.general.string = address
-            Haptics.success()
-            copied = true
-        }
-        .task(id: address) {
-            guard let address else { return }
-            qrImage = ProfileQRCodeCache.cachedImage(for: address)
-            if qrImage == nil {
-                ProfileQRCodeCache.preload(address: address) { image in qrImage = image }
-            }
-        }
-    }
-}
-
-/// "Receive Kaspa" in the New sheet: a fresh, never-used receive address (the same resolution
-/// as Profile's Receive Kaspa screen, warm cache first) on the QR card.
-private struct NewSheetReceiveCard: View {
-    @EnvironmentObject private var walletManager: WalletManager
-    @State private var address: String? = ReceiveAddressWarmCache.address
-
-    var body: some View {
-        NewSheetQRCard(
-            address: address,
-            caption: "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting."
-        )
-        .task {
-            let resolved = await walletManager.freshReceiveAddress()
-            // Swap only if the warm answer went stale: a QR must not change under a camera.
-            if let resolved, resolved != address { address = resolved }
-            ReceiveAddressWarmCache.address = resolved
         }
     }
 }
