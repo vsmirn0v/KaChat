@@ -31,6 +31,20 @@ struct ChatListView: View {
     @State private var selectedGroup: GroupChat?
     @State private var selectedContactStartInPaymentMode = false
     @State private var showAddContact = false
+    /// The bottom-right + : one sheet for every page (new chat, group, public room, the two QR
+    /// screens) instead of a button that did something different on each page.
+    @State private var showCreateSheet = false
+    /// Run once the + sheet has gone, so the next sheet can present.
+    @State private var afterCreateSheet: (() -> Void)?
+    /// Which create screen `showAddContact` opens: the 1:1 one or the group builder.
+    @State private var addContactStartsInGroupMode = false
+    /// Asks the embedded public rooms page to open its join-or-create sheet.
+    @State private var publicJoinRequested = false
+    @State private var qrScreen: ChatsQRScreen?
+    private enum ChatsQRScreen: String, Identifiable {
+        case fundChatting, receive
+        var id: String { rawValue }
+    }
     /// From a profile link: the person whose User Info is up.
     @State private var linkedProfileContact: Contact?
     @State private var selectedListTab: ChatsListTab = .chats
@@ -192,9 +206,8 @@ struct ChatListView: View {
             }
             .toast(message: toastMessage, style: toastStyle)
             .sheet(isPresented: $showAddContact) {
-                // Tab-aware: the create button opens the group builder on the Group Chats
-                // tab and the 1:1 create screen on the Chats tab.
-                AddContactView(startInGroupMode: selectedListTab == .groups) { contact in
+                // The + sheet picks the 1:1 create screen or the group builder.
+                AddContactView(startInGroupMode: addContactStartsInGroupMode) { contact in
                     _ = chatService.getOrCreateConversation(for: contact)
                     selectedContactStartInPaymentMode = false
                     selectedGroup = nil
@@ -316,7 +329,7 @@ struct ChatListView: View {
                     .tag(ChatsListTab.groups)
                 // The public chat rooms screen, whole, as the third page. Its room selection is
                 // ours: the destination has to be declared outside this (lazy) TabView.
-                PublicChatListView(embeddedInChats: true, selection: $selectedPublicRoom, roomSelection: $selectedPublicRooms)
+                PublicChatListView(embeddedInChats: true, selection: $selectedPublicRoom, roomSelection: $selectedPublicRooms, joinRequest: $publicJoinRequested)
                     .tag(ChatsListTab.publicChats)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
@@ -338,15 +351,44 @@ struct ChatListView: View {
                 selectionActionBar
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            // One + on every page; the rooms page no longer draws its own when embedded here.
+            if editMode != .active {
+                newButton
+            }
+        }
         .sheet(isPresented: $showPublicChatsSettings) {
             PublicChatsSettingsView()
                 .environmentObject(publicChats)
         }
-        .overlay(alignment: .bottomTrailing) {
-            // The rooms page draws its own copy of this button (it owns the join sheet).
-            if editMode != .active, selectedListTab != .publicChats {
-                createChatButton
+        .sheet(isPresented: $showCreateSheet, onDismiss: {
+            let next = afterCreateSheet
+            afterCreateSheet = nil
+            next?()
+        }) {
+            createSheet
+        }
+        .sheet(item: $qrScreen) { screen in
+            NavigationStack {
+                Group {
+                    switch screen {
+                    case .fundChatting:
+                        if let wallet = walletManager.currentWallet {
+                            ChattingAddressQRView(address: wallet.publicAddress, balanceSompi: wallet.balanceSompi)
+                        }
+                    case .receive:
+                        ProfileView.ReceiveKaspaQRView()
+                    }
+                }
+                .navigationTitle(screen == .fundChatting ? "Chatting Address" : "Receive Kaspa")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { qrScreen = nil }
+                    }
+                }
             }
+            .environmentObject(walletManager)
         }
         .onChange(of: editMode) { newValue in
             if newValue == .inactive {
@@ -573,12 +615,13 @@ struct ChatListView: View {
         }
     }
 
-    private var createChatButton: some View {
+    /// The floating glass "+" in the bottom-right corner on every page, opening the New sheet.
+    private var newButton: some View {
         Button {
             Haptics.impact(.light)
-            showAddContact = true
+            showCreateSheet = true
         } label: {
-            Image(systemName: "person.badge.plus")
+            Image(systemName: "plus")
                 .font(.scaled(size: 22, weight: .semibold))
                 .foregroundColor(.accentColor)
                 .frame(width: 56, height: 56)
@@ -591,6 +634,60 @@ struct ChatListView: View {
         }
         .padding(.trailing, 20)
         .padding(.bottom, 16)
+        .accessibilityLabel(Text("New"))
+    }
+
+    /// What the + offers, wherever you are in Chats. Each row closes the sheet first and opens
+    /// its screen once it's gone (see the sheet's onDismiss).
+    private var createSheet: some View {
+        VStack(spacing: 12) {
+            Text("New")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
+            ActionSheetRow(title: "New Chat", subtitle: "Message someone by their address or name.", systemImage: "bubble.left") {
+                closeCreateSheet {
+                    addContactStartsInGroupMode = false
+                    showAddContact = true
+                }
+            }
+            ActionSheetRow(title: "New Group Chat", subtitle: "Start an encrypted group with several people.", systemImage: "person.3") {
+                closeCreateSheet {
+                    addContactStartsInGroupMode = true
+                    showAddContact = true
+                }
+            }
+            ActionSheetRow(title: "New Public Chat", subtitle: "Join a public room, or create one.", systemImage: "number") {
+                closeCreateSheet {
+                    selectedListTab = .publicChats
+                    publicJoinRequested = true
+                }
+            }
+            ActionSheetRow(title: "Fund Chatting Address", subtitle: "Show the QR code to add Kaspa for sending messages.", systemImage: "qrcode") {
+                closeCreateSheet { qrScreen = .fundChatting }
+            }
+            ActionSheetRow(
+                title: "Receive Kaspa",
+                subtitle: "Show a fresh address to get paid.",
+                systemImage: "k.circle",
+                customIcon: Image("KaspaLogo")
+            ) {
+                closeCreateSheet { qrScreen = .receive }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(500), .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func closeCreateSheet(then action: @escaping () -> Void) {
+        afterCreateSheet = action
+        showCreateSheet = false
     }
 
     private var emptyStateView: some View {

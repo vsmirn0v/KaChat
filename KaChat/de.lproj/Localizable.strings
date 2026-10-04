@@ -1153,3 +1153,13 @@
 "Names this address owns show here." = "Namen, die diese Adresse besitzt, erscheinen hier.";
 "Your spending address #%lld" = "Deine Ausgabeadresse #%lld";
 "Your KasSigner address (%@ #%lld)" = "Deine KasSigner-Adresse (%@ #%lld)";
+"New" = "Neu";
+"New Chat" = "Neuer Chat";
+"New Group Chat" = "Neuer Gruppenchat";
+"New Public Chat" = "Neuer öffentlicher Chat";
+"Fund Chatting Address" = "Chat-Adresse aufladen";
+"Message someone by their address or name." = "Schreib jemandem über Adresse oder Namen.";
+"Start an encrypted group with several people." = "Starte eine verschlüsselte Gruppe mit mehreren Personen.";
+"Join a public room, or create one." = "Tritt einem öffentlichen Raum bei oder erstelle einen.";
+"Show the QR code to add Kaspa for sending messages." = "Zeigt den QR-Code, um Kaspa zum Senden von Nachrichten hinzuzufügen.";
+"Show a fresh address to get paid." = "Zeigt eine neue Adresse, um bezahlt zu werden.";

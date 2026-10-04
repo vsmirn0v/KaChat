@@ -46,11 +46,30 @@ struct PublicChatListView: View {
     @Environment(\.editMode) private var editMode
     private var isSelecting: Bool { editMode?.wrappedValue == .active }
 
-    init(initialChannel: String? = nil, embeddedInChats: Bool = false, selection: Binding<String?>? = nil, roomSelection: Binding<Set<String>>? = nil) {
+    /// Set by the Chats screen's + sheet ("New Public Chat"): open the join-or-create sheet, then
+    /// clear it. Only the embedded page gets one.
+    private var joinRequest: Binding<Bool>?
+
+    init(initialChannel: String? = nil, embeddedInChats: Bool = false, selection: Binding<String?>? = nil, roomSelection: Binding<Set<String>>? = nil, joinRequest: Binding<Bool>? = nil) {
         self.embeddedInChats = embeddedInChats
         self.initialChannel = initialChannel
         self.externalSelection = selection
         self.roomSelection = roomSelection ?? .constant([])
+        self.joinRequest = joinRequest
+    }
+
+    private func openJoinSheet() {
+        joinFieldText = ""
+        joinError = nil
+        showJoinAlert = true
+    }
+
+    /// Answers the + sheet's request: on appear (the page is built lazily, after the switch to
+    /// it) or as it changes.
+    private func takeJoinRequest() {
+        guard let joinRequest, joinRequest.wrappedValue else { return }
+        joinRequest.wrappedValue = false
+        openJoinSheet()
     }
 
     var body: some View {
@@ -138,6 +157,8 @@ struct PublicChatListView: View {
         }
         .toast(message: toastMessage, style: .success)
         .sheet(isPresented: $showJoinAlert) { joinChannelSheet }
+        .onAppear { takeJoinRequest() }
+        .onChange(of: joinRequest?.wrappedValue ?? false) { _ in takeJoinRequest() }
         .alert("Couldn't Join Channel", isPresented: Binding(
             get: { joinError != nil },
             set: { if !$0 { joinError = nil } }
@@ -292,15 +313,13 @@ struct PublicChatListView: View {
                 .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
-        // The same floating button the Chats and Group Chats pages carry, here for joining or
-        // creating a room.
+        // Its own floating button for joining or creating a room - only standalone (Kaspa Hub).
+        // Inside Chats, the Chats screen's + covers it ("New Public Chat").
         .overlay(alignment: .bottomTrailing) {
-            if !isSelecting {
+            if !isSelecting && !embeddedInChats {
             Button {
                 Haptics.impact(.light)
-                joinFieldText = ""
-                joinError = nil
-                showJoinAlert = true
+                openJoinSheet()
             } label: {
                 Image(systemName: "plus.bubble")
                     .font(.scaled(size: 22, weight: .semibold))

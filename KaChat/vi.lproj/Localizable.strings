@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "Các tên mà địa chỉ này sở hữu hiển thị ở đây.";
 "Your spending address #%lld" = "Địa chỉ chi tiêu của bạn #%lld";
 "Your KasSigner address (%@ #%lld)" = "Địa chỉ KasSigner của bạn (%@ #%lld)";
+"New" = "Mới";
+"New Chat" = "Cuộc trò chuyện mới";
+"New Group Chat" = "Nhóm trò chuyện mới";
+"New Public Chat" = "Phòng chat công khai mới";
+"Fund Chatting Address" = "Nạp tiền địa chỉ trò chuyện";
+"Message someone by their address or name." = "Nhắn tin cho ai đó bằng địa chỉ hoặc tên.";
+"Start an encrypted group with several people." = "Tạo nhóm được mã hóa với nhiều người.";
+"Join a public room, or create one." = "Tham gia một phòng công khai, hoặc tạo phòng mới.";
+"Show the QR code to add Kaspa for sending messages." = "Hiện mã QR để nạp Kaspa dùng cho việc gửi tin nhắn.";
+"Show a fresh address to get paid." = "Hiện một địa chỉ mới để nhận thanh toán.";

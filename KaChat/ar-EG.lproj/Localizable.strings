@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "الأسماء اللي العنوان ده بيملكها بتظهر هنا.";
 "Your spending address #%lld" = "عنوان الصرف بتاعك #%lld";
 "Your KasSigner address (%@ #%lld)" = "عنوان KasSigner بتاعك (%@ #%lld)";
+"New" = "جديد";
+"New Chat" = "شات جديد";
+"New Group Chat" = "جروب جديد";
+"New Public Chat" = "شات عام جديد";
+"Fund Chatting Address" = "اشحن عنوان الشات";
+"Message someone by their address or name." = "ابعت لحد بعنوانه أو اسمه.";
+"Start an encrypted group with several people." = "ابدأ جروب متشفر مع كذا شخص.";
+"Join a public room, or create one." = "ادخل أوضة عامة أو اعمل واحدة.";
+"Show the QR code to add Kaspa for sending messages." = "بيوريك كود QR عشان تضيف Kaspa لإرسال الرسايل.";
+"Show a fresh address to get paid." = "بيوريك عنوان جديد عشان تستلم فلوس.";

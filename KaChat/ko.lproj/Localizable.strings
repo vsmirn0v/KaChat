@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "이 주소가 소유한 이름이 여기에 표시됩니다.";
 "Your spending address #%lld" = "내 지출 주소 #%lld";
 "Your KasSigner address (%@ #%lld)" = "내 KasSigner 주소 (%@ #%lld)";
+"New" = "새로 만들기";
+"New Chat" = "새 채팅";
+"New Group Chat" = "새 그룹 채팅";
+"New Public Chat" = "새 공개 채팅";
+"Fund Chatting Address" = "채팅 주소 충전";
+"Message someone by their address or name." = "주소나 이름으로 메시지를 보냅니다.";
+"Start an encrypted group with several people." = "여러 사람과 암호화된 그룹을 시작합니다.";
+"Join a public room, or create one." = "공개 방에 참여하거나 새로 만듭니다.";
+"Show the QR code to add Kaspa for sending messages." = "메시지 전송용 Kaspa를 추가할 QR 코드를 보여줍니다.";
+"Show a fresh address to get paid." = "결제를 받을 새 주소를 보여줍니다.";

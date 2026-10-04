@@ -1207,3 +1207,13 @@
 "Names this address owns show here." = "Names this address owns show here.";
 "Your spending address #%lld" = "Your spending address #%lld";
 "Your KasSigner address (%@ #%lld)" = "Your KasSigner address (%@ #%lld)";
+"New" = "New";
+"New Chat" = "New Chat";
+"New Group Chat" = "New Group Chat";
+"New Public Chat" = "New Public Chat";
+"Fund Chatting Address" = "Fund Chatting Address";
+"Message someone by their address or name." = "Message someone by their address or name.";
+"Start an encrypted group with several people." = "Start an encrypted group with several people.";
+"Join a public room, or create one." = "Join a public room, or create one.";
+"Show the QR code to add Kaspa for sending messages." = "Show the QR code to add Kaspa for sending messages.";
+"Show a fresh address to get paid." = "Show a fresh address to get paid.";

@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "इस पते के नाम यहाँ दिखते हैं।";
 "Your spending address #%lld" = "आपका खर्च पता #%lld";
 "Your KasSigner address (%@ #%lld)" = "आपका KasSigner पता (%@ #%lld)";
+"New" = "नया";
+"New Chat" = "नई चैट";
+"New Group Chat" = "नई ग्रुप चैट";
+"New Public Chat" = "नई सार्वजनिक चैट";
+"Fund Chatting Address" = "चैटिंग पता फंड करें";
+"Message someone by their address or name." = "किसी को उसके पते या नाम से मैसेज करें।";
+"Start an encrypted group with several people." = "कई लोगों के साथ एन्क्रिप्टेड ग्रुप शुरू करें।";
+"Join a public room, or create one." = "किसी सार्वजनिक रूम से जुड़ें या नया बनाएँ।";
+"Show the QR code to add Kaspa for sending messages." = "मैसेज भेजने के लिए Kaspa जोड़ने का QR कोड दिखाता है।";
+"Show a fresh address to get paid." = "भुगतान पाने के लिए नया पता दिखाता है।";

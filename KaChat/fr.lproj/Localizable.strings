@@ -1207,3 +1207,13 @@
 "Names this address owns show here." = "Les noms détenus par cette adresse s'affichent ici.";
 "Your spending address #%lld" = "Votre adresse de dépense n°%lld";
 "Your KasSigner address (%@ #%lld)" = "Votre adresse KasSigner (%@ n°%lld)";
+"New" = "Nouveau";
+"New Chat" = "Nouvelle discussion";
+"New Group Chat" = "Nouveau groupe";
+"New Public Chat" = "Nouveau salon public";
+"Fund Chatting Address" = "Approvisionner l'adresse de chat";
+"Message someone by their address or name." = "Écrivez à quelqu'un par son adresse ou son nom.";
+"Start an encrypted group with several people." = "Créez un groupe chiffré à plusieurs.";
+"Join a public room, or create one." = "Rejoignez un salon public ou créez-en un.";
+"Show the QR code to add Kaspa for sending messages." = "Affiche le QR code pour ajouter des Kaspa servant à envoyer des messages.";
+"Show a fresh address to get paid." = "Affiche une nouvelle adresse pour être payé.";

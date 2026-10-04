@@ -1088,7 +1088,8 @@ struct ProfileView: View {
     /// A view of its own rather than resolving in the NavigationLink's destination builder: that
     /// builder is evaluated eagerly while the row is merely on screen, so any work in it would
     /// run whether or not the user ever taps, and it cannot await.
-    private struct ReceiveKaspaQRView: View {
+    /// Also opened from the Chats screen's + sheet ("Receive Kaspa").
+    struct ReceiveKaspaQRView: View {
         @EnvironmentObject private var walletManager: WalletManager
         @State private var address: String?
         @State private var resolving = true

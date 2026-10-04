@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "השמות שבבעלות הכתובת הזו מופיעים כאן.";
 "Your spending address #%lld" = "כתובת ההוצאה שלך #%lld";
 "Your KasSigner address (%@ #%lld)" = "כתובת ה-KasSigner שלך (%@ #%lld)";
+"New" = "חדש";
+"New Chat" = "צ'אט חדש";
+"New Group Chat" = "צ'אט קבוצתי חדש";
+"New Public Chat" = "צ'אט ציבורי חדש";
+"Fund Chatting Address" = "טעינת כתובת הצ'אט";
+"Message someone by their address or name." = "שלחו הודעה למישהו לפי כתובת או שם.";
+"Start an encrypted group with several people." = "פתחו קבוצה מוצפנת עם כמה אנשים.";
+"Join a public room, or create one." = "הצטרפו לחדר ציבורי או צרו אחד.";
+"Show the QR code to add Kaspa for sending messages." = "מציג קוד QR להוספת Kaspa לשליחת הודעות.";
+"Show a fresh address to get paid." = "מציג כתובת חדשה לקבלת תשלום.";

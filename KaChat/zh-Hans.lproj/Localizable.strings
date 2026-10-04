@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "此地址拥有的名称会显示在这里。";
 "Your spending address #%lld" = "你的支出地址 #%lld";
 "Your KasSigner address (%@ #%lld)" = "你的 KasSigner 地址（%@ #%lld）";
+"New" = "新建";
+"New Chat" = "新聊天";
+"New Group Chat" = "新群聊";
+"New Public Chat" = "新公共聊天";
+"Fund Chatting Address" = "为聊天地址充值";
+"Message someone by their address or name." = "通过地址或名称给某人发消息。";
+"Start an encrypted group with several people." = "与多人创建加密群组。";
+"Join a public room, or create one." = "加入公共聊天室，或创建一个。";
+"Show the QR code to add Kaspa for sending messages." = "显示二维码，添加用于发送消息的 Kaspa。";
+"Show a fresh address to get paid." = "显示一个新地址用于收款。";

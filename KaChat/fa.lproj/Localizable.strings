@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "نام‌هایی که این آدرس دارد اینجا نشان داده می‌شوند.";
 "Your spending address #%lld" = "آدرس خرج شما #%lld";
 "Your KasSigner address (%@ #%lld)" = "آدرس KasSigner شما (%@ #%lld)";
+"New" = "جدید";
+"New Chat" = "گفتگوی جدید";
+"New Group Chat" = "گفتگوی گروهی جدید";
+"New Public Chat" = "گفتگوی عمومی جدید";
+"Fund Chatting Address" = "شارژ آدرس گفتگو";
+"Message someone by their address or name." = "با آدرس یا نام به کسی پیام دهید.";
+"Start an encrypted group with several people." = "یک گروه رمزگذاری‌شده با چند نفر بسازید.";
+"Join a public room, or create one." = "به یک اتاق عمومی بپیوندید یا یکی بسازید.";
+"Show the QR code to add Kaspa for sending messages." = "کد QR را برای افزودن Kaspa جهت ارسال پیام نشان می‌دهد.";
+"Show a fresh address to get paid." = "یک آدرس تازه برای دریافت پول نشان می‌دهد.";

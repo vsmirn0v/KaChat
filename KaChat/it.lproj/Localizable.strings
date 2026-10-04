@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "I nomi di questo indirizzo compaiono qui.";
 "Your spending address #%lld" = "Il tuo indirizzo di spesa #%lld";
 "Your KasSigner address (%@ #%lld)" = "Il tuo indirizzo KasSigner (%@ #%lld)";
+"New" = "Nuovo";
+"New Chat" = "Nuova chat";
+"New Group Chat" = "Nuova chat di gruppo";
+"New Public Chat" = "Nuova chat pubblica";
+"Fund Chatting Address" = "Ricarica l'indirizzo chat";
+"Message someone by their address or name." = "Scrivi a qualcuno con il suo indirizzo o nome.";
+"Start an encrypted group with several people." = "Crea un gruppo cifrato con più persone.";
+"Join a public room, or create one." = "Entra in una stanza pubblica o creane una.";
+"Show the QR code to add Kaspa for sending messages." = "Mostra il codice QR per aggiungere Kaspa per inviare messaggi.";
+"Show a fresh address to get paid." = "Mostra un indirizzo nuovo per ricevere pagamenti.";

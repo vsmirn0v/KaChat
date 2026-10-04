@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "এই ঠিকানার নামগুলো এখানে দেখা যায়।";
 "Your spending address #%lld" = "আপনার খরচের ঠিকানা #%lld";
 "Your KasSigner address (%@ #%lld)" = "আপনার KasSigner ঠিকানা (%@ #%lld)";
+"New" = "নতুন";
+"New Chat" = "নতুন চ্যাট";
+"New Group Chat" = "নতুন গ্রুপ চ্যাট";
+"New Public Chat" = "নতুন পাবলিক চ্যাট";
+"Fund Chatting Address" = "চ্যাটিং ঠিকানায় অর্থ যোগ করুন";
+"Message someone by their address or name." = "ঠিকানা বা নাম দিয়ে কাউকে মেসেজ করুন।";
+"Start an encrypted group with several people." = "কয়েকজনকে নিয়ে একটি এনক্রিপ্টেড গ্রুপ শুরু করুন।";
+"Join a public room, or create one." = "একটি পাবলিক রুমে যোগ দিন, বা নতুন তৈরি করুন।";
+"Show the QR code to add Kaspa for sending messages." = "মেসেজ পাঠানোর জন্য Kaspa যোগ করার QR কোড দেখায়।";
+"Show a fresh address to get paid." = "পেমেন্ট পেতে একটি নতুন ঠিকানা দেখায়।";

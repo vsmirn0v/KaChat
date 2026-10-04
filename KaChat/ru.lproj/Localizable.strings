@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "Здесь показаны имена этого адреса.";
 "Your spending address #%lld" = "Ваш адрес для трат №%lld";
 "Your KasSigner address (%@ #%lld)" = "Ваш адрес KasSigner (%@ №%lld)";
+"New" = "Новое";
+"New Chat" = "Новый чат";
+"New Group Chat" = "Новый групповой чат";
+"New Public Chat" = "Новый публичный чат";
+"Fund Chatting Address" = "Пополнить адрес для чатов";
+"Message someone by their address or name." = "Напишите кому-нибудь по адресу или имени.";
+"Start an encrypted group with several people." = "Создайте зашифрованную группу из нескольких человек.";
+"Join a public room, or create one." = "Войдите в публичную комнату или создайте свою.";
+"Show the QR code to add Kaspa for sending messages." = "Показывает QR-код, чтобы добавить Kaspa для отправки сообщений.";
+"Show a fresh address to get paid." = "Показывает новый адрес для получения оплаты.";

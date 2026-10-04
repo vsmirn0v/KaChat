@@ -1206,3 +1206,13 @@
 "Names this address owns show here." = "Bu adresin sahip olduğu adlar burada görünür.";
 "Your spending address #%lld" = "Harcama adresin #%lld";
 "Your KasSigner address (%@ #%lld)" = "KasSigner adresin (%@ #%lld)";
+"New" = "Yeni";
+"New Chat" = "Yeni Sohbet";
+"New Group Chat" = "Yeni Grup Sohbeti";
+"New Public Chat" = "Yeni Herkese Açık Sohbet";
+"Fund Chatting Address" = "Sohbet Adresini Fonla";
+"Message someone by their address or name." = "Birine adresi veya adıyla mesaj gönder.";
+"Start an encrypted group with several people." = "Birkaç kişiyle şifreli bir grup başlat.";
+"Join a public room, or create one." = "Herkese açık bir odaya katıl veya bir tane oluştur.";
+"Show the QR code to add Kaspa for sending messages." = "Mesaj göndermek için Kaspa eklemek üzere QR kodunu gösterir.";
+"Show a fresh address to get paid." = "Ödeme almak için yeni bir adres gösterir.";
