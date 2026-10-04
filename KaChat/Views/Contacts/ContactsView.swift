@@ -1088,8 +1088,7 @@ struct ProfileView: View {
     /// A view of its own rather than resolving in the NavigationLink's destination builder: that
     /// builder is evaluated eagerly while the row is merely on screen, so any work in it would
     /// run whether or not the user ever taps, and it cannot await.
-    /// Also opened from the Chats screen's + sheet ("Receive Kaspa").
-    struct ReceiveKaspaQRView: View {
+    private struct ReceiveKaspaQRView: View {
         @EnvironmentObject private var walletManager: WalletManager
         @State private var address: String?
         @State private var resolving = true
@@ -5213,7 +5212,8 @@ struct WithdrawKaspaView: View {
     }
 }
 
-private enum ProfileQRCodeCache {
+/// Also used by the Chats New sheet's QR cards.
+enum ProfileQRCodeCache {
     static let context = CIContext()
     static let imageCache = NSCache<NSString, UIImage>()
     static let renderQueue = DispatchQueue(label: "kasia.profile.qr.render", qos: .utility)

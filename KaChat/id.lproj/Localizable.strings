@@ -1216,3 +1216,5 @@
 "Join a public room, or create one." = "Bergabung ke ruang publik, atau buat sendiri.";
 "Show the QR code to add Kaspa for sending messages." = "Menampilkan kode QR untuk menambah Kaspa guna mengirim pesan.";
 "Show a fresh address to get paid." = "Menampilkan alamat baru untuk menerima pembayaran.";
+"Tap to copy" = "Ketuk untuk menyalin";
+"Address copied" = "Alamat disalin";

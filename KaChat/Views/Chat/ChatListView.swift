@@ -37,7 +37,7 @@ struct ChatListView: View {
     /// Non-nil while the sheet shows the create screen: false = new chat, true = new group.
     @State private var createAddContactGroupMode: Bool?
     @State private var createPath: [CreateRoute] = []
-    @State private var createDetent: PresentationDetent = .height(500)
+    @State private var createDetent: PresentationDetent = Self.createSheetHeight
     @State private var createRoomName = ""
     @State private var createRoomError: String?
     @FocusState private var createRoomFieldFocused: Bool
@@ -619,7 +619,7 @@ struct ChatListView: View {
                     },
                     onCancel: {
                         createAddContactGroupMode = nil
-                        createDetent = .height(500)
+                        createDetent = Self.createSheetHeight
                     }
                 )
             } else {
@@ -630,18 +630,10 @@ struct ChatListView: View {
                             createDestination(route)
                         }
                 }
-                .onChange(of: createPath) { path in
-                    // Back at the menu: shrink once the pop has finished, not during it - both at
-                    // once made the white QR screen shrink while it was still sliding away.
-                    guard path.isEmpty else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        guard createPath.isEmpty, createAddContactGroupMode == nil else { return }
-                        withAnimation(.easeInOut(duration: 0.25)) { createDetent = .height(500) }
-                    }
-                }
+
             }
         }
-        .presentationDetents([.height(500), .large], selection: $createDetent)
+        .presentationDetents([Self.createSheetHeight, .large], selection: $createDetent)
         .presentationDragIndicator(.visible)
     }
 
@@ -692,15 +684,14 @@ struct ChatListView: View {
                 .navigationTitle("New Public Chat")
                 .navigationBarTitleDisplayMode(.inline)
         case .fundChatting:
-            Group {
-                if let wallet = walletManager.currentWallet {
-                    ChattingAddressQRView(address: wallet.publicAddress, balanceSompi: wallet.balanceSompi)
-                }
-            }
+            NewSheetQRCard(
+                address: walletManager.currentWallet?.publicAddress,
+                caption: "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time."
+            )
             .navigationTitle("Chatting Address")
             .navigationBarTitleDisplayMode(.inline)
         case .receive:
-            ProfileView.ReceiveKaspaQRView()
+            NewSheetReceiveCard()
                 .navigationTitle("Receive Kaspa")
                 .navigationBarTitleDisplayMode(.inline)
         }
@@ -785,17 +776,19 @@ struct ChatListView: View {
         selectedPublicRoom = normalized
     }
 
-    /// Grows the sheet and pushes in one go, from the tap. Growing only once the pushed screen
-    /// appeared made it slide in at the menu's height, then jump to full height.
+    /// The menu, the room name and the two QR cards all fit this one height, so moving between
+    /// them is a plain push - no resize under a sliding screen (that showed half the dark menu
+    /// and half a white QR page mid-animation). Only the create forms open at full height.
+    static let createSheetHeight: PresentationDetent = .height(580)
+
     private func pushCreate(_ route: CreateRoute) {
-        withAnimation(.easeInOut(duration: 0.3)) { createDetent = .large }
         createPath.append(route)
     }
 
     private func resetCreateSheet() {
         createAddContactGroupMode = nil
         createPath = []
-        createDetent = .height(500)
+        createDetent = Self.createSheetHeight
         createRoomName = ""
         createRoomError = nil
     }
@@ -2295,6 +2288,90 @@ struct MessageRequestsView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+/// A QR card for the Chats New sheet: the code on a white card, the address and a caption, on
+/// the sheet's own background, sized to the sheet's menu height. Tap to copy. The full-screen
+/// white Profile QR page didn't fit in a sheet - it needed a resize and clashed with the menu.
+private struct NewSheetQRCard: View {
+    let address: String?
+    let caption: String
+    @State private var qrImage: UIImage?
+    @State private var copied = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Group {
+                if let qrImage {
+                    Image(uiImage: qrImage)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(width: 190, height: 190)
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.accentColor, lineWidth: 2.5))
+
+            if let address {
+                Text(verbatim: address)
+                    .font(.caption.monospaced())
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 24)
+            }
+            Text(LocalizedStringKey(caption))
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 28)
+            Label(copied ? "Address copied" : "Tap to copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(.accentColor)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard let address else { return }
+            UIPasteboard.general.string = address
+            Haptics.success()
+            copied = true
+        }
+        .task(id: address) {
+            guard let address else { return }
+            qrImage = ProfileQRCodeCache.cachedImage(for: address)
+            if qrImage == nil {
+                ProfileQRCodeCache.preload(address: address) { image in qrImage = image }
+            }
+        }
+    }
+}
+
+/// "Receive Kaspa" in the New sheet: a fresh, never-used receive address (the same resolution
+/// as Profile's Receive Kaspa screen, warm cache first) on the QR card.
+private struct NewSheetReceiveCard: View {
+    @EnvironmentObject private var walletManager: WalletManager
+    @State private var address: String? = ReceiveAddressWarmCache.address
+
+    var body: some View {
+        NewSheetQRCard(
+            address: address,
+            caption: "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting."
+        )
+        .task {
+            let resolved = await walletManager.freshReceiveAddress()
+            // Swap only if the warm answer went stale: a QR must not change under a camera.
+            if let resolved, resolved != address { address = resolved }
+            ReceiveAddressWarmCache.address = resolved
         }
     }
 }

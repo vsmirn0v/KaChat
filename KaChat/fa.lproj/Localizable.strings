@@ -1216,3 +1216,5 @@
 "Join a public room, or create one." = "به یک اتاق عمومی بپیوندید یا یکی بسازید.";
 "Show the QR code to add Kaspa for sending messages." = "کد QR را برای افزودن Kaspa جهت ارسال پیام نشان می‌دهد.";
 "Show a fresh address to get paid." = "یک آدرس تازه برای دریافت پول نشان می‌دهد.";
+"Tap to copy" = "برای کپی ضربه بزنید";
+"Address copied" = "آدرس کپی شد";

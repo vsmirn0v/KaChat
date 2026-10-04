@@ -1216,3 +1216,5 @@
 "Join a public room, or create one." = "공개 방에 참여하거나 새로 만듭니다.";
 "Show the QR code to add Kaspa for sending messages." = "메시지 전송용 Kaspa를 추가할 QR 코드를 보여줍니다.";
 "Show a fresh address to get paid." = "결제를 받을 새 주소를 보여줍니다.";
+"Tap to copy" = "탭하여 복사";
+"Address copied" = "주소가 복사되었습니다";

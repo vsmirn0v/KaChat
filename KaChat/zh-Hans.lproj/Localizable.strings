@@ -1216,3 +1216,5 @@
 "Join a public room, or create one." = "加入公共聊天室，或创建一个。";
 "Show the QR code to add Kaspa for sending messages." = "显示二维码，添加用于发送消息的 Kaspa。";
 "Show a fresh address to get paid." = "显示一个新地址用于收款。";
+"Tap to copy" = "轻点复制";
+"Address copied" = "已复制地址";
