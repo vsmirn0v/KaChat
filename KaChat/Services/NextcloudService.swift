@@ -90,6 +90,8 @@ enum NextcloudError: LocalizedError {
     case offOnTestnet
     /// HTTP 423 on the archive after the retries: Nextcloud's lock on the file did not clear.
     case backupLocked
+    /// The upload finished but the server stored fewer bytes than were sent (a relay cut it).
+    case uploadCutOff(sent: Int, stored: Int64)
 
     var errorDescription: String? {
         switch self {
@@ -119,6 +121,9 @@ enum NextcloudError: LocalizedError {
             return "Nextcloud has the backup file locked (HTTP 423): another device or sync is reading "
                 + "or writing it right now. Try again in a minute. If it keeps happening, the lock is "
                 + "stale on the server - clear it with occ (maintenance mode on, empty the file locks, off)."
+        case .uploadCutOff(let sent, let stored):
+            return "The backup upload was cut off: the server stored \(stored) of \(sent) bytes. "
+                + "Something between this device and Nextcloud is ending large uploads early."
         }
     }
 }
@@ -1334,24 +1339,54 @@ final class NextcloudService: ObservableObject {
         }
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
 
-        let existing: Data?
+        // What to do with the server copy follows NEXTCLOUD_SYNC.md §7:
+        // - a download that failed or stopped early (network) throws here, before any PUT - the
+        //   file itself may be fine, so it is never overwritten on a transfer problem;
+        // - another wallet's file (envelope walletHint, or plaintext walletAddress, differs) is
+        //   never touched;
+        // - a newer schema is never touched (a newer app wrote it);
+        // - THIS wallet's file that can't be read (failed decrypt under our own walletHint, or
+        //   content that isn't a valid archive - e.g. cut off at rest) is overwritten in place
+        //   with this device's history, and no copy is made: Nextcloud's version history keeps
+        //   the old content, and every other device unions its own history back in on its next
+        //   sync. It used to abort instead, which left automatic sync stuck for good.
+        var existing: Data?
         if skipDownload {
             existing = nil
         } else {
             do {
-                // A failed decrypt (wrong seed's file, corrupt envelope) throws HERE - before the
-                // merge and before any PUT - so the server copy is never overwritten.
-                existing = try await BackupEnvelope.decryptIfEnvelopedDetached(
-                    try await downloadBackup(), key: key, walletAddress: walletAddress
-                )
+                let raw = try await downloadBackup()
+                do {
+                    existing = try await BackupEnvelope.decryptIfEnvelopedDetached(raw, key: key, walletAddress: walletAddress)
+                } catch {
+                    guard BackupEnvelope.isOwnUnreadableEnvelope(raw, walletAddress: walletAddress) else { throw error }
+                    AppLog.log("%@", "[Nextcloud] This account's backup on the server can't be decrypted; replacing it in place")
+                    existing = nil
+                }
             } catch NextcloudError.backupNotFound {
                 existing = nil
             }
         }
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
-        let merged = try await ChatService.shared.buildBackupArchiveData(mergingRemote: existing)
+        let merged: Data
+        do {
+            merged = try await ChatService.shared.buildBackupArchiveData(mergingRemote: existing)
+        } catch ChatService.ChatHistoryArchiveError.remoteBackupUnreadable {
+            AppLog.log("%@", "[Nextcloud] The backup on the server isn't a readable archive (damaged or cut off); replacing it in place")
+            merged = try await ChatService.shared.buildBackupArchiveData(mergingRemote: nil)
+        }
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
-        var newETag = try await uploadBackup(try await BackupEnvelope.encryptDetached(merged, key: key, walletAddress: walletAddress))
+        let body = try await BackupEnvelope.encryptDetached(merged, key: key, walletAddress: walletAddress)
+        var newETag = try await uploadBackup(body)
+        // Verify (NEXTCLOUD_SYNC.md §4.6): a relay that cuts a large PUT can leave a short file,
+        // which the next sync would read as damaged. Say so plainly instead of looping.
+        // Only our own write counts: another device may have replaced the file in between.
+        if let storedSize = await fetchBackupInfo()?.size, storedSize != Int64(body.count) {
+            let currentETag = (try? await fetchBackupETag()) ?? nil
+            if newETag == nil || currentETag == newETag {
+                throw NextcloudError.uploadCutOff(sent: body.count, stored: storedSize)
+            }
+        }
         if newETag == nil {
             // Some proxies strip the PUT response's ETag header; one follow-up Depth-0
             // PROPFIND recovers it so the change watcher still knows this device's own write.
@@ -1868,6 +1903,14 @@ enum BackupEnvelope {
     /// Detects the v1 envelope. The literal-marker scan keeps legacy multi-MB archives cheap
     /// (no full JSON decode attempt); a legacy archive that happens to CONTAIN the marker text
     /// inside a message simply fails the decode and is treated as plaintext.
+    /// True when `data` is a v1 envelope carrying THIS wallet's walletHint - so a failed decrypt
+    /// means our own file is damaged, not that it belongs to someone else. An envelope without a
+    /// hint can't be attributed and is never treated as ours.
+    static func isOwnUnreadableEnvelope(_ data: Data, walletAddress: String) -> Bool {
+        guard let envelope = parse(data), let hint = envelope.walletHint else { return false }
+        return hint == walletHint(for: walletAddress)
+    }
+
     static func parse(_ data: Data) -> Envelope? {
         guard data.range(of: Data("\"kachatEncryptedBackup\"".utf8)) != nil,
               let envelope = try? JSONDecoder().decode(Envelope.self, from: data),

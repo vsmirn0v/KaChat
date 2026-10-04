@@ -144,7 +144,8 @@ wallet can never overwrite a mainnet backup.
 | `401` | Credentials are wrong or revoked. Stop syncing and tell the user to reconnect |
 | `423 Locked` | Another request holds the file. Retry the `PUT` after **1, 2, 4, 8, 15 s**, then fail with "backup locked" |
 | `404` on read | No backup yet. Write without merging |
-| Network error or timeout | Leave the dirty flag set; the next trigger retries. Never write a partial merge |
+| Network error or timeout, including a **download that stopped early** (fewer bytes than `Content-Length`) | Leave the dirty flag set; the next trigger retries. This is a transfer problem, not a damaged file: **never overwrite** on it, and never write a partial merge |
+| File uses a **newer schema version** than this client merges | **Never write.** A newer app wrote it; tell the user to update |
 | File belongs to **another wallet** (`walletHint` mismatch, or plaintext `walletAddress` mismatch) | **Never write.** Stop syncing this folder and tell the user: "The backup in this folder belongs to a different account" |
 | File is **this wallet's but unreadable** (cut off, failed decrypt with a matching hint, invalid JSON) | **Overwrite it in place** with this device's merged history, and **make no copy**: Nextcloud's version history already keeps the old content. Log it. Nothing is lost for good: every other device unions its own history back in on its next sync |
 | Upload cut off (verify step fails) | Say so plainly ("the upload was cut off") and stop. Don't loop |
@@ -161,8 +162,8 @@ stores it, and cutting it short leaves a short file, which the next sync then re
 | No extra files during sync (§1) | ✅ | check | ❌ still writes `kachat-backup-damaged-<date>.json` (limited to one a day by local commit `3b06ea0`, unpushed). **Remove it** | check |
 | Folder discovery (§2) | ✅ | check | ✅ | check |
 | Timings (§6) | ✅ | ✅ same constants | ✅ same constants | check |
-| Own-but-unreadable file is overwritten in place (§7) | ❌ refuses, so sync stays stuck | check | copies aside, then overwrites | check |
-| Verify stored size after upload (§4.6) | ❌ to add | check | ✅ (`3b06ea0`) | check |
+| Own-but-unreadable file is overwritten in place (§7) | ✅ | check | copies aside, then overwrites. **Drop the copy** | check |
+| Verify stored size after upload (§4.6) | ✅ (only when the stored file is still its own write, by ETag) | check | ✅ (`3b06ea0`) | check |
 | Writes get ≥ 120 s through relays (§7) | n/a (direct) | n/a | ✅ (`3b06ea0`) | check |
 
 "check" means the owner of that client confirms against this document and fills the cell in.
