@@ -1005,6 +1005,8 @@ struct ManageAddressesView: View {
         for address in addresses where KNSService.shared.domainCache[address]?.allDomains.isEmpty == false {
             owners.insert(address)
         }
+        // .kachat names count too (testnet, where the registry is live).
+        owners.formUnion(await KachatNamesRegistry.shared.ownersOfNames(among: addresses))
         domainOwningAddresses = owners
     }
 
@@ -2334,7 +2336,7 @@ private struct SpendingAddressTransactionHistoryView: View {
             case .utxos:
                 utxosList
             case .kachatDomains:
-                KachatAddressDomainsList()
+                KachatAddressDomainsList(address: entry.address)
             }
         }
         .navigationTitle(entry.displayLabel)

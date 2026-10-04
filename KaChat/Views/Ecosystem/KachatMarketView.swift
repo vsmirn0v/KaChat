@@ -892,7 +892,19 @@ private struct KachatComingSoonPill: View {
 /// Cold Storage and the chatting address: the .kachat names that address holds. It replaced the
 /// KNS Domains tab (5.2), and is empty until .kachat names launch.
 struct KachatAddressDomainsList: View {
+    /// The address whose names to show. On testnet (live registry) the list is that address's
+    /// own .kachat names; nil, or mainnet, shows the "coming" note.
+    var address: String? = nil
+
     var body: some View {
+        if let address, KachatNamesService.isEnabled {
+            KachatAddressLiveNamesList(address: address)
+        } else {
+            comingNote
+        }
+    }
+
+    private var comingNote: some View {
         List {
             VStack(spacing: 10) {
                 KachatTabIcon.view(side: 40)
@@ -908,5 +920,58 @@ struct KachatAddressDomainsList: View {
             .listRowBackground(Color.clear)
         }
         .listStyle(.insetGrouped)
+    }
+}
+
+/// One address's .kachat names on testnet - Manage Addresses (spending), the chatting address and
+/// KasSigner each show their own address's names in its .kachat tab. Same cards and detail screen
+/// as Your Domains > .kachat. Names on an address this wallet can't sign for (a KasSigner address)
+/// open read-only: their actions need that address's key.
+struct KachatAddressLiveNamesList: View {
+    let address: String
+    @ObservedObject private var registry = KachatNamesRegistry.shared
+    @ObservedObject private var service = KachatNamesService.shared
+    @State private var names: [KachatNames.NameInfo] = []
+    @State private var loaded = false
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 16) {
+                if !loaded {
+                    ProgressView().padding(.vertical, 24)
+                } else if service.registryUpgrading || names.isEmpty {
+                    VStack(spacing: 10) {
+                        KachatTabIcon.view(side: 40)
+                        Text("No .kachat names on this address")
+                            .font(.headline)
+                        Text("Names this address owns show here.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
+                } else {
+                    ForEach(names) { n in
+                        NavigationLink {
+                            KachatListingDetailView(info: n)
+                        } label: {
+                            DomainNameCardView(title: n.display, badge: KachatLiveDomainsTab.badge(for: n, graceMs: registry.graceMs))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding()
+        }
+        .refreshable { await registry.refresh() }
+        .task(id: "\(address)|\(registry.revision)") { await load() }
+    }
+
+    private func load() async {
+        guard let key = KachatNamesRegistry.keyOf(address) else { loaded = true; return }
+        if registry.refreshedAt == nil { await registry.refresh() }
+        names = (try? await registry.names(owner: key, includeInactive: true)) ?? []
+        loaded = true
     }
 }

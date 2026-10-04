@@ -3929,7 +3929,7 @@ struct ChattingAddressManageView: View {
             case .utxos:
                 utxosList
             case .kachatDomains:
-                KachatAddressDomainsList()
+                KachatAddressDomainsList(address: address)
             }
         }
         .navigationTitle("Chatting Address")

@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "ID transaksi disalin";
 "This payment isn't on chain yet." = "Pembayaran ini belum on-chain.";
 "Opens the .kachat marketplace" = "Membuka marketplace .kachat";
+"Names this address owns show here." = "Nama milik alamat ini muncul di sini.";
+"Your spending address #%lld" = "Alamat pengeluaran Anda #%lld";
+"Your KasSigner address (%@ #%lld)" = "Alamat KasSigner Anda (%@ #%lld)";

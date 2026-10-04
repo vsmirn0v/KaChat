@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "מזהה העסקה הועתק";
 "This payment isn't on chain yet." = "התשלום הזה עדיין לא על השרשרת.";
 "Opens the .kachat marketplace" = "פותח את שוק ‎.kachat";
+"Names this address owns show here." = "השמות שבבעלות הכתובת הזו מופיעים כאן.";
+"Your spending address #%lld" = "כתובת ההוצאה שלך #%lld";
+"Your KasSigner address (%@ #%lld)" = "כתובת ה-KasSigner שלך (%@ #%lld)";

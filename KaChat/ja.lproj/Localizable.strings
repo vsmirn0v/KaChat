@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "トランザクションIDをコピーしました";
 "This payment isn't on chain yet." = "この支払いはまだオンチェーンにありません。";
 "Opens the .kachat marketplace" = ".kachatマーケットプレイスを開きます";
+"Names this address owns show here." = "このアドレスが所有する名前がここに表示されます。";
+"Your spending address #%lld" = "あなたの支払い用アドレス #%lld";
+"Your KasSigner address (%@ #%lld)" = "あなたのKasSignerアドレス（%@ #%lld）";

@@ -949,6 +949,9 @@ struct ColdStorageDetailView: View {
         for address in addresses where KNSService.shared.domainCache[address]?.allDomains.isEmpty == false {
             owners.insert(address)
         }
+        // .kachat names count too (testnet, where the registry is live).
+        owners.formUnion(await KachatNamesRegistry.shared.ownersOfNames(among: addresses))
+        guard loadToken == token else { return }
         domainOwningAddresses = owners
     }
 
@@ -2202,7 +2205,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
             case .utxos:
                 utxosList
             case .kachatDomains:
-                KachatAddressDomainsList()
+                KachatAddressDomainsList(address: entry.address)
             }
         }
         .navigationTitle(entry.displayLabel)

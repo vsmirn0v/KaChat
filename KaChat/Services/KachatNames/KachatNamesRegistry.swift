@@ -231,6 +231,22 @@ final class KachatNamesRegistry: ObservableObject {
     }
 
     /// The names an owner holds, oldest first; `includeInactive` adds grace and lapsed ones.
+    /// Which of `addresses` own at least one .kachat name (active, in grace or lapsed - the same
+    /// set Your Domains lists). Drives the "Contains domain" tag on Manage Addresses and KasSigner.
+    /// Empty off testnet; an address whose lookup fails just isn't tagged.
+    func ownersOfNames(among addresses: [String]) async -> Set<String> {
+        guard KachatNamesService.isEnabled, !addresses.isEmpty else { return [] }
+        if refreshedAt == nil { await refresh() }
+        var owners = Set<String>()
+        for address in addresses {
+            guard let key = Self.keyOf(address),
+                  let owned = try? await names(owner: key, includeInactive: true),
+                  !owned.isEmpty else { continue }
+            owners.insert(address)
+        }
+        return owners
+    }
+
     func names(owner: Data, includeInactive: Bool) async throws -> [KachatNames.NameInfo] {
         try await prepare()
         let all: [KachatNames.NameInfo]

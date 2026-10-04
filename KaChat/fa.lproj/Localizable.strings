@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "شناسه تراکنش کپی شد";
 "This payment isn't on chain yet." = "این پرداخت هنوز روی زنجیره نیست.";
 "Opens the .kachat marketplace" = "بازار .kachat را باز می‌کند";
+"Names this address owns show here." = "نام‌هایی که این آدرس دارد اینجا نشان داده می‌شوند.";
+"Your spending address #%lld" = "آدرس خرج شما #%lld";
+"Your KasSigner address (%@ #%lld)" = "آدرس KasSigner شما (%@ #%lld)";

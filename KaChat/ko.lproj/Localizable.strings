@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "거래 ID가 복사되었습니다";
 "This payment isn't on chain yet." = "이 결제는 아직 온체인에 없습니다.";
 "Opens the .kachat marketplace" = ".kachat 마켓플레이스를 엽니다";
+"Names this address owns show here." = "이 주소가 소유한 이름이 여기에 표시됩니다.";
+"Your spending address #%lld" = "내 지출 주소 #%lld";
+"Your KasSigner address (%@ #%lld)" = "내 KasSigner 주소 (%@ #%lld)";

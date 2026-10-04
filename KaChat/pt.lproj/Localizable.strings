@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "ID da transação copiado";
 "This payment isn't on chain yet." = "Este pagamento ainda não está on-chain.";
 "Opens the .kachat marketplace" = "Abre o marketplace .kachat";
+"Names this address owns show here." = "Os nomes deste endereço aparecem aqui.";
+"Your spending address #%lld" = "Seu endereço de gastos #%lld";
+"Your KasSigner address (%@ #%lld)" = "Seu endereço KasSigner (%@ #%lld)";

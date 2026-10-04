@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "Đã sao chép ID giao dịch";
 "This payment isn't on chain yet." = "Khoản thanh toán này chưa lên chuỗi.";
 "Opens the .kachat marketplace" = "Mở chợ .kachat";
+"Names this address owns show here." = "Các tên mà địa chỉ này sở hữu hiển thị ở đây.";
+"Your spending address #%lld" = "Địa chỉ chi tiêu của bạn #%lld";
+"Your KasSigner address (%@ #%lld)" = "Địa chỉ KasSigner của bạn (%@ #%lld)";

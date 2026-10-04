@@ -1302,8 +1302,21 @@ struct KachatLiveNameDetail: View {
     @State private var history: [KachatNames.Event] = []
     @State private var gone = false
     @State private var confirmPrimary = false
+    /// Which of this wallet's addresses holds the name (chatting, a spending address, a KasSigner
+    /// address), or nil for someone else's. Resolved on load: it derives addresses.
+    @State private var heldBy: KachatNamesActions.OwnAddress?
 
-    private var mine: Bool { KachatLive.isMine(info.owner) }
+    /// Held by the chatting address: the identity, so "Set as Primary" applies.
+    private var mine: Bool { heldBy == .chatting || (heldBy == nil && KachatLive.isMine(info.owner)) }
+    /// Held by an address this app can sign for: every owner action is available.
+    private var canActAsOwner: Bool {
+        switch heldBy {
+        case .chatting?, .spending?: return true
+        default: return mine
+        }
+    }
+    /// Held by any of this wallet's addresses - never offered Buy / Make an Offer.
+    private var ownedByWallet: Bool { heldBy != nil || mine }
     private var status: KachatNames.Status { info.status(graceMs: registry.graceMs) }
     private var ownerAddress: String? { KachatNamesRegistry.address(of: info.owner) }
 
@@ -1383,7 +1396,7 @@ struct KachatLiveNameDetail: View {
                 .foregroundColor(.secondary)
             }
             switch status {
-            case .grace where mine:
+            case .grace where ownedByWallet:
                 Text("Expired - renew to keep it. Until the grace period ends nobody else can take it.")
                     .font(.footnote).foregroundColor(.orange)
             case .grace:
@@ -1404,7 +1417,7 @@ struct KachatLiveNameDetail: View {
     @ViewBuilder
     private var actionButtons: some View {
         VStack(spacing: 10) {
-            if mine {
+            if canActAsOwner {
                 periodActions
                 HStack(spacing: 10) {
                     actionButton(info.isListed ? "Change Price" : "List for Sale", "tag") { sheet = .list }
@@ -1415,8 +1428,12 @@ struct KachatLiveNameDetail: View {
                     if info.isListed {
                         actionButton("Delist", "tag.slash") { sheet = .delist }
                     }
-                    actionButton("Set as Primary", "person.crop.circle.badge.checkmark") { confirmPrimary = true }
-                        .disabled(status != .active)
+                    // The primary name is the chatting address's identity; a name on a spending
+                    // address can't be it.
+                    if mine {
+                        actionButton("Set as Primary", "person.crop.circle.badge.checkmark") { confirmPrimary = true }
+                            .disabled(status != .active)
+                    }
                 }
                 Button(role: .destructive) { sheet = .release } label: {
                     Label("Release Name", systemImage: "trash")
@@ -1425,6 +1442,10 @@ struct KachatLiveNameDetail: View {
                         .padding(.vertical, 10)
                 }
                 .buttonStyle(.bordered)
+            } else if case .kasSigner? = heldBy {
+                // Read-only: the app shows that a KasSigner address holds the name (the Owner card
+                // says which); acting on it is the device's job.
+                EmptyView()
             } else {
                 switch status {
                 case .lapsed:
@@ -1507,6 +1528,10 @@ struct KachatLiveNameDetail: View {
                 VStack(alignment: .leading, spacing: 3) {
                     if mine {
                         Text("You").font(.subheadline.weight(.semibold))
+                    } else if case .spending(let index, _)? = heldBy {
+                        Text("Your spending address #\(index)").font(.subheadline.weight(.semibold))
+                    } else if case .kasSigner(let account, let index, _)? = heldBy {
+                        Text("Your KasSigner address (\(account) #\(index))").font(.subheadline.weight(.semibold))
                     } else if let ownerLabel {
                         Text(verbatim: "\(ownerLabel).kachat").font(.subheadline.weight(.semibold))
                     }
@@ -1519,7 +1544,7 @@ struct KachatLiveNameDetail: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if !mine, let ownerAddress {
+                if !ownedByWallet, let ownerAddress {
                     Button {
                         KachatLive.message(ownerAddress)
                     } label: {
@@ -1536,7 +1561,7 @@ struct KachatLiveNameDetail: View {
 
     private var offersSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            KachatLiveSectionHeader(title: "Offers", detail: mine ? "Accept one to sell the name for it." : nil)
+            KachatLiveSectionHeader(title: "Offers", detail: canActAsOwner ? "Accept one to sell the name for it." : nil)
             if offers.isEmpty {
                 Text("No open offers.")
                     .font(.subheadline)
@@ -1548,7 +1573,7 @@ struct KachatLiveNameDetail: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(offers.enumerated()), id: \.element.id) { index, o in
-                        KachatOfferRow(offer: o, isBuyer: KachatLive.isMine(o.buyer), isOwner: mine && registry.source?.isIndexer == true,
+                        KachatOfferRow(offer: o, isBuyer: KachatLive.isMine(o.buyer), isOwner: canActAsOwner && registry.source?.isIndexer == true,
                                        onAction: { offerAction = $0 }, name: info)
                         if index < offers.count - 1 { Divider().padding(.leading, 50) }
                     }
@@ -1631,7 +1656,8 @@ struct KachatLiveNameDetail: View {
                 gone = true
             }
         } catch {}
-        if !mine, let ownerAddress, let id = try? await registry.identity(address: ownerAddress) {
+        heldBy = actions.ownAddress(of: info.owner)
+        if !ownedByWallet, let ownerAddress, let id = try? await registry.identity(address: ownerAddress) {
             ownerLabel = id.label
         }
         offers = (try? await registry.offers(for: info.name)) ?? []
@@ -1997,7 +2023,7 @@ struct KachatLiveDomainsTab: View {
                         NavigationLink {
                             KachatListingDetailView(info: n)
                         } label: {
-                            DomainNameCardView(title: n.display, badge: badge(n))
+                            DomainNameCardView(title: n.display, badge: Self.badge(for: n, graceMs: registry.graceMs))
                         }
                         .buttonStyle(.plain)
                     }
@@ -2041,8 +2067,10 @@ struct KachatLiveDomainsTab: View {
         .accessibilityHint(Text("Opens the .kachat marketplace"))
     }
 
-    private func badge(_ n: KachatNames.NameInfo) -> String? {
-        switch n.status(graceMs: registry.graceMs) {
+    /// The card badge for a name: Listed, Expired (in grace) or Lapsed. Shared with the
+    /// per-address lists (`KachatAddressLiveNamesList`).
+    static func badge(for n: KachatNames.NameInfo, graceMs: Int64) -> String? {
+        switch n.status(graceMs: graceMs) {
         case .active: return n.isListed ? AppLocalization.string("Listed") : nil
         case .grace: return AppLocalization.string("Expired")
         case .lapsed: return AppLocalization.string("Lapsed")

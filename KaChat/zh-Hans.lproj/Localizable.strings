@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "已复制交易 ID";
 "This payment isn't on chain yet." = "此付款尚未上链。";
 "Opens the .kachat marketplace" = "打开 .kachat 市场";
+"Names this address owns show here." = "此地址拥有的名称会显示在这里。";
+"Your spending address #%lld" = "你的支出地址 #%lld";
+"Your KasSigner address (%@ #%lld)" = "你的 KasSigner 地址（%@ #%lld）";

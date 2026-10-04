@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "লেনদেন আইডি কপি হয়েছে";
 "This payment isn't on chain yet." = "এই পেমেন্টটি এখনও অন-চেইনে নেই।";
 "Opens the .kachat marketplace" = ".kachat মার্কেটপ্লেস খোলে";
+"Names this address owns show here." = "এই ঠিকানার নামগুলো এখানে দেখা যায়।";
+"Your spending address #%lld" = "আপনার খরচের ঠিকানা #%lld";
+"Your KasSigner address (%@ #%lld)" = "আপনার KasSigner ঠিকানা (%@ #%lld)";

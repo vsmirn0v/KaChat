@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "ID транзакции скопирован";
 "This payment isn't on chain yet." = "Этот платёж ещё не в блокчейне.";
 "Opens the .kachat marketplace" = "Открывает маркетплейс .kachat";
+"Names this address owns show here." = "Здесь показаны имена этого адреса.";
+"Your spending address #%lld" = "Ваш адрес для трат №%lld";
+"Your KasSigner address (%@ #%lld)" = "Ваш адрес KasSigner (%@ №%lld)";

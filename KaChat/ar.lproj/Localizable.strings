@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "تم نسخ معرّف المعاملة";
 "This payment isn't on chain yet." = "هذه الدفعة ليست على السلسلة بعد.";
 "Opens the .kachat marketplace" = "يفتح سوق .kachat";
+"Names this address owns show here." = "تظهر هنا الأسماء التي يملكها هذا العنوان.";
+"Your spending address #%lld" = "عنوان الإنفاق الخاص بك #%lld";
+"Your KasSigner address (%@ #%lld)" = "عنوان KasSigner الخاص بك (%@ #%lld)";

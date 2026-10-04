@@ -124,6 +124,56 @@ final class KachatNamesActions: ObservableObject {
         return Signer(address: address, privateKey: key, me: me)
     }
 
+    /// Which of this wallet's own addresses holds a name.
+    enum OwnAddress: Equatable {
+        case chatting
+        /// A spending address: the app derives its key, so owner actions sign with it.
+        case spending(index: Int, address: String)
+        /// A KasSigner (watch-only) address: owner actions need the device to sign.
+        case kasSigner(account: String, index: Int, address: String)
+    }
+
+    /// Whether `owner` (an x-only key) is one of this wallet's addresses, and which: the chatting
+    /// address, a revealed spending address, or a KasSigner account address. nil = someone else.
+    func ownAddress(of owner: Data) -> OwnAddress? {
+        if owner == myKey { return .chatting }
+        let wallet = WalletManager.shared
+        let spending = wallet.spendingAddresses(inRange: 0..<(max(0, wallet.maxSpendingAddressIndex) + 1))
+        for (index, address) in spending.sorted(by: { $0.key < $1.key }) where KachatNamesRegistry.keyOf(address) == owner {
+            return .spending(index: index, address: address)
+        }
+        let cold = ColdStorageManager.shared
+        for account in cold.accounts {
+            for index in 0...max(0, account.maxAddressIndex) {
+                if let address = cold.address(for: account, at: index), KachatNamesRegistry.keyOf(address) == owner {
+                    return .kasSigner(account: account.label, index: index, address: address)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// The signer for `op`. Owner-only actions (transfer, list/delist, accept, release) on a name
+    /// held by one of this wallet's spending addresses sign - and pay their fee - from that
+    /// address. Everything else, including extend and renew (anyone may pay those), uses the
+    /// chatting address.
+    private func signer(for op: Operation) throws -> Signer {
+        let held: KachatNames.NameInfo?
+        switch op {
+        case .transfer(let n, _), .list(let n, _), .release(let n): held = n
+        case .accept(_, let n): held = n
+        default: held = nil
+        }
+        if let n = held, case .spending(let index, let address)? = ownAddress(of: n.owner) {
+            try service.requireTestnet()
+            guard let key = WalletManager.shared.spendingPrivateKey(at: index) else { throw ActionError.noWallet }
+            let me = try KachatNamesService.xonlyKey(privateKey: key)
+            guard me == n.owner else { throw ActionError.keyMismatch }
+            return Signer(address: address.lowercased(), privateKey: key, me: me)
+        }
+        return try signer()
+    }
+
     /// The current wallet's x-only key, without touching the private key.
     var myKey: Data? {
         guard let address = WalletManager.shared.currentWallet?.publicAddress else { return nil }
@@ -219,7 +269,7 @@ final class KachatNamesActions: ObservableObject {
     /// Builds `op` against live UTXOs without submitting anything: the fee and outputs a sheet
     /// shows before the person confirms.
     func plan(_ op: Operation) async throws -> KachatNames.Plan {
-        let s = try signer()
+        let s = try signer(for: op)
         return try await build(op, s).plan
     }
 
@@ -277,7 +327,7 @@ final class KachatNamesActions: ObservableObject {
     /// transaction is accepted.
     @discardableResult
     func perform(_ op: Operation) async throws -> String {
-        let s = try signer()
+        let s = try signer(for: op)
         let (plan, env) = try await build(op, s)
         let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
         if case .offer = op, let o = plan.newOffer {

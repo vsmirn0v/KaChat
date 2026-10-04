@@ -1203,3 +1203,6 @@
 "Transaction ID copied" = "İşlem kimliği kopyalandı";
 "This payment isn't on chain yet." = "Bu ödeme henüz zincirde değil.";
 "Opens the .kachat marketplace" = ".kachat pazar yerini açar";
+"Names this address owns show here." = "Bu adresin sahip olduğu adlar burada görünür.";
+"Your spending address #%lld" = "Harcama adresin #%lld";
+"Your KasSigner address (%@ #%lld)" = "KasSigner adresin (%@ #%lld)";
