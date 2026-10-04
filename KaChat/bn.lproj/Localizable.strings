@@ -915,8 +915,6 @@
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "আপনার নিজের ঠিকানাগুলোর মধ্যে সরানো KAS - পাঠিয়ে আবার ফিরিয়ে আনা, বা এক ওয়ালেট থেকে আরেকটিতে। এতে আপনার হোল্ডিং, খরচ বা লাভ বদলায় না।";
 
 /* Receive / chatting address QR text */
-"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "একটি নতুন, কখনো ব্যবহার না হওয়া ঠিকানা। এখানে পাঠানো Kaspa এই অ্যাকাউন্টে আসে এবং খরচযোগ্য মোটে দেখা যায়। চ্যাট ছাড়া অন্য সব কাজে এই ঠিকানা ব্যবহার করুন।";
-"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "এই ঠিকানা চ্যাটের জন্য। প্রায় ৫০ Kaspa দিয়ে অনেক দিন মেসেজ পাঠানো যায়।";
 
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "এই সিড যদি আগে থেকেই অন্য কোনো ঠিকানায় আপনার পরিচয় রাখে - একটি ডোমেইন (.kas, .k বা .kaspa) বা ব্যালেন্সসহ চ্যাট ঠিকানা - তবে এখানে বেছে নিন। শুধু ব্যালেন্স বা ডোমেইন থাকা ঠিকানা দেখানো হয়।";
@@ -1216,3 +1214,5 @@
 "Join a public room, or create one." = "একটি পাবলিক রুমে যোগ দিন, বা নতুন তৈরি করুন।";
 "Show the QR code to add Kaspa for sending messages." = "মেসেজ পাঠানোর জন্য Kaspa যোগ করার QR কোড দেখায়।";
 "Show a fresh address to get paid." = "পেমেন্ট পেতে একটি নতুন ঠিকানা দেখায়।";
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "একটি নতুন ঠিকানা, আগে কখনও ব্যবহার হয়নি। এখানে পাঠানো Kaspa এই অ্যাকাউন্টে আসে এবং আপনার খরচযোগ্য ব্যালান্সে দেখায়। চ্যাট বা ডোমেইনের সাথে সম্পর্কহীন সবকিছুর জন্য এই ঠিকানা ব্যবহার করুন।";
+"This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "এই ঠিকানাটি শুধু চ্যাট ও ডোমেইনের জন্য। 1 Kaspa দিয়ে অ্যাপে প্রায় 500টি কাজ করা যায়। নাম অনুযায়ী ডোমেইনের দাম 35 থেকে 4,000 Kaspa।";

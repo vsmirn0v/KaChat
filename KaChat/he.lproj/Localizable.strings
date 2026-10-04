@@ -915,8 +915,6 @@
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "‏KAS שהועברו בין הכתובות שלכם - נשלחו והוחזרו, או מארנק לארנק. זה לא משנה את האחזקות, העלות או הרווח.";
 
 /* Receive / chatting address QR text */
-"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "כתובת חדשה שמעולם לא נעשה בה שימוש. Kaspa שנשלחים לכאן מגיעים לחשבון הזה ומופיעים בסך הזמין להוצאה. השתמשו בכתובת הזו לכל מה שלא קשור לצ'אט.";
-"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "הכתובת הזו מיועדת לצ'אט. כ-50 Kaspa מספיקים כדי לשלוח הודעות לאורך זמן רב.";
 
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "אם הסיד הזה כבר מחזיק את הזהות שלכם בכתובת אחרת - דומיין (.kas, .k או .kaspa) או יתרת צ'אט - בחרו אותה כאן. מוצגות רק כתובות עם יתרה או דומיינים.";
@@ -1216,3 +1214,5 @@
 "Join a public room, or create one." = "הצטרפו לחדר ציבורי או צרו אחד.";
 "Show the QR code to add Kaspa for sending messages." = "מציג קוד QR להוספת Kaspa לשליחת הודעות.";
 "Show a fresh address to get paid." = "מציג כתובת חדשה לקבלת תשלום.";
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "כתובת חדשה שמעולם לא נעשה בה שימוש. Kaspa שנשלחים לכאן מגיעים לחשבון הזה ומופיעים ביתרת ההוצאה שלך. השתמשו בכתובת הזו לכל מה שלא קשור לצ'אט או לדומיינים.";
+"This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "הכתובת הזו מיועדת לצ'אט ולדומיינים בלבד. ‏1 Kaspa מספיק לכ-500 פעולות באפליקציה. דומיינים עולים בין 35 ל-4,000 Kaspa, לפי השם.";

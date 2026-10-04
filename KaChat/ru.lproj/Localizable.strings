@@ -915,8 +915,6 @@
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "KAS, перемещённые между вашими адресами: отправленные и возвращённые или переведённые из кошелька в кошелёк. Не меняет ни ваши активы, ни стоимость, ни прибыль.";
 
 /* Receive / chatting address QR text */
-"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Новый, ещё не использованный адрес. Kaspa, отправленные сюда, поступают на этот аккаунт и учитываются в доступной сумме. Используйте этот адрес для всего, что не связано с чатами.";
-"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Этот адрес — для чатов. Около 50 Kaspa хватит, чтобы долго отправлять сообщения.";
 
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Если эта сид-фраза уже хранит вашу личность на другом адресе — домен (.kas, .k или .kaspa) или баланс для чата, — выберите его здесь. Показаны только адреса с балансом или доменами.";
@@ -1216,3 +1214,5 @@
 "Join a public room, or create one." = "Войдите в публичную комнату или создайте свою.";
 "Show the QR code to add Kaspa for sending messages." = "Показывает QR-код, чтобы добавить Kaspa для отправки сообщений.";
 "Show a fresh address to get paid." = "Показывает новый адрес для получения оплаты.";
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "Новый, ещё не использованный адрес. Kaspa, отправленные сюда, поступают на этот аккаунт и отображаются в балансе для трат. Используйте этот адрес для всего, что не связано с чатами или доменами.";
+"This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "Этот адрес только для чатов и доменов. 1 Kaspa хватает примерно на 500 действий в приложении. Домены стоят от 35 до 4000 Kaspa в зависимости от имени.";

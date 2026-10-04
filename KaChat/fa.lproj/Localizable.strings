@@ -915,8 +915,6 @@
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "KAS جابه‌جاشده بین نشانی‌های خودتان - فرستاده و بعد برگردانده‌شده، یا از کیف پولی به کیف پول دیگر. دارایی، هزینه یا سود شما را تغییر نمی‌دهد.";
 
 /* Receive / chatting address QR text */
-"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "یک نشانی تازه که هرگز استفاده نشده است. Kaspa ارسال‌شده به اینجا به این حساب می‌رسد و در مجموع قابل خرج شما نمایش داده می‌شود. از این نشانی برای هر کاری غیر از گفتگو استفاده کنید.";
-"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "این نشانی برای گفتگو است. حدود ۵۰ Kaspa برای مدت طولانی ارسال پیام کافی است.";
 
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "اگر این عبارت بازیابی هویت شما را در نشانی دیگری دارد - یک دامنه (.kas، .k یا .kaspa) یا موجودی گفتگو - آن را اینجا انتخاب کنید. فقط نشانی‌های دارای موجودی یا دامنه نمایش داده می‌شوند.";
@@ -1216,3 +1214,5 @@
 "Join a public room, or create one." = "به یک اتاق عمومی بپیوندید یا یکی بسازید.";
 "Show the QR code to add Kaspa for sending messages." = "کد QR را برای افزودن Kaspa جهت ارسال پیام نشان می‌دهد.";
 "Show a fresh address to get paid." = "یک آدرس تازه برای دریافت پول نشان می‌دهد.";
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "یک آدرس تازه که هرگز استفاده نشده است. Kaspa ارسال‌شده به اینجا وارد این حساب می‌شود و در موجودی قابل خرج شما نمایش داده می‌شود. از این آدرس برای هر چیزی که به گفتگو یا دامنه مربوط نیست استفاده کنید.";
+"This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "این آدرس فقط برای گفتگو و دامنه‌هاست. ۱ Kaspa برای حدود ۵۰۰ تعامل در برنامه کافی است. قیمت دامنه‌ها بسته به نام از ۳۵ تا ۴٬۰۰۰ Kaspa است.";

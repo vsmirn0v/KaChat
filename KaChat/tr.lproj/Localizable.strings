@@ -915,8 +915,6 @@
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "Kendi adreslerin arasında taşınan KAS - gönderilip geri alınan ya da cüzdandan cüzdana. Varlıklarını, maliyetini veya kârını değiştirmez.";
 
 /* Receive / chatting address QR text */
-"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Hiç kullanılmamış yeni bir adres. Buraya gönderilen Kaspa bu hesaba gelir ve harcanabilir toplamında görünür. Bu adresi sohbet dışındaki her şey için kullan.";
-"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Bu adres sohbet içindir. Yaklaşık 50 Kaspa, uzun süre mesaj göndermeye yeter.";
 
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Bu tohum kimliğini zaten başka bir adreste tutuyorsa - bir alan adı (.kas, .k veya .kaspa) ya da bakiyeli bir sohbet adresi - onu burada seç. Yalnızca bakiyesi veya alan adı olan adresler gösterilir.";
@@ -1216,3 +1214,5 @@
 "Join a public room, or create one." = "Herkese açık bir odaya katıl veya bir tane oluştur.";
 "Show the QR code to add Kaspa for sending messages." = "Mesaj göndermek için Kaspa eklemek üzere QR kodunu gösterir.";
 "Show a fresh address to get paid." = "Ödeme almak için yeni bir adres gösterir.";
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "Daha önce hiç kullanılmamış yeni bir adres. Buraya gönderilen Kaspa bu hesaba gelir ve harcama bakiyende görünür. Bu adresi sohbet veya alan adlarıyla ilgili olmayan her şey için kullan.";
+"This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "Bu adres yalnızca sohbet ve alan adları için kullanılmalı. 1 Kaspa uygulamada yaklaşık 500 işlem için yeterli. Alan adları, ada göre 35 ile 4.000 Kaspa arasında.";

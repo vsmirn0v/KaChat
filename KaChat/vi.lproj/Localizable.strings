@@ -915,8 +915,6 @@
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "KAS được chuyển giữa các địa chỉ của chính bạn - gửi đi rồi lấy lại, hoặc từ ví này sang ví khác. Không thay đổi số lượng nắm giữ, giá vốn hay lợi nhuận.";
 
 /* Receive / chatting address QR text */
-"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Một địa chỉ mới, chưa từng dùng. Kaspa gửi đến đây sẽ vào tài khoản này và hiện trong tổng số có thể chi tiêu. Dùng địa chỉ này cho mọi việc không liên quan đến trò chuyện.";
-"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Địa chỉ này dùng để trò chuyện. Khoảng 50 Kaspa là đủ để gửi tin nhắn trong thời gian dài.";
 
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Nếu cụm từ khôi phục này đã giữ danh tính của bạn ở địa chỉ khác - một tên miền (.kas, .k hoặc .kaspa) hoặc số dư trò chuyện - hãy chọn ở đây. Chỉ hiện các địa chỉ có số dư hoặc tên miền.";
@@ -1216,3 +1214,5 @@
 "Join a public room, or create one." = "Tham gia một phòng công khai, hoặc tạo phòng mới.";
 "Show the QR code to add Kaspa for sending messages." = "Hiện mã QR để nạp Kaspa dùng cho việc gửi tin nhắn.";
 "Show a fresh address to get paid." = "Hiện một địa chỉ mới để nhận thanh toán.";
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "Một địa chỉ mới, chưa từng dùng. Kaspa gửi đến đây sẽ vào tài khoản này và hiện trong số dư chi tiêu của bạn. Hãy dùng địa chỉ này cho mọi việc không liên quan đến trò chuyện hoặc tên miền.";
+"This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "Địa chỉ này chỉ dành cho trò chuyện và tên miền. 1 Kaspa đủ cho khoảng 500 lượt tương tác trong ứng dụng. Tên miền có giá từ 35 đến 4.000 Kaspa tùy theo tên.";

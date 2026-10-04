@@ -915,8 +915,6 @@
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "自分のアドレス間で移動した KAS（送ってから戻した、またはウォレット間の移動）。保有量・取得原価・損益は変わりません。";
 
 /* Receive / chatting address QR text */
-"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "一度も使われていない新しいアドレスです。ここに送られた Kaspa はこのアカウントに入り、支出用の合計に表示されます。チャット以外のすべての用途にはこのアドレスを使ってください。";
-"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "このアドレスはチャット用です。50 Kaspa ほど入れておけば、長い間メッセージを送れます。";
 
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "このシードが別のアドレスですでにあなたの ID（.kas・.k・.kaspa のドメイン、または残高のあるチャットアドレス）を持っている場合は、ここで選んでください。残高かドメインのあるアドレスだけが表示されます。";
@@ -1216,3 +1214,5 @@
 "Join a public room, or create one." = "公開ルームに参加するか、新しく作成します。";
 "Show the QR code to add Kaspa for sending messages." = "メッセージ送信用のKaspaを追加するQRコードを表示します。";
 "Show a fresh address to get paid." = "支払いを受け取る新しいアドレスを表示します。";
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "一度も使われていない新しいアドレスです。ここに送られたKaspaはこのアカウントに入り、支払い用残高に表示されます。チャットやドメイン以外のすべての用途にこのアドレスを使ってください。";
+"This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "このアドレスはチャットとドメイン専用です。1 Kaspaでアプリ内の操作が約500回できます。ドメインは名前によって35〜4,000 Kaspaです。";

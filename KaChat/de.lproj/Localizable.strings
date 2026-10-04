@@ -862,8 +862,6 @@
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "KAS, die zwischen deinen eigenen Adressen bewegt wurden - weggeschickt und zurückgeholt oder von Wallet zu Wallet. Ändert weder deinen Bestand noch Kosten oder Gewinn.";
 
 /* Receive / chatting address QR text */
-"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Eine frische, noch nie benutzte Adresse. Hierher gesendete Kaspa landen in diesem Konto und zählen zu deinem Ausgabenguthaben. Nutze diese Adresse für alles, was nicht mit dem Chatten zu tun hat.";
-"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Diese Adresse ist zum Chatten. Mit etwa 50 Kaspa darauf kannst du lange Zeit Nachrichten senden.";
 
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Falls diese Seed deine Identität schon an einer anderen Adresse hat - eine Domain (.kas, .k oder .kaspa) oder ein Chat-Guthaben -, wähle sie hier. Es werden nur Adressen mit Guthaben oder Domains angezeigt.";
@@ -1163,3 +1161,5 @@
 "Join a public room, or create one." = "Tritt einem öffentlichen Raum bei oder erstelle einen.";
 "Show the QR code to add Kaspa for sending messages." = "Zeigt den QR-Code, um Kaspa zum Senden von Nachrichten hinzuzufügen.";
 "Show a fresh address to get paid." = "Zeigt eine neue Adresse, um bezahlt zu werden.";
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "Eine neue, noch nie benutzte Adresse. Kaspa, die hierher gesendet werden, landen in diesem Konto und erscheinen in deinem Ausgabenguthaben. Diese Adresse sollte für alles verwendet werden, was nichts mit Chats oder Domains zu tun hat.";
+"This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "Diese Adresse sollte nur für Chats und Domains genutzt werden. 1 Kaspa reicht für etwa 500 Aktionen in der App. Domains kosten je nach Name 35 bis 4.000 Kaspa.";

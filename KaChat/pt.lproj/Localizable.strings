@@ -915,8 +915,6 @@
 "KAS moved between your own addresses - sent away and brought back, or wallet to wallet. It doesn't change your holdings, cost or profit." = "KAS movidos entre seus próprios endereços - enviados e trazidos de volta, ou de carteira para carteira. Não altera suas posses, custo ou lucro.";
 
 /* Receive / chatting address QR text */
-"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting." = "Um endereço novo, nunca usado. Kaspa enviado para cá chega a esta conta e aparece no seu total disponível. Use este endereço para tudo que não for relacionado a conversas.";
-"This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time." = "Este endereço é para conversar. Cerca de 50 Kaspa bastam para enviar mensagens por muito tempo.";
 
 /* 5.2: name discovery across services */
 "If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Se esta semente já guarda sua identidade em outro endereço - um domínio (.kas, .k ou .kaspa) ou um saldo de chat - escolha-o aqui. Só aparecem endereços com saldo ou domínios.";
@@ -1216,3 +1214,5 @@
 "Join a public room, or create one." = "Entre em uma sala pública ou crie uma.";
 "Show the QR code to add Kaspa for sending messages." = "Mostra o QR code para adicionar Kaspa para enviar mensagens.";
 "Show a fresh address to get paid." = "Mostra um endereço novo para receber pagamentos.";
+"A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "Um endereço novo, nunca usado. Os Kaspa enviados aqui chegam a esta conta e aparecem no seu saldo para gastar. Use este endereço para tudo que não seja de conversas ou domínios.";
+"This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "Este endereço deve ser usado só para conversas e domínios. 1 Kaspa dá para cerca de 500 interações no app. Os domínios custam de 35 a 4.000 Kaspa, dependendo do nome.";

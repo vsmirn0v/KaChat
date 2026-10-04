@@ -1101,7 +1101,7 @@ struct ProfileView: View {
                     ChattingAddressQRView(
                         address: address,
                         balanceSompi: balanceSompi,
-                        subtitle: "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting."
+                        subtitle: "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains."
                     )
                 } else if resolving {
                     ProgressView("Preparing a fresh address")
@@ -4543,7 +4543,7 @@ private struct ChattingAddressPublicKeyView: View {
 struct ChattingAddressQRView: View {
     let address: String
     let balanceSompi: UInt64?
-    var subtitle: String = "This address is for chatting. Funding it with around 50 Kaspa is enough to send messages for a long time."
+    var subtitle: String = "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name."
 
     @State private var qrImage: UIImage?
     @State private var toastMessage: String?
