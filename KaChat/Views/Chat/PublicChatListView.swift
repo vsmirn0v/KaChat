@@ -46,16 +46,11 @@ struct PublicChatListView: View {
     @Environment(\.editMode) private var editMode
     private var isSelecting: Bool { editMode?.wrappedValue == .active }
 
-    /// Set by the Chats screen's + sheet ("New Public Chat"): open the join-or-create sheet, then
-    /// clear it. Only the embedded page gets one.
-    private var joinRequest: Binding<Bool>?
-
-    init(initialChannel: String? = nil, embeddedInChats: Bool = false, selection: Binding<String?>? = nil, roomSelection: Binding<Set<String>>? = nil, joinRequest: Binding<Bool>? = nil) {
+    init(initialChannel: String? = nil, embeddedInChats: Bool = false, selection: Binding<String?>? = nil, roomSelection: Binding<Set<String>>? = nil) {
         self.embeddedInChats = embeddedInChats
         self.initialChannel = initialChannel
         self.externalSelection = selection
         self.roomSelection = roomSelection ?? .constant([])
-        self.joinRequest = joinRequest
     }
 
     private func openJoinSheet() {
@@ -64,13 +59,6 @@ struct PublicChatListView: View {
         showJoinAlert = true
     }
 
-    /// Answers the + sheet's request: on appear (the page is built lazily, after the switch to
-    /// it) or as it changes.
-    private func takeJoinRequest() {
-        guard let joinRequest, joinRequest.wrappedValue else { return }
-        joinRequest.wrappedValue = false
-        openJoinSheet()
-    }
 
     var body: some View {
         Group {
@@ -157,8 +145,6 @@ struct PublicChatListView: View {
         }
         .toast(message: toastMessage, style: .success)
         .sheet(isPresented: $showJoinAlert) { joinChannelSheet }
-        .onAppear { takeJoinRequest() }
-        .onChange(of: joinRequest?.wrappedValue ?? false) { _ in takeJoinRequest() }
         .alert("Couldn't Join Channel", isPresented: Binding(
             get: { joinError != nil },
             set: { if !$0 { joinError = nil } }
@@ -314,7 +300,7 @@ struct PublicChatListView: View {
         }
         .listStyle(.plain)
         // Its own floating button for joining or creating a room - only standalone (Kaspa Hub).
-        // Inside Chats, the Chats screen's + covers it ("New Public Chat").
+        // Inside Chats, the Chats screen's + covers it ("New Public Chat", in its New sheet).
         .overlay(alignment: .bottomTrailing) {
             if !isSelecting && !embeddedInChats {
             Button {

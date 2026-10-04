@@ -30,20 +30,19 @@ struct ChatListView: View {
     @State private var showMessageRequests = false
     @State private var selectedGroup: GroupChat?
     @State private var selectedContactStartInPaymentMode = false
-    @State private var showAddContact = false
     /// The bottom-right + : one sheet for every page (new chat, group, public room, the two QR
-    /// screens) instead of a button that did something different on each page.
+    /// screens). Everything happens inside that one sheet - choosing an option changes what it
+    /// shows rather than closing it and opening another, so there's no dismiss-then-present wait.
     @State private var showCreateSheet = false
-    /// Run once the + sheet has gone, so the next sheet can present.
-    @State private var afterCreateSheet: (() -> Void)?
-    /// Which create screen `showAddContact` opens: the 1:1 one or the group builder.
-    @State private var addContactStartsInGroupMode = false
-    /// Asks the embedded public rooms page to open its join-or-create sheet.
-    @State private var publicJoinRequested = false
-    @State private var qrScreen: ChatsQRScreen?
-    private enum ChatsQRScreen: String, Identifiable {
-        case fundChatting, receive
-        var id: String { rawValue }
+    /// Non-nil while the sheet shows the create screen: false = new chat, true = new group.
+    @State private var createAddContactGroupMode: Bool?
+    @State private var createPath: [CreateRoute] = []
+    @State private var createDetent: PresentationDetent = .height(500)
+    @State private var createRoomName = ""
+    @State private var createRoomError: String?
+    @FocusState private var createRoomFieldFocused: Bool
+    private enum CreateRoute: Hashable {
+        case joinRoom, fundChatting, receive
     }
     /// From a profile link: the person whose User Info is up.
     @State private var linkedProfileContact: Contact?
@@ -205,24 +204,6 @@ struct ChatListView: View {
                 scheduleAvatarPrefetch()
             }
             .toast(message: toastMessage, style: toastStyle)
-            .sheet(isPresented: $showAddContact) {
-                // The + sheet picks the 1:1 create screen or the group builder.
-                AddContactView(startInGroupMode: addContactStartsInGroupMode) { contact in
-                    _ = chatService.getOrCreateConversation(for: contact)
-                    selectedContactStartInPaymentMode = false
-                    selectedGroup = nil
-                    selectedContact = contact
-                    selectedListTab = .chats
-                    showAddContact = false
-                } onCreateGroup: { group in
-                    selectedContactStartInPaymentMode = false
-                    selectedContact = nil
-                    selectedGroup = group
-                    selectedListTab = .groups
-                    showAddContact = false
-                }
-                .presentationDetents([.large])
-            }
 
         let withAlerts = withPresentation
             .sheet(item: $conversationActionTarget) { conversation in
@@ -329,7 +310,7 @@ struct ChatListView: View {
                     .tag(ChatsListTab.groups)
                 // The public chat rooms screen, whole, as the third page. Its room selection is
                 // ours: the destination has to be declared outside this (lazy) TabView.
-                PublicChatListView(embeddedInChats: true, selection: $selectedPublicRoom, roomSelection: $selectedPublicRooms, joinRequest: $publicJoinRequested)
+                PublicChatListView(embeddedInChats: true, selection: $selectedPublicRoom, roomSelection: $selectedPublicRooms)
                     .tag(ChatsListTab.publicChats)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
@@ -361,34 +342,9 @@ struct ChatListView: View {
             PublicChatsSettingsView()
                 .environmentObject(publicChats)
         }
-        .sheet(isPresented: $showCreateSheet, onDismiss: {
-            let next = afterCreateSheet
-            afterCreateSheet = nil
-            next?()
-        }) {
+        .sheet(isPresented: $showCreateSheet, onDismiss: resetCreateSheet) {
             createSheet
-        }
-        .sheet(item: $qrScreen) { screen in
-            NavigationStack {
-                Group {
-                    switch screen {
-                    case .fundChatting:
-                        if let wallet = walletManager.currentWallet {
-                            ChattingAddressQRView(address: wallet.publicAddress, balanceSompi: wallet.balanceSompi)
-                        }
-                    case .receive:
-                        ProfileView.ReceiveKaspaQRView()
-                    }
-                }
-                .navigationTitle(screen == .fundChatting ? "Chatting Address" : "Receive Kaspa")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { qrScreen = nil }
-                    }
-                }
-            }
-            .environmentObject(walletManager)
+                .environmentObject(walletManager)
         }
         .onChange(of: editMode) { newValue in
             if newValue == .inactive {
@@ -637,9 +593,54 @@ struct ChatListView: View {
         .accessibilityLabel(Text("New"))
     }
 
-    /// What the + offers, wherever you are in Chats. Each row closes the sheet first and opens
-    /// its screen once it's gone (see the sheet's onDismiss).
+    /// What the + offers, wherever you are in Chats - all inside this one sheet. New Chat / New
+    /// Group swap the sheet to the create screen (Cancel comes back here); the room name and the
+    /// two QR screens push inside it. It grows to full height for anything bigger than the menu.
+    @ViewBuilder
     private var createSheet: some View {
+        Group {
+            if let groupMode = createAddContactGroupMode {
+                AddContactView(
+                    startInGroupMode: groupMode,
+                    onAdd: { contact in
+                        _ = chatService.getOrCreateConversation(for: contact)
+                        selectedContactStartInPaymentMode = false
+                        selectedGroup = nil
+                        selectedContact = contact
+                        selectedListTab = .chats
+                        showCreateSheet = false
+                    },
+                    onCreateGroup: { group in
+                        selectedContactStartInPaymentMode = false
+                        selectedContact = nil
+                        selectedGroup = group
+                        selectedListTab = .groups
+                        showCreateSheet = false
+                    },
+                    onCancel: {
+                        createAddContactGroupMode = nil
+                        createDetent = .height(500)
+                    }
+                )
+            } else {
+                NavigationStack(path: $createPath) {
+                    createMenu
+                        .toolbar(.hidden, for: .navigationBar)
+                        .navigationDestination(for: CreateRoute.self) { route in
+                            createDestination(route)
+                                .onAppear { createDetent = .large }
+                        }
+                }
+                .onChange(of: createPath) { path in
+                    if path.isEmpty { createDetent = .height(500) }
+                }
+            }
+        }
+        .presentationDetents([.height(500), .large], selection: $createDetent)
+        .presentationDragIndicator(.visible)
+    }
+
+    private var createMenu: some View {
         VStack(spacing: 12) {
             Text("New")
                 .font(.headline)
@@ -647,25 +648,20 @@ struct ChatListView: View {
                 .padding(.bottom, 4)
 
             ActionSheetRow(title: "New Chat", subtitle: "Message someone by their address or name.", systemImage: "bubble.left") {
-                closeCreateSheet {
-                    addContactStartsInGroupMode = false
-                    showAddContact = true
-                }
+                createDetent = .large
+                createAddContactGroupMode = false
             }
             ActionSheetRow(title: "New Group Chat", subtitle: "Start an encrypted group with several people.", systemImage: "person.3") {
-                closeCreateSheet {
-                    addContactStartsInGroupMode = true
-                    showAddContact = true
-                }
+                createDetent = .large
+                createAddContactGroupMode = true
             }
             ActionSheetRow(title: "New Public Chat", subtitle: "Join a public room, or create one.", systemImage: "number") {
-                closeCreateSheet {
-                    selectedListTab = .publicChats
-                    publicJoinRequested = true
-                }
+                createRoomName = ""
+                createRoomError = nil
+                createPath.append(.joinRoom)
             }
             ActionSheetRow(title: "Fund Chatting Address", subtitle: "Show the QR code to add Kaspa for sending messages.", systemImage: "qrcode") {
-                closeCreateSheet { qrScreen = .fundChatting }
+                createPath.append(.fundChatting)
             }
             ActionSheetRow(
                 title: "Receive Kaspa",
@@ -673,7 +669,7 @@ struct ChatListView: View {
                 systemImage: "k.circle",
                 customIcon: Image("KaspaLogo")
             ) {
-                closeCreateSheet { qrScreen = .receive }
+                createPath.append(.receive)
             }
 
             Spacer(minLength: 0)
@@ -681,13 +677,115 @@ struct ChatListView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(500), .large])
-        .presentationDragIndicator(.visible)
     }
 
-    private func closeCreateSheet(then action: @escaping () -> Void) {
-        afterCreateSheet = action
+    @ViewBuilder
+    private func createDestination(_ route: CreateRoute) -> some View {
+        switch route {
+        case .joinRoom:
+            createJoinRoom
+                .navigationTitle("New Public Chat")
+                .navigationBarTitleDisplayMode(.inline)
+        case .fundChatting:
+            Group {
+                if let wallet = walletManager.currentWallet {
+                    ChattingAddressQRView(address: wallet.publicAddress, balanceSompi: wallet.balanceSompi)
+                }
+            }
+            .navigationTitle("Chatting Address")
+            .navigationBarTitleDisplayMode(.inline)
+        case .receive:
+            ProfileView.ReceiveKaspaQRView()
+                .navigationTitle("Receive Kaspa")
+                .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    /// Join or create a public room, right in the New sheet. Joining opens the room.
+    private var createJoinRoom: some View {
+        VStack(spacing: 12) {
+            Text("Anyone who joins the same channel name can see and post messages there - there is no owner and no invite.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+
+            HStack(spacing: 4) {
+                Text("#")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                TextField("channel-name", text: $createRoomName)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.join)
+                    .focused($createRoomFieldFocused)
+                    .onSubmit { joinRoomFromCreateSheet() }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.regularMaterial)
+            )
+
+            if let createRoomError {
+                Text(createRoomError)
+                    .font(.footnote)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button(action: joinRoomFromCreateSheet) {
+                Text("Join")
+                    .font(.subheadline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.black)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.accentColor.opacity(createRoomNameIsEmpty ? 0.4 : 1))
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(createRoomNameIsEmpty)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // A turn later: the field doesn't exist yet on the push that showed it.
+        .onAppear { DispatchQueue.main.async { createRoomFieldFocused = true } }
+    }
+
+    private var createRoomNameIsEmpty: Bool {
+        createRoomName.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// The same rules as the rooms page's own join sheet; errors show in place, and a joined room
+    /// opens on the Public Chats page.
+    private func joinRoomFromCreateSheet() {
+        guard !createRoomNameIsEmpty else { return }
+        let normalized = PublicChatChannelName.normalize(createRoomName)
+        guard PublicChatChannelName.isValid(normalized) else {
+            createRoomError = "Channel names must be 1-\(PublicChatChannelName.maxLength) characters with no spaces or colons."
+            return
+        }
+        guard publicChats.joinChannel(normalized) else {
+            createRoomError = "Something went wrong joining that channel."
+            return
+        }
+        Haptics.success()
         showCreateSheet = false
+        selectedListTab = .publicChats
+        selectedPublicRoom = normalized
+    }
+
+    private func resetCreateSheet() {
+        createAddContactGroupMode = nil
+        createPath = []
+        createDetent = .height(500)
+        createRoomName = ""
+        createRoomError = nil
     }
 
     private var emptyStateView: some View {

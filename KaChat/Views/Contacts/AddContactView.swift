@@ -10,6 +10,9 @@ struct AddContactView: View {
 
     var onAdd: ((Contact) -> Void)?
     var onCreateGroup: ((GroupChat) -> Void)?
+    /// When set (inside the Chats New sheet), Cancel goes back to that sheet's menu instead of
+    /// closing it.
+    var onCancel: (() -> Void)?
 
     @State private var addressInput = ""
     /// Start this chat as Private (no inbox tag ever) - see the toggle's footer.
@@ -155,9 +158,10 @@ struct AddContactView: View {
         resolvedAddress ?? addressInput
     }
 
-    init(startInGroupMode: Bool = false, onAdd: ((Contact) -> Void)? = nil, onCreateGroup: ((GroupChat) -> Void)? = nil) {
+    init(startInGroupMode: Bool = false, onAdd: ((Contact) -> Void)? = nil, onCreateGroup: ((GroupChat) -> Void)? = nil, onCancel: (() -> Void)? = nil) {
         self.onAdd = onAdd
         self.onCreateGroup = onCreateGroup
+        self.onCancel = onCancel
         // The create button is tab-aware (Chats vs Group Chats), so the screen opens
         // directly in the right mode instead of exposing a toggle.
         _isGroupMode = State(initialValue: startInGroupMode)
@@ -325,7 +329,7 @@ struct AddContactView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
-                        dismiss()
+                        if let onCancel { onCancel() } else { dismiss() }
                     }
                 }
 
