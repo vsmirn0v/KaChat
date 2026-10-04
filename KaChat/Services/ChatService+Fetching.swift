@@ -1884,6 +1884,8 @@ extension ChatService {
                 alias: alias,
                 contactAddress: contactAddress
             )
+            // Old-style (pre-deterministic) aliases ride the slow lane - see `shouldPollAlias`.
+            guard shouldPollAlias(alias, direction: "in", contactAddress: contactAddress, syncObjectKey: syncObjectKey, nowMs: nowMs) else { continue }
             let startBlockTime = syncStartBlockTime(
                 for: syncObjectKey,
                 fallbackBlockTime: fallbackSince,
@@ -1920,6 +1922,7 @@ extension ChatService {
                 continue  // Skip this alias for this cycle; still try the contact's other aliases.
             }
             advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
+            noteAliasPolled(syncObjectKey: syncObjectKey, nowMs: nowMs)
 
             if !messages.isEmpty {
                 markChatFetchLoading(contactAddress)
@@ -1954,6 +1957,12 @@ extension ChatService {
                 guard isActiveWallet(myAddress) else { return false }
                 addMessageToConversation(message, contactAddress: contactAddress)
 
+                // A message on an old-style alias keeps that contact's legacy aliases in the
+                // every-sync lane for a while (see `shouldPollAlias`).
+                if let state = routingStates[contactAddress], alias != state.deterministicMyAlias,
+                   let blockTime = contextMsg.blockTime, blockTime > (state.lastLegacyIncomingAtMs ?? 0) {
+                    routingStates[contactAddress]?.lastLegacyIncomingAtMs = blockTime
+                }
                 // Capability detection: if message arrived on deterministic alias, mark peer
                 if let state = routingStates[contactAddress], alias == state.deterministicMyAlias {
                     if !state.peerSupportsDeterministic {
@@ -1998,6 +2007,8 @@ extension ChatService {
                 alias: ourAlias,
                 contactAddress: contactAddress
             )
+            // Old-style (pre-deterministic) aliases ride the slow lane - see `shouldPollAlias`.
+            guard shouldPollAlias(ourAlias, direction: "out", contactAddress: contactAddress, syncObjectKey: syncObjectKey, nowMs: nowMs) else { continue }
             let startBlockTime = syncStartBlockTime(
                 for: syncObjectKey,
                 fallbackBlockTime: fallbackSince,
@@ -2034,6 +2045,7 @@ extension ChatService {
                 continue  // Skip this alias for this cycle; still try the contact's other aliases.
             }
             advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
+            noteAliasPolled(syncObjectKey: syncObjectKey, nowMs: nowMs)
 
             if !messages.isEmpty {
                 markChatFetchLoading(contactAddress)
@@ -2131,6 +2143,8 @@ extension ChatService {
                     alias: alias,
                     contactAddress: contactAddress
                 )
+                // Old-style (pre-deterministic) aliases ride the slow lane - see `shouldPollAlias`.
+                guard forceExactBlockTime || shouldPollAlias(alias, direction: "in", contactAddress: contactAddress, syncObjectKey: syncObjectKey, nowMs: nowMs) else { continue }
                 let startBlockTime: UInt64
                 if forceExactBlockTime {
                     startBlockTime = fallbackSince
@@ -2173,6 +2187,7 @@ extension ChatService {
                 }
                 if !forceExactBlockTime {
                     advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
+                    noteAliasPolled(syncObjectKey: syncObjectKey, nowMs: nowMs)
                 }
 
                 if !messages.isEmpty {
@@ -2229,6 +2244,8 @@ extension ChatService {
                     alias: ourAlias,
                     contactAddress: contactAddress
                 )
+                // Old-style (pre-deterministic) aliases ride the slow lane - see `shouldPollAlias`.
+                guard forceExactBlockTime || shouldPollAlias(ourAlias, direction: "out", contactAddress: contactAddress, syncObjectKey: syncObjectKey, nowMs: nowMs) else { continue }
                 let startBlockTime: UInt64
                 if forceExactBlockTime {
                     startBlockTime = fallbackSince
@@ -2271,6 +2288,7 @@ extension ChatService {
                 }
                 if !forceExactBlockTime {
                     advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
+                    noteAliasPolled(syncObjectKey: syncObjectKey, nowMs: nowMs)
                 }
 
                 if !messages.isEmpty {
@@ -2347,6 +2365,8 @@ extension ChatService {
                     alias: alias,
                     contactAddress: contactAddress
                 )
+                // Old-style (pre-deterministic) aliases ride the slow lane - see `shouldPollAlias`.
+                guard shouldPollAlias(alias, direction: "in", contactAddress: contactAddress, syncObjectKey: syncObjectKey, nowMs: nowMs) else { continue }
                 let startBlockTime = syncStartBlockTime(
                     for: syncObjectKey,
                     fallbackBlockTime: fallbackSince,
@@ -2370,6 +2390,7 @@ extension ChatService {
                     blockTime: effectiveSince
                 )
                 advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
+                noteAliasPolled(syncObjectKey: syncObjectKey, nowMs: nowMs)
 
                 if !messages.isEmpty {
                     markChatFetchLoading(contactAddress)

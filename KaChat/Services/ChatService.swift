@@ -449,6 +449,9 @@ final class ChatService: ObservableObject {
     /// On-chain payload kinds already read (see `onChainPayloadKind`), so each transaction is
     /// fetched at most once per launch.
     var onChainPayloadKinds: [String: OnChainPayloadKind] = [:]
+    /// When each old-style alias sync object was last queried successfully (in memory, so every
+    /// launch queries each once) - the slow lane in `shouldPollAlias`.
+    var legacyAliasPolledAtMs: [String: UInt64] = [:]
     /// True after startPolling() completes its full initial sync (Phases 1-4).
     /// Prevents redundant heavy re-sync on Mac Catalyst window reopen.
     var hasCompletedInitialSync = false

@@ -1484,6 +1484,9 @@ extension ChatService {
         // Keep routing state legacy set in sync; upgrade to hybrid if needed
         if routingStates[address] != nil {
             routingStates[address]?.legacyIncomingAliases.insert(alias)
+            if let blockTime, blockTime > (routingStates[address]?.lastLegacyIncomingAtMs ?? 0) {
+                routingStates[address]?.lastLegacyIncomingAtMs = blockTime
+            }
             if routingStates[address]?.mode == .deterministicOnly {
                 routingStates[address]?.mode = .hybrid
             }
