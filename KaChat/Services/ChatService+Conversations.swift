@@ -823,9 +823,18 @@ extension ChatService {
         }
 
         // Now fetch contextual messages for all known aliases
-        AppLog.log("%@", "[ChatService] Current aliases: \(conversationAliases)")
-        AppLog.log("%@", "[ChatService] Our aliases: \(ourAliases)")
-        AppLog.log("%@", "[ChatService] Routing states: \(routingStates.count)")
+        // A summary, not the maps: the full dump wrote every contact's address into the device
+        // log on every sync. It stays available behind Settings > Diagnostics > Verbose API Logging.
+        func aliasSummary(_ map: [String: Set<String>]) -> String {
+            let tags = map.values.reduce(0) { $0 + $1.count }
+            let withExtras = map.values.filter { $0.count > 1 }.count
+            return "\(map.count) contacts, \(tags) tags (\(withExtras) with legacy extras)"
+        }
+        AppLog.log("%@", "[ChatService] Aliases - incoming: \(aliasSummary(conversationAliases)); ours: \(aliasSummary(ourAliases)); routing states: \(routingStates.count)")
+        if currentSettings.verboseAPILogging {
+            AppLog.log("%@", "[ChatService] Current aliases: \(conversationAliases)")
+            AppLog.log("%@", "[ChatService] Our aliases: \(ourAliases)")
+        }
         if let active = activeAddress {
             let completed = await fetchContextualMessagesForActive(
                 contactAddress: active,
