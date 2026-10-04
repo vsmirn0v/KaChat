@@ -628,11 +628,16 @@ struct ChatListView: View {
                         .toolbar(.hidden, for: .navigationBar)
                         .navigationDestination(for: CreateRoute.self) { route in
                             createDestination(route)
-                                .onAppear { createDetent = .large }
                         }
                 }
                 .onChange(of: createPath) { path in
-                    if path.isEmpty { createDetent = .height(500) }
+                    // Back at the menu: shrink once the pop has finished, not during it - both at
+                    // once made the white QR screen shrink while it was still sliding away.
+                    guard path.isEmpty else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        guard createPath.isEmpty, createAddContactGroupMode == nil else { return }
+                        withAnimation(.easeInOut(duration: 0.25)) { createDetent = .height(500) }
+                    }
                 }
             }
         }
@@ -658,10 +663,10 @@ struct ChatListView: View {
             ActionSheetRow(title: "New Public Chat", subtitle: "Join a public room, or create one.", systemImage: "number") {
                 createRoomName = ""
                 createRoomError = nil
-                createPath.append(.joinRoom)
+                pushCreate(.joinRoom)
             }
             ActionSheetRow(title: "Fund Chatting Address", subtitle: "Show the QR code to add Kaspa for sending messages.", systemImage: "qrcode") {
-                createPath.append(.fundChatting)
+                pushCreate(.fundChatting)
             }
             ActionSheetRow(
                 title: "Receive Kaspa",
@@ -669,7 +674,7 @@ struct ChatListView: View {
                 systemImage: "k.circle",
                 customIcon: Image("KaspaLogo")
             ) {
-                createPath.append(.receive)
+                pushCreate(.receive)
             }
 
             Spacer(minLength: 0)
@@ -778,6 +783,13 @@ struct ChatListView: View {
         showCreateSheet = false
         selectedListTab = .publicChats
         selectedPublicRoom = normalized
+    }
+
+    /// Grows the sheet and pushes in one go, from the tap. Growing only once the pushed screen
+    /// appeared made it slide in at the menu's height, then jump to full height.
+    private func pushCreate(_ route: CreateRoute) {
+        withAnimation(.easeInOut(duration: 0.3)) { createDetent = .large }
+        createPath.append(route)
     }
 
     private func resetCreateSheet() {

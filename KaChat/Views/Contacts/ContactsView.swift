@@ -4591,6 +4591,9 @@ struct ChattingAddressQRView: View {
                         .font(.subheadline)
                         .foregroundColor(Color.black.opacity(0.6))
                         .multilineTextAlignment(.center)
+                        // Its full height always: in a sheet that is still growing (the Chats
+                        // New sheet) it otherwise truncated, then re-wrapped and jumped.
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 40)
 
                     Text("Tap anywhere to copy")
