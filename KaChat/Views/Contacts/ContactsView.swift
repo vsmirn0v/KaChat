@@ -42,6 +42,9 @@ struct ProfileView: View {
     @State private var kachatBannerSource: String?
     @State private var kachatBioSource: String?
     @State private var kachatLinktree: String?
+    /// The account's .kachat names for the Your Domains count - the same set its .kachat tab
+    /// lists (in grace and lapsed included). 0 where the registry isn't launched.
+    @State private var kachatOwnedCount = 0
     @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
     @ObservedObject private var socialImages = KachatSocialImageResolver.shared
     @State private var showMoreProfileInfo = false
@@ -501,8 +504,8 @@ struct ProfileView: View {
                     Label("Your Domains", systemImage: "at")
                         .foregroundColor(.primary)
                     Spacer()
-                    // Every name the account owns: KNS plus .k and .kaspa.
-                    Text("\(knsDomains.count + (nameServices.ownerAddress == walletAddress.lowercased() ? nameServices.totalOwned : 0))")
+                    // Every name the account owns: .kachat, KNS, .k and .kaspa.
+                    Text("\(kachatOwnedCount + knsDomains.count + (nameServices.ownerAddress == walletAddress.lowercased() ? nameServices.totalOwned : 0))")
                         .foregroundColor(.secondary)
                     Image(systemName: "chevron.right")
                         .font(.caption)
@@ -517,7 +520,21 @@ struct ProfileView: View {
             .task(id: walletAddress) {
                 await NameServicesClient.shared.refresh(for: walletAddress)
             }
+            // Reloads whenever the registry moves (a registration, sale or transfer lands).
+            .task(id: "\(walletAddress)-\(kachatRegistry.revision)") {
+                await loadKachatOwnedCount(walletAddress)
+            }
         }
+    }
+
+    private func loadKachatOwnedCount(_ address: String) async {
+        guard KachatNamesService.isLaunched, let key = KachatNamesRegistry.keyOf(address) else {
+            kachatOwnedCount = 0
+            return
+        }
+        await kachatRegistry.refreshIfStale(maxAge: 300)
+        guard let names = try? await kachatRegistry.names(owner: key, includeInactive: true) else { return }
+        kachatOwnedCount = names.count
     }
 
     /// Settings, as a card in the list rather than a glyph in the chrome - it belongs with the
