@@ -54,10 +54,11 @@ func view(_ st: J, at: Int64) -> KN.TxView {
 
 func outpointKey(_ u: J) -> String { "\(s(u["txid"])):\(u64(u["index"]))" }
 
-/// The vectors' end-to-end plan (README "The end-to-end run", registry v2): commits, three
-/// registrations, extend, renew, transfer, list, buy, three offers (accept, refund, withdraw),
-/// release, reclaim. The steps after it are edge cases on their own synthetic records.
-let e2eCount = 19
+/// The vectors' end-to-end plan (README "The end-to-end run", registry v3), after both geneses:
+/// commits, three registrations, a price change, extend, renew, another price change, transfer,
+/// list, buy, four offers (accept, decline, refund, withdraw), release, reclaim. The steps after
+/// it are edge cases on their own synthetic records.
+let e2eCount = 23
 
 /// Every record a step was built from must be in the walked state, exactly.
 func checkRecords(_ st: J, _ state: KN.RegistryState, _ r: Report) {
@@ -95,16 +96,35 @@ func checkRecords(_ st: J, _ state: KN.RegistryState, _ r: Report) {
         if let f = found {
             r.eq(f.key, s(o["key"]), "\(label): offer key")
             r.eq(f.buyer, s(o["buyer"]), "\(label): offer buyer")
+            r.eq(f.seller, s(o["seller"]), "\(label): offer seller")
             r.eq(f.refundAfter, i64(o["refundAfter"]), "\(label): offer refundAfter")
             r.eq(f.value, u64(o["value"]), "\(label): offer value")
         }
     }
+    for sh in shardRecords(rec) {
+        let u = sh["utxo"] as! J
+        let found = state.shards.first { "\($0.txid):\($0.index)" == outpointKey(u) }
+        r.check(found != nil, "\(label): price shard \(i64(sh["shard"])) at \(outpointKey(u).prefix(16)) not in the walked state")
+        if let f = found {
+            r.eq(f.shard, i64(sh["shard"]), "\(label): shard index")
+            r.eq(f.authority, s(sh["authority"]), "\(label): shard authority")
+            r.eq(f.prices, (sh["prices"] as! [Any]).map(u64), "\(label): shard prices")
+            r.eq(f.value, u64(sh["value"]), "\(label): shard value")
+        }
+    }
+}
+
+/// A step's price shard records: `shard` (register, extend, renew) or `shards` (a price change).
+func shardRecords(_ rec: J) -> [J] {
+    if let one = rec["shard"] as? J { return [one] }
+    return rec["shards"] as? [J] ?? []
 }
 
 /// A state holding exactly a step's records (the edge cases run on synthetic registry UTXOs).
 func seeded(_ st: J, _ m: KN.Manifest) -> KN.RegistryState {
     var state = KN.RegistryState.atGenesis(m)
     state.gaps = []
+    state.shards = []
     state.applied = []
     let rec = st["records"] as! J
     for k in ["gap", "below", "above"] {
@@ -120,7 +140,12 @@ func seeded(_ st: J, _ m: KN.Manifest) -> KN.RegistryState {
     if let o = rec["offer"] as? J {
         let u = o["utxo"] as! J
         state.offers.append(.init(txid: s(u["txid"]), index: UInt32(u64(u["index"])), key: s(o["key"]), buyer: s(o["buyer"]),
-                                  refundAfter: i64(o["refundAfter"]), value: u64(o["value"]), name: o["name"] as? String))
+                                  seller: s(o["seller"]), refundAfter: i64(o["refundAfter"]), value: u64(o["value"]), name: o["name"] as? String))
+    }
+    for sh in shardRecords(rec) {
+        let u = sh["utxo"] as! J
+        state.shards.append(.init(txid: s(u["txid"]), index: UInt32(u64(u["index"])), shard: i64(sh["shard"]), authority: s(sh["authority"]),
+                                  prices: (sh["prices"] as! [Any]).map(u64), value: u64(sh["value"])))
     }
     return state
 }
@@ -142,13 +167,23 @@ func runWalker(_ v: J, _ r: Report) {
         do { try state.checkInvariants() } catch { r.check(false, "\(s(st["label"])): invariants: \(error)") }
     }
     r.eq(ops, [
-        "register alpha-tn", "register bravo-tn", "register lapse-tn", "extend alpha-tn", "renew lapse-tn", "transfer alpha-tn", "list alpha-tn",
-        "sale alpha-tn", "offer bravo-tn", "offer_accepted bravo-tn", "offer_accept bravo-tn", "offer alpha-tn", "offer_refund alpha-tn",
+        "register alpha-tn", "register bravo-tn", "register lapse-tn", "prices ?", "extend alpha-tn", "renew lapse-tn", "prices ?",
+        "transfer alpha-tn", "list alpha-tn", "sale alpha-tn", "offer bravo-tn", "offer_accepted bravo-tn", "offer_accept bravo-tn",
+        "offer alpha-tn", "offer_decline alpha-tn", "offer alpha-tn", "offer_refund alpha-tn",
         "offer alpha-tn", "offer_withdraw alpha-tn", "release bravo-tn", "reclaim lapse-tn"
     ], "e2e events")
     r.eq(state.names.map(\.name), ["alpha-tn"], "names left after the e2e plan")
     r.eq(state.gaps.count, 2, "gaps left after the e2e plan")
     r.eq(state.offers.count, 0, "offers left after the e2e plan")
+    // the price record: all K shards, carried through every register / extend / renew, at the
+    // last change's prices
+    let lastChange = e2e.last { s($0["op"]) == "setPrices" }!["args"] as! J
+    r.eq(state.shards.count, Int(m.params.priceShards), "every price shard tracked")
+    r.eq(state.currentPrices?.prices, (lastChange["prices"] as! [Any]).map(u64), "current prices = the last change's")
+    r.eq(state.currentPrices.map { KN.hex($0.authority) }, s(lastChange["newAuthority"]), "current authority")
+    r.eq(state.shardInfos.map(\.shard), Array(0..<m.params.priceShards), "shards in order")
+    let priceEvents = state.events.filter { $0.op == "prices" }
+    r.eq(priceEvents.map(\.price), [70_000_000, 35_000_000], "price events carry the 5+ price")
     let accepted = state.events.first { $0.op == "offer_accepted" }
     r.check((accepted?.price ?? 0) > 9 * 100_000_000 && (accepted?.price ?? 0) < 10 * 100_000_000, "accepted offer payout is the offer less the fee")
     let alpha = state.name("alpha-tn")
@@ -156,7 +191,8 @@ func runWalker(_ v: J, _ r: Report) {
     r.eq(alpha?.registeredAt, 1_003, "registration time carried through every transition")
     let alphaRegister = (e2e[3]["args"] as! J)
     r.eq(alpha?.periodStart, i64(alphaRegister["now"]), "alpha-tn: periodStart = register's now, kept by extend, transfer, list and buy")
-    r.eq(alpha?.expiresAt, i64(alphaRegister["now"]) + 2 * KN.yearMs, "alpha-tn: registered for 1 year, extended by 1")
+    r.eq(alpha?.expiresAt, i64(alphaRegister["now"]) + 2 * m.params.periodMs, "alpha-tn: registered for 1 period, extended by 1")
+    r.eq(m.params.periodMs, 600_000, "testnet vectors run the 10-minute clock")
     // applying again changes nothing
     let snapshot = state
     for (i, st) in e2e.enumerated() { _ = try? state.apply(view(st, at: Int64(1_000 + i)), manifest: m) }
@@ -172,15 +208,24 @@ func runWalker(_ v: J, _ r: Report) {
             let op = s(st["op"])
             if op == "commit" || op == "cancelCommit" { r.check(events.isEmpty, "\(label): not a registry transaction") } else { r.check(!events.isEmpty, "\(label): no events") }
             switch op {
-            case "register": r.eq(seededState.names.count, 1, "\(label): name created"); r.eq(seededState.gaps.count, 2, "\(label): gaps split")
+            case "register":
+                r.eq(seededState.names.count, 1, "\(label): name created"); r.eq(seededState.gaps.count, 2, "\(label): gaps split")
+                r.eq(seededState.shards.count, 1, "\(label): the shard came back")
             case "reclaim": r.eq(seededState.names.count, 0, "\(label): name gone"); r.eq(seededState.gaps.count, 1, "\(label): gaps merged")
-            case "acceptOffer": r.eq(seededState.offers.count, 0, "\(label): offer gone")
+            case "acceptOffer", "declineOffer": r.eq(seededState.offers.count, 0, "\(label): offer gone")
+            case "setPrices":
+                let a = st["args"] as! J
+                r.eq(seededState.shards.count, Int(m.params.priceShards), "\(label): every shard continues")
+                r.eq(seededState.currentPrices?.prices, (a["prices"] as! [Any]).map(u64), "\(label): new prices")
+                r.eq(seededState.shardInfos.map(\.shard), Array(0..<m.params.priceShards), "\(label): each shard once, in order")
+                r.eq(Set(seededState.shards.map(\.authority)), [s(a["newAuthority"])], "\(label): every shard at the new authority")
             case "extend", "renew":
                 let years = i64((st["args"] as! J)["years"])
                 let after = seededState.names.first
                 r.eq(events.first?.op, op, "\(label): event")
                 r.eq(events.first?.years, years, "\(label): event years")
-                r.eq(after?.expiresAt, before.map { $0.expiresAt + years * KN.yearMs }, "\(label): expiresAt + years")
+                r.eq(after?.expiresAt, before.map { $0.expiresAt + years * m.params.periodMs }, "\(label): expiresAt + periods")
+                r.eq(seededState.shards.count, 1, "\(label): the shard came back")
                 // extend keeps the period; renew starts the next one at the old expiry
                 r.eq(after?.periodStart, op == "extend" ? before?.periodStart : before?.expiresAt, "\(label): periodStart")
             default: break
@@ -214,6 +259,27 @@ func runWalker(_ v: J, _ r: Report) {
     badRedeem.inputs[0].signatureScript = pushes.map { KN.Codec.pushData($0) }.reduce(Data(), +) + KN.Codec.pushData(redeem)
     r.check((try? st0.apply(badRedeem, manifest: m)) == nil, "a spend revealing another redeem script was accepted")
     r.eq(st0, KN.RegistryState.atGenesis(m), "refusals left the state alone")
+    // the price record: a shard continuation at another state, or a change missing a shard
+    var stReg = KN.RegistryState.atGenesis(m)
+    for st in steps.prefix(3) { _ = try? stReg.apply(view(st, at: 1), manifest: m) }
+    let beforeReg = stReg
+    var shardTamper = view(reg, at: 2)
+    shardTamper.outputs[3].script[5] ^= 0x01
+    r.check((try? stReg.apply(shardTamper, manifest: m)) == nil, "a register whose shard continuation holds another state was accepted")
+    var shardOther = view(reg, at: 2)
+    shardOther.outputs[3].covenant?.covenantId = m.registryCovenantId
+    r.check((try? stReg.apply(shardOther, manifest: m)) == nil, "a shard continuation under the registry id was accepted")
+    r.eq(stReg, beforeReg, "refused shard spends left the state alone")
+    var stPrices = KN.RegistryState.atGenesis(m)
+    for st in steps.prefix(6) { _ = try? stPrices.apply(view(st, at: 1), manifest: m) }
+    let beforePrices = stPrices
+    var changeTamper = view(steps[6], at: 7)
+    changeTamper.outputs[5].script[5] ^= 0x01
+    r.check((try? stPrices.apply(changeTamper, manifest: m)) == nil, "a price change with one shard at other prices was accepted")
+    var changeDropped = view(steps[6], at: 7)
+    changeDropped.outputs.remove(at: 7)
+    r.check((try? stPrices.apply(changeDropped, manifest: m)) == nil, "a price change missing a shard continuation was accepted")
+    r.eq(stPrices, beforePrices, "refused price changes left the state alone")
     // an unrelated transaction is ignored
     r.eq((try? st0.apply(view(steps[0], at: 1), manifest: m))?.count, 0, "a commit is not a registry transaction")
 }
@@ -230,13 +296,14 @@ func runWalk(_ v: J, _ r: Report) async {
         for (k, o) in t.outputs.enumerated() { created["\(t.idHex):\(k)"] = o.script }
         for i in t.inputs { spentBy["\(KN.hex(i.outpoint.txid)):\(i.outpoint.index)"] = t.idHex }
     }
-    // the genesis gap lives at the manifest's genesis outpoint
+    // the genesis gap lives at the manifest's genesis outpoint, the shards at the price genesis
     created["\(KN.hex(m.genesisTxid)):0"] = m.genesisOutput.script
+    for (i, sh) in m.genesisShards.enumerated() { created["\(KN.hex(m.priceGenesisTxid)):\(i)"] = sh.output.script }
     func addr(_ script: Data) -> String? { KaspaAddress.address(fromScriptPublicKey: script, hrp: "kaspatest") }
     var expected = KN.RegistryState.atGenesis(m)
     for t in txs { _ = try? expected.apply(t, manifest: m) }
 
-    for upTo in [3, 6, 7, 8, 11, e2eCount] {
+    for upTo in [3, 6, 7, 8, 10, 11, 17, e2eCount] {
         let visible = Array(txs.prefix(upTo))
         let visibleIds = Set(visible.map(\.idHex))
         var walked = KN.RegistryState.atGenesis(m)
@@ -246,7 +313,8 @@ func runWalk(_ v: J, _ r: Report) async {
                 address: addr,
                 live: { addresses in
                     Set(created.filter { op, script in
-                        addresses.contains(addr(script) ?? "") && (op.hasPrefix(KN.hex(m.genesisTxid)) || visibleIds.contains(String(op.prefix(64))))
+                        addresses.contains(addr(script) ?? "")
+                            && (op.hasPrefix(KN.hex(m.genesisTxid)) || op.hasPrefix(KN.hex(m.priceGenesisTxid)) || visibleIds.contains(String(op.prefix(64))))
                             && !(spentBy[op].map { visibleIds.contains($0) } ?? false)
                     }.keys)
                 },
@@ -261,6 +329,9 @@ func runWalk(_ v: J, _ r: Report) async {
             r.eq(Set(walked.gaps.map { "\($0.txid):\($0.index)" }), Set(reference.gaps.map { "\($0.txid):\($0.index)" }), "walk to \(upTo): gaps")
             r.eq(walked.names.map(\.name).sorted(), reference.names.map(\.name).sorted(), "walk to \(upTo): names")
             r.eq(Set(walked.names.map { "\($0.txid):\($0.index)" }), Set(reference.names.map { "\($0.txid):\($0.index)" }), "walk to \(upTo): name outpoints")
+            r.eq(Set(walked.shards.map { "\($0.txid):\($0.index)" }), Set(reference.shards.map { "\($0.txid):\($0.index)" }), "walk to \(upTo): shard outpoints")
+            r.eq(walked.currentPrices, reference.currentPrices, "walk to \(upTo): prices")
+            r.eq(Set(walked.offers.map { "\($0.txid):\($0.index)" }), Set(reference.offers.map { "\($0.txid):\($0.index)" }), "walk to \(upTo): offers")
             r.check(report.unresolved.isEmpty, "walk to \(upTo): unresolved \(report.unresolved)")
             do { try walked.checkInvariants() } catch { r.check(false, "walk to \(upTo): invariants \(error)") }
         } catch {
@@ -345,9 +416,9 @@ func runRules(_ r: Report) {
     r.check(SS(link: "t.me/telegram", for: .bio) != nil, "bio source on Telegram")
     r.eq(SS.discordDescription(fromInviteJSON: Data("{\"guild\":{\"id\":\"1\",\"description\":\"Devs\"}}".utf8)), "Devs", "Discord server description")
 
-    // the paid period on a NameInfo (registry v2)
-    let params = KN.Params(bond: 1, gapValue: 1, tCommit: 600, maxYears: 2, graceMs: g, renewWindowMs: 864_000_000,
-                           prices: [1, 1, 1, 1, 1], renewPrices: [1, 1, 1, 1, 1], offerMaxFee: 1)
+    // the paid period on a NameInfo (mainnet's clock: a year, a 10-day window)
+    let params = KN.Params(bond: 1, gapValue: 1, tCommit: 600, maxYears: 2, periodMs: KN.yearMs, graceMs: g, renewWindowMs: 864_000_000,
+                           genesisPrices: [1, 1, 1, 1, 1], priceShards: 8, priceValue: 100_000_000, offerMaxFee: 1)
     var period = info("period", exp: now + KN.yearMs, reg: 1)
     r.eq(period.extendableYears(params), 0, "period unknown: no extend")
     r.eq(period.fields, nil, "period unknown: no on-chain state")
@@ -359,13 +430,35 @@ func runRules(_ r: Report) {
     r.check(period.renewOpen(params, nowMs: now + KN.yearMs - 864_000_000), "renewal open at the opening")
     period.expiresAt = now + 2 * KN.yearMs
     r.eq(period.extendableYears(params), 0, "2 years paid: no extend")
+    // testnet's 10-minute clock
+    let tn = KN.Params(bond: 1, gapValue: 1, tCommit: 600, maxYears: 2, periodMs: 600_000, graceMs: 600_000, renewWindowMs: 600_000,
+                       genesisPrices: [1, 1, 1, 1, 1], priceShards: 8, priceValue: 100_000_000, offerMaxFee: 1)
+    var short = info("short", exp: now + 600_000, reg: 1)
+    short.periodStart = now
+    r.eq(short.extendableYears(tn), 1, "10 min paid of 20: extend by 1")
+    r.check(short.renewOpen(tn, nowMs: now), "a 1-period name's window is open at once on the short clock")
+    short.expiresAt = now + 1_200_000
+    r.eq(short.extendableYears(tn), 0, "20 min paid: no extend")
+    r.check(!short.renewOpen(tn, nowMs: now), "renewal closed 20 min before expiry")
 
-    // a cache written before registry v2 (no periodStart, format 1) is dropped
+    // offers: declined once the name has another owner
+    let seller = Data(repeating: 3, count: 32)
+    let offer = KN.OfferInfo(outpoint: KN.Outpoint(txid: KN.zero32, index: 0), key: KN.Codec.key("x"), name: "x", buyer: me, seller: seller,
+                             amount: 5, refundAfter: 100, createdAt: nil)
+    r.check(!offer.isDeclined(currentOwner: seller), "an offer to the current owner stands")
+    r.check(offer.isDeclined(currentOwner: me), "an offer to an earlier owner is declined")
+    r.eq(offer.fields.seller, seller, "offer fields carry the seller")
+
+    // a cache written before registry v3 (format 1 or 2: no shards, offers without a seller) is dropped
     let v1Cache = Data("""
     {"version":1,"network":"testnet-10","registryCovenantId":"00","gaps":[],"names":[{"txid":"00","index":0,"name":"a","key":"00","owner":"00","price":0,"expiresAt":1,"value":1}],"offers":[],"applied":[],"events":[]}
     """.utf8)
     r.check((try? JSONDecoder().decode(KN.RegistryState.self, from: v1Cache)) == nil, "a registry v1 cache does not decode")
-    r.eq(KN.RegistryState.formatVersion, 2, "cache format 2 (registry v2)")
+    let v2Cache = Data("""
+    {"version":2,"network":"testnet-10","registryCovenantId":"00","gaps":[],"names":[],"offers":[],"applied":[],"events":[]}
+    """.utf8)
+    r.check((try? JSONDecoder().decode(KN.RegistryState.self, from: v2Cache)) == nil, "a registry v2 cache does not decode")
+    r.eq(KN.RegistryState.formatVersion, 3, "cache format 3 (registry v3)")
 
     let k = Data(repeating: 0x10, count: 31) + Data([0x00])
     r.eq(KN.step(k, by: -1).map(KN.hex), KN.hex(Data(repeating: 0x10, count: 30) + Data([0x0f, 0xff])), "key - 1 borrows")
@@ -419,6 +512,27 @@ func runREST(_ r: Report) {
     let f = try! JSONDecoder().decode(KN.IndexerAPI.NameJSON.self, from: free)
     r.check(f.info { _ in nil } == nil, "indexer free name has no record")
     r.check(f.gap?.info?.contains(KN.Codec.key("bob")) == true, "indexer gap decoded")
+
+    // registry v3: offers carry the seller; an indexer without it gives no offer
+    let ab = String(repeating: "ab", count: 32), cd = String(repeating: "cd", count: 32)
+    let keyOf: (String) -> Data? = { $0 == "kaspatest:buyer" ? try? KN.unhex32(ab) : $0 == "kaspatest:seller" ? try? KN.unhex32(cd) : nil }
+    let offerJSON = Data("""
+    {"outpoint":{"txId":"\(cd)","index":0},"buyer":"kaspatest:buyer","seller":"kaspatest:seller","amount":"500000000","refundAfter":7,"name":"alice"}
+    """.utf8)
+    let o = try! JSONDecoder().decode(KN.IndexerAPI.OfferJSON.self, from: offerJSON).info(name: nil, keyOf: keyOf)
+    r.eq(o.map { KN.hex($0.seller) }, cd, "indexer offer seller")
+    r.eq(o?.amount, 500_000_000, "indexer offer amount")
+    let v2Offer = Data("""
+    {"outpoint":{"txId":"\(cd)","index":0},"buyer":"kaspatest:buyer","amount":"500000000","refundAfter":7,"name":"alice"}
+    """.utf8)
+    r.check(try! JSONDecoder().decode(KN.IndexerAPI.OfferJSON.self, from: v2Offer).info(name: nil, keyOf: keyOf) == nil, "an offer without a seller is dropped")
+    let pricesJSON = Data("""
+    {"prices":["1","2","3","4","5"],"authority":"\(ab)","shards":[{"shard":0,"outpoint":{"txId":"\(cd)","index":0},"authority":"\(ab)","prices":["1","2","3","4","5"],"value":"100000000"},
+     {"shard":1,"outpoint":{"txId":"\(cd)","index":1},"authority":"\(ab)","prices":["1","2","3"],"value":"100000000"}]}
+    """.utf8)
+    let pj = try! JSONDecoder().decode(KN.IndexerAPI.PricesJSON.self, from: pricesJSON)
+    r.eq(pj.shards.compactMap(\.info).map(\.shard), [0], "indexer shards: a malformed one dropped")
+    r.eq(pj.shards.first?.info?.fields.price(forLength: 9), 5, "indexer shard price for a long name")
 }
 
 /// Read-only walk of the live testnet-10 registry through the REST API.
@@ -429,7 +543,7 @@ func runLive() async -> Bool {
         m = try KN.Manifest.decode(Data(contentsOf: URL(fileURLWithPath: "KaChat/Resources/kachat-names-testnet-10.json")))
         try m.verify()
     } catch {
-        // the bundled manifest stays registry v1 until the v2 genesis: nothing live to walk yet
+        // the bundled manifest stays an earlier registry's until the v3 genesis: nothing live to walk yet
         print("live: the bundled manifest does not verify: \(error)")
         return false
     }

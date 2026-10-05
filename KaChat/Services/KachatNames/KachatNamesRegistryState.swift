@@ -65,7 +65,7 @@ extension KachatNames {
 
         // MARK: The paid period (registry v2, KACHAT_NAMES.md 4.1)
 
-        /// Whole years `extend` can add now (0 when the period start is unknown).
+        /// Whole periods `extend` can add now (0 when the period start is unknown).
         func extendableYears(_ p: Params) -> Int64 {
             periodStart.map { p.extendableYears(periodStart: $0, expiresAt: expiresAt) } ?? 0
         }
@@ -101,14 +101,27 @@ extension KachatNames {
         var key: Data
         var name: String?
         var buyer: Data
+        /// the name's owner the offer was made to (registry v3): only they can accept or decline it
+        var seller: Data
         var amount: UInt64
         /// DAA score from which anyone may refund it
         var refundAfter: Int64
         var createdAt: Int64?
 
         var id: String { "\(hex(outpoint.txid)):\(outpoint.index)" }
-        var fields: OfferFields { OfferFields(key: key, buyer: buyer, refundAfter: refundAfter) }
+        var fields: OfferFields { OfferFields(key: key, buyer: buyer, seller: seller, refundAfter: refundAfter) }
         func refundable(atDaa daa: UInt64) -> Bool { daa > UInt64(max(refundAfter, 0)) }
+        /// Made to an earlier owner of the name (registry v3): it can never be accepted and goes
+        /// back to the buyer (withdraw, or a refund once it expires).
+        func isDeclined(currentOwner: Data) -> Bool { seller != currentOwner }
+    }
+
+    /// One price shard as the screens and the actions read it (registry v3).
+    struct ShardInfo: Equatable {
+        var outpoint: Outpoint
+        var fields: PriceFields
+        var value: UInt64
+        var shard: Int64 { fields.shard }
     }
 
     /// One registry event (history, activity). Parties are x-only keys or addresses depending on
@@ -645,20 +658,33 @@ extension KachatNames {
             var index: UInt32
             var key: String
             var buyer: String
+            var seller: String
             var refundAfter: Int64
             var value: UInt64
             var name: String?
             var createdAt: Int64?
         }
 
-        /// 2: registry v2 (names carry periodStart); an older cache is dropped and walked again.
-        static let formatVersion = 2
+        /// A price shard (registry v3).
+        struct Shard: Codable, Equatable {
+            var txid: String
+            var index: UInt32
+            var shard: Int64
+            var authority: String
+            var prices: [UInt64]
+            var value: UInt64
+        }
+
+        /// 3: registry v3 (price shards, offers with a seller); an older cache is dropped and walked again.
+        static let formatVersion = 3
         static let appliedKeep = 4096
         static let eventsKeep = 1000
 
         var version = RegistryState.formatVersion
         var network: String
         var registryCovenantId: String
+        var priceCovenantId: String
+        var shards: [Shard]
         var gaps: [Gap]
         var names: [Name]
         var offers: [Offer]
@@ -669,19 +695,34 @@ extension KachatNames {
         /// when the live set was last confirmed against a node (unix ms)
         var verifiedAt: Int64?
 
+        /// Both geneses: the price genesis's K shards and the lone genesis gap.
         static func atGenesis(_ m: Manifest) -> RegistryState {
             RegistryState(
                 network: m.network,
                 registryCovenantId: hex(m.registryCovenantId),
+                priceCovenantId: hex(m.priceCovenantId),
+                shards: m.genesisShards.enumerated().map { i, s in
+                    Shard(txid: hex(m.priceGenesisTxid), index: UInt32(i), shard: s.fields.shard, authority: hex(s.fields.authority),
+                          prices: s.fields.prices, value: s.output.value)
+                },
                 gaps: [Gap(txid: hex(m.genesisTxid), index: 0, lo: hex(m.genesisState.lo), hi: hex(m.genesisState.hi), value: m.params.gapValue)],
-                names: [], offers: [], applied: [hex(m.genesisTxid)], events: [], verifiedAt: nil
+                names: [], offers: [], applied: [hex(m.priceGenesisTxid), hex(m.genesisTxid)], events: [], verifiedAt: nil
             )
         }
 
         /// Whether this cache belongs to `m`'s registry.
         func matches(_ m: Manifest) -> Bool {
             version == RegistryState.formatVersion && network == m.network && registryCovenantId == hex(m.registryCovenantId)
+                && priceCovenantId == hex(m.priceCovenantId)
         }
+
+        /// Every shard, as the screens and actions read them (shard order).
+        var shardInfos: [ShardInfo] {
+            shards.sorted { $0.shard < $1.shard }.map(RegistryState.info)
+        }
+
+        /// The current prices: shard 0's (every shard agrees: a change rewrites them all).
+        var currentPrices: PriceFields? { shardInfos.first?.fields }
 
         // MARK: Reading
 
@@ -718,6 +759,14 @@ extension KachatNames {
                     guard g.hi == hex(ff32) else { throw Failure("the last gap ends at \(g.hi.prefix(8))") }
                 }
             }
+            // the price shards: each index once, all holding the same prices and authority (a
+            // change rewrites every shard in one transaction)
+            if !shards.isEmpty {
+                guard Set(shards.map(\.shard)).count == shards.count else { throw Failure("a price shard twice") }
+                guard Set(shards.map(\.prices)).count == 1, Set(shards.map(\.authority)).count == 1 else {
+                    throw Failure("the price shards disagree")
+                }
+            }
         }
 
         static func outpoint(_ txid: String, _ index: UInt32) -> Outpoint {
@@ -745,7 +794,16 @@ extension KachatNames {
         static func info(_ o: Offer) -> OfferInfo {
             OfferInfo(
                 outpoint: outpoint(o.txid, o.index), key: (try? unhex32(o.key)) ?? zero32, name: o.name,
-                buyer: (try? unhex32(o.buyer)) ?? zero32, amount: o.value, refundAfter: o.refundAfter, createdAt: o.createdAt
+                buyer: (try? unhex32(o.buyer)) ?? zero32, seller: (try? unhex32(o.seller)) ?? zero32,
+                amount: o.value, refundAfter: o.refundAfter, createdAt: o.createdAt
+            )
+        }
+
+        static func info(_ s: Shard) -> ShardInfo {
+            ShardInfo(
+                outpoint: outpoint(s.txid, s.index),
+                fields: PriceFields(shard: s.shard, authority: (try? unhex32(s.authority)) ?? zero32, prices: s.prices),
+                value: s.value
             )
         }
 
@@ -762,6 +820,9 @@ extension KachatNames {
             for o in offers {
                 out.append(("\(o.txid):\(o.index)", m.offer.script(RegistryState.info(o).fields.encoded), false))
             }
+            for s in shards {
+                out.append(("\(s.txid):\(s.index)", m.price.script(RegistryState.info(s).fields.encoded), true))
+            }
             return out
         }
 
@@ -770,7 +831,7 @@ extension KachatNames {
         mutating func trackOffer(_ o: OfferInfo, at: Int64?) {
             let txid = hex(o.outpoint.txid)
             offers.removeAll { $0.txid == txid && $0.index == o.outpoint.index }
-            offers.append(Offer(txid: txid, index: o.outpoint.index, key: hex(o.key), buyer: hex(o.buyer),
+            offers.append(Offer(txid: txid, index: o.outpoint.index, key: hex(o.key), buyer: hex(o.buyer), seller: hex(o.seller),
                                 refundAfter: o.refundAfter, value: o.amount, name: o.name, createdAt: at))
         }
 
@@ -779,6 +840,7 @@ extension KachatNames {
         private enum Predicted {
             case gap(lo: String, hi: String)
             case name(NameFields, name: String)
+            case price(PriceFields)
         }
 
         private struct Spend {
@@ -807,14 +869,15 @@ extension KachatNames {
             return try Codec.scriptNum(a[i])
         }
 
-        /// The offer a transaction announces with `kchat:1:offer:<key>:<buyer>:<refundAfter>`, if
-        /// one of its outputs really is that offer (KACHAT_NAMES_INDEXER.md B4).
+        /// The offer a transaction announces with the registry v3 marker
+        /// `kchat:1:offer:<key>:<buyer>:<seller>:<refundAfter>`, if one of its outputs really is that
+        /// offer (KACHAT_NAMES_INDEXER.md B4).
         static func offerFromMarker(_ tx: TxView, _ m: Manifest) -> (index: Int, fields: OfferFields)? {
             guard let text = String(data: tx.payload, encoding: .utf8), text.hasPrefix("kchat:1:offer:") else { return nil }
             let parts = text.dropFirst("kchat:1:offer:".count).split(separator: ":", omittingEmptySubsequences: false)
-            guard parts.count == 3, let key = try? unhex32(String(parts[0])), let buyer = try? unhex32(String(parts[1])),
-                  let refundAfter = Int64(parts[2]), refundAfter >= 0 else { return nil }
-            let fields = OfferFields(key: key, buyer: buyer, refundAfter: refundAfter)
+            guard parts.count == 4, let key = try? unhex32(String(parts[0])), let buyer = try? unhex32(String(parts[1])),
+                  let seller = try? unhex32(String(parts[2])), let refundAfter = Int64(parts[3]), refundAfter >= 0 else { return nil }
+            let fields = OfferFields(key: key, buyer: buyer, seller: seller, refundAfter: refundAfter)
             let script = m.offer.script(fields.encoded)
             guard let idx = tx.outputs.firstIndex(where: { $0.script == script && $0.covenant == nil }) else { return nil }
             return (idx, fields)
@@ -836,7 +899,8 @@ extension KachatNames {
             let id = tx.idHex
             if applied.contains(id) { return [] }
             let registryId = try unhex32(registryCovenantId)
-            let regOuts = tx.outputs.indices.filter { tx.outputs[$0].covenant?.covenantId == registryId }
+            let priceId = try unhex32(priceCovenantId)
+            let regOuts = tx.outputs.indices.filter { tx.outputs[$0].covenant?.covenantId == registryId || tx.outputs[$0].covenant?.covenantId == priceId }
             func key(_ o: Outpoint) -> (String, UInt32) { (hex(o.txid), o.index) }
             let gapIns: [(Int, Gap)] = tx.inputs.enumerated().compactMap { i, input in
                 let (t, x) = key(input.outpoint)
@@ -850,8 +914,12 @@ extension KachatNames {
                 let (t, x) = key(input.outpoint)
                 return offers.first { $0.txid == t && $0.index == x }.map { (i, $0) }
             }
+            let shardIns: [(Int, Shard)] = tx.inputs.enumerated().compactMap { i, input in
+                let (t, x) = key(input.outpoint)
+                return shards.first { $0.txid == t && $0.index == x }.map { (i, $0) }
+            }
             let newOffer = RegistryState.offerFromMarker(tx, m)
-            if regOuts.isEmpty && gapIns.isEmpty && nameIns.isEmpty && offerIns.isEmpty && newOffer == nil {
+            if regOuts.isEmpty && gapIns.isEmpty && nameIns.isEmpty && offerIns.isEmpty && shardIns.isEmpty && newOffer == nil {
                 return []
             }
             let short = String(id.prefix(12))
@@ -876,7 +944,7 @@ extension KachatNames {
                     let k = blake3(nameBytes)
                     var padded = nameBytes.prefix(32)
                     padded.append(Data(repeating: 0, count: 32 - padded.count))
-                    let f = NameFields(key: k, paddedName: Data(padded), owner: owner, price: 0, periodStart: now, expiresAt: now + years * yearMs)
+                    let f = NameFields(key: k, paddedName: Data(padded), owner: owner, price: 0, periodStart: now, expiresAt: now + years * m.params.periodMs)
                     predicted.append((UInt16(i), .gap(lo: g.lo, hi: hex(k))))
                     predicted.append((UInt16(i), .gap(lo: hex(k), hi: g.hi)))
                     predicted.append((UInt16(i), .name(f, name: name)))
@@ -922,12 +990,12 @@ extension KachatNames {
                 case "extend":
                     // periodStart kept, expiresAt + years (the contract checked the 2-year cap)
                     let years = try RegistryState.argInt(sp.args, 0)
-                    predicted.append((UInt16(i), .name(f.extended(years), name: n.name)))
+                    predicted.append((UInt16(i), .name(f.extended(years, periodMs: m.params.periodMs), name: n.name)))
                     events.append(Event(txId: id, op: "extend", name: n.name, at: tx.at, from: nil, to: nil, price: nil, years: years))
                 case "renew":
                     // a new period from the old expiry
                     let years = try RegistryState.argInt(sp.args, 0)
-                    predicted.append((UInt16(i), .name(f.renewed(years), name: n.name)))
+                    predicted.append((UInt16(i), .name(f.renewed(years, periodMs: m.params.periodMs), name: n.name)))
                     events.append(Event(txId: id, op: "renew", name: n.name, at: tx.at, from: nil, to: nil, price: nil, years: years))
                 case "release":
                     events.append(Event(txId: id, op: "release", name: n.name, at: tx.at, from: n.owner, to: nil, price: nil, years: nil))
@@ -935,6 +1003,37 @@ extension KachatNames {
                     events.append(Event(txId: id, op: "reclaim", name: n.name, at: tx.at, from: n.owner, to: nil, price: nil, years: nil))
                 default:
                     throw Failure("\(short): unexpected name entry \(sp.entry)")
+                }
+            }
+
+            for (i, sh) in shardIns {
+                let sp: Spend
+                do { sp = try RegistryState.decodeSpend(m.price, tx.inputs[i].signatureScript) } catch { throw Failure("\(short): price input \(i): \(error.localizedDescription)") }
+                let cur = RegistryState.info(sh).fields
+                guard sp.redeem == m.price.redeem(cur.encoded) else {
+                    throw Failure("\(short): price input \(i) reveals a redeem script that is not the tracked shard state")
+                }
+                switch sp.entry {
+                case "use":
+                    predicted.append((UInt16(i), .price(cur)))
+                case "update":
+                    // shard 0 writes every shard's continuation; each is authorized by that shard's input
+                    let authority = try RegistryState.arg32(sp.args, 0)
+                    var prices: [UInt64] = []
+                    for t in 0..<5 {
+                        let v = try RegistryState.argInt(sp.args, 1 + t)
+                        guard v >= 0 else { throw Failure("\(short): negative price") }
+                        prices.append(UInt64(v))
+                    }
+                    for (j, other) in shardIns {
+                        predicted.append((UInt16(j), .price(PriceFields(shard: other.shard, authority: authority, prices: prices))))
+                    }
+                    events.append(Event(txId: id, op: prices == cur.prices ? "price_authority" : "prices", name: nil, at: tx.at,
+                                        from: sh.authority, to: hex(authority), price: prices.last, years: nil))
+                case "follow":
+                    break
+                default:
+                    throw Failure("\(short): unexpected price entry \(sp.entry)")
                 }
             }
 
@@ -952,12 +1051,15 @@ extension KachatNames {
             var matched: [Int: Predicted] = [:]
             for (auth, p) in predicted {
                 let script: Data
+                let cov: Data
                 switch p {
-                case .gap(let lo, let hi): script = m.gap.script(Codec.gapState(lo: try unhex32(lo), hi: try unhex32(hi)))
-                case .name(let f, _): script = m.name.script(f.encoded)
+                case .gap(let lo, let hi): script = m.gap.script(Codec.gapState(lo: try unhex32(lo), hi: try unhex32(hi))); cov = registryId
+                case .name(let f, _): script = m.name.script(f.encoded); cov = registryId
+                case .price(let f): script = m.price.script(f.encoded); cov = priceId
                 }
                 guard let idx = regOuts.first(where: { j in
                     matched[j] == nil && tx.outputs[j].script == script && tx.outputs[j].covenant?.authorizingInput == auth
+                        && tx.outputs[j].covenant?.covenantId == cov
                 }) else {
                     throw Failure("\(short): predicted registry output not found (authorized by input \(auth))")
                 }
@@ -973,6 +1075,7 @@ extension KachatNames {
             gaps.removeAll { spent.contains("\($0.txid):\($0.index)") }
             names.removeAll { spent.contains("\($0.txid):\($0.index)") }
             offers.removeAll { spent.contains("\($0.txid):\($0.index)") }
+            shards.removeAll { spent.contains("\($0.txid):\($0.index)") }
             for idx in matched.keys.sorted() {
                 let value = tx.outputs[idx].value
                 switch matched[idx]! {
@@ -986,12 +1089,14 @@ extension KachatNames {
                         periodStart: f.periodStart, expiresAt: f.expiresAt,
                         value: value, registeredAt: before?.registeredAt ?? tx.at, registeredTxId: before?.registeredTxId ?? id, updatedAt: tx.at
                     ))
+                case .price(let f):
+                    shards.append(Shard(txid: id, index: UInt32(idx), shard: f.shard, authority: hex(f.authority), prices: f.prices, value: value))
                 }
             }
             if let (idx, fields) = newOffer {
                 let known = names.first { $0.key == hex(fields.key) }?.name
                 offers.removeAll { $0.txid == id && $0.index == UInt32(idx) }
-                offers.append(Offer(txid: id, index: UInt32(idx), key: hex(fields.key), buyer: hex(fields.buyer),
+                offers.append(Offer(txid: id, index: UInt32(idx), key: hex(fields.key), buyer: hex(fields.buyer), seller: hex(fields.seller),
                                     refundAfter: fields.refundAfter, value: tx.outputs[idx].value, name: known, createdAt: tx.at))
                 events.append(Event(txId: id, op: "offer", name: known, at: tx.at, from: nil, to: hex(fields.buyer), price: tx.outputs[idx].value, years: nil))
             }
@@ -1084,17 +1189,46 @@ extension KachatNames {
         struct OfferJSON: Decodable {
             let outpoint: OutpointJSON
             let buyer: String
+            /// registry v3: the owner the offer was made to (an address)
+            let seller: String?
             let amount: String
             let refundAfter: Int64
             let createdAt: Int64?
             let refundable: Bool?
             let name: String?
 
+            /// The offer, when complete. An indexer without the seller (registry v2) gives nothing:
+            /// a v3 offer can't be accepted or declined without it.
             func info(name fallback: String?, keyOf: (String) -> Data?) -> OfferInfo? {
-                guard let op = outpoint.outpoint, let buyerKey = keyOf(buyer), let amount = UInt64(amount) else { return nil }
+                guard let op = outpoint.outpoint, let buyerKey = keyOf(buyer), let sellerKey = seller.flatMap(keyOf),
+                      let amount = UInt64(amount) else { return nil }
                 guard let n = (name ?? fallback).map(Codec.normalize), Codec.isValid(n) else { return nil }
-                return OfferInfo(outpoint: op, key: Codec.key(n), name: n, buyer: buyerKey, amount: amount, refundAfter: refundAfter, createdAt: createdAt)
+                return OfferInfo(outpoint: op, key: Codec.key(n), name: n, buyer: buyerKey, seller: sellerKey, amount: amount,
+                                 refundAfter: refundAfter, createdAt: createdAt)
             }
+        }
+
+        /// `GET /names/prices` (registry v3): the current prices and every live shard, so a reader
+        /// picks one (the app re-reads the picked shard's UTXO from a node before spending it).
+        struct PricesJSON: Decodable {
+            struct ShardJSON: Decodable {
+                let shard: Int64
+                let outpoint: OutpointJSON
+                let authority: String
+                let prices: [String]
+                let value: String
+
+                var info: ShardInfo? {
+                    guard let op = outpoint.outpoint, let auth = try? unhex32(authority), prices.count == 5,
+                          let value = UInt64(value) else { return nil }
+                    let p = prices.compactMap(UInt64.init)
+                    guard p.count == 5 else { return nil }
+                    return ShardInfo(outpoint: op, fields: PriceFields(shard: shard, authority: auth, prices: p), value: value)
+                }
+            }
+            let prices: [String]
+            let authority: String?
+            let shards: [ShardJSON]
         }
 
         struct OffersJSON: Decodable { let offers: [OfferJSON] }
@@ -1118,6 +1252,8 @@ extension KachatNames {
         struct StatusJSON: Decodable {
             let network: String?
             let registryCovenantId: String?
+            /// registry v3: the price covenant the indexer follows
+            let priceCovenantId: String?
             let genesisTxId: String?
             let indexedDaa: UInt64?
             let synced: Bool?
