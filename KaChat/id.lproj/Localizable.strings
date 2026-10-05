@@ -1258,3 +1258,13 @@
 "Sends the name to another address." = "Mengirim nama ke alamat lain.";
 "Shows you by this name across KaChat." = "Menampilkan Anda dengan nama ini di seluruh KaChat.";
 "Gives the name up and returns its deposit." = "Melepas nama dan mengembalikan depositnya.";
+"Expires in %@" = "Berakhir dalam %@";
+"Expired - returning to you" = "Kedaluwarsa - kembali ke Anda";
+"Expired - returning to the buyer" = "Kedaluwarsa - kembali ke pembeli";
+"Expired - refundable now" = "Kedaluwarsa - bisa dikembalikan sekarang";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "Ketuk penawaran untuk menerimanya. Penawaran kedaluwarsa kembali ke pembelinya.";
+"This offer has expired. It's going back to the buyer." = "Penawaran ini sudah kedaluwarsa. Dananya kembali ke pembeli.";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "Penawaran Anda. Tarik kapan saja; setelah kedaluwarsa, dana kembali ke Anda dengan sendirinya.";
+"Declined - the name changed hands, returning to you" = "Ditolak - pemilik nama berganti, dana kembali ke Anda";
+"Declined - made to an earlier owner" = "Ditolak - diajukan ke pemilik sebelumnya";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "Penawaran ini diajukan sebelum nama berganti pemilik, jadi ditolak dan dananya kembali ke pembeli.";

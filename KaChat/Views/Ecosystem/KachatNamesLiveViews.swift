@@ -315,7 +315,13 @@ final class KachatHubModel: ObservableObject {
             if let me = KachatNamesActions.shared.myKey {
                 mine = try await registry.names(owner: me, includeInactive: true)
                 myOffers = try await registry.myOffers(buyer: me)
-                if !myOffers.isEmpty { await KachatNamesActions.shared.refreshVirtualDaa() }
+                if !myOffers.isEmpty {
+                    await KachatNamesActions.shared.refreshVirtualDaa()
+                    // Your own expired offers come back to you on their own, and so do the ones
+                    // whose name changed hands since you made them.
+                    await KachatNamesActions.shared.returnExpiredOffers(myOffers)
+                    await KachatNamesActions.shared.withdrawDeclinedOffers(myOffers)
+                }
             } else {
                 mine = []
                 myOffers = []
@@ -740,7 +746,7 @@ struct KachatLiveMyNamesPage: View {
                 .padding(.horizontal, 16)
             }
 
-            KachatLiveSectionHeader(title: "My Offers", detail: "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you.")
+            KachatLiveSectionHeader(title: "My Offers", detail: "Offers you made. Withdraw one any time; once it expires it comes back to you on its own.")
             if model.myOffers.isEmpty {
                 KachatLiveEmpty(text: model.loaded ? "No open offers." : nil)
             } else {
@@ -913,12 +919,43 @@ struct KachatOfferRow: View {
     let isOwner: Bool
     let onAction: (KachatOfferAction) -> Void
     var name: KachatNames.NameInfo?
+    /// Made before the name changed hands: never acceptable, and on its way back to the buyer.
+    var declined = false
 
     @ObservedObject private var actions = KachatNamesActions.shared
 
     private var refundable: Bool { actions.virtualDaa.map { offer.refundable(atDaa: $0) } ?? false }
+    private var returning: Bool { actions.returningOffers.contains(offer.id) }
+    /// The owner can take it: still inside its time (an expired one is on its way back).
+    private var acceptable: Bool { isOwner && !refundable && !declined }
+    /// Declined and being pulled back by this app (the buyer's).
+    private var withdrawing: Bool { actions.withdrawingOffers.contains(offer.id) }
+
+    /// "Expires in 2d 4h", from the DAA score it becomes refundable at (10 per second).
+    private var expiresIn: String? {
+        guard let daa = actions.virtualDaa, !refundable else { return nil }
+        let seconds = Double(UInt64(max(offer.refundAfter, 0)) - daa) / Double(KachatLive.daaPerSecond)
+        let f = DateComponentsFormatter()
+        f.allowedUnits = seconds >= 86_400 ? [.day, .hour] : (seconds >= 3600 ? [.hour, .minute] : [.minute])
+        f.unitsStyle = .abbreviated
+        f.maximumUnitCount = 2
+        f.calendar?.locale = AppLocalization.locale
+        guard let left = f.string(from: max(60, seconds)) else { return nil }
+        return String(format: AppLocalization.string("Expires in %@"), left)
+    }
 
     var body: some View {
+        // A tap anywhere on the row opens the accept flow for the owner (a gesture, not a
+        // wrapping Button: the buttons inside keep their own taps).
+        content
+            .onTapGesture {
+                if acceptable { onAction(KachatOfferAction(kind: .accept, offer: offer, name: name)) }
+            }
+            .accessibilityAddTraits(acceptable ? .isButton : [])
+            .opacity(refundable || declined || withdrawing ? 0.6 : 1)
+    }
+
+    private var content: some View {
         HStack(spacing: 12) {
             Image(systemName: "hand.raised").foregroundColor(.accentColor).frame(width: 24)
             VStack(alignment: .leading, spacing: 3) {
@@ -934,8 +971,16 @@ struct KachatOfferRow: View {
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
-                if refundable {
-                    Text("Refundable now").font(.caption2).foregroundColor(.orange)
+                if declined || withdrawing {
+                    Text(isBuyer ? LocalizedStringKey("Declined - the name changed hands, returning to you") : LocalizedStringKey("Declined - made to an earlier owner"))
+                        .font(.caption2).foregroundColor(.orange)
+                } else if refundable {
+                    Text(returning || isOwner
+                         ? (isBuyer ? LocalizedStringKey("Expired - returning to you") : LocalizedStringKey("Expired - returning to the buyer"))
+                         : LocalizedStringKey("Expired - refundable now"))
+                        .font(.caption2).foregroundColor(.orange)
+                } else if let expiresIn {
+                    Text(verbatim: expiresIn).font(.caption2).foregroundColor(.secondary)
                 }
             }
             Spacer(minLength: 8)
@@ -949,16 +994,17 @@ struct KachatOfferRow: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
-            } else if isOwner {
+            } else if acceptable {
                 Button("Accept") { onAction(KachatOfferAction(kind: .accept, offer: offer, name: name)) }
                     .buttonStyle(.borderedProminent)
-            } else if refundable {
+            } else if refundable, !returning {
                 Button("Refund") { onAction(KachatOfferAction(kind: .refund, offer: offer)) }
                     .buttonStyle(.bordered)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
+        .contentShape(Rectangle())
     }
 }
 
@@ -1641,7 +1687,7 @@ struct KachatLiveNameDetail: View {
 
     private var offersSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            KachatLiveSectionHeader(title: "Offers", detail: canActAsOwner ? "Accept one to sell the name for it." : nil)
+            KachatLiveSectionHeader(title: "Offers", detail: canActAsOwner ? "Tap an offer to accept it. Expired offers go back to their buyers." : nil)
             if offers.isEmpty {
                 Text("No open offers.")
                     .font(.subheadline)
@@ -1654,7 +1700,8 @@ struct KachatLiveNameDetail: View {
                 VStack(spacing: 0) {
                     ForEach(Array(offers.enumerated()), id: \.element.id) { index, o in
                         KachatOfferRow(offer: o, isBuyer: KachatLive.isMine(o.buyer), isOwner: canActAsOwner && registry.source?.isIndexer == true,
-                                       onAction: { offerAction = $0 }, name: info)
+                                       onAction: { offerAction = $0 }, name: info,
+                                       declined: KachatNamesActions.isDeclined(o, ownerSince: KachatNamesActions.ownerSince(history)))
                         if index < offers.count - 1 { Divider().padding(.leading, 50) }
                     }
                 }
@@ -1744,6 +1791,15 @@ struct KachatLiveNameDetail: View {
         history = (try? await registry.history(name: info.name)) ?? []
         if !offers.isEmpty {
             await actions.refreshVirtualDaa()
+            // Expired offers don't stay on your name: the owner's app (and the buyer's) send
+            // them back.
+            if canActAsOwner {
+                await actions.returnExpiredOffers(offers)
+            } else {
+                await actions.returnExpiredOffers(offers.filter { KachatLive.isMine($0.buyer) })
+            }
+            // Your offers made to an earlier owner of this name: pulled back.
+            await actions.withdrawDeclinedOffers(offers)
         }
     }
 

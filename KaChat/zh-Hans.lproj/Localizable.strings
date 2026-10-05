@@ -1258,3 +1258,13 @@
 "Sends the name to another address." = "将名称发送到另一个地址。";
 "Shows you by this name across KaChat." = "在整个 KaChat 中以此名称显示你。";
 "Gives the name up and returns its deposit." = "放弃该名称并退还押金。";
+"Expires in %@" = "%@后到期";
+"Expired - returning to you" = "已过期 - 正在退还给你";
+"Expired - returning to the buyer" = "已过期 - 正在退还给买家";
+"Expired - refundable now" = "已过期 - 现在可退款";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "点按报价即可接受。过期的报价会退还给买家。";
+"This offer has expired. It's going back to the buyer." = "此报价已过期，正在退还给买家。";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "你发出的报价。可随时撤回；过期后会自动退还给你。";
+"Declined - the name changed hands, returning to you" = "已拒绝 - 名称已易主，正在退还给你";
+"Declined - made to an earlier owner" = "已拒绝 - 向前任所有者发出";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "此报价是在名称易主之前发出的，因此已被拒绝并正在退还给买家。";

@@ -1258,3 +1258,13 @@
 "Sends the name to another address." = "שולח את השם לכתובת אחרת.";
 "Shows you by this name across KaChat." = "מציג אתכם בשם הזה בכל KaChat.";
 "Gives the name up and returns its deposit." = "מוותר על השם ומחזיר את הפיקדון שלו.";
+"Expires in %@" = "פג בעוד %@";
+"Expired - returning to you" = "פג תוקף - חוזר אליכם";
+"Expired - returning to the buyer" = "פג תוקף - חוזר לקונה";
+"Expired - refundable now" = "פג תוקף - ניתן להחזר עכשיו";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "הקישו על הצעה כדי לקבל אותה. הצעות שפג תוקפן חוזרות לקונים.";
+"This offer has expired. It's going back to the buyer." = "פג תוקפה של ההצעה. היא חוזרת לקונה.";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "ההצעות שלכם. אפשר למשוך אחת בכל עת; כשתוקפה פג היא חוזרת אליכם מעצמה.";
+"Declined - the name changed hands, returning to you" = "נדחתה - השם עבר בעלות, חוזרת אליכם";
+"Declined - made to an earlier owner" = "נדחתה - הוגשה לבעלים קודמים";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "ההצעה הוגשה לפני שהשם עבר בעלות, ולכן נדחתה והיא חוזרת לקונה.";

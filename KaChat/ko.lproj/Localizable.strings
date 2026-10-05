@@ -1258,3 +1258,13 @@
 "Sends the name to another address." = "이름을 다른 주소로 보냅니다.";
 "Shows you by this name across KaChat." = "KaChat 전체에서 이 이름으로 표시됩니다.";
 "Gives the name up and returns its deposit." = "이름을 포기하고 보증금을 돌려받습니다.";
+"Expires in %@" = "%@ 후 만료";
+"Expired - returning to you" = "만료됨 - 나에게 반환 중";
+"Expired - returning to the buyer" = "만료됨 - 구매자에게 반환 중";
+"Expired - refundable now" = "만료됨 - 지금 환불 가능";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "제안을 탭하여 수락하세요. 만료된 제안은 구매자에게 반환됩니다.";
+"This offer has expired. It's going back to the buyer." = "이 제안은 만료되었습니다. 구매자에게 반환됩니다.";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "내가 한 제안입니다. 언제든 철회할 수 있으며, 만료되면 자동으로 돌아옵니다.";
+"Declined - the name changed hands, returning to you" = "거절됨 - 이름 소유자가 바뀌어 나에게 반환 중";
+"Declined - made to an earlier owner" = "거절됨 - 이전 소유자에게 한 제안";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "이 제안은 이름의 소유자가 바뀌기 전에 이루어져 거절되었으며 구매자에게 반환됩니다.";

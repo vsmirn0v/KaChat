@@ -1205,3 +1205,13 @@
 "Sends the name to another address." = "Sendet den Namen an eine andere Adresse.";
 "Shows you by this name across KaChat." = "Zeigt dich überall in KaChat unter diesem Namen.";
 "Gives the name up and returns its deposit." = "Gibt den Namen auf und erstattet seine Kaution.";
+"Expires in %@" = "Läuft ab in %@";
+"Expired - returning to you" = "Abgelaufen – geht an dich zurück";
+"Expired - returning to the buyer" = "Abgelaufen – geht an den Käufer zurück";
+"Expired - refundable now" = "Abgelaufen – jetzt erstattbar";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "Tippe auf ein Angebot, um es anzunehmen. Abgelaufene Angebote gehen an ihre Käufer zurück.";
+"This offer has expired. It's going back to the buyer." = "Dieses Angebot ist abgelaufen. Es geht an den Käufer zurück.";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "Deine Angebote. Zieh eines jederzeit zurück; nach Ablauf kommt es von selbst zu dir zurück.";
+"Declined - the name changed hands, returning to you" = "Abgelehnt – der Name hat den Besitzer gewechselt, geht an dich zurück";
+"Declined - made to an earlier owner" = "Abgelehnt – an einen früheren Besitzer gerichtet";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "Dieses Angebot wurde gemacht, bevor der Name den Besitzer wechselte. Es ist abgelehnt und geht an den Käufer zurück.";

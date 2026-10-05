@@ -1258,3 +1258,13 @@
 "Sends the name to another address." = "Отправляет имя на другой адрес.";
 "Shows you by this name across KaChat." = "Показывает вас под этим именем во всём KaChat.";
 "Gives the name up and returns its deposit." = "Отказывается от имени и возвращает залог.";
+"Expires in %@" = "Истекает через %@";
+"Expired - returning to you" = "Истекло - возвращается вам";
+"Expired - returning to the buyer" = "Истекло - возвращается покупателю";
+"Expired - refundable now" = "Истекло - можно вернуть сейчас";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "Нажмите на предложение, чтобы принять его. Истёкшие предложения возвращаются покупателям.";
+"This offer has expired. It's going back to the buyer." = "Срок предложения истёк. Средства возвращаются покупателю.";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "Ваши предложения. Отзовите любое в любой момент; после истечения срока оно вернётся к вам само.";
+"Declined - the name changed hands, returning to you" = "Отклонено - у имени сменился владелец, возвращается вам";
+"Declined - made to an earlier owner" = "Отклонено - сделано прежнему владельцу";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "Это предложение сделано до смены владельца имени, поэтому оно отклонено и возвращается покупателю.";

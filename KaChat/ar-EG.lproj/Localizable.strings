@@ -1258,3 +1258,13 @@
 "Sends the name to another address." = "بيبعت الاسم لعنوان تاني.";
 "Shows you by this name across KaChat." = "بيظهرك بالاسم ده في كل KaChat.";
 "Gives the name up and returns its deposit." = "بيتنازل عن الاسم ويرجّع العربون بتاعه.";
+"Expires in %@" = "بينتهي خلال %@";
+"Expired - returning to you" = "انتهى - راجع ليك";
+"Expired - returning to the buyer" = "انتهى - راجع للمشتري";
+"Expired - refundable now" = "انتهى - ممكن يترجع دلوقتي";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "دوس على عرض علشان تقبله. العروض المنتهية بترجع لأصحابها.";
+"This offer has expired. It's going back to the buyer." = "العرض ده انتهى. راجع للمشتري.";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "العروض اللي قدمتها. اسحب أي واحد في أي وقت؛ ولما ينتهي بيرجعلك لوحده.";
+"Declined - the name changed hands, returning to you" = "مرفوض - الاسم اتغير صاحبه، راجع ليك";
+"Declined - made to an earlier owner" = "مرفوض - اتقدم لصاحب قديم";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "العرض ده اتقدم قبل ما صاحب الاسم يتغير، فاترفض وراجع للمشتري.";

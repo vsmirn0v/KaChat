@@ -1258,3 +1258,13 @@
 "Sends the name to another address." = "Adı başka bir adrese gönderir.";
 "Shows you by this name across KaChat." = "Seni KaChat'in her yerinde bu adla gösterir.";
 "Gives the name up and returns its deposit." = "Adı bırakır ve depozitosunu iade eder.";
+"Expires in %@" = "%@ içinde sona eriyor";
+"Expired - returning to you" = "Süresi doldu - sana dönüyor";
+"Expired - returning to the buyer" = "Süresi doldu - alıcıya dönüyor";
+"Expired - refundable now" = "Süresi doldu - şimdi iade edilebilir";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "Kabul etmek için bir teklife dokun. Süresi dolan teklifler alıcılarına döner.";
+"This offer has expired. It's going back to the buyer." = "Bu teklifin süresi doldu. Alıcıya geri dönüyor.";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "Yaptığın teklifler. İstediğin zaman geri çek; süresi dolunca kendiliğinden sana döner.";
+"Declined - the name changed hands, returning to you" = "Reddedildi - adın sahibi değişti, sana dönüyor";
+"Declined - made to an earlier owner" = "Reddedildi - önceki sahibine yapılmış";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "Bu teklif ad el değiştirmeden önce yapıldığı için reddedildi ve alıcıya geri dönüyor.";

@@ -1259,3 +1259,13 @@
 "Sends the name to another address." = "Sends the name to another address.";
 "Shows you by this name across KaChat." = "Shows you by this name across KaChat.";
 "Gives the name up and returns its deposit." = "Gives the name up and returns its deposit.";
+"Expires in %@" = "Expires in %@";
+"Expired - returning to you" = "Expired - returning to you";
+"Expired - returning to the buyer" = "Expired - returning to the buyer";
+"Expired - refundable now" = "Expired - refundable now";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "Tap an offer to accept it. Expired offers go back to their buyers.";
+"This offer has expired. It's going back to the buyer." = "This offer has expired. It's going back to the buyer.";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "Offers you made. Withdraw one any time; once it expires it comes back to you on its own.";
+"Declined - the name changed hands, returning to you" = "Declined - the name changed hands, returning to you";
+"Declined - made to an earlier owner" = "Declined - made to an earlier owner";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "This offer was made before the name changed hands, so it's declined and going back to the buyer.";

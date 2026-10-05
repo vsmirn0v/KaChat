@@ -57,6 +57,8 @@ final class KachatNamesActions: ObservableObject {
     @Published private(set) var pending: [KachatNames.PendingRegistration] = []
     /// The virtual DAA score the driver last saw (registration progress).
     @Published private(set) var virtualDaa: UInt64?
+    /// Expired offers this app is sending back to their buyers (see `returnExpiredOffers`).
+    @Published private(set) var returningOffers: Set<String> = []
 
     private var pendingWallet: String?
     private var driver: Task<Void, Never>?
@@ -322,6 +324,14 @@ final class KachatNamesActions: ObservableObject {
         case .refund(let o):
             plan = try b.refundOffer(env: env, offer: try await liveOffer(o, m))
         case .accept(let o, let n):
+            // The contract would still take an expired offer; the app doesn't - it goes back.
+            if o.refundable(atDaa: env.blockDaa) {
+                throw KachatNames.Failure(AppLocalization.string("This offer has expired. It's going back to the buyer."))
+            }
+            // Made to an earlier owner: declined, never accepted by the app.
+            if Self.isDeclined(o, ownerSince: Self.ownerSince((try? await registry.history(name: n.name)) ?? [])) {
+                throw KachatNames.Failure(AppLocalization.string("This offer was made before the name changed hands, so it's declined and going back to the buyer."))
+            }
             try Self.validateKey(o.buyer, AppLocalization.string("The buyer"))
             plan = try b.acceptOffer(env: env, name: try await liveName(n, m), offer: try await liveOffer(o, m))
         case .release(let n):
@@ -350,6 +360,81 @@ final class KachatNamesActions: ObservableObject {
         }
         registry.refreshAfter(txId: txId)
         return txId
+    }
+
+    // MARK: - Expired offers
+
+    /// Sends expired offers back to their buyers. Past its refund time an offer can still be
+    /// accepted on chain until someone refunds it, so it would otherwise hang on the name. The
+    /// refund needs nobody's key and its network fee comes out of the offer itself, so whichever
+    /// app sees one first - its buyer's, or the owner's of the name it's on - returns it, at no
+    /// cost to either. Each offer is tried once per session; a refund someone else got in first
+    /// just fails quietly.
+    func returnExpiredOffers(_ offers: [KachatNames.OfferInfo]) async {
+        guard KachatNamesService.isLaunched, !offers.isEmpty else { return }
+        await refreshVirtualDaa()
+        guard let daa = virtualDaa else { return }
+        for o in offers where o.refundable(atDaa: daa) && !returningOffers.contains(o.id) {
+            returningOffers.insert(o.id)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    let txId = try await self.perform(.refund(o))
+                    AppLog.log("[KachatNames] returned expired offer %@ to its buyer: %@", o.id, txId)
+                } catch {
+                    AppLog.log("[KachatNames] expired offer %@ not returned: %@", o.id, error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Offers this app is withdrawing because the name changed hands (see `withdrawDeclinedOffers`).
+    @Published private(set) var withdrawingOffers: Set<String> = []
+
+    /// When the name last got a new owner: its latest register, transfer, sale or accepted offer.
+    nonisolated static func ownerSince(_ history: [KachatNames.Event]) -> Int64? {
+        history.filter { ["register", "transfer", "sale", "offer_accepted", "offer_accept"].contains($0.op) }
+            .compactMap(\.at).max()
+    }
+
+    /// An offer made before the name's current owner got it (or on a name since released):
+    /// declined. The contract would still let the new owner accept it until it expires, so the
+    /// app treats it as declined - the owner can't accept it, and the buyer's app pulls it back.
+    nonisolated static func isDeclined(_ offer: KachatNames.OfferInfo, ownerSince: Int64?, nameFree: Bool = false) -> Bool {
+        if nameFree { return true }
+        guard let made = offer.createdAt, let since = ownerSince else { return false }
+        return made < since
+    }
+
+    /// Pulls this wallet's declined offers back (a withdraw, signed by the buyer - you - and paid
+    /// back to you). Before its refund time only the buyer can return an offer, so the buyer's
+    /// app does it as soon as it sees the name changed hands; after that, `returnExpiredOffers`
+    /// covers it from any app. Each offer is tried once per session.
+    func withdrawDeclinedOffers(_ offers: [KachatNames.OfferInfo]) async {
+        guard KachatNamesService.isLaunched, let me = myKey else { return }
+        let mine = offers.filter { $0.buyer == me && !withdrawingOffers.contains($0.id) && !returningOffers.contains($0.id) }
+        guard !mine.isEmpty else { return }
+        var historyByName: [String: [KachatNames.Event]] = [:]
+        var freeNames: Set<String> = []
+        for o in mine {
+            guard let name = o.name else { continue }
+            if historyByName[name] == nil {
+                historyByName[name] = (try? await registry.history(name: name)) ?? []
+                if case .free? = try? await registry.lookup(name) { freeNames.insert(name) }
+            }
+            let since = Self.ownerSince(historyByName[name] ?? [])
+            guard Self.isDeclined(o, ownerSince: since, nameFree: freeNames.contains(name)) else { continue }
+            withdrawingOffers.insert(o.id)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    let txId = try await self.perform(.withdraw(o))
+                    AppLog.log("[KachatNames] withdrew declined offer %@ (the name changed hands): %@", o.id, txId)
+                } catch {
+                    AppLog.log("[KachatNames] declined offer %@ not withdrawn: %@", o.id, error.localizedDescription)
+                }
+            }
+        }
     }
 
     // MARK: - Profile record

@@ -1258,3 +1258,13 @@
 "Sends the name to another address." = "名前を別のアドレスに送ります。";
 "Shows you by this name across KaChat." = "KaChat全体でこの名前であなたを表示します。";
 "Gives the name up and returns its deposit." = "名前を手放し、預け金を返します。";
+"Expires in %@" = "あと%@で期限切れ";
+"Expired - returning to you" = "期限切れ - あなたに返却中";
+"Expired - returning to the buyer" = "期限切れ - 購入者に返却中";
+"Expired - refundable now" = "期限切れ - 今すぐ返金可能";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "オファーをタップして受け入れます。期限切れのオファーは購入者に返されます。";
+"This offer has expired. It's going back to the buyer." = "このオファーは期限切れです。購入者に返却されます。";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "あなたが出したオファーです。いつでも取り下げできます。期限が切れると自動で戻ってきます。";
+"Declined - the name changed hands, returning to you" = "辞退 - 名前の所有者が変わったため、あなたに返却中";
+"Declined - made to an earlier owner" = "辞退 - 以前の所有者へのオファー";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "このオファーは名前の所有者が変わる前に出されたため、辞退扱いとなり購入者に返却されます。";

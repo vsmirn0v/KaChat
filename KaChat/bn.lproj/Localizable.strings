@@ -1258,3 +1258,13 @@
 "Sends the name to another address." = "নামটি অন্য ঠিকানায় পাঠায়।";
 "Shows you by this name across KaChat." = "KaChat জুড়ে আপনাকে এই নামে দেখায়।";
 "Gives the name up and returns its deposit." = "নামটি ছেড়ে দেয় এবং এর জামানত ফেরত দেয়।";
+"Expires in %@" = "%@ পরে মেয়াদ শেষ";
+"Expired - returning to you" = "মেয়াদ শেষ - আপনার কাছে ফিরছে";
+"Expired - returning to the buyer" = "মেয়াদ শেষ - ক্রেতার কাছে ফিরছে";
+"Expired - refundable now" = "মেয়াদ শেষ - এখন ফেরতযোগ্য";
+"Tap an offer to accept it. Expired offers go back to their buyers." = "গ্রহণ করতে একটি অফারে ট্যাপ করুন। মেয়াদোত্তীর্ণ অফার ক্রেতার কাছে ফিরে যায়।";
+"This offer has expired. It's going back to the buyer." = "এই অফারের মেয়াদ শেষ। এটি ক্রেতার কাছে ফিরে যাচ্ছে।";
+"Offers you made. Withdraw one any time; once it expires it comes back to you on its own." = "আপনার দেওয়া অফার। যেকোনো সময় প্রত্যাহার করুন; মেয়াদ শেষ হলে নিজে থেকেই আপনার কাছে ফিরে আসে।";
+"Declined - the name changed hands, returning to you" = "প্রত্যাখ্যাত - নামের মালিক বদলেছে, আপনার কাছে ফিরছে";
+"Declined - made to an earlier owner" = "প্রত্যাখ্যাত - আগের মালিককে দেওয়া";
+"This offer was made before the name changed hands, so it's declined and going back to the buyer." = "নামের মালিক বদলানোর আগে এই অফার দেওয়া হয়েছিল, তাই এটি প্রত্যাখ্যাত এবং ক্রেতার কাছে ফিরে যাচ্ছে।";
