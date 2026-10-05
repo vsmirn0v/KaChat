@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = "Profiller, .kachat ana ağda başlatıldığında kaydedilebilecek.";
 "Pinned to the front" = "Başa sabitlendi";
 "Unpinned" = "Sabitleme kaldırıldı";
-"Hold to pin to the front" = "Başa sabitlemek için basılı tut";
-"Hold to unpin" = "Sabitlemeyi kaldırmak için basılı tut";
 "Build Unsigned Transaction" = "İmzasız işlem oluştur";
 "Coin Control" = "Coin kontrolü";
 "Automatic" = "Otomatik";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "Bu adres artık bu cüzdanda değil.";
 "Send From" = "Gönderen";
 "Choose which spending address to send from" = "Hangi harcama adresinden gönderileceğini seç";
+"Pin to Front" = "Başa sabitle";
+"Unpin" = "Sabitlemeyi kaldır";
+"Goes back to its place by latest activity." = "Son etkinliğe göre yerine döner.";
+"Keeps it first in the row above your chats." = "Sohbetlerinin üstündeki sırada ilk kalır.";
+"Hold for options" = "Seçenekler için basılı tut";
+"Delete Room?" = "Oda silinsin mi?";

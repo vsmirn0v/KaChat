@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = "אפשר יהיה לשמור פרופילים לאחר ש-‎.kachat יושק ברשת הראשית.";
 "Pinned to the front" = "הוצמד להתחלה";
 "Unpinned" = "ההצמדה בוטלה";
-"Hold to pin to the front" = "החזיקו כדי להצמיד להתחלה";
-"Hold to unpin" = "החזיקו כדי לבטל הצמדה";
 "Build Unsigned Transaction" = "יצירת עסקה לא חתומה";
 "Coin Control" = "בקרת מטבעות";
 "Automatic" = "אוטומטי";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "הכתובת הזו כבר לא נמצאת בארנק הזה.";
 "Send From" = "שליחה מ-";
 "Choose which spending address to send from" = "בחרו מאיזו כתובת הוצאה לשלוח";
+"Pin to Front" = "הצמדה להתחלה";
+"Unpin" = "ביטול הצמדה";
+"Goes back to its place by latest activity." = "חוזר למקומו לפי הפעילות האחרונה.";
+"Keeps it first in the row above your chats." = "נשאר ראשון בשורה שמעל הצ'אטים שלך.";
+"Hold for options" = "החזיקו לאפשרויות";
+"Delete Room?" = "למחוק את החדר?";

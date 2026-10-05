@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = ".kachatがメインネットで開始されると、プロフィールを保存できるようになります。";
 "Pinned to the front" = "先頭に固定しました";
 "Unpinned" = "固定を解除しました";
-"Hold to pin to the front" = "長押しで先頭に固定";
-"Hold to unpin" = "長押しで固定を解除";
 "Build Unsigned Transaction" = "未署名トランザクションを作成";
 "Coin Control" = "コインコントロール";
 "Automatic" = "自動";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "このアドレスはもうこのウォレットにありません。";
 "Send From" = "送信元";
 "Choose which spending address to send from" = "送信元の支払い用アドレスを選びます";
+"Pin to Front" = "先頭に固定";
+"Unpin" = "固定を解除";
+"Goes back to its place by latest activity." = "最新のアクティビティ順の位置に戻ります。";
+"Keeps it first in the row above your chats." = "チャットの上の列で先頭に表示されます。";
+"Hold for options" = "長押しでオプション";
+"Delete Room?" = "ルームを削除しますか？";

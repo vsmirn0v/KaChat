@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = ".kachat के मेननेट पर लॉन्च होते ही प्रोफ़ाइल सेव की जा सकेंगी।";
 "Pinned to the front" = "सबसे आगे पिन किया गया";
 "Unpinned" = "पिन हटाया गया";
-"Hold to pin to the front" = "सबसे आगे पिन करने के लिए दबाकर रखें";
-"Hold to unpin" = "पिन हटाने के लिए दबाकर रखें";
 "Build Unsigned Transaction" = "बिना हस्ताक्षर वाला लेन-देन बनाएँ";
 "Coin Control" = "कॉइन कंट्रोल";
 "Automatic" = "स्वचालित";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "यह पता अब इस वॉलेट में नहीं है।";
 "Send From" = "यहाँ से भेजें";
 "Choose which spending address to send from" = "चुनें कि किस खर्च पते से भेजना है";
+"Pin to Front" = "सबसे आगे पिन करें";
+"Unpin" = "पिन हटाएँ";
+"Goes back to its place by latest activity." = "हाल की गतिविधि के अनुसार अपनी जगह पर लौट जाता है।";
+"Keeps it first in the row above your chats." = "आपकी चैट्स के ऊपर की पंक्ति में सबसे आगे रहता है।";
+"Hold for options" = "विकल्पों के लिए दबाकर रखें";
+"Delete Room?" = "रूम हटाएँ?";

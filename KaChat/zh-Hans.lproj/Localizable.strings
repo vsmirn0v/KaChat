@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = ".kachat 在主网上线后即可保存个人资料。";
 "Pinned to the front" = "已置顶";
 "Unpinned" = "已取消置顶";
-"Hold to pin to the front" = "长按置顶";
-"Hold to unpin" = "长按取消置顶";
 "Build Unsigned Transaction" = "创建未签名交易";
 "Coin Control" = "币控";
 "Automatic" = "自动";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "此地址已不在这个钱包中。";
 "Send From" = "发送自";
 "Choose which spending address to send from" = "选择从哪个支出地址发送";
+"Pin to Front" = "置顶";
+"Unpin" = "取消置顶";
+"Goes back to its place by latest activity." = "按最近活动回到原来的位置。";
+"Keeps it first in the row above your chats." = "在聊天上方的一行中保持在最前。";
+"Hold for options" = "长按查看选项";
+"Delete Room?" = "删除聊天室？";

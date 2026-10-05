@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = "Có thể lưu hồ sơ khi .kachat ra mắt trên mainnet.";
 "Pinned to the front" = "Đã ghim lên đầu";
 "Unpinned" = "Đã bỏ ghim";
-"Hold to pin to the front" = "Giữ để ghim lên đầu";
-"Hold to unpin" = "Giữ để bỏ ghim";
 "Build Unsigned Transaction" = "Tạo giao dịch chưa ký";
 "Coin Control" = "Kiểm soát coin";
 "Automatic" = "Tự động";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "Địa chỉ này không còn trong ví này.";
 "Send From" = "Gửi từ";
 "Choose which spending address to send from" = "Chọn địa chỉ chi tiêu để gửi";
+"Pin to Front" = "Ghim lên đầu";
+"Unpin" = "Bỏ ghim";
+"Goes back to its place by latest activity." = "Trở về vị trí theo hoạt động gần nhất.";
+"Keeps it first in the row above your chats." = "Luôn đứng đầu hàng phía trên các cuộc trò chuyện.";
+"Hold for options" = "Giữ để xem tùy chọn";
+"Delete Room?" = "Xóa phòng?";

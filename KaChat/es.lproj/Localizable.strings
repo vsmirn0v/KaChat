@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = "Los perfiles se podrán guardar cuando .kachat se lance en mainnet.";
 "Pinned to the front" = "Fijado al principio";
 "Unpinned" = "Desfijado";
-"Hold to pin to the front" = "Mantén pulsado para fijar al principio";
-"Hold to unpin" = "Mantén pulsado para desfijar";
 "Build Unsigned Transaction" = "Crear transacción sin firmar";
 "Coin Control" = "Control de monedas";
 "Automatic" = "Automático";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "Esta dirección ya no está en esta cartera.";
 "Send From" = "Enviar desde";
 "Choose which spending address to send from" = "Elige desde qué dirección de gasto enviar";
+"Pin to Front" = "Fijar al principio";
+"Unpin" = "Desfijar";
+"Goes back to its place by latest activity." = "Vuelve a su lugar según la actividad más reciente.";
+"Keeps it first in the row above your chats." = "Se queda primero en la fila sobre tus chats.";
+"Hold for options" = "Mantén pulsado para ver opciones";
+"Delete Room?" = "¿Eliminar sala?";

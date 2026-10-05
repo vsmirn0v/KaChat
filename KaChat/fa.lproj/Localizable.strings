@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = "پس از راه‌اندازی ‎.kachat روی شبکه اصلی می‌توانید پروفایل را ذخیره کنید.";
 "Pinned to the front" = "به ابتدا سنجاق شد";
 "Unpinned" = "سنجاق برداشته شد";
-"Hold to pin to the front" = "برای سنجاق کردن به ابتدا نگه دارید";
-"Hold to unpin" = "برای برداشتن سنجاق نگه دارید";
 "Build Unsigned Transaction" = "ساخت تراکنش امضانشده";
 "Coin Control" = "کنترل کوین";
 "Automatic" = "خودکار";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "این آدرس دیگر در این کیف پول نیست.";
 "Send From" = "ارسال از";
 "Choose which spending address to send from" = "انتخاب کنید از کدام آدرس خرج ارسال شود";
+"Pin to Front" = "سنجاق به ابتدا";
+"Unpin" = "برداشتن سنجاق";
+"Goes back to its place by latest activity." = "بر اساس آخرین فعالیت به جای خود برمی‌گردد.";
+"Keeps it first in the row above your chats." = "در ردیف بالای گفتگوهایتان اول می‌ماند.";
+"Hold for options" = "برای گزینه‌ها نگه دارید";
+"Delete Room?" = "اتاق حذف شود؟";

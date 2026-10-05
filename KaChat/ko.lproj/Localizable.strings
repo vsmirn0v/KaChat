@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = ".kachat이 메인넷에 출시되면 프로필을 저장할 수 있습니다.";
 "Pinned to the front" = "맨 앞에 고정됨";
 "Unpinned" = "고정 해제됨";
-"Hold to pin to the front" = "길게 눌러 맨 앞에 고정";
-"Hold to unpin" = "길게 눌러 고정 해제";
 "Build Unsigned Transaction" = "서명되지 않은 거래 만들기";
 "Coin Control" = "코인 컨트롤";
 "Automatic" = "자동";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "이 주소는 더 이상 이 지갑에 없습니다.";
 "Send From" = "보내는 주소";
 "Choose which spending address to send from" = "보낼 지출 주소를 선택합니다";
+"Pin to Front" = "맨 앞에 고정";
+"Unpin" = "고정 해제";
+"Goes back to its place by latest activity." = "최근 활동 순서의 원래 자리로 돌아갑니다.";
+"Keeps it first in the row above your chats." = "채팅 위 줄의 맨 앞에 유지됩니다.";
+"Hold for options" = "길게 눌러 옵션 보기";
+"Delete Room?" = "방을 삭제할까요?";

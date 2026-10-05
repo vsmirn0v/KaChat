@@ -50,6 +50,12 @@ struct ChatListView: View {
     /// Group chats and public rooms pinned to the front of the circles row, in order - ids
     /// "g:<groupId>" / "r:<room>", saved per wallet.
     @State private var circlePins: [String] = []
+    /// The circle whose long-press half sheet is up ("g:<groupId>" / "r:<room>").
+    @State private var circleActionTarget: CircleActionTarget?
+    private struct CircleActionTarget: Identifiable { let id: String }
+    /// A group or custom room waiting on its delete confirmation, from that sheet.
+    @State private var circleDeleteGroup: GroupChat?
+    @State private var circleDeleteRoom: String?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -195,6 +201,32 @@ struct ChatListView: View {
         let withAlerts = withPresentation
             .sheet(item: $conversationActionTarget) { conversation in
             conversationRowSheet(for: conversation)
+        }
+        .sheet(item: $circleActionTarget) { target in
+            circleActionSheet(for: target.id)
+        }
+        .alert(
+            "Delete Group?",
+            isPresented: Binding(get: { circleDeleteGroup != nil }, set: { if !$0 { circleDeleteGroup = nil } }),
+            presenting: circleDeleteGroup
+        ) { group in
+            Button("Delete", role: .destructive) { deleteGroups([group]) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This removes this group and its messages from this device. This cannot be undone, and other members won't be notified.")
+        }
+        .alert(
+            "Delete Room?",
+            isPresented: Binding(get: { circleDeleteRoom != nil }, set: { if !$0 { circleDeleteRoom = nil } }),
+            presenting: circleDeleteRoom
+        ) { room in
+            Button("Delete", role: .destructive) {
+                if selectedPublicRoom == room { selectedPublicRoom = nil }
+                PublicChatService.shared.leaveChannel(room)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Every message cached for this room on this device is deleted. This cannot be undone - rejoining later starts with no history.")
         }
         .alert(
                 bulkDeleteAlertTitle,
@@ -898,7 +930,6 @@ struct ChatListView: View {
 
     /// Hold a circle: pin it to the front (newest pin first), or unpin it.
     private func toggleCirclePin(_ id: String) {
-        Haptics.impact(.medium)
         if let index = circlePins.firstIndex(of: id) {
             circlePins.remove(at: index)
             showToast(AppLocalization.string("Unpinned"))
@@ -932,7 +963,7 @@ struct ChatListView: View {
                 selectedRooms: $selectedPublicRooms,
                 onOpenGroup: openGroupFromCircle,
                 onOpenRoom: openRoom,
-                onTogglePin: toggleCirclePin
+                onLongPress: { circleActionTarget = CircleActionTarget(id: $0) }
             )
             .listRowInsets(EdgeInsets())
             .listRowSeparator(.hidden)
@@ -1326,6 +1357,125 @@ struct ChatListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .presentationDetents([.height(400)])
         .presentationDragIndicator(.visible)
+    }
+
+    /// A group or room circle's long-press half sheet - the chat row's options for that kind:
+    /// read state, pin to the front, notifications, (rooms) the room link, and delete. A default
+    /// room is only switched off, as in Public Chats settings.
+    @ViewBuilder
+    private func circleActionSheet(for id: String) -> some View {
+        let isPinned = circlePins.contains(id)
+        VStack(spacing: 12) {
+            if id.hasPrefix("g:"), let group = groupChatService.groups.first(where: { "g:\($0.id)" == id }) {
+                let isSilent = groupChatService.silentNotifications(for: group.id)
+                Text(group.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .padding(.top, 20)
+                    .padding(.bottom, 4)
+                if groupChatService.unreadCount(for: group) > 0 {
+                    ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this group.", systemImage: "envelope.open") {
+                        circleActionTarget = nil
+                        groupChatService.markGroupAsRead(group.id)
+                    }
+                } else {
+                    ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
+                        circleActionTarget = nil
+                        groupChatService.markGroupAsUnread(group.id)
+                    }
+                }
+                circlePinRow(id: id, isPinned: isPinned)
+                ActionSheetRow(
+                    title: isSilent ? "Unsilence" : "Silence",
+                    subtitle: isSilent
+                        ? "Notifications from this group resume, including mentions."
+                        : "No notification from this group, mentions included.",
+                    systemImage: isSilent ? "bell" : "bell.slash"
+                ) {
+                    circleActionTarget = nil
+                    groupChatService.setSilentNotifications(!isSilent, for: group.id)
+                }
+                ActionSheetRow(title: "Delete", subtitle: "Removes this group and its messages from this device.", systemImage: "trash", tint: .red) {
+                    circleActionTarget = nil
+                    // One turn later: the alert can't present while the sheet is going down.
+                    DispatchQueue.main.async { circleDeleteGroup = group }
+                }
+            } else if id.hasPrefix("r:") {
+                let name = String(id.dropFirst(2))
+                let rooms = PublicChatService.shared
+                let channel = rooms.channels.first { $0.channelName == name }
+                let isCurated = PublicChatService.indexedChannels.contains(name)
+                let notifyOn = channel?.notifyEnabled ?? false
+                Text(verbatim: "#\(name)")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .padding(.top, 20)
+                    .padding(.bottom, 4)
+                if rooms.unreadCount(forChannel: name) > 0 {
+                    ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this room.", systemImage: "envelope.open") {
+                        circleActionTarget = nil
+                        rooms.markChannelRead(name)
+                    }
+                } else {
+                    ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
+                        circleActionTarget = nil
+                        rooms.markChannelUnread(name)
+                    }
+                }
+                circlePinRow(id: id, isPinned: isPinned)
+                ActionSheetRow(
+                    title: notifyOn ? "Turn Off Notifications" : "Turn On Notifications",
+                    subtitle: notifyOn
+                        ? "No notification for new messages in this room."
+                        : (isCurated ? "Notifies you of new messages, even when the app is closed."
+                                     : "Notifies you of new messages while the app is open."),
+                    systemImage: notifyOn ? "bell.slash" : "bell"
+                ) {
+                    circleActionTarget = nil
+                    rooms.setNotifyEnabled(!notifyOn, forChannel: name)
+                    showToast(AppLocalization.string(notifyOn
+                        ? "Notifications are off for this public chat"
+                        : (isCurated
+                            ? "You'll get notifications for new messages in this public chat, even when the app is closed"
+                            : "You'll get a notification for new messages in this public chat as long as your app remains open")))
+                }
+                ActionSheetRow(title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", systemImage: "link") {
+                    circleActionTarget = nil
+                    UIPasteboard.general.string = KaChatInternalLink.publicChatRoom(channel: name).universalLinkString
+                    showToast(AppLocalization.string("Room link copied"))
+                }
+                if isCurated {
+                    ActionSheetRow(title: "Delete", subtitle: "Switches this default room off. Turn it back on in Public Chats settings.", systemImage: "trash", tint: .red) {
+                        circleActionTarget = nil
+                        if selectedPublicRoom == name { selectedPublicRoom = nil }
+                        rooms.removeFromList(name)
+                    }
+                } else if channel != nil {
+                    ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
+                        circleActionTarget = nil
+                        DispatchQueue.main.async { circleDeleteRoom = name }
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(id.hasPrefix("r:") ? 520 : 460)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func circlePinRow(id: String, isPinned: Bool) -> some View {
+        ActionSheetRow(
+            title: isPinned ? "Unpin" : "Pin to Front",
+            subtitle: isPinned ? "Goes back to its place by latest activity." : "Keeps it first in the row above your chats.",
+            systemImage: isPinned ? "pin.slash" : "pin"
+        ) {
+            circleActionTarget = nil
+            toggleCirclePin(id)
+        }
     }
 
     /// Silencing a 1:1 chat is the existing per-contact notification override set to `.off` -
@@ -2002,7 +2152,8 @@ private struct ChatsTabUnreadBadge: View {
 
 /// Group chats and public rooms as a row of circles above the chats list, under the search bar.
 /// Swipe sideways for all of them. Pinned ones come first (in pin order), then the rest by latest
-/// activity. Tap opens; hold pins to the front or unpins; in Select mode a tap selects, for the
+/// activity. A red count shows messages from others since you last opened it. Tap opens; hold
+/// opens its half sheet (read state, pin, notifications, delete); in Select mode a tap selects, for the
 /// list's mark read / unread / delete bar. Observes the room and group services itself, so room
 /// traffic re-renders this row rather than the whole chat list.
 private struct ChatCirclesStrip: View {
@@ -2015,7 +2166,8 @@ private struct ChatCirclesStrip: View {
     @Binding var selectedRooms: Set<String>
     let onOpenGroup: (GroupChat) -> Void
     let onOpenRoom: (String) -> Void
-    let onTogglePin: (String) -> Void
+    /// Hold a circle: its half sheet (read state, pin, notifications, delete), like a chat row's.
+    let onLongPress: (String) -> Void
 
     private enum Item: Identifiable {
         case group(GroupChat)
@@ -2181,11 +2333,12 @@ private struct ChatCirclesStrip: View {
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.4).onEnded { _ in
                 guard !isSelecting else { return }
-                onTogglePin(item.id)
+                Haptics.impact(.medium)
+                onLongPress(item.id)
             }
         )
         .accessibilityLabel(Text(verbatim: title(of: item)))
-        .accessibilityHint(Text(pinned ? "Hold to unpin" : "Hold to pin to the front"))
+        .accessibilityHint(Text("Hold for options"))
     }
 }
 

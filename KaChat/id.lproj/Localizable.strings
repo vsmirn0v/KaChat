@@ -1218,8 +1218,6 @@
 "Profiles can be saved once .kachat launches on mainnet." = "Profil bisa disimpan setelah .kachat diluncurkan di mainnet.";
 "Pinned to the front" = "Disematkan di depan";
 "Unpinned" = "Sematan dilepas";
-"Hold to pin to the front" = "Tahan untuk menyematkan di depan";
-"Hold to unpin" = "Tahan untuk melepas sematan";
 "Build Unsigned Transaction" = "Buat transaksi tanpa tanda tangan";
 "Coin Control" = "Kontrol koin";
 "Automatic" = "Otomatis";
@@ -1237,3 +1235,9 @@
 "This address isn't in this wallet any more." = "Alamat ini sudah tidak ada di dompet ini.";
 "Send From" = "Kirim Dari";
 "Choose which spending address to send from" = "Pilih alamat pengeluaran untuk mengirim";
+"Pin to Front" = "Sematkan di Depan";
+"Unpin" = "Lepas Sematan";
+"Goes back to its place by latest activity." = "Kembali ke tempatnya menurut aktivitas terbaru.";
+"Keeps it first in the row above your chats." = "Tetap pertama di baris atas obrolan Anda.";
+"Hold for options" = "Tahan untuk opsi";
+"Delete Room?" = "Hapus ruang?";
