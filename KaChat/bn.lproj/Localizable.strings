@@ -1249,3 +1249,12 @@
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "আপনার চ্যাটিং ঠিকানা কপি করে TN10 ফসেট খোলে: পেস্ট করুন, যাচাই পার হন এবং সর্বোচ্চ পরিমাণ দাবি করুন।";
 "Your TN10 chatting address is copied. Paste it into the faucet's address field." = "আপনার TN10 চ্যাটিং ঠিকানা কপি হয়েছে। ফসেটের ঠিকানার ঘরে পেস্ট করুন।";
 "Copies the address" = "ঠিকানাটি কপি করে";
+"Manage Name" = "নাম পরিচালনা";
+"Pays for more years now, up to the 2-year limit." = "এখনই আরও বছরের জন্য অর্থ দেয়, ২ বছরের সীমা পর্যন্ত।";
+"Starts a new paid period from the expiry date." = "মেয়াদ শেষের তারিখ থেকে নতুন অর্থপ্রদত্ত মেয়াদ শুরু করে।";
+"Changes the asking price." = "চাওয়া দাম পরিবর্তন করে।";
+"Takes the name off the market." = "নামটি বাজার থেকে সরিয়ে নেয়।";
+"Puts the name up for sale at your price." = "আপনার দামে নামটি বিক্রির জন্য তোলে।";
+"Sends the name to another address." = "নামটি অন্য ঠিকানায় পাঠায়।";
+"Shows you by this name across KaChat." = "KaChat জুড়ে আপনাকে এই নামে দেখায়।";
+"Gives the name up and returns its deposit." = "নামটি ছেড়ে দেয় এবং এর জামানত ফেরত দেয়।";

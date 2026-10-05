@@ -1249,3 +1249,12 @@
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "チャット用アドレスをコピーしてTN10フォーセットを開きます。貼り付けて確認を通過し、最大額を受け取ってください。";
 "Your TN10 chatting address is copied. Paste it into the faucet's address field." = "TN10のチャット用アドレスをコピーしました。フォーセットのアドレス欄に貼り付けてください。";
 "Copies the address" = "アドレスをコピーします";
+"Manage Name" = "名前を管理";
+"Pays for more years now, up to the 2-year limit." = "上限の2年まで、今のうちに追加の年数を支払います。";
+"Starts a new paid period from the expiry date." = "有効期限の日から新しい支払い期間を始めます。";
+"Changes the asking price." = "希望価格を変更します。";
+"Takes the name off the market." = "名前を出品から取り下げます。";
+"Puts the name up for sale at your price." = "あなたの価格で名前を出品します。";
+"Sends the name to another address." = "名前を別のアドレスに送ります。";
+"Shows you by this name across KaChat." = "KaChat全体でこの名前であなたを表示します。";
+"Gives the name up and returns its deposit." = "名前を手放し、預け金を返します。";

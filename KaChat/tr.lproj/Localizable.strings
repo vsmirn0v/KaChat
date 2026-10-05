@@ -1249,3 +1249,12 @@
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "Sohbet adresini kopyalar ve TN10 musluğunu açar: yapıştır, doğrulamayı geç ve sunulan en yüksek miktarı al.";
 "Your TN10 chatting address is copied. Paste it into the faucet's address field." = "TN10 sohbet adresin kopyalandı. Musluğun adres alanına yapıştır.";
 "Copies the address" = "Adresi kopyalar";
+"Manage Name" = "Adı yönet";
+"Pays for more years now, up to the 2-year limit." = "Şimdi ek yılları öder, 2 yıllık sınıra kadar.";
+"Starts a new paid period from the expiry date." = "Bitiş tarihinden itibaren yeni bir ödenmiş dönem başlatır.";
+"Changes the asking price." = "Satış fiyatını değiştirir.";
+"Takes the name off the market." = "Adı piyasadan çeker.";
+"Puts the name up for sale at your price." = "Adı senin fiyatından satışa çıkarır.";
+"Sends the name to another address." = "Adı başka bir adrese gönderir.";
+"Shows you by this name across KaChat." = "Seni KaChat'in her yerinde bu adla gösterir.";
+"Gives the name up and returns its deposit." = "Adı bırakır ve depozitosunu iade eder.";

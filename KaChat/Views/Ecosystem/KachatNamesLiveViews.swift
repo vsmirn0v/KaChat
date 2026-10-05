@@ -1300,6 +1300,11 @@ struct KachatLiveNameDetail: View {
 
     @State private var ownerCopied = false
     @State private var sheet: Sheet?
+    /// The Manage Name half sheet, and what it picked: opened once it has gone down (two
+    /// sheets can't present at once).
+    @State private var showManage = false
+    @State private var pendingSheet: Sheet?
+    @State private var pendingPrimary = false
     @State private var offerAction: KachatOfferAction?
     @State private var ownerLabel: String?
     @State private var offers: [KachatNames.OfferInfo] = []
@@ -1348,6 +1353,17 @@ struct KachatLiveNameDetail: View {
         .refreshable { await registry.refresh() }
         .task(id: registry.revision) { await reload() }
         .sheet(item: $sheet) { s in sheetView(s) }
+        .sheet(isPresented: $showManage, onDismiss: {
+            if let next = pendingSheet {
+                pendingSheet = nil
+                sheet = next
+            } else if pendingPrimary {
+                pendingPrimary = false
+                confirmPrimary = true
+            }
+        }) {
+            manageSheet
+        }
         .sheet(item: $offerAction) { action in action.sheet }
         .sheet(isPresented: $confirmPrimary) {
             KachatProfileSaveSheet(title: "Set as Primary", confirmTitle: "Set as Primary", doneTitle: "Primary name set",
@@ -1422,30 +1438,13 @@ struct KachatLiveNameDetail: View {
     private var actionButtons: some View {
         VStack(spacing: 10) {
             if canActAsOwner {
-                periodActions
-                HStack(spacing: 10) {
-                    actionButton(info.isListed ? "Change Price" : "List for Sale", "tag") { sheet = .list }
-                        .disabled(status != .active)
-                    actionButton("Transfer", "arrow.left.arrow.right") { sheet = .transfer }
+                // Expired (in grace or lapsed) and renewable: the one thing that matters now stays
+                // on the page instead of inside the menu.
+                if status != .active, let p = KachatLive.params, info.renewOpen(p) {
+                    actionButton("Renew", "arrow.clockwise", prominent: true) { sheet = .renew }
                 }
-                HStack(spacing: 10) {
-                    if info.isListed {
-                        actionButton("Delist", "tag.slash") { sheet = .delist }
-                    }
-                    // The primary name is the chatting address's identity; a name on a spending
-                    // address can't be it.
-                    if mine {
-                        actionButton("Set as Primary", "person.crop.circle.badge.checkmark") { confirmPrimary = true }
-                            .disabled(status != .active)
-                    }
-                }
-                Button(role: .destructive) { sheet = .release } label: {
-                    Label("Release Name", systemImage: "trash")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.bordered)
+                // Every owner action lives in one half sheet of tiles.
+                actionButton("Manage Name", "slider.horizontal.3", prominent: status == .active) { showManage = true }
             } else if case .kasSigner? = heldBy {
                 // Read-only: the app shows that a KasSigner address holds the name (the Owner card
                 // says which); acting on it is the device's job.
@@ -1467,43 +1466,100 @@ struct KachatLiveNameDetail: View {
         .padding(.horizontal, 16)
     }
 
-    /// Registry v2: "Extend" while the paid period holds less than 2 years (labelled "Extend to
-    /// 2 years" when that fills it), "Renew" once the renewal window is open (10 days before
-    /// the expiry, and on through grace and lapse), otherwise "Renewal opens on <date>".
-    @ViewBuilder
-    private var periodActions: some View {
+    /// One tile of the Manage Name sheet.
+    private struct ManageItem: Identifiable {
+        let title: String
+        let subtitle: String
+        let icon: String
+        var tint: Color = .accentColor
+        var disabled = false
+        let run: () -> Void
+        var id: String { title }
+    }
+
+    /// The owner's actions, as tiles. Registry v2 periods: "Extend" while the paid period holds
+    /// less than 2 years ("Extend to 2 years" when that fills it), "Renew" once the renewal
+    /// window is open (10 days before the expiry, and on through grace and lapse) - otherwise the
+    /// sheet's header says when it opens.
+    private var manageItems: [ManageItem] {
+        var items: [ManageItem] = []
+        // The picked action opens once this sheet has gone down (see the onDismiss).
+        let open: (Sheet) -> () -> Void = { s in { pendingSheet = s; showManage = false } }
         if let p = KachatLive.params {
             let extendable = info.extendableYears(p)
-            let renewOpen = info.renewOpen(p)
-            if extendable > 0 || renewOpen {
-                HStack(spacing: 10) {
-                    if extendable > 0 {
-                        if KachatExtendSheet.fillsPeriod(info, years: extendable, params: p) {
-                            actionButton("Extend to \(p.maxYears) years", "calendar.badge.plus", prominent: status != .active && !renewOpen) { sheet = .extend }
-                        } else {
-                            actionButton("Extend", "calendar.badge.plus", prominent: status != .active && !renewOpen) { sheet = .extend }
-                        }
-                    }
-                    if renewOpen {
-                        actionButton("Renew", "arrow.clockwise", prominent: status != .active) { sheet = .renew }
-                    }
-                }
+            if extendable > 0 {
+                let title = KachatExtendSheet.fillsPeriod(info, years: extendable, params: p)
+                    ? String(format: AppLocalization.string("Extend to %lld years"), p.maxYears)
+                    : "Extend"
+                items.append(ManageItem(title: title, subtitle: "Pays for more years now, up to the 2-year limit.",
+                                        icon: "calendar.badge.plus", run: open(.extend)))
             }
-            if !renewOpen {
-                Button {} label: {
-                    Label {
-                        Text("Renewal opens on \(KachatLive.date(info.renewOpens(p)), format: .dateTime.year().month().day())")
-                    } icon: {
-                        Image(systemName: "calendar.badge.clock")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                }
-                .buttonStyle(.bordered)
-                .disabled(true)
+            if info.renewOpen(p) {
+                items.append(ManageItem(title: "Renew", subtitle: "Starts a new paid period from the expiry date.",
+                                        icon: "arrow.clockwise", run: open(.renew)))
             }
         }
+        if info.isListed {
+            items.append(ManageItem(title: "Change Price", subtitle: "Changes the asking price.",
+                                    icon: "tag", disabled: status != .active, run: open(.list)))
+            items.append(ManageItem(title: "Delist", subtitle: "Takes the name off the market.",
+                                    icon: "tag.slash", run: open(.delist)))
+        } else {
+            items.append(ManageItem(title: "List for Sale", subtitle: "Puts the name up for sale at your price.",
+                                    icon: "tag", disabled: status != .active, run: open(.list)))
+        }
+        items.append(ManageItem(title: "Transfer", subtitle: "Sends the name to another address.",
+                                icon: "arrow.left.arrow.right", run: open(.transfer)))
+        // The primary name is the chatting address's identity; a name on a spending address
+        // can't be it.
+        if mine {
+            items.append(ManageItem(title: "Set as Primary", subtitle: "Shows you by this name across KaChat.",
+                                    icon: "person.crop.circle.badge.checkmark", disabled: status != .active) {
+                pendingPrimary = true
+                showManage = false
+            })
+        }
+        items.append(ManageItem(title: "Release Name", subtitle: "Gives the name up and returns its deposit.",
+                                icon: "trash", tint: .red, run: open(.release)))
+        return items
+    }
+
+    /// When the renewal window opens, while it hasn't yet - shown under the sheet's title.
+    private var renewalOpensNote: String? {
+        guard let p = KachatLive.params, !info.renewOpen(p) else { return nil }
+        let day = KachatLive.date(info.renewOpens(p)).formatted(.dateTime.year().month().day())
+        return String(format: AppLocalization.string("Renewal opens on %@"), day)
+    }
+
+    private var manageSheet: some View {
+        let items = manageItems
+        let note = renewalOpensNote
+        return VStack(spacing: 12) {
+            VStack(spacing: 4) {
+                Text(verbatim: info.display)
+                    .font(.headline)
+                    .lineLimit(1)
+                if let note {
+                    Text(verbatim: note)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+            ActionSheetTiles {
+                ForEach(items) { item in
+                    ActionSheetRow(title: item.title, subtitle: item.subtitle, systemImage: item.icon,
+                                   tint: item.tint, isDisabled: item.disabled, action: item.run)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(ActionSheetTileMetrics.sheetHeight(tiles: items.count, header: note == nil ? 70 : 90))])
+        .presentationDragIndicator(.visible)
     }
 
     private func actionButton(_ title: LocalizedStringKey, _ icon: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {

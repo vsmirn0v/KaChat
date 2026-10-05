@@ -1249,3 +1249,12 @@
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "채팅 주소를 복사하고 TN10 포싯을 엽니다. 붙여넣고 확인을 통과한 뒤 최대 금액을 받으세요.";
 "Your TN10 chatting address is copied. Paste it into the faucet's address field." = "TN10 채팅 주소가 복사되었습니다. 포싯의 주소 칸에 붙여넣으세요.";
 "Copies the address" = "주소를 복사합니다";
+"Manage Name" = "이름 관리";
+"Pays for more years now, up to the 2-year limit." = "2년 한도까지 지금 더 많은 기간을 결제합니다.";
+"Starts a new paid period from the expiry date." = "만료일부터 새 결제 기간을 시작합니다.";
+"Changes the asking price." = "판매 가격을 변경합니다.";
+"Takes the name off the market." = "이름을 시장에서 내립니다.";
+"Puts the name up for sale at your price." = "원하는 가격에 이름을 판매합니다.";
+"Sends the name to another address." = "이름을 다른 주소로 보냅니다.";
+"Shows you by this name across KaChat." = "KaChat 전체에서 이 이름으로 표시됩니다.";
+"Gives the name up and returns its deposit." = "이름을 포기하고 보증금을 돌려받습니다.";
