@@ -1235,3 +1235,5 @@
 "Send Kaspa from your spending address." = "שליחת Kaspa מכתובת ההוצאה שלך.";
 "Spending address is unlocking — go back and try again." = "כתובת ההוצאה נפתחת — חזרו ונסו שוב.";
 "This address isn't in this wallet any more." = "הכתובת הזו כבר לא נמצאת בארנק הזה.";
+"Send From" = "שליחה מ-";
+"Choose which spending address to send from" = "בחרו מאיזו כתובת הוצאה לשלוח";

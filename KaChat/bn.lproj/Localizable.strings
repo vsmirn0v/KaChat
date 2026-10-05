@@ -1235,3 +1235,5 @@
 "Send Kaspa from your spending address." = "আপনার খরচের ঠিকানা থেকে Kaspa পাঠান।";
 "Spending address is unlocking — go back and try again." = "খরচের ঠিকানাটি আনলক হচ্ছে — ফিরে গিয়ে আবার চেষ্টা করুন।";
 "This address isn't in this wallet any more." = "এই ঠিকানাটি আর এই ওয়ালেটে নেই।";
+"Send From" = "যেখান থেকে পাঠাবেন";
+"Choose which spending address to send from" = "কোন খরচের ঠিকানা থেকে পাঠাবেন তা বেছে নিন";

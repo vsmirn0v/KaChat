@@ -1235,3 +1235,5 @@
 "Send Kaspa from your spending address." = "Отправить Kaspa с вашего адреса для трат.";
 "Spending address is unlocking — go back and try again." = "Адрес для трат разблокируется — вернитесь и попробуйте снова.";
 "This address isn't in this wallet any more." = "Этого адреса больше нет в этом кошельке.";
+"Send From" = "Отправить с";
+"Choose which spending address to send from" = "Выберите адрес для трат, с которого отправить";

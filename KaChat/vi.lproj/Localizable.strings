@@ -1235,3 +1235,5 @@
 "Send Kaspa from your spending address." = "Gửi Kaspa từ địa chỉ chi tiêu của bạn.";
 "Spending address is unlocking — go back and try again." = "Địa chỉ chi tiêu đang mở khóa — hãy quay lại và thử lại.";
 "This address isn't in this wallet any more." = "Địa chỉ này không còn trong ví này.";
+"Send From" = "Gửi từ";
+"Choose which spending address to send from" = "Chọn địa chỉ chi tiêu để gửi";

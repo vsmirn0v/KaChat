@@ -1235,3 +1235,5 @@
 "Send Kaspa from your spending address." = "支払い用アドレスからKaspaを送ります。";
 "Spending address is unlocking — go back and try again." = "支払い用アドレスのロックを解除しています。戻ってもう一度お試しください。";
 "This address isn't in this wallet any more." = "このアドレスはもうこのウォレットにありません。";
+"Send From" = "送信元";
+"Choose which spending address to send from" = "送信元の支払い用アドレスを選びます";

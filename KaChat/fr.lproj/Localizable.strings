@@ -1236,3 +1236,5 @@
 "Send Kaspa from your spending address." = "Envoyez des Kaspa depuis votre adresse de dépense.";
 "Spending address is unlocking — go back and try again." = "L'adresse de dépense se déverrouille — revenez en arrière et réessayez.";
 "This address isn't in this wallet any more." = "Cette adresse ne fait plus partie de ce portefeuille.";
+"Send From" = "Envoyer depuis";
+"Choose which spending address to send from" = "Choisissez l'adresse de dépense d'où envoyer";

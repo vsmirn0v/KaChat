@@ -1235,3 +1235,5 @@
 "Send Kaspa from your spending address." = "Harcama adresinden Kaspa gönder.";
 "Spending address is unlocking — go back and try again." = "Harcama adresinin kilidi açılıyor — geri dönüp tekrar dene.";
 "This address isn't in this wallet any more." = "Bu adres artık bu cüzdanda değil.";
+"Send From" = "Gönderen";
+"Choose which spending address to send from" = "Hangi harcama adresinden gönderileceğini seç";

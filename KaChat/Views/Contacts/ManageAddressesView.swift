@@ -1572,8 +1572,15 @@ struct SpendingAddressWithdrawView: View {
 
     private var feeEstimationKey: String {
         let manualKey = manualUtxos?.map { "\($0.outpoint.transactionId):\($0.outpoint.index)" }.sorted().joined(separator: ",") ?? ""
-        return "\(hasValidRecipient ? effectiveAddress : "")|\(amountSompi ?? 0)|\(manualKey)"
+        return "\(source.index)|\(hasValidRecipient ? effectiveAddress : "")|\(amountSompi ?? 0)|\(manualKey)"
     }
+
+    /// The spending address this send comes from: `entry` (the primary, from Profile or the
+    /// Chats New sheet), unless another was picked from the Available pill for this one send.
+    /// The primary itself doesn't change.
+    @State private var chosenSource: SpendingAddressEntry?
+    @State private var showSourcePicker = false
+    private var source: SpendingAddressEntry { chosenSource ?? entry }
 
     var body: some View {
         NavigationStack {
@@ -1581,7 +1588,7 @@ struct SpendingAddressWithdrawView: View {
                 VStack(spacing: 18) {
                     SendRecipientCard(
                         input: $addressInput,
-                        lockedAddress: isCompoundMode ? entry.address : nil,
+                        lockedAddress: isCompoundMode ? source.address : nil,
                         isResolving: isResolvingKNS,
                         resolvedAddress: resolvedAddress,
                         resolvedName: resolvedDomain,
@@ -1599,7 +1606,26 @@ struct SpendingAddressWithdrawView: View {
                     )
                     .padding(.top, 8)
 
-                    SendInfoPill { KaspaUnit.text("Available: %@ KAS", formatKas(entry.balanceSompi)) }
+                    // Tap to send from a different spending address (not in Compound, which is
+                    // about this one address).
+                    Button {
+                        showSourcePicker = true
+                    } label: {
+                        SendInfoPill {
+                            HStack(spacing: 6) {
+                                KaspaUnit.text("Available: %@ KAS", formatKas(source.balanceSompi))
+                                Text(verbatim: "·")
+                                Text(source.displayLabel)
+                                if !isCompoundMode {
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption2.weight(.bold))
+                                }
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isCompoundMode)
+                    .accessibilityHint(Text("Choose which spending address to send from"))
 
                     SendFeeControls(
                         feeTier: $feeTier,
@@ -1646,7 +1672,7 @@ struct SpendingAddressWithdrawView: View {
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 guard !Task.isCancelled else { return }
                 do {
-                    let fee = try await chatService.estimateSpendingAddressWithdrawalFee(index: entry.index, toAddress: effectiveAddress, amountSompi: amountSompi, manualUtxos: manualUtxos, availableUtxos: isCompoundMode ? preloadedUtxos : [])
+                    let fee = try await chatService.estimateSpendingAddressWithdrawalFee(index: source.index, toAddress: effectiveAddress, amountSompi: amountSompi, manualUtxos: manualUtxos, availableUtxos: isCompoundMode ? preloadedUtxos : [])
                     guard !Task.isCancelled else { return }
                     normalFeeSompi = fee
                 } catch {
@@ -1657,12 +1683,12 @@ struct SpendingAddressWithdrawView: View {
             }
             .task {
                 if isCompoundMode {
-                    addressInput = entry.address
+                    addressInput = source.address
                     isValidAddress = true
                     setMaxAmount()
                 }
             }
-            .navigationTitle(isCompoundMode ? "Compound UTXOs" : "Send Kaspa from Address #\(entry.index)")
+            .navigationTitle(isCompoundMode ? "Compound UTXOs" : "Send Kaspa from Address #\(source.index)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -1675,8 +1701,17 @@ struct SpendingAddressWithdrawView: View {
                     handleScannedQRCode(code)
                 }
             }
+            .sheet(isPresented: $showSourcePicker) {
+                SpendingSourcePicker(currentIndex: source.index) { picked in
+                    chosenSource = picked
+                    // Coin control and the fee belong to the address they were set for.
+                    manualUtxos = nil
+                    customExtraFeeSompi = nil
+                    errorMessage = nil
+                }
+            }
             .sheet(isPresented: $showCoinControl) {
-                CoinControlView(fromAddress: entry.address, initialSelection: manualUtxos) { selection in
+                CoinControlView(fromAddress: source.address, initialSelection: manualUtxos) { selection in
                     manualUtxos = selection
                 }
             }
@@ -1779,14 +1814,14 @@ struct SpendingAddressWithdrawView: View {
                     // send to exactly those inputs. This is why "Max" works even when the address has
                     // more UTXOs than a single tx can hold - it consolidates one batch; repeat to
                     // reduce further.
-                    let (maxSompi, utxos) = try await chatService.maxConsolidatableChunk(index: entry.index, extraFeeSompi: tipSompi, availableUtxos: preloadedUtxos)
+                    let (maxSompi, utxos) = try await chatService.maxConsolidatableChunk(index: source.index, extraFeeSompi: tipSompi, availableUtxos: preloadedUtxos)
                     await MainActor.run {
                         manualUtxos = utxos
                         amountInput = fiatAmountState.setMaxKas(Double(maxSompi) / 100_000_000.0, priceInCurrency: portfolioViewModel.currentPriceUsd)
                         isEstimatingMax = false
                     }
                 } else {
-                    let maxSompi = try await chatService.estimateMaxSpendingAddressAmount(index: entry.index, toAddress: recipient, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
+                    let maxSompi = try await chatService.estimateMaxSpendingAddressAmount(index: source.index, toAddress: recipient, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
                     await MainActor.run {
                         amountInput = fiatAmountState.setMaxKas(Double(maxSompi) / 100_000_000.0, priceInCurrency: portfolioViewModel.currentPriceUsd)
                         isEstimatingMax = false
@@ -1828,7 +1863,7 @@ struct SpendingAddressWithdrawView: View {
         let tipSompi = extraFeeSompi
         Task {
             do {
-                let txId = try await chatService.sendFromSpendingAddress(index: entry.index, toAddress: recipient, amountSompi: amountSompi, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
+                let txId = try await chatService.sendFromSpendingAddress(index: source.index, toAddress: recipient, amountSompi: amountSompi, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
                 await MainActor.run {
                     isSending = false
                     sentTransaction = SentTransaction(
@@ -1859,6 +1894,85 @@ struct SpendingAddressWithdrawView: View {
 /// White-background QR display for a single spending address, matching the same visual
 /// treatment as ChattingAddressQRView (literal colors, not adaptive semantic colors, so text
 /// stays readable regardless of system dark/light mode without affecting the nav bar).
+/// Which spending address a send comes from, picked from the Send screen's Available pill:
+/// every spending address you can see (plus hidden ones that hold Kaspa), funded ones first, each
+/// with its balance. Picking one changes this send only - the primary stays where it is.
+private struct SpendingSourcePicker: View {
+    let currentIndex: Int
+    let onPick: (SpendingAddressEntry) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var entries: [SpendingAddressEntry]?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let entries {
+                    List(entries) { entry in
+                        Button {
+                            onPick(entry)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(spacing: 6) {
+                                        Text(entry.displayLabel)
+                                            .font(.subheadline.weight(.semibold))
+                                        if entry.isCurrent {
+                                            Text("Primary")
+                                                .font(.caption2.weight(.bold))
+                                                .foregroundColor(.accentColor)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                                        }
+                                    }
+                                    Text(verbatim: "\(entry.address.prefix(14))...\(entry.address.suffix(6))")
+                                        .font(.caption.monospaced())
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Text(verbatim: "\(Self.formatKas(entry.balanceSompi)) \(KaspaUnit.symbol)")
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundColor(entry.balanceSompi > 0 ? .primary : .secondary)
+                                if entry.index == currentIndex {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    ProgressView()
+                }
+            }
+            .navigationTitle("Send From")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .task {
+            let all = await WalletManager.shared.getSpendingAddressList()
+            entries = all
+                .filter { !$0.hidden || $0.balanceSompi > 0 || $0.index == currentIndex }
+                .sorted { ($0.balanceSompi > 0 ? 0 : 1, $0.index) < ($1.balanceSompi > 0 ? 0 : 1, $1.index) }
+        }
+    }
+
+    private static func formatKas(_ sompi: UInt64) -> String {
+        var text = String(format: "%.8f", Double(sompi) / 100_000_000)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
+}
+
 private struct SpendingAddressQRView: View {
     let entry: SpendingAddressEntry
     @Environment(\.dismiss) private var dismiss

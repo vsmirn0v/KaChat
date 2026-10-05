@@ -1235,3 +1235,5 @@
 "Send Kaspa from your spending address." = "अपने खर्च पते से Kaspa भेजें।";
 "Spending address is unlocking — go back and try again." = "खर्च पता अनलॉक हो रहा है — वापस जाकर फिर से कोशिश करें।";
 "This address isn't in this wallet any more." = "यह पता अब इस वॉलेट में नहीं है।";
+"Send From" = "यहाँ से भेजें";
+"Choose which spending address to send from" = "चुनें कि किस खर्च पते से भेजना है";

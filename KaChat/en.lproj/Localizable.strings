@@ -1236,3 +1236,5 @@
 "Send Kaspa from your spending address." = "Send Kaspa from your spending address.";
 "Spending address is unlocking — go back and try again." = "Spending address is unlocking — go back and try again.";
 "This address isn't in this wallet any more." = "This address isn't in this wallet any more.";
+"Send From" = "Send From";
+"Choose which spending address to send from" = "Choose which spending address to send from";

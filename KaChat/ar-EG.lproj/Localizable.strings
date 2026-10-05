@@ -1235,3 +1235,5 @@
 "Send Kaspa from your spending address." = "ابعت Kaspa من عنوان الصرف بتاعك.";
 "Spending address is unlocking — go back and try again." = "عنوان الصرف بيتفتح — ارجع وجرّب تاني.";
 "This address isn't in this wallet any more." = "العنوان ده مبقاش في المحفظة دي.";
+"Send From" = "ابعت من";
+"Choose which spending address to send from" = "اختار عنوان الصرف اللي هتبعت منه";
