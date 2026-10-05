@@ -715,7 +715,7 @@
 "No domain" = "Tidak ada domain";
 "Other domains" = "Domain lain";
 "Couldn't check" = "Tidak dapat memeriksa";
-"Edit .kachat Profile" = "Edit Profil .kachat";
+"Edit KaChat Profile" = "Edit Profil KaChat";
 ".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere." = "Nama .kachat segera hadir. Setelah kamu mengklaimnya, atur avatar, banner, bio, dan tautanmu di sini - itulah yang ditampilkan KaChat tentangmu di mana saja.";
 "None yet" = "Belum ada";
 ".kachat Name" = "Nama .kachat";
@@ -1241,3 +1241,5 @@
 "Keeps it first in the row above your chats." = "Tetap pertama di baris atas obrolan Anda.";
 "Hold for options" = "Tahan untuk opsi";
 "Delete Room?" = "Hapus ruang?";
+"This address is on a different network than the app." = "Alamat ini ada di jaringan yang berbeda dari aplikasi.";
+".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = "Nama .kachat belum ada di mainnet. Avatar, banner, bio, dan tautan Anda tersimpan sekarang; Anda bisa memilih nama utama setelah nama diluncurkan.";

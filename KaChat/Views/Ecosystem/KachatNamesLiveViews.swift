@@ -2088,7 +2088,7 @@ struct KachatLiveDomainsTab: View {
     }
 }
 
-// MARK: - Edit .kachat Profile
+// MARK: - Edit KaChat Profile
 
 /// Where a social link's lookup stands - the editor saves only a field whose lookup found what
 /// that field shows, so what gets saved is what was reviewed.
@@ -2366,14 +2366,28 @@ struct KachatLiveProfileEditor: View {
                     }
                 }
                 Section {
-                    Picker("Primary name", selection: $primary) {
-                        Text("None").tag("")
-                        ForEach(activeNames, id: \.self) { n in Text(verbatim: "\(n).kachat").tag(n) }
+                    // The primary name needs the registry: until it launches on this network
+                    // (mainnet) there's no name to pick, so the profile saves without one.
+                    if KachatNamesService.isLaunched {
+                        Picker("Primary name", selection: $primary) {
+                            Text("None").tag("")
+                            ForEach(activeNames, id: \.self) { n in Text(verbatim: "\(n).kachat").tag(n) }
+                        }
+                    } else {
+                        HStack {
+                            Text("Primary name")
+                            Spacer()
+                            Text("Coming soon").foregroundColor(.secondary)
+                        }
                     }
                 } header: {
                     Text(".kachat Name")
                 } footer: {
-                    Text("KaChat shows you by your primary name while you own it and it's active; otherwise by your oldest active name, or your address.")
+                    if KachatNamesService.isLaunched {
+                        Text("KaChat shows you by your primary name while you own it and it's active; otherwise by your oldest active name, or your address.")
+                    } else {
+                        Text(".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch.")
+                    }
                 }
                 Section {
                     Button {
@@ -2381,14 +2395,10 @@ struct KachatLiveProfileEditor: View {
                     } label: {
                         HStack { Spacer(); Text("Save Profile").font(.headline); Spacer() }
                     }
-                    // Mainnet shows the editor, but nothing is written until .kachat launches there.
-                    .disabled(!loaded || blocked || !KachatNamesService.isLaunched)
+                    // Saves on every network: a profile is a self-send, with no registry behind it.
+                    .disabled(!loaded || blocked || !KachatNamesService.profilesEnabled)
                 } footer: {
-                    if KachatNamesService.isLaunched {
-                        Text("Saving writes your profile to the chain from your address to itself, for a network fee. Profiles are public.")
-                    } else {
-                        Text("Profiles can be saved once .kachat launches on mainnet.")
-                    }
+                    Text("Saving writes your profile to the chain from your address to itself, for a network fee. Profiles are public.")
                 }
             }
             .sheet(isPresented: $showSave) {
@@ -2398,7 +2408,7 @@ struct KachatLiveProfileEditor: View {
             .onChange(of: avatarLookup) { v in if v == .found { fillEmpty(from: avatarIn) } }
             .onChange(of: bannerLookup) { v in if v == .found { fillEmpty(from: bannerIn) } }
             .onChange(of: bioLookup) { v in if v == .found { fillEmpty(from: bioIn) } }
-            .navigationTitle("Edit .kachat Profile")
+            .navigationTitle("Edit KaChat Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2435,7 +2445,7 @@ struct KachatLiveProfileEditor: View {
 
 /// Review before a profile record goes out - what will be saved, the network fee, the chatting
 /// address's balance before and after - the same confirmation every other name action shows.
-/// Used by Edit .kachat Profile and by Set as Primary.
+/// Used by Edit KaChat Profile and by Set as Primary.
 struct KachatProfileSaveSheet: View {
     let title: LocalizedStringKey
     let confirmTitle: LocalizedStringKey

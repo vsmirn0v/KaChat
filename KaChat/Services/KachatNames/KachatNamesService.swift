@@ -33,6 +33,7 @@ final class KachatNamesService: ObservableObject {
 
     enum ServiceError: LocalizedError {
         case testnetOnly
+        case wrongAddressNetwork
         case noManifest(String)
         case dryRunManifest
         case wrongNodeNetwork(String)
@@ -48,6 +49,7 @@ final class KachatNamesService: ObservableObject {
             case .registryUpgrading:
                 return AppLocalization.string("The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live.")
             case .testnetOnly: return ".kachat names run on Testnet only for now"
+            case .wrongAddressNetwork: return AppLocalization.string("This address is on a different network than the app.")
             case .noManifest(let why): return "No .kachat registry manifest: \(why)"
             case .dryRunManifest: return "The .kachat manifest is from a dry run; that registry does not exist"
             case .wrongNodeNetwork(let n): return "The node is on \(n), not testnet-10"
@@ -70,8 +72,12 @@ final class KachatNamesService: ObservableObject {
     /// guards are kept, unreachable, as a switch-back.
     nonisolated static var isEnabled: Bool { true }
     /// Whether this network has a live registry the app reads and transacts with (lookups,
-    /// listings, registrations, profile saves, resolving typed names): testnet-10 only for now.
+    /// listings, registrations, resolving typed names): testnet-10 only for now.
     nonisolated static var isLaunched: Bool { AppSettings.load().networkType == .testnet }
+    /// Address profiles (`kchat:1:profile:`) work on every network: a profile is a plain
+    /// self-send from the chatting address, with no registry behind it, so mainnet can save and
+    /// read them before its registry launches. Only the primary name needs the registry.
+    nonisolated static var profilesEnabled: Bool { isEnabled }
 
     /// Whether `error` means the registry is being upgraded (a v1 manifest), not a failure.
     nonisolated static func isRegistryUpgrading(_ error: Error) -> Bool {
@@ -335,8 +341,9 @@ final class KachatNamesService: ObservableObject {
     /// `kchat:1:profile:<json>`, built and signed by the existing version-0 payload builder.
     /// `json` is the whole profile (records replace, never patch), a JSON object of at most 2 KB.
     func buildProfileRecord(address: String, privateKey: Data, utxos: [UTXO], json: Data) throws -> KaspaRpcTransaction {
-        try requireTestnet()
-        guard address.lowercased().hasPrefix("kaspatest:") else { throw ServiceError.testnetOnly }
+        guard Self.profilesEnabled else { throw ServiceError.testnetOnly }
+        // The record is written from the wallet's address on the network the app runs on.
+        guard NetworkType(address: address) == AppSettings.load().networkType else { throw ServiceError.wrongAddressNetwork }
         guard json.count <= KachatNames.Codec.maxProfileJSONBytes else { throw ServiceError.badProfile("over 2 KB") }
         guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else {
             throw ServiceError.badProfile("not a JSON object")

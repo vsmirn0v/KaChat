@@ -715,7 +715,7 @@
 "No domain" = "도메인 없음";
 "Other domains" = "다른 도메인";
 "Couldn't check" = "확인할 수 없음";
-"Edit .kachat Profile" = ".kachat 프로필 편집";
+"Edit KaChat Profile" = "KaChat 프로필 편집";
 ".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere." = ".kachat 이름이 곧 나옵니다. 이름을 받으면 여기서 아바타, 배너, 소개, 링크를 설정하며, KaChat은 어디서나 이것으로 당신을 보여줍니다.";
 "None yet" = "아직 없음";
 ".kachat Name" = ".kachat 이름";
@@ -1241,3 +1241,5 @@
 "Keeps it first in the row above your chats." = "채팅 위 줄의 맨 앞에 유지됩니다.";
 "Hold for options" = "길게 눌러 옵션 보기";
 "Delete Room?" = "방을 삭제할까요?";
+"This address is on a different network than the app." = "이 주소는 앱과 다른 네트워크에 있습니다.";
+".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = ".kachat 이름은 아직 메인넷에 없습니다. 아바타, 배너, 소개, 링크는 지금 저장되며, 이름이 출시되면 대표 이름을 고를 수 있습니다.";

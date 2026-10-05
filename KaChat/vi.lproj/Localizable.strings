@@ -715,7 +715,7 @@
 "No domain" = "Không có tên miền";
 "Other domains" = "Tên miền khác";
 "Couldn't check" = "Không thể kiểm tra";
-"Edit .kachat Profile" = "Sửa hồ sơ .kachat";
+"Edit KaChat Profile" = "Sửa hồ sơ KaChat";
 ".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere." = "Tên .kachat sắp ra mắt. Khi bạn nhận một tên, bạn đặt ảnh đại diện, ảnh bìa, giới thiệu và liên kết tại đây - đó là những gì KaChat hiển thị về bạn ở mọi nơi.";
 "None yet" = "Chưa có";
 ".kachat Name" = "Tên .kachat";
@@ -1241,3 +1241,5 @@
 "Keeps it first in the row above your chats." = "Luôn đứng đầu hàng phía trên các cuộc trò chuyện.";
 "Hold for options" = "Giữ để xem tùy chọn";
 "Delete Room?" = "Xóa phòng?";
+"This address is on a different network than the app." = "Địa chỉ này thuộc mạng khác với ứng dụng.";
+".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = "Tên .kachat chưa có trên mainnet. Ảnh đại diện, ảnh bìa, tiểu sử và liên kết của bạn được lưu ngay; bạn có thể chọn tên chính khi tên ra mắt.";

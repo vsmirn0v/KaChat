@@ -715,7 +715,7 @@
 "No domain" = "Alan adı yok";
 "Other domains" = "Diğer alan adları";
 "Couldn't check" = "Kontrol edilemedi";
-"Edit .kachat Profile" = ".kachat profilini düzenle";
+"Edit KaChat Profile" = "KaChat profilini düzenle";
 ".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere." = ".kachat adları geliyor. Bir tane aldığında avatarını, kapak görselini, biyografini ve bağlantılarını burada ayarlarsın; KaChat seni her yerde bununla gösterir.";
 "None yet" = "Henüz yok";
 ".kachat Name" = ".kachat adı";
@@ -1241,3 +1241,5 @@
 "Keeps it first in the row above your chats." = "Sohbetlerinin üstündeki sırada ilk kalır.";
 "Hold for options" = "Seçenekler için basılı tut";
 "Delete Room?" = "Oda silinsin mi?";
+"This address is on a different network than the app." = "Bu adres uygulamadan farklı bir ağda.";
+".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = ".kachat adları henüz mainnet'te yok. Avatarın, bannerın, biyografin ve bağlantıların şimdi kaydedilir; adlar başladığında birincil ad seçebilirsin.";

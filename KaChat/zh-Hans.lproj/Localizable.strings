@@ -715,7 +715,7 @@
 "No domain" = "无域名";
 "Other domains" = "其他域名";
 "Couldn't check" = "无法检查";
-"Edit .kachat Profile" = "编辑 .kachat 资料";
+"Edit KaChat Profile" = "编辑 KaChat 资料";
 ".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere." = ".kachat 名称即将推出。领取后，你可以在这里设置头像、横幅、简介和链接——这就是 KaChat 在各处展示的你。";
 "None yet" = "暂无";
 ".kachat Name" = ".kachat 名称";
@@ -1241,3 +1241,5 @@
 "Keeps it first in the row above your chats." = "在聊天上方的一行中保持在最前。";
 "Hold for options" = "长按查看选项";
 "Delete Room?" = "删除聊天室？";
+"This address is on a different network than the app." = "此地址属于与应用不同的网络。";
+".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = ".kachat 名称尚未在主网推出。你的头像、横幅、简介和链接现在即可保存；名称上线后即可选择主名称。";

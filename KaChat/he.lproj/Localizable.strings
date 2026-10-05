@@ -715,7 +715,7 @@
 "No domain" = "אין דומיין";
 "Other domains" = "דומיינים אחרים";
 "Couldn't check" = "לא ניתן לבדוק";
-"Edit .kachat Profile" = "עריכת פרופיל .kachat";
+"Edit KaChat Profile" = "עריכת פרופיל KaChat";
 ".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere." = "שמות .kachat בדרך. כשתקבלו שם, תגדירו כאן תמונה, באנר, ביוגרפיה וקישורים - וזה מה ש-KaChat יציג עליכם בכל מקום.";
 "None yet" = "עדיין אין";
 ".kachat Name" = "שם .kachat";
@@ -1241,3 +1241,5 @@
 "Keeps it first in the row above your chats." = "נשאר ראשון בשורה שמעל הצ'אטים שלך.";
 "Hold for options" = "החזיקו לאפשרויות";
 "Delete Room?" = "למחוק את החדר?";
+"This address is on a different network than the app." = "הכתובת הזו שייכת לרשת אחרת מזו של האפליקציה.";
+".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = "שמות .kachat עדיין לא זמינים ברשת הראשית. האווטאר, הבאנר, הביו והקישורים נשמרים כבר עכשיו; תוכלו לבחור שם ראשי כשהשמות יושקו.";

@@ -124,6 +124,19 @@ final class KachatNamesActions: ObservableObject {
         return Signer(address: address, privateKey: key, me: me)
     }
 
+    /// The current wallet's chatting address and key on the network the app runs on - the
+    /// profile record's signer. Unlike `signer()` it isn't testnet-only: profiles work on mainnet
+    /// before its registry launches (`KachatNamesService.profilesEnabled`).
+    func profileSigner() throws -> Signer {
+        guard KachatNamesService.profilesEnabled else { throw KachatNamesService.ServiceError.testnetOnly }
+        guard let address = WalletManager.shared.currentWallet?.publicAddress.lowercased(),
+              let key = WalletManager.shared.getPrivateKey() else { throw ActionError.noWallet }
+        guard NetworkType.isOnActiveNetwork(address) else { throw KachatNamesService.ServiceError.wrongAddressNetwork }
+        let me = try KachatNamesService.xonlyKey(privateKey: key)
+        guard let a = KaspaAddress(address: address), a.type == .pubKey, a.payload == me else { throw ActionError.keyMismatch }
+        return Signer(address: address, privateKey: key, me: me)
+    }
+
     /// Which of this wallet's own addresses holds a name.
     enum OwnAddress: Equatable {
         case chatting
@@ -347,7 +360,7 @@ final class KachatNamesActions: ObservableObject {
     /// address, so the network fee is all it spends. Built (and signed) the same way the save
     /// builds it, never sent.
     func profileFee(_ profile: KachatNames.Profile) async throws -> UInt64 {
-        let s = try signer()
+        let s = try profileSigner()
         let json = try profile.sanitized().recordJSON()
         let utxos = try await NodePoolService.shared.getUtxosByAddresses([s.address])
         let tx = try service.buildProfileRecord(address: s.address, privateKey: s.privateKey, utxos: utxos, json: json)
@@ -361,7 +374,7 @@ final class KachatNamesActions: ObservableObject {
     }
 
     func saveProfile(_ profile: KachatNames.Profile) async throws -> String {
-        let s = try signer()
+        let s = try profileSigner()
         let clean = profile.sanitized()
         let json = try clean.recordJSON()
         let utxos = try await NodePoolService.shared.getUtxosByAddresses([s.address])

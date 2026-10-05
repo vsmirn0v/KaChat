@@ -3741,7 +3741,7 @@ struct KaPostsView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "person.text.rectangle")
-                                Text("Edit .kachat Profile")
+                                Text("Edit KaChat Profile")
                             }
                             .font(.subheadline.weight(.semibold))
                             .foregroundColor(.accentColor)

@@ -53,6 +53,11 @@ final class KachatNamesRegistry: ObservableObject {
     }
     @Published private var identities: [String: CachedIdentity] = [:]
     private var identityLookups: Set<String> = []
+    /// When an address's lookup last failed: it isn't asked again for five minutes, so a view
+    /// body that reads `cachedIdentity` can't turn an unreachable indexer into a request loop.
+    private var identityMisses: [String: Date] = [:]
+    /// Set when the indexer said it doesn't serve profiles (503) - see `profileOnlyIdentity`.
+    private var profilesUnavailableUntil: Date?
 
     private init() {}
 
@@ -372,8 +377,10 @@ final class KachatNamesRegistry: ObservableObject {
     /// label comes from the walked names, and the profile is known only for this wallet's own
     /// address (the record it last wrote).
     func identity(address: String) async throws -> KachatNames.Identity {
-        try await prepare()
         let address = address.lowercased()
+        // No registry on this network yet (mainnet): no names or label, only the profile.
+        guard KachatNamesService.isLaunched else { return try await profileOnlyIdentity(address: address) }
+        try await prepare()
         switch source {
         case .indexer(let base):
             let j: KachatNames.IndexerAPI.IdentityJSON = try await Self.get(base, "/identity/\(address)")
@@ -387,24 +394,53 @@ final class KachatNamesRegistry: ObservableObject {
         }
     }
 
+    /// An address's profile where the network has no registry yet (mainnet): the indexer's
+    /// `GET /profiles/{address}`, falling back to the record this device last wrote for its own
+    /// address. The indexer answers 503 until it follows profiles on this network
+    /// (kachat-indexer docs/KACHAT_PROFILES.md); then only this wallet's own profile shows.
+    private func profileOnlyIdentity(address: String) async throws -> KachatNames.Identity {
+        if let own = ownProfile(for: address)?.profile {
+            return KachatNames.Identity(address: address, label: nil, names: [], profile: own)
+        }
+        // An indexer without profiles on this network answers 503 for every address: one such
+        // answer pauses all profile lookups for ten minutes instead of one request per contact.
+        guard let base = Self.indexerBase(), (profilesUnavailableUntil ?? .distantPast) < Date() else {
+            throw KachatNames.Failure("profiles are not indexed on this network yet")
+        }
+        do {
+            let j: KachatNames.IndexerAPI.ProfileJSON = try await Self.get(base, "/profiles/\(address)")
+            return KachatNames.Identity(address: address, label: nil, names: [], profile: j.profile?.sanitized())
+        } catch {
+            if (error as? KachatNames.Failure)?.message.hasSuffix("answered 503") == true {
+                profilesUnavailableUntil = Date().addingTimeInterval(600)
+            }
+            throw error
+        }
+    }
+
     /// The address's `.kachat` identity as the app shows it, from a cache that fills in the
-    /// background: callable from any view body (testnet only - nil otherwise). An answer is
+    /// background: callable from any view body (on mainnet, profile only). An answer is
     /// re-asked once the registry moved on or after five minutes, and this wallet's own saved
     /// profile always wins for its own address. When an answer lands, views that read contact
     /// names re-render (ContactsManager is told).
     func cachedIdentity(for address: String) -> KachatNames.Identity? {
-        guard KachatNamesService.isLaunched else { return nil }
+        guard KachatNamesService.profilesEnabled else { return nil }
         let key = address.lowercased()
-        guard key.hasPrefix("kaspatest:") else { return nil }
+        guard NetworkType(address: key) != nil, NetworkType.isOnActiveNetwork(key) else { return nil }
         let entry = identities[key]
         let stale = entry.map { $0.revision != revision || Date().timeIntervalSince($0.at) > 300 } ?? true
-        if stale, !identityLookups.contains(key) {
+        let missedRecently = identityMisses[key].map { Date().timeIntervalSince($0) < 300 } ?? false
+        if stale, !missedRecently, !identityLookups.contains(key) {
             identityLookups.insert(key)
             Task { [weak self] in
                 guard let self else { return }
                 let found = try? await self.identity(address: key)
                 self.identityLookups.remove(key)
-                guard let found else { return }
+                guard let found else {
+                    self.identityMisses[key] = Date()
+                    return
+                }
+                self.identityMisses[key] = nil
                 if self.identities[key]?.identity != found {
                     self.identities[key] = CachedIdentity(identity: found, revision: self.revision, at: Date())
                     ContactsManager.shared.objectWillChange.send()
@@ -426,7 +462,7 @@ final class KachatNamesRegistry: ObservableObject {
     func ownProfile(for address: String) -> OwnProfile? {
         let address = address.lowercased()
         if let p = ownProfiles[address] { return p }
-        guard let data = Self.readFile(Self.profileFile(address)), let p = try? JSONDecoder().decode(OwnProfile.self, from: data) else { return nil }
+        guard let data = Self.readFile(Self.profileFile(address), network: Self.profileNetwork(address)), let p = try? JSONDecoder().decode(OwnProfile.self, from: data) else { return nil }
         ownProfiles[address] = p
         return p
     }
@@ -434,7 +470,9 @@ final class KachatNamesRegistry: ObservableObject {
     func noteOwnProfile(_ profile: KachatNames.Profile, address: String, txId: String) {
         let record = OwnProfile(address: address.lowercased(), profile: profile.sanitized(), txId: txId, at: KachatNames.nowMs())
         ownProfiles[record.address] = record
-        if let data = try? JSONEncoder().encode(record) { Self.writeFile(Self.profileFile(record.address), data) }
+        if let data = try? JSONEncoder().encode(record) {
+            Self.writeFile(Self.profileFile(record.address), data, network: Self.profileNetwork(record.address))
+        }
         revision += 1
     }
 
@@ -498,14 +536,20 @@ final class KachatNamesRegistry: ObservableObject {
         return dir
     }
 
-    static func readFile(_ name: String) -> Data? {
-        guard let dir = directory() else { return nil }
+    static func readFile(_ name: String, network: String = KachatNames.Manifest.supportedNetwork) -> Data? {
+        guard let dir = directory(network: network) else { return nil }
         return try? Data(contentsOf: dir.appendingPathComponent(name))
     }
 
-    static func writeFile(_ name: String, _ data: Data) {
-        guard let dir = directory() else { return }
+    static func writeFile(_ name: String, _ data: Data, network: String = KachatNames.Manifest.supportedNetwork) {
+        guard let dir = directory(network: network) else { return }
         try? data.write(to: dir.appendingPathComponent(name), options: .atomic)
+    }
+
+    /// The cache folder an address's own profile lives in: its network's (testnet keeps the
+    /// registry's folder, so profiles saved before mainnet profiles existed are still found).
+    private static func profileNetwork(_ address: String) -> String {
+        NetworkType(address: address) == .mainnet ? "mainnet" : KachatNames.Manifest.supportedNetwork
     }
 
     static func walletSuffix(_ address: String) -> String {

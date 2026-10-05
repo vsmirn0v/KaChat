@@ -234,8 +234,8 @@ struct ProfileView: View {
             .onReceive(NotificationCenter.default.publisher(for: .openKNSProfileEditor)) { _ in
                 showKNSEditor = true
             }
-            // "Edit .kachat Profile": KaChat's own names are not live yet, so the editor opens
-            // empty (see `KaChatProfileEditorSheet`).
+            // "Edit KaChat Profile": the address profile editor, on both networks (see
+            // `KaChatProfileEditorSheet`).
             .sheet(isPresented: $showKNSEditor) {
                 KaChatProfileEditorSheet()
             }
@@ -654,7 +654,7 @@ struct ProfileView: View {
                 } label: {
                     // KaChat's own profile. .kas profiles are customized per domain in Your
                     // Domains instead; the app no longer shows them.
-                    Text("Edit .kachat Profile")
+                    Text("Edit KaChat Profile")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.accentColor)
                         .contentShape(Rectangle())
@@ -2386,7 +2386,7 @@ private struct KNSProfileEditorSheet: View {
 
     var body: some View {
         NavigationStack {
-            // No setup guide here since 5.2: the guide is .kachat's, in Edit .kachat Profile
+            // No setup guide here since 5.2: the guide is .kachat's, in Edit KaChat Profile
             // (`KachatSetupGuideView`). A .kas profile is edited field by field below.
             Form {
 
@@ -5624,10 +5624,9 @@ private struct DomainProfileEditTarget: Identifiable {
     var id: String { info.assetId ?? info.address }
 }
 
-/// "Edit .kachat Profile": the same layout as the .kas profile editor - avatar, banner, bio and
-/// links - but nothing in it yet on mainnet, because KaChat's own names are not live there. On
-/// testnet it is the live address profile editor (`KachatLiveProfileEditor`): it writes the
-/// `kchat:1:profile:` record.
+/// "Edit KaChat Profile": the live address profile editor (`KachatLiveProfileEditor`) on both
+/// networks - it writes the `kchat:1:profile:` record, a self-send that needs no registry, so it
+/// saves on mainnet too; only the primary name waits for mainnet's registry.
 struct KaChatProfileEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var walletManager = WalletManager.shared
@@ -5694,7 +5693,7 @@ struct KaChatProfileEditorSheet: View {
                     }
                 }
             }
-            .navigationTitle("Edit .kachat Profile")
+            .navigationTitle("Edit KaChat Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

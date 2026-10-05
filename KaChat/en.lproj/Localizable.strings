@@ -716,7 +716,7 @@
 "No domain" = "No domain";
 "Other domains" = "Other domains";
 "Couldn't check" = "Couldn't check";
-"Edit .kachat Profile" = "Edit .kachat Profile";
+"Edit KaChat Profile" = "Edit KaChat Profile";
 ".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere." = ".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere.";
 "None yet" = "None yet";
 ".kachat Name" = ".kachat Name";
@@ -1242,3 +1242,5 @@
 "Keeps it first in the row above your chats." = "Keeps it first in the row above your chats.";
 "Hold for options" = "Hold for options";
 "Delete Room?" = "Delete Room?";
+"This address is on a different network than the app." = "This address is on a different network than the app.";
+".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch.";

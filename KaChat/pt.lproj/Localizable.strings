@@ -715,7 +715,7 @@
 "No domain" = "Sem domínio";
 "Other domains" = "Outros domínios";
 "Couldn't check" = "Não foi possível verificar";
-"Edit .kachat Profile" = "Editar perfil .kachat";
+"Edit KaChat Profile" = "Editar perfil do KaChat";
 ".kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere." = "Os nomes .kachat estão chegando. Quando você reivindicar um, define aqui seu avatar, banner, bio e links, e é isso que o KaChat mostra de você em todo lugar.";
 "None yet" = "Nenhum ainda";
 ".kachat Name" = "Nome .kachat";
@@ -1241,3 +1241,5 @@
 "Keeps it first in the row above your chats." = "Fica em primeiro na fileira acima das suas conversas.";
 "Hold for options" = "Segure para ver opções";
 "Delete Room?" = "Excluir sala?";
+"This address is on a different network than the app." = "Este endereço está em uma rede diferente da do app.";
+".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = "Os nomes .kachat ainda não estão na mainnet. Seu avatar, banner, bio e links já são salvos; você poderá escolher um nome principal quando os nomes forem lançados.";
