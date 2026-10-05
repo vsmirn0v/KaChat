@@ -1248,3 +1248,4 @@
 "Claimed. You can claim again in %@." = "受け取りました。%@後にもう一度受け取れます。";
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "チャット用アドレスをコピーしてTN10フォーセットを開きます。貼り付けて確認を通過し、最大額を受け取ってください。";
 "Your TN10 chatting address is copied. Paste it into the faucet's address field." = "TN10のチャット用アドレスをコピーしました。フォーセットのアドレス欄に貼り付けてください。";
+"Copies the address" = "アドレスをコピーします";

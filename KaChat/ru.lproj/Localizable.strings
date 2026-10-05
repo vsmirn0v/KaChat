@@ -1248,3 +1248,4 @@
 "Claimed. You can claim again in %@." = "Получено. Снова можно будет получить через %@.";
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "Копирует адрес для чатов и открывает кран TN10: вставьте его, пройдите проверку и получите максимум.";
 "Your TN10 chatting address is copied. Paste it into the faucet's address field." = "Ваш адрес для чатов в TN10 скопирован. Вставьте его в поле адреса на кране.";
+"Copies the address" = "Копирует адрес";

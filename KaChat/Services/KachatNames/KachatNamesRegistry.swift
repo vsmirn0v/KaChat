@@ -498,6 +498,16 @@ final class KachatNamesRegistry: ObservableObject {
         return a.payload
     }
 
+    /// The network prefix plus both ends of the address on one line:
+    /// `kaspatest:qr4x7k...a9z2pq`. Used where the full address doesn't fit (the Owner card).
+    nonisolated static func compactAddress(_ address: String) -> String {
+        guard let colon = address.firstIndex(of: ":") else { return address }
+        let prefix = address[...colon]
+        let body = address[address.index(after: colon)...]
+        guard body.count > 14 else { return address }
+        return "\(prefix)\(body.prefix(6))...\(body.suffix(6))"
+    }
+
     /// `kaspatest:qr...xyz4`.
     nonisolated static func shortAddress(_ address: String) -> String {
         guard address.count > 20 else { return address }

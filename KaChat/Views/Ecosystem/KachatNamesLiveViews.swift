@@ -1298,6 +1298,7 @@ struct KachatLiveNameDetail: View {
         var id: Int { hashValue }
     }
 
+    @State private var ownerCopied = false
     @State private var sheet: Sheet?
     @State private var offerAction: KachatOfferAction?
     @State private var ownerLabel: String?
@@ -1539,11 +1540,31 @@ struct KachatLiveNameDetail: View {
                         Text(verbatim: "\(ownerLabel).kachat").font(.subheadline.weight(.semibold))
                     }
                     if let ownerAddress {
-                        Text(verbatim: ownerAddress)
-                            .font(.caption.monospaced())
+                        // The whole address doesn't fit on two lines: show its network prefix
+                        // and both ends on one line, and copy the full address on tap.
+                        Button {
+                            UIPasteboard.general.string = ownerAddress
+                            Haptics.success()
+                            ownerCopied = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(verbatim: KachatNamesRegistry.compactAddress(ownerAddress))
+                                    .font(.caption.monospaced())
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                Image(systemName: ownerCopied ? "checkmark" : "doc.on.doc")
+                                    .font(.caption2)
+                            }
                             .foregroundColor(.secondary)
-                            .lineLimit(2)
-                            .textSelection(.enabled)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text(verbatim: ownerAddress))
+                        .accessibilityHint(Text("Copies the address"))
+                        .task(id: ownerCopied) {
+                            guard ownerCopied else { return }
+                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                            ownerCopied = false
+                        }
                     }
                 }
                 Spacer(minLength: 8)

@@ -1248,3 +1248,4 @@
 "Claimed. You can claim again in %@." = "Alındı. %@ sonra yeniden alabilirsin.";
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "Sohbet adresini kopyalar ve TN10 musluğunu açar: yapıştır, doğrulamayı geç ve sunulan en yüksek miktarı al.";
 "Your TN10 chatting address is copied. Paste it into the faucet's address field." = "TN10 sohbet adresin kopyalandı. Musluğun adres alanına yapıştır.";
+"Copies the address" = "Adresi kopyalar";

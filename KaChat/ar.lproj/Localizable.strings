@@ -1248,3 +1248,4 @@
 "Claimed. You can claim again in %@." = "تمت المطالبة. يمكنك المطالبة مجددًا خلال %@.";
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "ينسخ عنوان الدردشة ويفتح صنبور TN10: الصقه، واجتز التحقق، واطلب أقصى ما يقدمه.";
 "Your TN10 chatting address is copied. Paste it into the faucet's address field." = "تم نسخ عنوان دردشة TN10. الصقه في خانة العنوان في الصنبور.";
+"Copies the address" = "ينسخ العنوان";
