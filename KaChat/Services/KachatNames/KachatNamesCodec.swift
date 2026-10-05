@@ -15,16 +15,18 @@ enum KachatNames {
         init(_ message: String) { self.message = message }
         var errorDescription: String? { message }
 
-        /// The manifest describes registry v1 (the first testnet-10 genesis): this app builds for
-        /// registry v2 (the 2-year cap) and waits for its genesis manifest. Not an error to show
-        /// as one: the screens say the registry is being set up.
-        static let outdatedRegistry = Failure("manifest: registry v1; this app needs the registry v2 manifest (new genesis pending)")
+        /// The manifest describes an earlier registry (v1 or v2): this app builds for registry v3
+        /// (the price record, seller-bound offers, periodMs) and waits for its genesis manifest.
+        /// Not an error to show as one: the screens say the registry is being set up.
+        static let outdatedRegistry = Failure("manifest: an earlier registry; this app needs the registry v3 manifest (new genesis pending)")
         var isOutdatedRegistry: Bool { self == Failure.outdatedRegistry }
     }
 
     // MARK: - Constants (rusty-kaspa a41a333, kachat-domains params)
 
     static let sompiPerKas: UInt64 = 100_000_000
+    /// A mainnet period. Registry v3 reads the period from the manifest (`Params.periodMs`):
+    /// testnet-10 runs a 10-minute clock.
     static let yearMs: Int64 = 31_536_000_000
     /// rusty-kaspa `LOCK_TIME_THRESHOLD`: lock times below it are DAA scores, above unix ms.
     static let lockTimeThreshold: UInt64 = 500_000_000_000
@@ -250,12 +252,37 @@ enum KachatNames {
             return d
         }
 
-        /// Offer state, 75 bytes: `0x20 key 0x20 buyer 0x08 refundAfter`.
+        /// Offer state (registry v3), 108 bytes: `0x20 key 0x20 buyer 0x20 seller 0x08 refundAfter`.
         static func offerState(_ f: OfferFields) -> Data {
             var d = Data([0x20]); d.append(f.key)
             d.append(0x20); d.append(f.buyer)
+            d.append(0x20); d.append(f.seller)
             d.append(0x08); d.append(num8(f.refundAfter))
             return d
+        }
+
+        /// Price shard state (registry v3), 87 bytes: `0x08 shard 0x20 authority (0x08 price) x5`.
+        static func priceState(_ f: PriceFields) -> Data {
+            var d = Data([0x08]); d.append(num8(f.shard))
+            d.append(0x20); d.append(f.authority)
+            for p in f.prices {
+                d.append(0x08); d.append(num8(Int64(p)))
+            }
+            return d
+        }
+
+        static func decodePriceState(_ s: Data) throws -> PriceFields {
+            let b = [UInt8](s)
+            guard b.count == 87, b[0] == 0x08, b[9] == 0x20 else { throw Failure("not a price state") }
+            var prices: [UInt64] = []
+            for t in 0..<5 {
+                let at = 42 + t * 9
+                guard b[at] == 0x08 else { throw Failure("not a price state") }
+                let v = try decodeNum8(Data(b[(at + 1)..<(at + 9)]))
+                guard v >= 0 else { throw Failure("negative price") }
+                prices.append(UInt64(v))
+            }
+            return PriceFields(shard: try decodeNum8(Data(b[1..<9])), authority: Data(b[10..<42]), prices: prices)
         }
 
         static func decodeGapState(_ s: Data) throws -> (lo: Data, hi: Data) {
@@ -278,8 +305,9 @@ enum KachatNames {
 
         static func decodeOfferState(_ s: Data) throws -> OfferFields {
             let b = [UInt8](s)
-            guard b.count == 75, b[0] == 0x20, b[33] == 0x20, b[66] == 0x08 else { throw Failure("not an offer state") }
-            return OfferFields(key: Data(b[1..<33]), buyer: Data(b[34..<66]), refundAfter: try decodeNum8(Data(b[67..<75])))
+            guard b.count == 108, b[0] == 0x20, b[33] == 0x20, b[66] == 0x20, b[99] == 0x08 else { throw Failure("not an offer state") }
+            return OfferFields(key: Data(b[1..<33]), buyer: Data(b[34..<66]), seller: Data(b[67..<99]),
+                               refundAfter: try decodeNum8(Data(b[100..<108])))
         }
 
         // MARK: Scripts
@@ -403,9 +431,10 @@ enum KachatNames {
         /// `kchat:1:name:<op>:<name>`: informational, on every name transaction except commits.
         static func namePayload(op: String, name: String) -> Data { Data("kchat:1:name:\(op):\(name)".utf8) }
 
-        /// `kchat:1:offer:<keyHex>:<buyerXonlyHex>:<refundAfterDaa>`: how an indexer finds offers.
+        /// `kchat:1:offer:<keyHex>:<buyerXonlyHex>:<sellerXonlyHex>:<refundAfterDaa>` (registry v3):
+        /// how an indexer finds offers.
         static func offerPayload(_ f: OfferFields) -> Data {
-            Data("kchat:1:offer:\(KachatNames.hex(f.key)):\(KachatNames.hex(f.buyer)):\(f.refundAfter)".utf8)
+            Data("kchat:1:offer:\(KachatNames.hex(f.key)):\(KachatNames.hex(f.buyer)):\(KachatNames.hex(f.seller)):\(f.refundAfter)".utf8)
         }
 
         /// `kchat:1:profile:<json>`: an address profile record (KACHAT_NAMES.md section 7).
@@ -457,23 +486,36 @@ enum KachatNames {
             NameFields(key: key, paddedName: paddedName, owner: owner, price: price, periodStart: periodStart, expiresAt: expiresAt)
         }
 
-        /// What `extend(years)` leaves: the same period start, the expiry `years` later.
-        func extended(_ years: Int64) -> NameFields {
+        /// What `extend(years)` leaves: the same period start, the expiry `years` periods later.
+        func extended(_ years: Int64, periodMs: Int64) -> NameFields {
             NameFields(key: key, paddedName: paddedName, owner: owner, price: price, periodStart: periodStart,
-                       expiresAt: expiresAt + years * KachatNames.yearMs)
+                       expiresAt: expiresAt + years * periodMs)
         }
 
         /// What `renew(years)` leaves: a new period from the old expiry, so no time is lost or gained.
-        func renewed(_ years: Int64) -> NameFields {
+        func renewed(_ years: Int64, periodMs: Int64) -> NameFields {
             NameFields(key: key, paddedName: paddedName, owner: owner, price: price, periodStart: expiresAt,
-                       expiresAt: expiresAt + years * KachatNames.yearMs)
+                       expiresAt: expiresAt + years * periodMs)
         }
     }
 
     struct OfferFields: Equatable {
         var key: Data
         var buyer: Data
+        /// The name's owner the offer was made to (registry v3): only they can accept or decline it.
+        var seller: Data
         var refundAfter: Int64
         var encoded: Data { Codec.offerState(self) }
+    }
+
+    /// A price shard's state (registry v3).
+    struct PriceFields: Equatable {
+        var shard: Int64
+        var authority: Data
+        /// sompi per period for names of 1, 2, 3, 4, 5+ bytes (registering and renewing)
+        var prices: [UInt64]
+        var encoded: Data { Codec.priceState(self) }
+
+        func price(forLength n: Int) -> UInt64 { prices[Codec.tier(n)] }
     }
 }

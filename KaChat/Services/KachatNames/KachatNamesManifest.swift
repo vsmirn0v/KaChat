@@ -39,30 +39,34 @@ extension KachatNames {
         }
     }
 
-    /// The registry parameters (params/testnet10.json), identical on testnet-10 and mainnet.
+    /// The registry parameters (kachat-domains params/<network>.json, registry v3). Prices are
+    /// not here: registering and renewing pay what a price shard says (`PriceFields`), which the
+    /// authority can change; `genesisPrices` are only what the shards started with.
     struct Params: Equatable {
         let bond: UInt64
         let gapValue: UInt64
         let tCommit: UInt64
+        /// most periods a name may be paid ahead
         let maxYears: Int64
+        /// one paid period, ms: a year on mainnet, 10 minutes on the testnet-10 clock
+        let periodMs: Int64
         let graceMs: Int64
-        /// `renew` is valid from `expiresAt - renewWindowMs` on (registry v2; 10 days)
+        /// `renew` is valid from `expiresAt - renewWindowMs` on
         let renewWindowMs: Int64
-        /// sompi per year for names of 1, 2, 3, 4, 5+ bytes
-        let prices: [UInt64]
-        let renewPrices: [UInt64]
+        /// the price shards' genesis prices, sompi per period for names of 1, 2, 3, 4, 5+ bytes
+        let genesisPrices: [UInt64]
+        let priceShards: Int64
+        /// exact value of every price shard
+        let priceValue: UInt64
         let offerMaxFee: UInt64
 
-        func price(forLength n: Int) -> UInt64 { prices[Codec.tier(n)] }
-        func renewPrice(forLength n: Int) -> UInt64 { renewPrices[Codec.tier(n)] }
+        // MARK: The paid period (KACHAT_NAMES.md 4.1; ops.rs)
 
-        // MARK: The paid period (registry v2, KACHAT_NAMES.md 4.1; ops.rs)
-
-        /// The most years `extend` can add now: a period (from `periodStart`) holds at most
-        /// `maxYears` (ops.rs `extendable_years`).
+        /// The most periods `extend` can add now: a name (from `periodStart`) holds at most
+        /// `maxYears` periods (ops.rs `extendable_years`).
         func extendableYears(periodStart: Int64, expiresAt: Int64) -> Int64 {
-            let room = periodStart + maxYears * KachatNames.yearMs - expiresAt
-            return room < 0 ? 0 : min(room / KachatNames.yearMs, maxYears)
+            let room = periodStart + maxYears * periodMs - expiresAt
+            return room < 0 ? 0 : min(room / periodMs, maxYears)
         }
 
         func extendableYears(_ f: NameFields) -> Int64 { extendableYears(periodStart: f.periodStart, expiresAt: f.expiresAt) }
@@ -74,38 +78,44 @@ extension KachatNames {
 
     /// The deployment manifest `kachat-names-<network>.json` (written by the kachat-domains CLI's
     /// `genesis`, served by the indexer at `GET /names/manifest`): params, every contract's prefix,
-    /// suffix, template hash and dispatch tags, the registry covenant id and the genesis binding.
-    /// `verify()` must pass before anything trusts it.
+    /// suffix, template hash and dispatch tags, the price covenant and its genesis (K shards),
+    /// the registry covenant id and the genesis binding. `verify()` must pass before anything
+    /// trusts it.
     struct Manifest {
         static let supportedNetwork = "testnet-10"
         static let bundleResource = "kachat-names-testnet-10"
 
-        /// Template hashes of the pinned build - registry v2 (silverc v1.0.0 @ 3ed9733), the same
-        /// on every network (kachat-domains README "Sizes and template hashes"). The offer bakes
-        /// the registry id, so it is checked against the id instead.
+        /// Template hashes of the pinned build - registry v3 (silverc v1.0.0 @ 3ed9733). The price
+        /// template bakes no covenant id, so it is the same everywhere. The gap and the name bake
+        /// the price covenant id, so their hashes exist only once the price genesis does: the
+        /// deployment adds them here with the bundled manifest. Until they are pinned only a
+        /// bundled manifest is trusted (`verify(source:)`), never one an indexer serves.
         static let pinnedTemplateHashes: [String: String] = [
-            "KachatGap": "182c463cf59f6d175f75339e4efc75d2065e8e7bb8dcc515e4769d3ff805dd46",
-            "KachatName": "e8ded947687947b565e10cbf6e6fec60e5c90cf992c7bce2298e6dce8db29d16"
+            "KachatPrice": "d225c3a302b91866a8a7cb09d513b3375715794adf4f1e05eec872b32cb781d3"
         ]
-        /// The registry v1 build (117-byte name state, no `extend`, no renewal window), which the
-        /// first testnet-10 genesis runs. Recognised only to say "outdated", never trusted.
-        static let v1TemplateHashes: [String: String] = [
-            "KachatGap": "a182d59bbf460baff5ec99ca850b990d45fbafee4dfbe9a3a7a1afe21e7ba8ca",
-            "KachatName": "42eddf19e7ea2bc78b9aa97937f21be0505ebcf964653508f74e179dd6c7e39d"
-        ]
-        static let stateLengths: [String: Int] = ["KachatGap": 66, "KachatName": 126, "KachatOffer": 75]
+        static let stateLengths: [String: Int] = ["KachatPrice": 87, "KachatGap": 66, "KachatName": 126, "KachatOffer": 108]
         static let entries: [String: [String]] = [
+            "KachatPrice": ["use", "update", "follow"],
             "KachatGap": ["register", "merge", "absorbed"],
             "KachatName": ["transfer", "list", "buy", "extend", "renew", "release", "reclaim"],
-            "KachatOffer": ["accept", "withdraw", "refund"]
+            "KachatOffer": ["accept", "decline", "withdraw", "refund"]
         ]
+
+        /// Where a manifest came from: the app bundle (shipped with the build) or an indexer.
+        enum Source { case bundle, indexer }
 
         let network: String
         let status: String
         let params: Params
+        let price: Template
         let gap: Template
         let name: Template
         let offer: Template
+        let priceCovenantId: Data
+        let priceGenesisTxid: Data
+        let priceGenesisOutpoint: Outpoint
+        /// the shards the price genesis created, at outputs 0..K-1
+        let genesisShards: [(output: TxOutput, fields: PriceFields)]
         let registryCovenantId: Data
         let genesisTxid: Data
         let genesisOutpoint: Outpoint
@@ -167,38 +177,66 @@ extension KachatNames {
             return Template(contract: contract, prefix: prefix, suffix: suffix, stateLength: stateLength, templateHash: hash, dispatchTags: tags)
         }
 
+        private static func outpoint(_ v: Any?, _ what: String) throws -> Outpoint {
+            let op = try str(v, what).split(separator: ":")
+            guard op.count == 2, let idx = UInt32(op[1]) else { throw Failure("manifest: \(what)") }
+            return Outpoint(txid: try unhex32(String(op[0])), index: idx)
+        }
+
         init(json root: [String: Any]) throws {
             network = try Self.str(root["network"], "network")
             status = (root["status"] as? String) ?? ""
+            // registry v1 / v2 manifests describe contracts this app no longer builds for: it waits
+            // for the v3 geneses
+            guard (root["registryVersion"] as? NSNumber)?.intValue == 3 else { throw Failure.outdatedRegistry }
             guard let p = root["params"] as? [String: Any] else { throw Failure("manifest: params missing") }
-            // a registry v1 manifest (no renewal window, 117-byte name state) describes contracts
-            // this app no longer builds for: it waits for the v2 genesis
-            if p["renewWindowMs"] == nil
-                || ((root["artifacts"] as? [String: Any])?["KachatName"] as? [String: Any])?["templateHash"] as? String
-                    == Self.v1TemplateHashes["KachatName"] {
-                throw Failure.outdatedRegistry
-            }
             params = Params(
                 bond: try Self.u64(p["bond"], "bond"),
                 gapValue: try Self.u64(p["gapValue"], "gapValue"),
                 tCommit: try Self.u64(p["tCommit"], "tCommit"),
                 maxYears: Int64(try Self.u64(p["maxYears"], "maxYears")),
+                periodMs: Int64(try Self.u64(p["periodMs"], "periodMs")),
                 graceMs: Int64(try Self.u64(p["graceMs"], "graceMs")),
                 renewWindowMs: Int64(try Self.u64(p["renewWindowMs"], "renewWindowMs")),
-                prices: try Self.tiers(p["prices"], "prices"),
-                renewPrices: try Self.tiers(p["renewPrices"], "renewPrices"),
+                genesisPrices: try Self.tiers(p["prices"], "prices"),
+                priceShards: Int64(try Self.u64(p["priceShards"], "priceShards")),
+                priceValue: try Self.u64(p["priceValue"], "priceValue"),
                 offerMaxFee: try Self.u64(p["offerMaxFee"], "offerMaxFee")
             )
             guard let artifacts = root["artifacts"] as? [String: Any] else { throw Failure("manifest: artifacts missing") }
+            price = try Self.template(artifacts, "KachatPrice")
             gap = try Self.template(artifacts, "KachatGap")
             name = try Self.template(artifacts, "KachatName")
             offer = try Self.template(artifacts, "KachatOffer")
+            priceCovenantId = try unhex32(try Self.str(root["priceCovenantId"], "priceCovenantId"))
+            guard let pg = root["priceGenesis"] as? [String: Any] else { throw Failure("manifest: priceGenesis missing") }
+            guard try unhex32(try Self.str(pg["priceCovenantId"], "priceGenesis.priceCovenantId")) == priceCovenantId else {
+                throw Failure("manifest: priceGenesis is for another price covenant")
+            }
+            priceGenesisTxid = try unhex32(try Self.str(pg["txid"], "priceGenesis.txid"))
+            priceGenesisOutpoint = try Self.outpoint(pg["outpoint"], "priceGenesis.outpoint")
+            let authority = try unhex32(try Self.str(pg["authority"], "priceGenesis.authority"))
+            guard let pouts = pg["authorizedOutputs"] as? [[String: Any]] else { throw Failure("manifest: priceGenesis outputs missing") }
+            var shards: [(TxOutput, PriceFields)] = []
+            for (i, o) in pouts.enumerated() {
+                guard (o["index"] as? NSNumber)?.intValue == i else { throw Failure("manifest: price shard \(i) is not output \(i)") }
+                guard let st = o["state"] as? [String: Any], let pr = st["prices"] as? [NSNumber], pr.count == 5 else {
+                    throw Failure("manifest: price shard \(i) state")
+                }
+                let fields = PriceFields(shard: Int64(i), authority: authority, prices: pr.map { $0.uint64Value })
+                let out = TxOutput(
+                    value: try Self.u64(o["value"], "price shard \(i) value"),
+                    scriptVersion: UInt16(try Self.u64(o["scriptPublicKeyVersion"], "price shard \(i) spk version")),
+                    script: try unhex(try Self.str(o["scriptPublicKey"], "price shard \(i) spk")),
+                    covenant: nil
+                )
+                shards.append((out, fields))
+            }
+            genesisShards = shards
             registryCovenantId = try unhex32(try Self.str(root["registryCovenantId"], "registryCovenantId"))
             guard let g = root["genesis"] as? [String: Any] else { throw Failure("manifest: genesis missing") }
             genesisTxid = try unhex32(try Self.str(g["txid"], "genesis.txid"))
-            let op = try Self.str(g["outpoint"], "genesis.outpoint").split(separator: ":")
-            guard op.count == 2, let idx = UInt32(op[1]) else { throw Failure("manifest: genesis.outpoint") }
-            genesisOutpoint = Outpoint(txid: try unhex32(String(op[0])), index: idx)
+            genesisOutpoint = try Self.outpoint(g["outpoint"], "genesis.outpoint")
             guard let outs = g["authorizedOutputs"] as? [[String: Any]], outs.count == 1 else {
                 throw Failure("manifest: the genesis must authorize exactly one output")
             }
@@ -218,32 +256,55 @@ extension KachatNames {
 
         /// Checks everything the app relies on (KACHAT_NAMES_INDEXER.md B2, kachat-domains
         /// `manifest::load`): testnet-10 only; every template's hash recomputed from its prefix and
-        /// suffix, the gap and name ones equal to the pinned build; every dispatch tag present;
-        /// the offer baked for this registry id and name template; the genesis output is the
-        /// genesis gap `(00..00, ff..ff)` worth `gapValue`; and
+        /// suffix and equal to the pinned build where pinned (an indexer-served manifest needs every
+        /// hash pinned); every dispatch tag present; the gap and name baked for this price covenant
+        /// and price template, the gap for this name template, the offer for this registry id and
+        /// name template; the price genesis outputs are shards 0..K-1 of the price template worth
+        /// `priceValue`, and `priceCovenantId == covenant_id(price genesis outpoint, [(i, shard_i)])`;
+        /// the genesis output is the genesis gap `(00..00, ff..ff)` worth `gapValue`; and
         /// `registryCovenantId == covenant_id(genesis outpoint, [(0, genesis gap)])`.
-        func verify() throws {
+        func verify(source: Source = .bundle) throws {
             guard network == Self.supportedNetwork else {
                 throw Failure("manifest is for \(network); only \(Self.supportedNetwork) is enabled (mainnet waits for an audit)")
             }
-            for t in [gap, name, offer] {
+            for t in [price, gap, name, offer] {
                 guard Codec.templateHash(prefix: t.prefix, suffix: t.suffix) == t.templateHash else {
                     throw Failure("manifest: \(t.contract) template hash does not match its prefix and suffix")
                 }
-                if let pinned = Self.pinnedTemplateHashes[t.contract], hex(t.templateHash) != pinned {
-                    if Self.v1TemplateHashes[t.contract] == hex(t.templateHash) { throw Failure.outdatedRegistry }
-                    throw Failure("manifest: \(t.contract) is not the pinned build")
+                if let pinned = Self.pinnedTemplateHashes[t.contract] {
+                    guard hex(t.templateHash) == pinned else { throw Failure("manifest: \(t.contract) is not the pinned build") }
+                } else if source == .indexer, t.contract != "KachatOffer" {
+                    throw Failure("manifest: \(t.contract) is not pinned in this app; only a bundled manifest is trusted")
                 }
                 for e in Self.entries[t.contract] ?? [] where t.dispatchTags[e] == nil {
                     throw Failure("manifest: \(t.contract) dispatch tag for \(e) missing")
                 }
             }
+            for t in [gap, name] {
+                guard t.suffix.range(of: priceCovenantId) != nil, t.suffix.range(of: price.templateHash) != nil else {
+                    throw Failure("manifest: the \(t.contract) is not built for this price covenant and price template")
+                }
+            }
+            guard gap.suffix.range(of: name.templateHash) != nil else { throw Failure("manifest: the gap is not built for this name template") }
             guard offer.suffix.range(of: registryCovenantId) != nil, offer.suffix.range(of: name.templateHash) != nil else {
                 throw Failure("manifest: the offer is not built for this registry id and name template")
             }
-            guard params.prices.count == 5, params.renewPrices.count == 5, params.maxYears >= 1, params.maxYears <= 31,
-                  params.renewWindowMs > 0, params.renewWindowMs < yearMs else {
+            guard params.genesisPrices.count == 5, params.maxYears >= 1, params.maxYears <= 31,
+                  params.periodMs >= 60_000, params.periodMs <= yearMs, params.maxYears * params.periodMs < 1_000_000_000_000,
+                  params.renewWindowMs > 0, params.renewWindowMs <= params.periodMs,
+                  params.priceShards >= 1, params.priceShards <= 8 else {
                 throw Failure("manifest: params out of range")
+            }
+            guard genesisShards.count == Int(params.priceShards) else { throw Failure("manifest: \(genesisShards.count) price shards, params say \(params.priceShards)") }
+            for (i, s) in genesisShards.enumerated() {
+                guard s.output.value == params.priceValue, s.output.scriptVersion == 0,
+                      s.output.script == price.script(s.fields.encoded), s.fields.shard == Int64(i) else {
+                    throw Failure("manifest: price genesis output \(i) is not shard \(i) of the price template")
+                }
+            }
+            let pid = Codec.covenantId(outpoint: priceGenesisOutpoint, authorized: genesisShards.enumerated().map { (UInt32($0.offset), $0.element.output) })
+            guard pid == priceCovenantId else {
+                throw Failure("manifest: price covenant id \(hex(priceCovenantId)) != covenant_id(price genesis) \(hex(pid))")
             }
             guard genesisState.lo == zero32, genesisState.hi == ff32 else { throw Failure("manifest: genesis gap is not (00..00, ff..ff)") }
             let gapScript = gap.script(Codec.gapState(lo: zero32, hi: ff32))
