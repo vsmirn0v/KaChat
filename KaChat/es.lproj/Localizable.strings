@@ -1234,3 +1234,4 @@
 "Slide to Consolidate" = "Desliza para consolidar";
 "Send Kaspa from your spending address." = "Envía Kaspa desde tu dirección de gasto.";
 "Spending address is unlocking — go back and try again." = "La dirección de gasto se está desbloqueando: vuelve e inténtalo de nuevo.";
+"This address isn't in this wallet any more." = "Esta dirección ya no está en esta cartera.";

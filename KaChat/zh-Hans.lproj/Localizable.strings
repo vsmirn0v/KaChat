@@ -1234,3 +1234,4 @@
 "Slide to Consolidate" = "滑动合并";
 "Send Kaspa from your spending address." = "从你的支出地址发送 Kaspa。";
 "Spending address is unlocking — go back and try again." = "支出地址正在解锁，请返回后重试。";
+"This address isn't in this wallet any more." = "此地址已不在这个钱包中。";

@@ -1234,3 +1234,4 @@
 "Slide to Consolidate" = "اسحب للدمج";
 "Send Kaspa from your spending address." = "أرسل Kaspa من عنوان الإنفاق الخاص بك.";
 "Spending address is unlocking — go back and try again." = "يجري فتح قفل عنوان الإنفاق — ارجع وحاول مرة أخرى.";
+"This address isn't in this wallet any more." = "لم يعد هذا العنوان ضمن هذه المحفظة.";

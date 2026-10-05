@@ -971,7 +971,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // the post below has no observer yet.
         if threadIdentifier == AddressActivityNotifier.notificationThreadIdentifier {
             let kind = response.notification.request.content.userInfo["kind"] as? String
-            if kind == "cold" {
+            if let address = response.notification.request.content.userInfo["address"] as? String, !address.isEmpty {
+                // One address got the Kaspa: open that address's history (chatting, spending or
+                // cold storage - MainTabView works out which).
+                OwnAddressRoute.pending = address
+                NotificationCenter.default.post(name: .openOwnAddress, object: nil)
+            } else if kind == "cold" {
                 PendingTabRoute.pending = .coldStorage
                 NotificationCenter.default.post(name: .openColdStorage, object: nil)
             } else {
@@ -1090,6 +1095,12 @@ enum PendingTabRoute {
     static var pending: AppTab?
 }
 
+/// The own address a tapped "Received" notification points at, for MainTabView to open (its
+/// History tab). Survives a cold start, where the post below has no observer yet.
+enum OwnAddressRoute {
+    static var pending: String?
+}
+
 /// The single place an already-validated `KaChatInternalLink` becomes navigation. Used by the
 /// system URL router (`KaChatApp.handleIncomingURL`, for links tapped outside the app) AND by
 /// the in-chat preview cards (`KaChatInternalLinkCardView`), so a link opens the same screen
@@ -1205,6 +1216,8 @@ extension Notification.Name {
     /// A `.kachat` name notification was tapped: the name is in `KachatDeepLink.pendingName`.
     static let openKachatName = Notification.Name("openKachatName")
     static let openColdStorage = Notification.Name("openColdStorage")
+    /// A "Received" notification for one of your addresses was tapped: `OwnAddressRoute.pending`.
+    static let openOwnAddress = Notification.Name("openOwnAddress")
     static let openPublicChat = Notification.Name("openBroadcast")
     /// Open Customize Dock. Posted rather than pushed because that screen EDITS the dock, and the
     /// dock's tabs are the TabView's own children: changing placement rebuilds them, which

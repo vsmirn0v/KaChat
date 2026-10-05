@@ -1953,7 +1953,7 @@ struct CoinControlView: View {
 
 /// Transaction history for a single Cold Storage address, opening each transaction directly on
 /// whichever block explorer is selected in Settings > Connection > Kaspa Explorer.
-private struct ColdStorageAddressTransactionHistoryView: View {
+struct ColdStorageAddressTransactionHistoryView: View {
     let entry: ColdStorageAddressEntry
 
     /// The tapped transaction, while its action chooser is up.

@@ -2086,7 +2086,7 @@ private struct SpendingAddressPrivateKeyView: View {
 /// Transaction history for a single spending address. Tapping a transaction opens it
 /// directly on whichever block explorer is selected in Settings > Connection > Kaspa
 /// Explorer, rather than showing an in-app detail screen.
-private struct SpendingAddressTransactionHistoryView: View {
+struct SpendingAddressTransactionHistoryView: View {
     let entry: SpendingAddressEntry
 
     /// The tapped transaction, while its action chooser is up.

@@ -1234,3 +1234,4 @@
 "Slide to Consolidate" = "밀어서 통합";
 "Send Kaspa from your spending address." = "지출 주소에서 Kaspa를 보냅니다.";
 "Spending address is unlocking — go back and try again." = "지출 주소 잠금을 해제하는 중입니다. 뒤로 가서 다시 시도하세요.";
+"This address isn't in this wallet any more." = "이 주소는 더 이상 이 지갑에 없습니다.";

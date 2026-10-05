@@ -48,6 +48,8 @@ struct MainTabView: View {
     private var chatService: ChatService { ChatService.shared }
     private var walletManager: WalletManager { WalletManager.shared }
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    /// The address a tapped "Received" notification opened (its history, in a sheet).
+    @State private var ownAddressSheet: OwnAddressSheetTarget?
     // Red dot on the Profile tab while the bell (which lives on the Profile screen)
     // holds unread notifications.
     @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
@@ -222,6 +224,16 @@ struct MainTabView: View {
             // A .kachat name notification: the .kachat screen (dock or Kaspa Hub) opens the name.
             PendingTabRoute.pending = nil
             routeToFeature(.kachatNames)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openOwnAddress)) { _ in
+            takeOwnAddressRoute()
+        }
+        .sheet(item: $ownAddressSheet) { target in
+            OwnAddressHistorySheet(address: target.address)
+                .environmentObject(ChatService.shared)
+                .environmentObject(settingsViewModel)
+                .environmentObject(WalletManager.shared)
+                .environmentObject(ContactsManager.shared)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openColdStorage)) { _ in
             // Cold-storage address-activity notification tapped: the Storage tab, or the next
@@ -411,7 +423,18 @@ struct MainTabView: View {
     /// is delivered before this view exists (the app is still on the loading/onboarding route),
     /// so its tab switch is lost while the pending target survives. The destination screens
     /// consume the target itself; this only puts the user on the tab that mounts them.
+    /// Opens the address a tapped "Received" notification named, over whatever tab is showing.
+    private func takeOwnAddressRoute() {
+        guard let address = OwnAddressRoute.pending else { return }
+        OwnAddressRoute.pending = nil
+        ownAddressSheet = OwnAddressSheetTarget(address: address)
+    }
+
     private func consumePendingNotificationRoute() {
+        if OwnAddressRoute.pending != nil {
+            takeOwnAddressRoute()
+            return
+        }
         if let tab = PendingTabRoute.pending {
             PendingTabRoute.pending = nil
             if tab == .kachatNames {
@@ -523,5 +546,83 @@ private struct InitialSyncProgressModal: View {
             try? await Task.sleep(nanoseconds: 20_000_000_000)
             canSkip = true
         }
+    }
+}
+
+struct OwnAddressSheetTarget: Identifiable {
+    let address: String
+    var id: String { address }
+}
+
+/// One of your own addresses, opened from a tapped "Received" notification on its History tab:
+/// the chatting address, a spending address or a cold-storage address, each on the same screen
+/// you'd reach it through (Profile, Manage Addresses, Cold Storage).
+struct OwnAddressHistorySheet: View {
+    let address: String
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var walletManager: WalletManager
+
+    private enum Resolved {
+        case chatting
+        case spending(SpendingAddressEntry)
+        case cold(ColdStorageAddressEntry)
+        case unknown
+    }
+
+    @State private var resolved: Resolved?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch resolved {
+                case nil:
+                    ProgressView()
+                case .chatting?:
+                    ChattingAddressManageView(address: address)
+                case .spending(let entry)?:
+                    SpendingAddressTransactionHistoryView(entry: entry)
+                case .cold(let entry)?:
+                    ColdStorageAddressTransactionHistoryView(entry: entry)
+                case .unknown?:
+                    Text("This address isn't in this wallet any more.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .task { resolved = await resolve() }
+    }
+
+    /// Which of your addresses it is, with its balance for the screen's header.
+    private func resolve() async -> Resolved {
+        let target = address.lowercased()
+        if walletManager.currentWallet?.publicAddress.lowercased() == target { return .chatting }
+        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
+        let balance = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        let spending = walletManager.spendingAddresses(inRange: 0..<(max(0, walletManager.maxSpendingAddressIndex) + 1))
+        if let match = spending.first(where: { $0.value.lowercased() == target }) {
+            return .spending(SpendingAddressEntry(
+                index: match.key,
+                address: match.value,
+                balanceSompi: balance,
+                isCurrent: match.key == walletManager.currentSpendingAddressIndex
+            ))
+        }
+        let cold = ColdStorageManager.shared
+        for account in cold.accounts {
+            for index in 0...max(0, account.maxAddressIndex) {
+                if let candidate = cold.address(for: account, at: index), candidate.lowercased() == target {
+                    return .cold(ColdStorageAddressEntry(index: index, address: candidate, balanceSompi: balance))
+                }
+            }
+        }
+        return .unknown
     }
 }

@@ -348,7 +348,11 @@ final class AddressActivityNotifier: ObservableObject {
         content.title = "Received \(Self.formatKas(total)) \(KaspaUnit.symbol)"
         content.body = bodyDescribing(addresses: hits.map { $0.address })
         content.threadIdentifier = Self.notificationThreadIdentifier
-        content.userInfo = ["kind": kindKey(for: hits.first?.address ?? "")]
+        // One address: the tap opens that address's history. Several: the wallet tab, as before.
+        var info: [String: Any] = ["kind": kindKey(for: hits.first?.address ?? "")]
+        let unique = Set(hits.map { $0.address })
+        if unique.count == 1, let only = unique.first { info["address"] = only }
+        content.userInfo = info
         applySoundPreference(to: content)
 
         UNUserNotificationCenter.current().add(
@@ -366,7 +370,7 @@ final class AddressActivityNotifier: ObservableObject {
         content.title = "Balance increased by \(Self.formatKas(delta)) \(KaspaUnit.symbol)"
         content.body = describe(address: address)
         content.threadIdentifier = Self.notificationThreadIdentifier
-        content.userInfo = ["kind": kindKey(for: address)]
+        content.userInfo = ["kind": kindKey(for: address), "address": address]
         applySoundPreference(to: content)
 
         let balId = "addr-activity-bal-\(address.suffix(12))-\(UUID().uuidString)"
