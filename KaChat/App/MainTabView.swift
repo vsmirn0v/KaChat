@@ -225,16 +225,9 @@ struct MainTabView: View {
             PendingTabRoute.pending = nil
             routeToFeature(.kachatNames)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openOwnAddress)) { _ in
-            takeOwnAddressRoute()
-        }
-        .sheet(item: $ownAddressSheet) { target in
-            OwnAddressHistorySheet(address: target.address)
-                .environmentObject(ChatService.shared)
-                .environmentObject(settingsViewModel)
-                .environmentObject(WalletManager.shared)
-                .environmentObject(ContactsManager.shared)
-        }
+        // Its own modifier: added to this chain inline, it pushed the body past what the type
+        // checker can solve in reasonable time.
+        .modifier(OwnAddressSheetPresenter(target: $ownAddressSheet, onRequest: takeOwnAddressRoute))
         .onReceive(NotificationCenter.default.publisher(for: .openColdStorage)) { _ in
             // Cold-storage address-activity notification tapped: the Storage tab, or the next
             // best wallet surface when it's hidden.
@@ -624,5 +617,26 @@ struct OwnAddressHistorySheet: View {
             }
         }
         return .unknown
+    }
+}
+
+/// Presents a tapped "Received" notification's address (`OwnAddressHistorySheet`) over the tabs.
+private struct OwnAddressSheetPresenter: ViewModifier {
+    @Binding var target: OwnAddressSheetTarget?
+    let onRequest: () -> Void
+    @EnvironmentObject private var settingsViewModel: SettingsViewModel
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .openOwnAddress)) { _ in
+                onRequest()
+            }
+            .sheet(item: $target) { target in
+                OwnAddressHistorySheet(address: target.address)
+                    .environmentObject(ChatService.shared)
+                    .environmentObject(settingsViewModel)
+                    .environmentObject(WalletManager.shared)
+                    .environmentObject(ContactsManager.shared)
+            }
     }
 }
