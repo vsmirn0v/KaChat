@@ -2264,6 +2264,9 @@ extension ChatService {
         paymentNote: String = "",
         /// The spending address a payment was asked to come from (see `sendPayment`).
         paymentSourceIndex: Int? = nil,
+        /// The payment's extra (Fast / Priority / custom) fee and coin-control selection.
+        paymentExtraFeeSompi: UInt64 = 0,
+        paymentManualUtxos: [UTXO]? = nil,
         handshakeIsResponse: Bool? = nil
     ) {
         guard !scheduledSendRetries.contains(pendingTxId) else { return }
@@ -2302,7 +2305,9 @@ extension ChatService {
                             amountSompi: paymentAmountSompi,
                             note: paymentNote,
                             pendingTxId: retryPendingTxId,
-                            sourceSpendingIndex: paymentSourceIndex
+                            extraFeeSompi: paymentExtraFeeSompi,
+                            sourceSpendingIndex: paymentSourceIndex,
+                            manualUtxos: paymentManualUtxos
                         )
                     case .handshake:
                         let isResponse = handshakeIsResponse ?? self.shouldRetryHandshakeAsResponse(for: contact.address)
@@ -2331,7 +2336,9 @@ extension ChatService {
         extraFeeSompi: UInt64 = 0,
         /// Pay from this spending address instead of the primary (Chats Payment Privacy on; the
         /// Send KAS sheet's Available pill). nil = the primary, as always.
-        sourceSpendingIndex: Int? = nil
+        sourceSpendingIndex: Int? = nil,
+        /// Coin control: spend only these coins of the source address. nil = automatic.
+        manualUtxos: [UTXO]? = nil
     ) async throws -> String? {
         // Paying someone is reaching out to them, like writing to them.
         acceptChat(contact.address)
@@ -2342,7 +2349,8 @@ extension ChatService {
                 note: note,
                 pendingTxId: pendingTxId,
                 extraFeeSompi: extraFeeSompi,
-                sourceSpendingIndex: sourceSpendingIndex
+                sourceSpendingIndex: sourceSpendingIndex,
+                manualUtxos: manualUtxos
             )
         }
     }
@@ -2355,7 +2363,8 @@ extension ChatService {
         pendingTxId: String? = nil,
         /// Extra priority fee (Fast/Priority tiers) on top of the computed base fee.
         extraFeeSompi: UInt64 = 0,
-        sourceSpendingIndex: Int? = nil
+        sourceSpendingIndex: Int? = nil,
+        manualUtxos: [UTXO]? = nil
     ) async throws -> String? {
         guard amountSompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
@@ -2498,7 +2507,9 @@ extension ChatService {
             }
 
             let utxos = try await rpcManager.getUtxosByAddresses([sourceAddress])
-            let spendable = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
+            let confirmed = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
+            // Coin control: only the chosen coins (still unspent) - the builder picks from these.
+            let spendable = resolveManualUtxos(manualUtxos, against: confirmed) ?? confirmed
             guard !spendable.isEmpty else {
                 throw KasiaError.networkError("No spendable UTXOs available")
             }
@@ -2606,7 +2617,9 @@ extension ChatService {
                     delaySeconds: delay,
                     paymentAmountSompi: amountSompi,
                     paymentNote: note,
-                    paymentSourceIndex: sourceSpendingIndex
+                    paymentSourceIndex: sourceSpendingIndex,
+                    paymentExtraFeeSompi: extraFeeSompi,
+                    paymentManualUtxos: manualUtxos
                 )
                 // Deferred, not sent - nothing to confirm yet.
                 return nil
@@ -3266,7 +3279,8 @@ extension ChatService {
         return messageFee
     }
 
-    func estimatePaymentFee(to contact: Contact, amountSompi: UInt64, note: String = "", sourceSpendingIndex: Int? = nil) async throws -> UInt64 {
+    /// The base (Normal) fee; a Fast / Priority / custom extra goes on top (see the Send KAS sheet).
+    func estimatePaymentFee(to contact: Contact, amountSompi: UInt64, note: String = "", sourceSpendingIndex: Int? = nil, manualUtxos: [UTXO]? = nil) async throws -> UInt64 {
         guard amountSompi > 0 else { throw KasiaError.networkError("Amount is zero") }
         // Must source from whatever `sendPaymentInternal` will actually spend from - the
         // spending chain with Chats Payment Privacy ON, the chatting address with it OFF (see
@@ -3281,7 +3295,8 @@ extension ChatService {
         let payload = try KasiaTransactionBuilder.buildPaymentPayload(message: note, amount: amountSompi, recipientPublicKey: recipientPublicKey)
         // Use fallback method - doesn't require gRPC connection
         let utxos = try await fetchUtxosWithFallback(for: sourceAddress)
-        let spendable = utxos.filter { !$0.isCoinbase }
+        let candidates = utxos.filter { !$0.isCoinbase }
+        let spendable = resolveManualUtxos(manualUtxos, against: candidates) ?? candidates
         guard !spendable.isEmpty else {
             throw KasiaError.networkError("No spendable UTXOs")
         }
@@ -3301,7 +3316,7 @@ extension ChatService {
     }
 
     /// Calculate maximum sendable amount (balance - fee for send-all transaction with no change output)
-    func estimateMaxPaymentAmount(to contact: Contact, note: String = "", sourceSpendingIndex: Int? = nil) async throws -> UInt64 {
+    func estimateMaxPaymentAmount(to contact: Contact, note: String = "", sourceSpendingIndex: Int? = nil, manualUtxos: [UTXO]? = nil, extraFeeSompi: UInt64 = 0) async throws -> UInt64 {
         // Same toggle-aware sourcing as `estimatePaymentFee` above - see its doc comment.
         let sourceAddress = try paymentFundingSourceAddress(spendingIndex: sourceSpendingIndex)
         guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
@@ -3310,7 +3325,8 @@ extension ChatService {
 
         // Use fallback method - doesn't require gRPC connection
         let utxos = try await fetchUtxosWithFallback(for: sourceAddress)
-        let spendable = utxos.filter { !$0.isCoinbase }
+        let candidates = utxos.filter { !$0.isCoinbase }
+        let spendable = resolveManualUtxos(manualUtxos, against: candidates) ?? candidates
         guard !spendable.isEmpty else {
             throw KasiaError.networkError("No spendable UTXOs")
         }
@@ -3337,11 +3353,13 @@ extension ChatService {
             senderScriptPubKey: senderScriptPubKey
         )
 
-        guard totalBalance > fee else {
+        // Leave room for a Fast / Priority / custom extra on top of the base fee.
+        let totalFee = fee + extraFeeSompi
+        guard totalBalance > totalFee else {
             throw KasiaError.networkError("Balance too low to cover fee")
         }
 
-        return totalBalance - fee
+        return totalBalance - totalFee
     }
 
     func sendHandshake(to contact: Contact, isResponse: Bool, pendingTxId: String? = nil) async throws {

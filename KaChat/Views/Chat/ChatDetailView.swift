@@ -242,6 +242,14 @@ struct ChatDetailView: View {
     /// the sheet opens; the primary itself never changes.
     @State private var paymentSource: SpendingAddressEntry?
     @State private var showPaymentSourcePicker = false
+    /// Fee speed and a custom fee, and coin control - the same controls as every Send Kaspa
+    /// screen (`SendFeeControls`). The extra over the base fee goes to `sendPayment`.
+    @State private var paymentFeeTier: WithdrawFeeTier = .normal
+    @State private var paymentCustomExtraFeeSompi: UInt64?
+    @State private var isEditingPaymentFee = false
+    @State private var paymentCustomFeeText = ""
+    @State private var paymentManualUtxos: [UTXO]?
+    @State private var showPaymentCoinControl = false
     @State private var spendingBalanceSompi: UInt64?
     /// Post-send retry schedule for the Available pill (see scheduleSpendingBalanceRetries).
     @State private var spendingBalanceRetryTask: Task<Void, Never>?
@@ -2887,6 +2895,10 @@ struct ChatDetailView: View {
         paymentNote = ""
         paymentError = nil
         paymentSource = nil
+        paymentFeeTier = .normal
+        paymentCustomExtraFeeSompi = nil
+        isEditingPaymentFee = false
+        paymentManualUtxos = nil
         paymentFeeSompi = nil
         isEstimatingPaymentFee = false
         paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
@@ -2913,56 +2925,82 @@ struct ChatDetailView: View {
     /// and available balance, and a slide-to-send button - sliding rather than tapping, so a
     /// payment can't go out on a stray touch.
     private var paymentSheet: some View {
-        VStack(spacing: 18) {
-            VStack(spacing: 4) {
-                Text(KaspaUnit.label(AppLocalization.string("Send KAS")))
-                    .font(.headline)
-                Text("to \(contactsManager.displayName(for: contact))")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .padding(.top, 24)
+        ScrollView {
+            VStack(spacing: 18) {
+                VStack(spacing: 4) {
+                    Text(KaspaUnit.label(AppLocalization.string("Send KAS")))
+                        .font(.headline)
+                    Text("to \(contactsManager.displayName(for: contact))")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .padding(.top, 24)
 
-            paymentAmountEntry
+                paymentAmountEntry
 
-            paymentMemoField
+                paymentMemoField
 
-            HStack(spacing: 6) {
-                paymentFeePill
-                    .layoutPriority(1)
                 availableBalanceBubble
+                    .frame(maxWidth: .infinity)
+
+                SendFeeControls(
+                    feeTier: $paymentFeeTier,
+                    isEditingFee: $isEditingPaymentFee,
+                    customFeeText: $paymentCustomFeeText,
+                    isEstimatingFee: isEstimatingPaymentFee,
+                    feeText: paymentTotalFeeSompi.map { "\(formatKaspaExact($0)) \(KaspaUnit.symbol)" },
+                    onStartEditing: {
+                        guard let total = paymentTotalFeeSompi else { return }
+                        paymentCustomFeeText = formatKaspaExact(total)
+                        isEditingPaymentFee = true
+                    },
+                    onCommit: commitPaymentCustomFee,
+                    coinControlSummary: coinControlSummary(paymentManualUtxos),
+                    onCoinControl: { showPaymentCoinControl = true }
+                )
+
+                if let paymentError {
+                    Text(paymentError)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                } else if paymentAmountSompi > 0 && paymentAmountSompi < 10_000_001 {
+                    KaspaUnit.text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
+                        .font(.footnote)
+                        .foregroundColor(.orange)
+                        .multilineTextAlignment(.center)
+                }
+
+                SendActionButton(
+                    title: "Slide to Send",
+                    isBusy: isSending,
+                    isEnabled: paymentAmountSompi > 0 && !isSending,
+                    action: submitPayment
+                )
             }
-            .frame(maxWidth: .infinity)
-
-            if let paymentError {
-                Text(paymentError)
-                    .font(.footnote)
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
-            } else if paymentAmountSompi > 0 && paymentAmountSompi < 10_000_001 {
-                KaspaUnit.text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
-                    .font(.footnote)
-                    .foregroundColor(.orange)
-                    .multilineTextAlignment(.center)
-            }
-
-            SendActionButton(
-                title: "Slide to Send",
-                isBusy: isSending,
-                isEnabled: paymentAmountSompi > 0 && !isSending,
-                action: submitPayment
-            )
-
-            Spacer(minLength: 0)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.medium, .large])
+        .scrollDismissesKeyboard(.interactively)
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(isSending)
+        .onChange(of: paymentFeeTier) { _ in
+            paymentCustomExtraFeeSompi = nil
+            isEditingPaymentFee = false
+        }
+        .onChange(of: paymentManualUtxos?.map { "\($0.outpoint.transactionId):\($0.outpoint.index)" } ?? []) { _ in
+            schedulePaymentFee(for: amountText)
+        }
+        .sheet(isPresented: $showPaymentCoinControl) {
+            if let from = try? chatService.paymentFundingSourceAddress(spendingIndex: paymentSource?.index) {
+                CoinControlView(fromAddress: from, initialSelection: paymentManualUtxos) { selection in
+                    paymentManualUtxos = selection
+                }
+            }
+        }
         .confirmationDialog("Small Amount", isPresented: $showDustWarning, titleVisibility: .visible) {
             Button("Send Anyway") {
                 executePayment(amountSompi: pendingDustAmountSompi)
@@ -2971,6 +3009,25 @@ struct ChatDetailView: View {
         } message: {
             KaspaUnit.text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
         }
+    }
+
+    /// The extra over the base fee: a custom fee, else what the speed adds (Fast 2x, Priority 5x).
+    private var paymentExtraFeeSompi: UInt64 {
+        guard let base = paymentFeeSompi else { return 0 }
+        if let paymentCustomExtraFeeSompi { return paymentCustomExtraFeeSompi }
+        return base * (paymentFeeTier.multiplier - 1)
+    }
+
+    private var paymentTotalFeeSompi: UInt64? {
+        paymentFeeSompi.map { $0 + paymentExtraFeeSompi }
+    }
+
+    /// A typed total fee below the base is raised to it (a transaction can't go out under it).
+    private func commitPaymentCustomFee() {
+        defer { isEditingPaymentFee = false }
+        guard let base = paymentFeeSompi, let kas = Double(paymentCustomFeeText), kas >= 0 else { return }
+        let total = UInt64((kas * 100_000_000).rounded())
+        paymentCustomExtraFeeSompi = total > base ? total - base : 0
     }
 
     /// The big centred amount, the KAS/fiat switch and Max - the shared Send Kaspa piece.
@@ -2983,7 +3040,12 @@ struct ChatDetailView: View {
             onMax: {
                 Task {
                     do {
-                        let maxSompi = try await chatService.estimateMaxPaymentAmount(to: contact, sourceSpendingIndex: paymentSource?.index)
+                        let maxSompi = try await chatService.estimateMaxPaymentAmount(
+                            to: contact,
+                            sourceSpendingIndex: paymentSource?.index,
+                            manualUtxos: paymentManualUtxos,
+                            extraFeeSompi: paymentExtraFeeSompi
+                        )
                         await MainActor.run {
                             let kas = Double(maxSompi) / 100_000_000.0
                             amountText = fiatAmountState.setMaxKas(kas, priceInCurrency: portfolioViewModel.currentPriceUsd)
@@ -3012,24 +3074,6 @@ struct ChatDetailView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .background(glassBackground(cornerRadius: 22))
-    }
-
-    private var paymentFeePill: some View {
-        Group {
-            if isEstimatingPaymentFee {
-                KaspaUnit.text("fee: -------- KAS")
-            } else if let fee = paymentFeeSompi {
-                Text(localizedFeeText(fee))
-            } else {
-                KaspaUnit.text("fee: -- KAS")
-            }
-        }
-        .font(.caption2)
-        .foregroundColor(.secondary)
-        .lineLimit(1)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(glassBackground(cornerRadius: 14))
     }
 
     private var availableBalanceBubble: some View {
@@ -3082,6 +3126,9 @@ struct ChatDetailView: View {
         .sheet(isPresented: $showPaymentSourcePicker) {
             SpendingSourcePicker(currentIndex: paymentSource?.index ?? primaryIndex) { picked in
                 paymentSource = picked.index == primaryIndex ? nil : picked
+                // Coin control and a custom fee belong to the address they were set for.
+                paymentManualUtxos = nil
+                paymentCustomExtraFeeSompi = nil
             }
         }
     }
@@ -3214,13 +3261,22 @@ struct ChatDetailView: View {
     }
 
     private func executePayment(amountSompi: UInt64) {
+        let extraFee = paymentExtraFeeSompi
+        let manualUtxos = paymentManualUtxos
         isSending = true
         Task {
             do {
                 let note = paymentNote.trimmingCharacters(in: .whitespacesAndNewlines)
                 // nil means DEFERRED (no confirmed inputs yet) - the retry timer owns it; either
                 // way the payment bubble is already in the chat.
-                _ = try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: note, sourceSpendingIndex: paymentSource?.index)
+                _ = try await chatService.sendPayment(
+                    to: contact,
+                    amountSompi: amountSompi,
+                    note: note,
+                    extraFeeSompi: extraFee,
+                    sourceSpendingIndex: paymentSource?.index,
+                    manualUtxos: manualUtxos
+                )
                 await MainActor.run {
                     Haptics.success()
                     amountText = ""
@@ -3934,12 +3990,13 @@ struct ChatDetailView: View {
         }
         let note = paymentNote.trimmingCharacters(in: .whitespacesAndNewlines)
         let source = paymentSource?.index
+        let manual = paymentManualUtxos
 
         isEstimatingPaymentFee = true
         paymentFeeTask = Task {
             try? await Task.sleep(nanoseconds: 200_000_000)
             if Task.isCancelled { return }
-            let estimate = try? await chatService.estimatePaymentFee(to: contact, amountSompi: amountSompi, note: note, sourceSpendingIndex: source)
+            let estimate = try? await chatService.estimatePaymentFee(to: contact, amountSompi: amountSompi, note: note, sourceSpendingIndex: source, manualUtxos: manual)
             if Task.isCancelled { return }
             await MainActor.run {
                 paymentFeeSompi = estimate
