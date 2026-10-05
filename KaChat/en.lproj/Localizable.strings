@@ -1244,3 +1244,7 @@
 "Delete Room?" = "Delete Room?";
 "This address is on a different network than the app." = "This address is on a different network than the app.";
 ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch.";
+"Claim Testnet Kaspa" = "Claim Testnet Kaspa";
+"Waiting for the faucet's payment..." = "Waiting for the faucet's payment...";
+"Claimed. You can claim again in %@." = "Claimed. You can claim again in %@.";
+"Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers.";

@@ -1243,3 +1243,7 @@
 "Delete Room?" = "Xóa phòng?";
 "This address is on a different network than the app." = "Địa chỉ này thuộc mạng khác với ứng dụng.";
 ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = "Tên .kachat chưa có trên mainnet. Ảnh đại diện, ảnh bìa, tiểu sử và liên kết của bạn được lưu ngay; bạn có thể chọn tên chính khi tên ra mắt.";
+"Claim Testnet Kaspa" = "Nhận Kaspa testnet";
+"Waiting for the faucet's payment..." = "Đang chờ vòi thanh toán...";
+"Claimed. You can claim again in %@." = "Đã nhận. Bạn có thể nhận lại sau %@.";
+"Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "Sao chép địa chỉ trò chuyện và mở vòi TN10: dán vào, vượt qua bước kiểm tra và nhận mức tối đa.";

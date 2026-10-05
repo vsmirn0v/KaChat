@@ -1243,3 +1243,7 @@
 "Delete Room?" = "Oda silinsin mi?";
 "This address is on a different network than the app." = "Bu adres uygulamadan farklı bir ağda.";
 ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = ".kachat adları henüz mainnet'te yok. Avatarın, bannerın, biyografin ve bağlantıların şimdi kaydedilir; adlar başladığında birincil ad seçebilirsin.";
+"Claim Testnet Kaspa" = "Testnet Kaspa al";
+"Waiting for the faucet's payment..." = "Musluğun ödemesi bekleniyor...";
+"Claimed. You can claim again in %@." = "Alındı. %@ sonra yeniden alabilirsin.";
+"Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "Sohbet adresini kopyalar ve TN10 musluğunu açar: yapıştır, doğrulamayı geç ve sunulan en yüksek miktarı al.";

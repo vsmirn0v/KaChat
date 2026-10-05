@@ -1190,3 +1190,7 @@
 "Delete Room?" = "Raum löschen?";
 "This address is on a different network than the app." = "Diese Adresse gehört zu einem anderen Netzwerk als die App.";
 ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = ".kachat-Namen gibt es im Mainnet noch nicht. Avatar, Banner, Bio und Links werden jetzt gespeichert; einen Hauptnamen kannst du wählen, sobald Namen starten.";
+"Claim Testnet Kaspa" = "Testnet-Kaspa abholen";
+"Waiting for the faucet's payment..." = "Warte auf die Zahlung des Faucets...";
+"Claimed. You can claim again in %@." = "Abgeholt. Du kannst in %@ wieder abholen.";
+"Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "Kopiert deine Chat-Adresse und öffnet das TN10-Faucet: einfügen, die Prüfung bestehen und den Höchstbetrag abholen.";

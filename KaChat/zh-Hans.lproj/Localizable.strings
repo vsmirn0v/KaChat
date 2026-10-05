@@ -1243,3 +1243,7 @@
 "Delete Room?" = "删除聊天室？";
 "This address is on a different network than the app." = "此地址属于与应用不同的网络。";
 ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = ".kachat 名称尚未在主网推出。你的头像、横幅、简介和链接现在即可保存；名称上线后即可选择主名称。";
+"Claim Testnet Kaspa" = "领取测试网 Kaspa";
+"Waiting for the faucet's payment..." = "正在等待水龙头付款...";
+"Claimed. You can claim again in %@." = "已领取。%@后可再次领取。";
+"Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "复制你的聊天地址并打开 TN10 水龙头：粘贴地址、通过验证，然后领取最高额度。";

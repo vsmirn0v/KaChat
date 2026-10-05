@@ -1243,3 +1243,7 @@
 "Delete Room?" = "Удалить комнату?";
 "This address is on a different network than the app." = "Этот адрес из другой сети, чем приложение.";
 ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = "Имён .kachat в основной сети пока нет. Аватар, баннер, описание и ссылки сохраняются уже сейчас; основное имя можно будет выбрать, когда имена запустятся.";
+"Claim Testnet Kaspa" = "Получить тестовые Kaspa";
+"Waiting for the faucet's payment..." = "Ждём платёж от крана...";
+"Claimed. You can claim again in %@." = "Получено. Снова можно будет получить через %@.";
+"Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "Копирует адрес для чатов и открывает кран TN10: вставьте его, пройдите проверку и получите максимум.";

@@ -1243,3 +1243,7 @@
 "Delete Room?" = "ルームを削除しますか？";
 "This address is on a different network than the app." = "このアドレスはアプリとは別のネットワークのものです。";
 ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = ".kachatの名前はまだメインネットにありません。アバター、バナー、自己紹介、リンクは今すぐ保存できます。名前の公開後にメインの名前を選べます。";
+"Claim Testnet Kaspa" = "テストネットKaspaを受け取る";
+"Waiting for the faucet's payment..." = "フォーセットからの送金を待っています...";
+"Claimed. You can claim again in %@." = "受け取りました。%@後にもう一度受け取れます。";
+"Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "チャット用アドレスをコピーしてTN10フォーセットを開きます。貼り付けて確認を通過し、最大額を受け取ってください。";

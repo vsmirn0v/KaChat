@@ -1243,3 +1243,7 @@
 "Delete Room?" = "حذف الغرفة؟";
 "This address is on a different network than the app." = "هذا العنوان على شبكة غير شبكة التطبيق.";
 ".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch." = "أسماء .kachat غير متاحة على الشبكة الرئيسية بعد. تُحفظ صورتك الرمزية والغلاف والنبذة والروابط الآن، ويمكنك اختيار اسم أساسي عند إطلاق الأسماء.";
+"Claim Testnet Kaspa" = "المطالبة بكاسبا التجريبية";
+"Waiting for the faucet's payment..." = "بانتظار دفعة الصنبور...";
+"Claimed. You can claim again in %@." = "تمت المطالبة. يمكنك المطالبة مجددًا خلال %@.";
+"Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "ينسخ عنوان الدردشة ويفتح صنبور TN10: الصقه، واجتز التحقق، واطلب أقصى ما يقدمه.";

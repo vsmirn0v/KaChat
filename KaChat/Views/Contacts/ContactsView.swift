@@ -1156,6 +1156,10 @@ struct ProfileView: View {
     /// chevron tap.
     private func addressDropdownsSection(_ wallet: Wallet) -> some View {
         VStack(spacing: 20) {
+            // Testnet only: free TN10 coins for the chatting address, from the official faucet.
+            if AppSettings.load().networkType == .testnet {
+                TestnetFaucetClaimButton(address: wallet.publicAddress)
+            }
             addressActionRow(
                 title: "Chatting",
                 address: wallet.publicAddress,
@@ -5412,6 +5416,115 @@ struct ProfileHelpView: View {
     }
 }
 
+
+// MARK: - Claim Testnet Kaspa (Profile, testnet only)
+
+/// "Claim Testnet Kaspa", above the Chatting card on testnet. The official TN10 faucet sits
+/// behind a Cloudflare check, so it can't be claimed from in the background: the button copies
+/// the chatting address and opens the faucet in the in-app browser, where you paste it, pass the
+/// check and claim the most it offers. The faucet allows one claim a day, so once the address's
+/// balance goes up after a visit the button locks for 24 hours (kept per address).
+struct TestnetFaucetClaimButton: View {
+    let address: String
+
+    static let faucetURL = URL(string: "https://faucet-tn10.kaspanet.io")!
+    private static let lockInterval: TimeInterval = 24 * 60 * 60
+
+    @ObservedObject private var walletManager = WalletManager.shared
+    @State private var showFaucet = false
+    @State private var balanceBefore: UInt64?
+    @State private var checkingClaim = false
+    @State private var claimedAt: Date?
+
+    private var defaultsKey: String { "kachat_tn10_faucet_claimed_\(address.lowercased())" }
+
+    private func unlockDate(_ now: Date) -> Date? {
+        guard let claimedAt else { return nil }
+        let until = claimedAt.addingTimeInterval(Self.lockInterval)
+        return until > now ? until : nil
+    }
+
+    private func remaining(until: Date, now: Date) -> String {
+        let f = DateComponentsFormatter()
+        f.allowedUnits = until.timeIntervalSince(now) >= 3600 ? [.hour, .minute] : [.minute]
+        f.unitsStyle = .abbreviated
+        f.calendar?.locale = AppLocalization.locale
+        return f.string(from: max(60, until.timeIntervalSince(now))) ?? ""
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let until = unlockDate(context.date)
+            Button {
+                UIPasteboard.general.string = address
+                Haptics.impact(.light)
+                balanceBefore = walletManager.currentWallet?.balanceSompi
+                showFaucet = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: checkingClaim ? "hourglass" : (until == nil ? "drop.fill" : "checkmark.circle.fill"))
+                        .font(.title3)
+                        .foregroundColor(until == nil ? .accentColor : .secondary)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Claim Testnet Kaspa")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(until == nil ? .primary : .secondary)
+                        Group {
+                            if checkingClaim {
+                                Text("Waiting for the faucet's payment...")
+                            } else if let until {
+                                Text(verbatim: String(format: AppLocalization.string("Claimed. You can claim again in %@."), remaining(until: until, now: context.date)))
+                            } else {
+                                Text("Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers.")
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                    }
+                    Spacer(minLength: 0)
+                    if until == nil, !checkingClaim {
+                        Image(systemName: "arrow.up.right.square")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.accentColor.opacity(until == nil ? 0.15 : 0.06)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(until != nil || checkingClaim)
+        }
+        .onAppear {
+            claimedAt = UserDefaults.standard.object(forKey: defaultsKey) as? Date
+        }
+        .fullScreenCover(isPresented: $showFaucet, onDismiss: { Task { await checkForClaim() } }) {
+            InAppBrowserScreen(url: Self.faucetURL) { showFaucet = false }
+        }
+    }
+
+    /// After the faucet closes: the payment usually lands within seconds, so watch the chatting
+    /// balance for up to a minute. A rise means the claim went through - lock for 24 hours.
+    /// No rise (no claim, or the faucet refused) leaves the button free to try again.
+    private func checkForClaim() async {
+        guard let before = balanceBefore else { return }
+        checkingClaim = true
+        defer { checkingClaim = false }
+        for attempt in 0..<12 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 5_000_000_000) }
+            if let now = try? await walletManager.refreshBalance(force: true), now > before {
+                let at = Date()
+                claimedAt = at
+                UserDefaults.standard.set(at, forKey: defaultsKey)
+                Haptics.success()
+                return
+            }
+        }
+    }
+}
 
 // MARK: - Profile Apps screen (Kaspa ecosystem quick links)
 
