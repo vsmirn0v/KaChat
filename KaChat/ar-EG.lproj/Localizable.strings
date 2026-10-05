@@ -1232,3 +1232,5 @@
 "Resolved: %@" = "اتعرف: %@";
 "Slide to Send" = "اسحب عشان تبعت";
 "Slide to Consolidate" = "اسحب عشان تدمج";
+"Send Kaspa from your spending address." = "ابعت Kaspa من عنوان الصرف بتاعك.";
+"Spending address is unlocking — go back and try again." = "عنوان الصرف بيتفتح — ارجع وجرّب تاني.";

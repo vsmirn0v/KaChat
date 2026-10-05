@@ -39,6 +39,8 @@ struct ChatListView: View {
     /// its own sheet, like Profile's.
     @State private var afterCreateSheet: (() -> Void)?
     @State private var qrScreen: ChatsQRScreen?
+    /// "Send Kaspa" in the New sheet: Profile's send from the current spending address.
+    @State private var showSpendingSend = false
     private enum ChatsQRScreen: String, Identifiable {
         case fundChatting, receive
         var id: String { rawValue }
@@ -300,6 +302,13 @@ struct ChatListView: View {
             next?()
         }) {
             createSheet
+                .environmentObject(walletManager)
+        }
+        .sheet(isPresented: $showSpendingSend) {
+            SpendingSendLauncher()
+                .environmentObject(chatService)
+                .environmentObject(contactsManager)
+                .environmentObject(settingsViewModel)
                 .environmentObject(walletManager)
         }
         .sheet(item: $qrScreen) { screen in
@@ -600,36 +609,37 @@ struct ChatListView: View {
         .presentationDragIndicator(.visible)
     }
 
+    /// The New options as square tiles, three to a row.
     private var createMenu: some View {
-        VStack(spacing: 12) {
+        let columns = Array(repeating: GridItem(.fixed(Self.createTileSize), spacing: 14), count: 3)
+        return VStack(spacing: 16) {
             Text("New")
                 .font(.headline)
                 .padding(.top, 20)
-                .padding(.bottom, 4)
 
-            ActionSheetRow(title: "New Chat", subtitle: "Message someone by their address or name.", systemImage: "bubble.left") {
-                createDetent = .large
-                createAddContactGroupMode = false
-            }
-            ActionSheetRow(title: "New Group Chat", subtitle: "Start an encrypted group with several people.", systemImage: "person.3") {
-                createDetent = .large
-                createAddContactGroupMode = true
-            }
-            ActionSheetRow(title: "New Public Chat", subtitle: "Join a public room, or create one.", systemImage: "number") {
-                createRoomName = ""
-                createRoomError = nil
-                pushCreate(.joinRoom)
-            }
-            ActionSheetRow(title: "Fund Chatting Address", subtitle: "Show the QR code to add Kaspa for sending messages.", systemImage: "qrcode") {
-                closeCreateSheet { qrScreen = .fundChatting }
-            }
-            ActionSheetRow(
-                title: "Receive Kaspa",
-                subtitle: "Show a fresh address to get paid.",
-                systemImage: "k.circle",
-                customIcon: Image("KaspaLogo")
-            ) {
-                closeCreateSheet { qrScreen = .receive }
+            LazyVGrid(columns: columns, spacing: 14) {
+                CreateTile(title: "New Chat", hint: "Message someone by their address or name.", systemImage: "bubble.left") {
+                    createDetent = .large
+                    createAddContactGroupMode = false
+                }
+                CreateTile(title: "New Group Chat", hint: "Start an encrypted group with several people.", systemImage: "person.3") {
+                    createDetent = .large
+                    createAddContactGroupMode = true
+                }
+                CreateTile(title: "New Public Chat", hint: "Join a public room, or create one.", systemImage: "number") {
+                    createRoomName = ""
+                    createRoomError = nil
+                    pushCreate(.joinRoom)
+                }
+                CreateTile(title: "Send Kaspa", hint: "Send Kaspa from your spending address.", systemImage: "arrow.up.circle") {
+                    closeCreateSheet { showSpendingSend = true }
+                }
+                CreateTile(title: "Receive Kaspa", hint: "Show a fresh address to get paid.", systemImage: "arrow.down.circle") {
+                    closeCreateSheet { qrScreen = .receive }
+                }
+                CreateTile(title: "Fund Chatting Address", hint: "Show the QR code to add Kaspa for sending messages.", systemImage: "qrcode") {
+                    closeCreateSheet { qrScreen = .fundChatting }
+                }
             }
 
             Spacer(minLength: 0)
@@ -638,6 +648,8 @@ struct ChatListView: View {
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
+
+    static let createTileSize: CGFloat = 104
 
     @ViewBuilder
     private func createDestination(_ route: CreateRoute) -> some View {
@@ -729,7 +741,7 @@ struct ChatListView: View {
 
     /// The menu and the room name share this one height, so moving between them is a plain push.
     /// The create forms open at full height; the QR options leave for their own white sheet.
-    static let createSheetHeight: PresentationDetent = .height(580)
+    static let createSheetHeight: PresentationDetent = .height(380)
 
     private func pushCreate(_ route: CreateRoute) {
         createPath.append(route)
@@ -2261,6 +2273,69 @@ struct MessageRequestsView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+/// One square option in the Chats New sheet: an icon over a two-line title, on glass.
+private struct CreateTile: View {
+    let title: LocalizedStringKey
+    let hint: LocalizedStringKey
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(8)
+            .frame(width: ChatListView.createTileSize, height: ChatListView.createTileSize)
+            .background(sendKaspaGlass(cornerRadius: 18))
+        }
+        .buttonStyle(ChatRowPressStyle())
+        .accessibilityHint(Text(hint))
+    }
+}
+
+/// The New sheet's "Send Kaspa": the same send Profile opens for the current spending address,
+/// once that address's balance is known (it shows in the screen's Available pill).
+private struct SpendingSendLauncher: View {
+    @EnvironmentObject private var walletManager: WalletManager
+    @State private var balanceSompi: UInt64?
+
+    var body: some View {
+        Group {
+            if let address = walletManager.currentSpendingAddress(), let balanceSompi {
+                SpendingAddressWithdrawView(
+                    entry: SpendingAddressEntry(
+                        index: walletManager.currentSpendingAddressIndex,
+                        address: address,
+                        balanceSompi: balanceSompi,
+                        isCurrent: true
+                    )
+                ) {}
+            } else if walletManager.currentSpendingAddress() == nil {
+                Text("Spending address is unlocking — go back and try again.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding()
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            guard let address = walletManager.currentSpendingAddress() else { return }
+            let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
+            balanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
         }
     }
 }

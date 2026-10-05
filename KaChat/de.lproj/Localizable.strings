@@ -1179,3 +1179,5 @@
 "Resolved: %@" = "Aufgelöst: %@";
 "Slide to Send" = "Zum Senden schieben";
 "Slide to Consolidate" = "Zum Zusammenführen schieben";
+"Send Kaspa from your spending address." = "Kaspa von deiner Ausgabeadresse senden.";
+"Spending address is unlocking — go back and try again." = "Die Ausgabeadresse wird entsperrt – geh zurück und versuch es erneut.";

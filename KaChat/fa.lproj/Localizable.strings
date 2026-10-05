@@ -1232,3 +1232,5 @@
 "Resolved: %@" = "پیدا شد: %@";
 "Slide to Send" = "برای ارسال بکشید";
 "Slide to Consolidate" = "برای ادغام بکشید";
+"Send Kaspa from your spending address." = "از آدرس خرج خود Kaspa بفرستید.";
+"Spending address is unlocking — go back and try again." = "آدرس خرج در حال باز شدن است — برگردید و دوباره امتحان کنید.";

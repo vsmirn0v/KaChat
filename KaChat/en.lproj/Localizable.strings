@@ -1233,3 +1233,5 @@
 "Resolved: %@" = "Resolved: %@";
 "Slide to Send" = "Slide to Send";
 "Slide to Consolidate" = "Slide to Consolidate";
+"Send Kaspa from your spending address." = "Send Kaspa from your spending address.";
+"Spending address is unlocking — go back and try again." = "Spending address is unlocking — go back and try again.";

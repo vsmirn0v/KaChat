@@ -1232,3 +1232,5 @@
 "Resolved: %@" = "解決済み: %@";
 "Slide to Send" = "スライドして送信";
 "Slide to Consolidate" = "スライドして統合";
+"Send Kaspa from your spending address." = "支払い用アドレスからKaspaを送ります。";
+"Spending address is unlocking — go back and try again." = "支払い用アドレスのロックを解除しています。戻ってもう一度お試しください。";

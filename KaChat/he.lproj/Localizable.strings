@@ -1232,3 +1232,5 @@
 "Resolved: %@" = "נמצא: %@";
 "Slide to Send" = "החליקו לשליחה";
 "Slide to Consolidate" = "החליקו לאיחוד";
+"Send Kaspa from your spending address." = "שליחת Kaspa מכתובת ההוצאה שלך.";
+"Spending address is unlocking — go back and try again." = "כתובת ההוצאה נפתחת — חזרו ונסו שוב.";

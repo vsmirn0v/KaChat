@@ -1232,3 +1232,5 @@
 "Resolved: %@" = "পাওয়া গেছে: %@";
 "Slide to Send" = "পাঠাতে স্লাইড করুন";
 "Slide to Consolidate" = "একত্র করতে স্লাইড করুন";
+"Send Kaspa from your spending address." = "আপনার খরচের ঠিকানা থেকে Kaspa পাঠান।";
+"Spending address is unlocking — go back and try again." = "খরচের ঠিকানাটি আনলক হচ্ছে — ফিরে গিয়ে আবার চেষ্টা করুন।";

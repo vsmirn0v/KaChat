@@ -1232,3 +1232,5 @@
 "Resolved: %@" = "Çözümlendi: %@";
 "Slide to Send" = "Göndermek için kaydır";
 "Slide to Consolidate" = "Birleştirmek için kaydır";
+"Send Kaspa from your spending address." = "Harcama adresinden Kaspa gönder.";
+"Spending address is unlocking — go back and try again." = "Harcama adresinin kilidi açılıyor — geri dönüp tekrar dene.";

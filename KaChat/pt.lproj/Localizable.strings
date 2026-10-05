@@ -1232,3 +1232,5 @@
 "Resolved: %@" = "Resolvido: %@";
 "Slide to Send" = "Deslize para enviar";
 "Slide to Consolidate" = "Deslize para consolidar";
+"Send Kaspa from your spending address." = "Envie Kaspa do seu endereço de gastos.";
+"Spending address is unlocking — go back and try again." = "O endereço de gastos está desbloqueando — volte e tente de novo.";

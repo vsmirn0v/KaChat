@@ -1232,3 +1232,5 @@
 "Resolved: %@" = "Đã tìm thấy: %@";
 "Slide to Send" = "Trượt để gửi";
 "Slide to Consolidate" = "Trượt để gộp";
+"Send Kaspa from your spending address." = "Gửi Kaspa từ địa chỉ chi tiêu của bạn.";
+"Spending address is unlocking — go back and try again." = "Địa chỉ chi tiêu đang mở khóa — hãy quay lại và thử lại.";

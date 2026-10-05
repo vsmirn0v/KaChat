@@ -1233,3 +1233,5 @@
 "Resolved: %@" = "Résolu : %@";
 "Slide to Send" = "Glisser pour envoyer";
 "Slide to Consolidate" = "Glisser pour regrouper";
+"Send Kaspa from your spending address." = "Envoyez des Kaspa depuis votre adresse de dépense.";
+"Spending address is unlocking — go back and try again." = "L'adresse de dépense se déverrouille — revenez en arrière et réessayez.";
