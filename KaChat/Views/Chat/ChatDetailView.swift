@@ -286,7 +286,6 @@ struct ChatDetailView: View {
     @State private var showDustWarning = false
     @State private var pendingDustAmountSompi: UInt64 = 0
     @State private var activeChessGameId: String?
-    @FocusState private var isPaymentFocused: Bool
 
     private let maxRecordingDuration: TimeInterval = 10 // seconds (on-chain payload cap)
 
@@ -964,7 +963,6 @@ struct ChatDetailView: View {
             Text("This only deletes the message from this device - the recipient still has their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
         }
         .sheet(isPresented: $showPaymentSheet, onDismiss: {
-            isPaymentFocused = false
             paymentFeeTask?.cancel()
         }) {
             paymentSheet
@@ -1109,7 +1107,6 @@ struct ChatDetailView: View {
         .onDisappear {
             // Take the keyboard down before this view goes. Popping with it still up leaves its
             // area behind as a black band over the chat list underneath.
-            isPaymentFocused = false
             isMessageFocused = false
             // Not while the chess board is going up over this chat. A full-screen cover makes
             // this view disappear, and leaving here stopped the 2s open-chat poll for as long as
@@ -2892,7 +2889,9 @@ struct ChatDetailView: View {
         let amountSompi = paymentAmountSompi
         guard amountSompi > 0, !isSending else { return }
         paymentError = nil
-        isPaymentFocused = false
+        // The amount field (KaspaAmountEntry) keeps its own focus: drop the keyboard for the
+        // dust question or the send.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         // 0.10000001 KAS = 10_000_001 sompi (network dust limit)
         if amountSompi < 10_000_001 {
             pendingDustAmountSompi = amountSompi
@@ -2956,10 +2955,6 @@ struct ChatDetailView: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(isSending)
-        .onAppear {
-            // The amount is the first thing to type.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { isPaymentFocused = true }
-        }
         .confirmationDialog("Small Amount", isPresented: $showDustWarning, titleVisibility: .visible) {
             Button("Send Anyway") {
                 executePayment(amountSompi: pendingDustAmountSompi)
@@ -2970,88 +2965,27 @@ struct ChatDetailView: View {
         }
     }
 
-    /// The big centred amount with its unit, and under it the KAS/fiat switch (showing the
-    /// converted value) and Max.
+    /// The big centred amount, the KAS/fiat switch and Max - the shared Send Kaspa piece.
     private var paymentAmountEntry: some View {
-        let display = fiatAmountState.displayText
-        let fontSize: CGFloat = display.count <= 7 ? 52 : (display.count <= 10 ? 40 : 30)
-        let price = portfolioViewModel.currentPriceUsd
-        return VStack(spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                TextField(
-                    "0",
-                    text: Binding(
-                        get: { fiatAmountState.displayText },
-                        set: { newValue in
-                            let sanitized = sanitizedAmount(newValue)
-                            amountText = fiatAmountState.onDisplayTextChange(sanitized, priceInCurrency: price)
+        KaspaAmountEntry(
+            fiatAmountState: fiatAmountState,
+            onAmountChange: { amountText = $0 },
+            sanitize: sanitizedAmount,
+            focusOnAppear: true,
+            onMax: {
+                Task {
+                    do {
+                        let maxSompi = try await chatService.estimateMaxPaymentAmount(to: contact)
+                        await MainActor.run {
+                            let kas = Double(maxSompi) / 100_000_000.0
+                            amountText = fiatAmountState.setMaxKas(kas, priceInCurrency: portfolioViewModel.currentPriceUsd)
                         }
-                    )
-                )
-                .font(.system(size: fontSize, weight: .bold, design: .rounded))
-                .multilineTextAlignment(.center)
-                .keyboardType(.decimalPad)
-                .fixedSize()
-                .focused($isPaymentFocused)
-                .accessibilityLabel(Text(KaspaUnit.label(AppLocalization.string("Amount (KAS)"))))
-
-                Text(verbatim: fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.symbol)
-                    .font(.system(size: fontSize * 0.55, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-            .onTapGesture { isPaymentFocused = true }
-
-            HStack(spacing: 10) {
-                if price != nil {
-                    Button {
-                        fiatAmountState.toggleMode(priceInCurrency: price)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.up.arrow.down")
-                                .font(.caption.weight(.semibold))
-                            if let conversion = fiatAmountState.conversionLabelText(
-                                priceInCurrency: price,
-                                currency: portfolioViewModel.currentCurrency
-                            ) {
-                                Text(verbatim: conversion)
-                            } else {
-                                Text(verbatim: fiatAmountState.isFiatMode ? KaspaUnit.symbol : portfolioViewModel.currentCurrency.code)
-                            }
-                        }
-                        .font(.caption)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(glassBackground(cornerRadius: 14))
+                    } catch {
+                        AppLog.log("[ChatDetail] Max calculation failed: %@", error.localizedDescription)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("Switch between Kaspa and your currency"))
                 }
-
-                Button {
-                    Task {
-                        do {
-                            let maxSompi = try await chatService.estimateMaxPaymentAmount(to: contact)
-                            await MainActor.run {
-                                let kas = Double(maxSompi) / 100_000_000.0
-                                amountText = fiatAmountState.setMaxKas(kas, priceInCurrency: portfolioViewModel.currentPriceUsd)
-                            }
-                        } catch {
-                            AppLog.log("[ChatDetail] Max calculation failed: %@", error.localizedDescription)
-                        }
-                    }
-                } label: {
-                    Text("Max")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.accentColor)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(glassBackground(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
             }
-        }
+        )
     }
 
     private var paymentMemoField: some View {
@@ -4984,63 +4918,6 @@ final class ScrollViewIntrospectorView: UIView {
                 return
             }
             candidate = view.superview
-        }
-    }
-}
-
-/// A send button that fires only after a press is held (0.8s): the fill sweeps across while
-/// holding and resets if released early. VoiceOver gets a plain activate action instead.
-private struct HoldToSendButton: View {
-    let title: LocalizedStringKey
-    let isBusy: Bool
-    let isEnabled: Bool
-    let action: () -> Void
-
-    @State private var progress: CGFloat = 0
-    private let holdDuration: Double = 0.8
-
-    var body: some View {
-        ZStack(alignment: .leading) {
-            Capsule()
-                .fill(Color.accentColor.opacity(isEnabled || isBusy ? 1 : 0.4))
-            GeometryReader { geometry in
-                Capsule()
-                    .fill(Color.white.opacity(0.28))
-                    .frame(width: geometry.size.width * progress)
-            }
-            HStack(spacing: 8) {
-                if isBusy {
-                    ProgressView()
-                        .tint(.white)
-                } else {
-                    Text(title)
-                        .font(.headline)
-                }
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-        }
-        .frame(height: 56)
-        .clipShape(Capsule())
-        .contentShape(Capsule())
-        .onLongPressGesture(minimumDuration: holdDuration, maximumDistance: 40, perform: {
-            guard isEnabled, !isBusy else { return }
-            action()
-        }, onPressingChanged: { pressing in
-            guard isEnabled, !isBusy else { return }
-            if pressing {
-                Haptics.impact(.light)
-                withAnimation(.linear(duration: holdDuration)) { progress = 1 }
-            } else {
-                withAnimation(.easeOut(duration: 0.2)) { progress = 0 }
-            }
-        })
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(title))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction {
-            guard isEnabled, !isBusy else { return }
-            action()
         }
     }
 }

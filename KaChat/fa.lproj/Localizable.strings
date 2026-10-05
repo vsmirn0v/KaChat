@@ -1221,3 +1221,14 @@
 "Unpinned" = "سنجاق برداشته شد";
 "Hold to pin to the front" = "برای سنجاق کردن به ابتدا نگه دارید";
 "Hold to unpin" = "برای برداشتن سنجاق نگه دارید";
+"Hold to Consolidate" = "برای ادغام نگه دارید";
+"Build Unsigned Transaction" = "ساخت تراکنش امضانشده";
+"Coin Control" = "کنترل کوین";
+"Automatic" = "خودکار";
+"Consolidating This Address" = "در حال ادغام این آدرس";
+"Valid address" = "آدرس معتبر";
+"Invalid address format" = "قالب آدرس نامعتبر است";
+"Normal" = "عادی";
+"Fast" = "سریع";
+"Priority" = "اولویت‌دار";
+"Resolved: %@" = "پیدا شد: %@";

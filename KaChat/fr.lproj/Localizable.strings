@@ -1222,3 +1222,14 @@
 "Unpinned" = "Désépinglé";
 "Hold to pin to the front" = "Maintenir pour épingler en tête";
 "Hold to unpin" = "Maintenir pour désépingler";
+"Hold to Consolidate" = "Maintenir pour regrouper";
+"Build Unsigned Transaction" = "Créer la transaction non signée";
+"Coin Control" = "Contrôle des pièces";
+"Automatic" = "Automatique";
+"Consolidating This Address" = "Regroupement de cette adresse";
+"Valid address" = "Adresse valide";
+"Invalid address format" = "Format d'adresse invalide";
+"Normal" = "Normal";
+"Fast" = "Rapide";
+"Priority" = "Prioritaire";
+"Resolved: %@" = "Résolu : %@";

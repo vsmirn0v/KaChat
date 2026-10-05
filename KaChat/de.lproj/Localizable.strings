@@ -1168,3 +1168,14 @@
 "Unpinned" = "Losgelöst";
 "Hold to pin to the front" = "Halten, um nach vorne anzuheften";
 "Hold to unpin" = "Halten zum Loslösen";
+"Hold to Consolidate" = "Zum Zusammenführen halten";
+"Build Unsigned Transaction" = "Unsignierte Transaktion erstellen";
+"Coin Control" = "Coin Control";
+"Automatic" = "Automatisch";
+"Consolidating This Address" = "Diese Adresse wird zusammengeführt";
+"Valid address" = "Gültige Adresse";
+"Invalid address format" = "Ungültiges Adressformat";
+"Normal" = "Normal";
+"Fast" = "Schnell";
+"Priority" = "Priorität";
+"Resolved: %@" = "Aufgelöst: %@";

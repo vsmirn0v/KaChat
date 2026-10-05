@@ -4767,255 +4767,73 @@ struct WithdrawKaspaView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    if isCompoundMode {
-                        HStack {
-                            Image(systemName: "arrow.triangle.merge")
-                                .foregroundColor(.accentColor)
-                            Text(fromAddress)
-                                .font(.system(.caption, design: .monospaced))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    } else {
-                        TextField("kaspa:qr... or domain", text: $addressInput)
-                            .font(.system(.body, design: .monospaced))
-                            .autocapitalization(.none)
-                            .autocorrectionDisabled()
-                            .onChange(of: addressInput) { handleInputChange($0) }
+            ScrollView {
+                VStack(spacing: 18) {
+                    SendRecipientCard(
+                        input: $addressInput,
+                        lockedAddress: isCompoundMode ? fromAddress : nil,
+                        isResolving: isResolvingKNS,
+                        resolvedAddress: resolvedAddress,
+                        resolvedName: resolvedDomain,
+                        lookupError: knsError,
+                        isValidAddress: isValidAddress,
+                        onScan: { showQRScanner = true }
+                    )
 
-                            AddressResolutionCard(address: resolvedAddress ?? (isValidAddress ? addressInput.trimmingCharacters(in: .whitespacesAndNewlines) : nil), domain: resolvedDomain)
+                    KaspaAmountEntry(
+                        fiatAmountState: fiatAmountState,
+                        onAmountChange: { amountInput = $0 },
+                        isEstimatingMax: isEstimatingMax,
+                        maxEnabled: hasValidRecipient,
+                        onMax: setMaxAmount
+                    )
+                    .padding(.top, 8)
 
-                        if !addressInput.isEmpty {
-                            if isResolvingKNS {
-                                HStack {
-                                    ProgressView().scaleEffect(0.8)
-                                    Text("Looking up domain...")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            } else if let knsError {
-                                HStack {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.red)
-                                    Text(knsError)
-                                        .font(.caption)
-                                        .foregroundColor(.red)
-                                }
-                            } else if let resolvedAddress {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.green)
-                                        Text("Resolved: \(resolvedDomain ?? "")")
-                                            .font(.caption)
-                                            .foregroundColor(.green)
-                                    }
-                                    Text(resolvedAddress)
-                                        .font(.system(.caption2, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                            } else {
-                                HStack {
-                                    Image(systemName: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                        .foregroundColor(isValidAddress ? .green : .red)
-                                    Text(isValidAddress ? "Valid address" : "Invalid address format")
-                                        .font(.caption)
-                                        .foregroundColor(isValidAddress ? .green : .red)
-                                }
-                            }
-                        }
-
-                        HStack {
-                            Button {
-                                if let pasted = UIPasteboard.general.string {
-                                    addressInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    handleInputChange(addressInput)
-                                }
-                            } label: {
-                                Label("Paste", systemImage: "doc.on.clipboard")
-                            }
-                            Spacer()
-                            Button {
-                                showQRScanner = true
-                            } label: {
-                                Label("Scan QR", systemImage: "qrcode.viewfinder")
-                            }
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                } header: {
-                    Text(isCompoundMode ? "Consolidating This Address" : "Recipient Address")
-                } footer: {
-                    if !isCompoundMode {
-                        Text("Enter a Kaspa address (kaspa:...)")
-                    }
-                }
-
-                Section {
-                    HStack {
-                        Button {
-                            fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
-                        } label: {
-                            if fiatAmountState.isFiatMode {
-                                Text(currencySymbol(for: portfolioViewModel.currentCurrency))
-                                    .font(.title3.weight(.semibold))
-                                    .foregroundColor(.accentColor)
-                                    .frame(width: 22, height: 22)
-                            } else {
-                                Image("KaspaLogo")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 22, height: 22)
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        TextField(
-                            "0.00",
-                            text: Binding(
-                                get: { fiatAmountState.displayText },
-                                set: { amountInput = fiatAmountState.onDisplayTextChange($0, priceInCurrency: portfolioViewModel.currentPriceUsd) }
-                            )
-                        )
-                            .keyboardType(.decimalPad)
-                            .numericKeyboardDoneButton()
-                        if let conversionLabel = fiatAmountState.conversionLabelText(
-                            priceInCurrency: portfolioViewModel.currentPriceUsd,
-                            currency: portfolioViewModel.currentCurrency
-                        ) {
-                            Text(conversionLabel)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .onTapGesture {
-                                    fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
-                                }
-                        }
-                        if isEstimatingMax {
-                            ProgressView().scaleEffect(0.75)
-                        } else {
-                            Button("Max") {
-                                setMaxAmount()
-                            }
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .buttonStyle(.borderless)
-                            .disabled(!hasValidRecipient)
-                        }
-                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.symbol)
-                            .foregroundColor(.secondary)
-                    }
-                } header: {
-                    Text("Amount")
-                } footer: {
                     if let availableBalanceSompi {
-                        KaspaUnit.text("Available: %@ KAS", trimmedKas(availableBalanceSompi))
-                    }
-                }
-
-                Section {
-                    Button {
-                        showCoinControl = true
-                    } label: {
-                        HStack {
-                            Text("Coin Control")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            if let manualUtxos {
-                                Text("\(manualUtxos.count) UTXO\(manualUtxos.count == 1 ? "" : "s") selected")
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text("Automatic")
-                                    .foregroundColor(.secondary)
-                            }
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                } footer: {
-                    Text("Choose exactly which UTXOs to spend instead of selecting automatically.")
-                }
-
-                Section {
-                    Picker("Fee", selection: $feeTier) {
-                        ForEach(WithdrawFeeTier.allCases) { tier in
-                            Text(tier.rawValue).tag(tier)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: feeTier) { _ in
-                        customExtraFeeSompi = nil
-                        isEditingFee = false
+                        SendInfoPill { KaspaUnit.text("Available: %@ KAS", trimmedKas(availableBalanceSompi)) }
                     }
 
-                    HStack {
-                        Text("Network Fee")
-                        Spacer()
-                        if isEditingFee {
-                            TextField("0.00", text: $customFeeText)
-                                .keyboardType(.decimalPad)
-                                .numericKeyboardDoneButton()
-                                .multilineTextAlignment(.trailing)
-                                .frame(maxWidth: 100)
-                                .onSubmit { commitCustomFee() }
-                            Button {
-                                commitCustomFee()
-                            } label: {
-                                Image(systemName: "checkmark.circle.fill")
-                            }
-                            .buttonStyle(.borderless)
-                        } else if isEstimatingFee {
-                            ProgressView().scaleEffect(0.75)
-                        } else if let totalFeeSompi {
-                            Button {
-                                startEditingFee()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Text(verbatim: "\(trimmedKas(totalFeeSompi)) \(KaspaUnit.symbol)")
-                                        .underline()
-                                    Image(systemName: "pencil")
-                                        .font(.caption2)
-                                }
-                                .foregroundColor(.accentColor)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Text("—")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                } header: {
-                    Text("Fee")
-                } footer: {
-                    Text("If the network is busy, Fast or Priority pays a higher fee to help your withdrawal confirm sooner. Tap the fee amount to set a custom fee.")
-                }
+                    SendFeeControls(
+                        feeTier: $feeTier,
+                        isEditingFee: $isEditingFee,
+                        customFeeText: $customFeeText,
+                        isEstimatingFee: isEstimatingFee,
+                        feeText: totalFeeSompi.map { "\(trimmedKas($0)) \(KaspaUnit.symbol)" },
+                        onStartEditing: startEditingFee,
+                        onCommit: commitCustomFee,
+                        coinControlSummary: coinControlSummary(manualUtxos),
+                        onCoinControl: { showCoinControl = true }
+                    )
 
-                if let errorMessage {
-                    Section {
+                    if let errorMessage {
                         Text(errorMessage)
+                            .font(.footnote)
                             .foregroundColor(.red)
-                            .font(.caption)
+                            .multilineTextAlignment(.center)
                     }
+
+                    HoldToSendButton(
+                        title: isCompoundMode ? "Hold to Consolidate" : "Hold to Send",
+                        isBusy: isSending,
+                        isEnabled: canSend,
+                        action: send
+                    )
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
+            }
+            // The recipient card only shows the lookup; this screen runs it.
+            .onChange(of: addressInput) { handleInputChange($0) }
+            .onChange(of: feeTier) { _ in
+                customExtraFeeSompi = nil
+                isEditingFee = false
             }
             .navigationTitle(isCompoundMode ? "Compound UTXOs" : "Send Kaspa")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if isSending {
-                        ProgressView()
-                    } else {
-                        Button("Send") {
-                            send()
-                        }
-                        .disabled(!canSend)
-                    }
                 }
             }
             .scrollDismissesKeyboard(.interactively)

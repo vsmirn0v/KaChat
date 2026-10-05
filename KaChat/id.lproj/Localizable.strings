@@ -1221,3 +1221,14 @@
 "Unpinned" = "Sematan dilepas";
 "Hold to pin to the front" = "Tahan untuk menyematkan di depan";
 "Hold to unpin" = "Tahan untuk melepas sematan";
+"Hold to Consolidate" = "Tahan untuk menggabungkan";
+"Build Unsigned Transaction" = "Buat transaksi tanpa tanda tangan";
+"Coin Control" = "Kontrol koin";
+"Automatic" = "Otomatis";
+"Consolidating This Address" = "Menggabungkan alamat ini";
+"Valid address" = "Alamat valid";
+"Invalid address format" = "Format alamat tidak valid";
+"Normal" = "Normal";
+"Fast" = "Cepat";
+"Priority" = "Prioritas";
+"Resolved: %@" = "Ditemukan: %@";

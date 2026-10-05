@@ -307,6 +307,22 @@ The input bubble is the text field only. Everything else is in the "+" sheet:
   details half sheet: amount, memo, time, View in Explorer (the Settings explorer) and Copy
   Transaction ID. A payment that isn't on chain yet says so instead.
 
+### Send Kaspa screens
+
+Every Send Kaspa screen is built from the shared pieces in `Views/Shared/SendKaspaComponents.swift`,
+so they match: the 1:1 chat's Send KAS sheet, Profile's Send Kaspa (`WithdrawKaspaView`), a
+spending address's Send (`SpendingAddressWithdrawView`) and KasSigner's send (`ColdSendFlowView`).
+
+| Piece | What it is |
+|---|---|
+| `SendRecipientCard` | Address or name, with Paste, Scan QR and the lookup status. The screen runs the lookup |
+| `KaspaAmountEntry` | The big amount, the KAS / currency switch and Max |
+| `SendFeeControls` | Network fee (tap for a custom one), the speed, and Coin Control |
+| `SendInfoPill` | A small one-line pill (available balance, fee) |
+| `HoldToSendButton` | Hold for 0.8 s to send. `requiresHold: false` makes it a tap, for KasSigner's Build step |
+
+Change these pieces rather than one screen, so the screens stay matched.
+
 ## Documentation
 
 | File | Description |

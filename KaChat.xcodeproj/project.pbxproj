@@ -133,6 +133,7 @@
 		E8F1A0032F4B000100000003 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1A0042F4B000100000004 /* Haptics.swift */; };
 		E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */; };
 		E8F1AC710001000000000001 /* ActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1AC700001000000000001 /* ActionSheet.swift */; };
+		SKCM00010001000100000001 /* SendKaspaComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = SKCM00010001000000000001 /* SendKaspaComponents.swift */; };
 		OBC00010001000000000002 /* OutgoingBubbleColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = OBC00010001000000000001 /* OutgoingBubbleColor.swift */; };
 		CHS0007B000000000000001 /* ChessTabIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHS0007A000000000000001 /* ChessTabIcon.swift */; };
 		ARC0001B000000000000001 /* AddressResolutionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = ARC0001A000000000000001 /* AddressResolutionCard.swift */; };
@@ -413,6 +414,7 @@
 		E8F1A0042F4B000100000004 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = external/opus/Opus.xcframework; sourceTree = "<group>"; };
 		E8F1AC700001000000000001 /* ActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionSheet.swift; sourceTree = "<group>"; };
+		SKCM00010001000000000001 /* SendKaspaComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendKaspaComponents.swift; sourceTree = "<group>"; };
 		OBC00010001000000000001 /* OutgoingBubbleColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutgoingBubbleColor.swift; sourceTree = "<group>"; };
 		CHS0007A000000000000001 /* ChessTabIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessTabIcon.swift; sourceTree = "<group>"; };
 		ARC0001A000000000000001 /* AddressResolutionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressResolutionCard.swift; sourceTree = "<group>"; };
@@ -959,6 +961,7 @@
 				E8F100142D4C0001000001FF /* QRScannerView.swift */,
 				E8F100112D4C0001000000FF /* Toast.swift */,
 				E8F1AC700001000000000001 /* ActionSheet.swift */,
+				SKCM00010001000000000001 /* SendKaspaComponents.swift */,
 				OBC00010001000000000001 /* OutgoingBubbleColor.swift */,
 				CHS0007A000000000000001 /* ChessTabIcon.swift */,
 				ARC0001A000000000000001 /* AddressResolutionCard.swift */,
@@ -1437,6 +1440,7 @@
 				MV0001B0000000000000001 /* MenuVisibilityView.swift in Sources */,
 				E8F100122D4C0001000000FF /* Toast.swift in Sources */,
 				E8F1AC710001000000000001 /* ActionSheet.swift in Sources */,
+				SKCM00010001000100000001 /* SendKaspaComponents.swift in Sources */,
 				OBC00010001000000000002 /* OutgoingBubbleColor.swift in Sources */,
 				CHS0007B000000000000001 /* ChessTabIcon.swift in Sources */,
 				ARC0001B000000000000001 /* AddressResolutionCard.swift in Sources */,

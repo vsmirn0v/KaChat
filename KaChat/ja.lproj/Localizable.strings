@@ -1221,3 +1221,14 @@
 "Unpinned" = "固定を解除しました";
 "Hold to pin to the front" = "長押しで先頭に固定";
 "Hold to unpin" = "長押しで固定を解除";
+"Hold to Consolidate" = "長押しで統合";
+"Build Unsigned Transaction" = "未署名トランザクションを作成";
+"Coin Control" = "コインコントロール";
+"Automatic" = "自動";
+"Consolidating This Address" = "このアドレスを統合中";
+"Valid address" = "有効なアドレス";
+"Invalid address format" = "アドレスの形式が無効です";
+"Normal" = "通常";
+"Fast" = "高速";
+"Priority" = "優先";
+"Resolved: %@" = "解決済み: %@";

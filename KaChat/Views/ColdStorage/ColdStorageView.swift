@@ -1217,11 +1217,6 @@ private struct ColdSendFlowView: View {
     @State private var previewSelection: ColdStorageSendEngine.AutomaticSelectionPreview?
     @State private var previewTask: Task<Void, Never>?
 
-    private enum FormField: Hashable {
-        case recipient, amount, fee
-    }
-    @FocusState private var focusedField: FormField?
-
     private var amountSompi: UInt64? {
         guard let kas = Double(amountText), kas > 0 else { return nil }
         return UInt64((kas * 100_000_000).rounded())
@@ -1352,281 +1347,104 @@ private struct ColdSendFlowView: View {
     }
 
     private var formView: some View {
-        Form {
-            Section {
-                HStack {
-                    Text("From")
-                    Spacer()
-                    Text(fromAddress.prefix(14) + "..." + fromAddress.suffix(6))
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundColor(.secondary)
+        let isBuilding: Bool = { if case .building = step { return true } else { return false } }()
+        return ScrollView {
+            VStack(spacing: 18) {
+                HStack(spacing: 8) {
+                    SendInfoPill {
+                        HStack(spacing: 4) {
+                            Text("From")
+                            Text(verbatim: "\(fromAddress.prefix(14))...\(fromAddress.suffix(6))")
+                                .font(.caption.monospaced())
+                        }
+                    }
+                    SendInfoPill {
+                        HStack(spacing: 4) {
+                            Text("Available")
+                            Text(verbatim: "\(formatKas(availableBalanceSompi)) \(KaspaUnit.symbol)")
+                        }
+                    }
                 }
-                HStack {
-                    Text("Available")
-                    Spacer()
-                    Text(verbatim: "\(formatKas(availableBalanceSompi)) \(KaspaUnit.symbol)")
-                        .foregroundColor(.secondary)
-                }
-            }
 
-            Section {
+                SendRecipientCard(
+                    input: $toAddress,
+                    lockedAddress: isCompoundMode ? fromAddress : nil,
+                    isResolving: isResolvingKNS,
+                    resolvedAddress: resolvedAddress,
+                    resolvedName: resolvedDomain,
+                    lookupError: knsError,
+                    isValidAddress: isValidAddress,
+                    onScan: { showRecipientScanner = true }
+                )
                 if isCompoundMode {
-                    HStack {
-                        Image(systemName: "arrow.triangle.merge")
-                            .foregroundColor(.accentColor)
-                        Text(fromAddress)
-                            .font(.system(.caption, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                } else {
-                    TextField("kaspa:qr... or domain", text: $toAddress)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .recipient)
-                        .onChange(of: toAddress) { handleInputChange($0) }
-
-                        AddressResolutionCard(address: resolvedAddress ?? (isValidAddress ? toAddress.trimmingCharacters(in: .whitespacesAndNewlines) : nil), domain: resolvedDomain)
-
-                    if !toAddress.isEmpty {
-                        if isResolvingKNS {
-                            HStack {
-                                ProgressView().scaleEffect(0.8)
-                                Text("Looking up domain...")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        } else if let knsError {
-                            HStack {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.red)
-                                Text(knsError)
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                            }
-                        } else if let resolvedAddress {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                    Text("Resolved: \(resolvedDomain ?? "")")
-                                        .font(.caption)
-                                        .foregroundColor(.green)
-                                }
-                                Text(resolvedAddress)
-                                    .font(.system(.caption2, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
+                    Group {
+                        if compoundHasMoreRounds {
+                            Text("This address has more than \(KsptCodec.maxInputs) UTXOs. KasSigner can sign at most \(KsptCodec.maxInputs) inputs per transaction, so this merges the largest \(KsptCodec.maxInputs) into one. Run Compound again afterward to keep combining the rest.")
                         } else {
-                            HStack {
-                                Image(systemName: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                    .foregroundColor(isValidAddress ? .green : .red)
-                                Text(isValidAddress ? "Valid address" : "Invalid address format")
-                                    .font(.caption)
-                                    .foregroundColor(isValidAddress ? .green : .red)
-                            }
+                            Text("Merges all of this address's UTXOs into a single one, so future sends need fewer inputs.")
                         }
                     }
-
-                    HStack {
-                        Button {
-                            if let pasted = UIPasteboard.general.string {
-                                toAddress = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                                handleInputChange(toAddress)
-                            }
-                        } label: {
-                            Label("Paste", systemImage: "doc.on.clipboard")
-                        }
-                        Spacer()
-                        Button {
-                            showRecipientScanner = true
-                        } label: {
-                            Label("Scan QR", systemImage: "qrcode.viewfinder")
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                }
-            } header: {
-                Text(isCompoundMode ? "Consolidating This Address" : "Recipient Address")
-            } footer: {
-                if isCompoundMode {
-                    if compoundHasMoreRounds {
-                        Text("This address has more than \(KsptCodec.maxInputs) UTXOs. KasSigner can sign at most \(KsptCodec.maxInputs) inputs per transaction, so this merges the largest \(KsptCodec.maxInputs) into one. Run Compound again afterward to keep combining the rest.")
-                    } else {
-                        Text("Merges all of this address's UTXOs into a single one, so future sends need fewer inputs.")
-                    }
-                }
-            }
-
-            Section {
-                HStack {
-                    Button {
-                        fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
-                    } label: {
-                        if fiatAmountState.isFiatMode {
-                            Text(currencySymbol(for: portfolioViewModel.currentCurrency))
-                                .font(.title3.weight(.semibold))
-                                .foregroundColor(.accentColor)
-                                .frame(width: 22, height: 22)
-                        } else {
-                            Image("KaspaLogo")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 22, height: 22)
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    TextField(
-                        "0.00",
-                        text: Binding(
-                            get: { fiatAmountState.displayText },
-                            set: { amountText = fiatAmountState.onDisplayTextChange($0, priceInCurrency: portfolioViewModel.currentPriceUsd) }
-                        )
-                    )
-                        .keyboardType(.decimalPad)
-                        .numericKeyboardDoneButton()
-                        .focused($focusedField, equals: .amount)
-                    if let conversionLabel = fiatAmountState.conversionLabelText(
-                        priceInCurrency: portfolioViewModel.currentPriceUsd,
-                        currency: portfolioViewModel.currentCurrency
-                    ) {
-                        Text(conversionLabel)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    if isEstimatingMax {
-                        ProgressView().scaleEffect(0.75)
-                    } else {
-                        Button("Max") {
-                            setMaxAmount()
-                        }
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .buttonStyle(.borderless)
-                        .disabled(!hasValidRecipient)
-                    }
-                    Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.symbol)
-                        .foregroundColor(.secondary)
-                }
-            } header: {
-                Text("Amount")
-            }
-
-            // Compound auto-manages its own input set (largest <=8, KasSigner's per-tx limit), so
-            // manual coin control is hidden there — it only applies to a normal send.
-            if !isCompoundMode {
-                Section {
-                    Button {
-                        showCoinControl = true
-                    } label: {
-                        HStack {
-                            Text("Coin Control")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            if let manualUtxos {
-                                Text("\(manualUtxos.count) UTXO\(manualUtxos.count == 1 ? "" : "s") selected")
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text("Automatic")
-                                    .foregroundColor(.secondary)
-                            }
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                } footer: {
-                    Text("Choose exactly which UTXOs to spend instead of selecting automatically.")
-                }
-            }
-
-            Section {
-                Picker("Fee", selection: $feeTier) {
-                    ForEach(WithdrawFeeTier.allCases) { tier in
-                        Text(tier.rawValue).tag(tier)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: feeTier) { _ in
-                    customExtraFeeSompi = nil
-                    isEditingFee = false
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
                 }
 
-                HStack {
-                    Text("Network Fee")
-                    Spacer()
-                    if isEditingFee {
-                        TextField("0.00", text: $feeEditorText)
-                            .keyboardType(.decimalPad)
-                            .numericKeyboardDoneButton()
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 100)
-                            .focused($focusedField, equals: .fee)
-                            .onSubmit { commitCustomFee() }
-                        Button {
-                            commitCustomFee()
-                        } label: {
-                            Image(systemName: "checkmark.circle.fill")
-                        }
-                        .buttonStyle(.borderless)
-                    } else {
-                        Button {
-                            feeEditorText = formatKas(effectiveFeeSompi)
-                            isEditingFee = true
-                            focusedField = .fee
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(verbatim: "~\(formatKas(effectiveFeeSompi)) \(KaspaUnit.symbol)")
-                                    .underline()
-                                Image(systemName: "pencil")
-                                    .font(.caption2)
-                            }
-                            .foregroundColor(.accentColor)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            } footer: {
-                Text("If the network is busy, Fast or Priority pays a higher fee to help this confirm sooner. Tap the fee amount to set a custom fee.")
-            }
+                KaspaAmountEntry(
+                    fiatAmountState: fiatAmountState,
+                    onAmountChange: { amountText = $0 },
+                    isEstimatingMax: isEstimatingMax,
+                    maxEnabled: hasValidRecipient,
+                    onMax: setMaxAmount
+                )
+                .padding(.top, 8)
 
-            if case .failed(let message) = step {
-                Section {
+                // Compound auto-manages its own input set (largest <=8, KasSigner's per-tx limit),
+                // so manual coin control is hidden there - it only applies to a normal send.
+                SendFeeControls(
+                    feeTier: $feeTier,
+                    isEditingFee: $isEditingFee,
+                    customFeeText: $feeEditorText,
+                    isEstimatingFee: false,
+                    feeText: "~\(formatKas(effectiveFeeSompi)) \(KaspaUnit.symbol)",
+                    onStartEditing: {
+                        feeEditorText = formatKas(effectiveFeeSompi)
+                        isEditingFee = true
+                    },
+                    onCommit: commitCustomFee,
+                    showsCoinControl: !isCompoundMode,
+                    coinControlSummary: coinControlSummary(manualUtxos),
+                    onCoinControl: { showCoinControl = true }
+                )
+
+                if case .failed(let message) = step {
                     Text(message)
+                        .font(.footnote)
                         .foregroundColor(.red)
-                        .font(.caption)
+                        .multilineTextAlignment(.center)
                 }
-            }
 
-            Section {
-                let isBuilding: Bool = { if case .building = step { return true } else { return false } }()
-                Button {
-                    buildTransaction()
-                } label: {
-                    HStack {
-                        Spacer()
-                        if isBuilding {
-                            ProgressView()
-                                .tint(.black)
-                        } else {
-                            Text("Build Unsigned Transaction")
-                                .font(.subheadline.weight(.bold))
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
-                    .foregroundColor(canBuild ? .black : .secondary)
-                }
-                .listRowBackground((canBuild && !isBuilding) ? Color.accentColor : Color.secondary.opacity(0.2))
-                .disabled(!canBuild || isBuilding)
+                // A tap, not a hold: this only builds the transaction for KasSigner to sign.
+                HoldToSendButton(
+                    title: "Build Unsigned Transaction",
+                    isBusy: isBuilding,
+                    isEnabled: canBuild,
+                    requiresHold: false,
+                    action: buildTransaction
+                )
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
+        // The recipient card only shows the lookup; this screen runs it.
+        .onChange(of: toAddress) { handleInputChange($0) }
         .onChange(of: amountText) { _ in schedulePreview() }
-        .onChange(of: feeTier) { _ in schedulePreview() }
+        .onChange(of: feeTier) { _ in
+            customExtraFeeSompi = nil
+            isEditingFee = false
+            schedulePreview()
+        }
         .onChange(of: customExtraFeeSompi) { _ in schedulePreview() }
         .onChange(of: liveFeeRateSompiPerGram) { _ in schedulePreview() }
     }

@@ -1221,3 +1221,14 @@
 "Unpinned" = "已取消置顶";
 "Hold to pin to the front" = "长按置顶";
 "Hold to unpin" = "长按取消置顶";
+"Hold to Consolidate" = "按住合并";
+"Build Unsigned Transaction" = "创建未签名交易";
+"Coin Control" = "币控";
+"Automatic" = "自动";
+"Consolidating This Address" = "正在合并此地址";
+"Valid address" = "有效地址";
+"Invalid address format" = "地址格式无效";
+"Normal" = "普通";
+"Fast" = "快速";
+"Priority" = "优先";
+"Resolved: %@" = "已解析：%@";

@@ -1221,3 +1221,14 @@
 "Unpinned" = "ההצמדה בוטלה";
 "Hold to pin to the front" = "החזיקו כדי להצמיד להתחלה";
 "Hold to unpin" = "החזיקו כדי לבטל הצמדה";
+"Hold to Consolidate" = "החזיקו לאיחוד";
+"Build Unsigned Transaction" = "יצירת עסקה לא חתומה";
+"Coin Control" = "בקרת מטבעות";
+"Automatic" = "אוטומטי";
+"Consolidating This Address" = "מאחדים את הכתובת הזו";
+"Valid address" = "כתובת תקינה";
+"Invalid address format" = "פורמט כתובת לא תקין";
+"Normal" = "רגיל";
+"Fast" = "מהיר";
+"Priority" = "עדיפות";
+"Resolved: %@" = "נמצא: %@";

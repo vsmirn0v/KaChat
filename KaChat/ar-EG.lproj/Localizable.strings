@@ -1221,3 +1221,14 @@
 "Unpinned" = "اتشال التثبيت";
 "Hold to pin to the front" = "اضغط مطوّل عشان تثبته في الأول";
 "Hold to unpin" = "اضغط مطوّل عشان تشيل التثبيت";
+"Hold to Consolidate" = "اضغط مطوّل عشان تدمج";
+"Build Unsigned Transaction" = "اعمل معاملة من غير توقيع";
+"Coin Control" = "التحكم في العملات";
+"Automatic" = "تلقائي";
+"Consolidating This Address" = "بيتم دمج العنوان ده";
+"Valid address" = "عنوان صحيح";
+"Invalid address format" = "شكل العنوان غلط";
+"Normal" = "عادي";
+"Fast" = "سريع";
+"Priority" = "أولوية";
+"Resolved: %@" = "اتعرف: %@";

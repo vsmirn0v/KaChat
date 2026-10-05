@@ -1221,3 +1221,14 @@
 "Unpinned" = "고정 해제됨";
 "Hold to pin to the front" = "길게 눌러 맨 앞에 고정";
 "Hold to unpin" = "길게 눌러 고정 해제";
+"Hold to Consolidate" = "길게 눌러 통합";
+"Build Unsigned Transaction" = "서명되지 않은 거래 만들기";
+"Coin Control" = "코인 컨트롤";
+"Automatic" = "자동";
+"Consolidating This Address" = "이 주소 통합 중";
+"Valid address" = "유효한 주소";
+"Invalid address format" = "잘못된 주소 형식";
+"Normal" = "보통";
+"Fast" = "빠름";
+"Priority" = "우선";
+"Resolved: %@" = "확인됨: %@";

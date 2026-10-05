@@ -1222,3 +1222,14 @@
 "Unpinned" = "Unpinned";
 "Hold to pin to the front" = "Hold to pin to the front";
 "Hold to unpin" = "Hold to unpin";
+"Hold to Consolidate" = "Hold to Consolidate";
+"Build Unsigned Transaction" = "Build Unsigned Transaction";
+"Coin Control" = "Coin Control";
+"Automatic" = "Automatic";
+"Consolidating This Address" = "Consolidating This Address";
+"Valid address" = "Valid address";
+"Invalid address format" = "Invalid address format";
+"Normal" = "Normal";
+"Fast" = "Fast";
+"Priority" = "Priority";
+"Resolved: %@" = "Resolved: %@";

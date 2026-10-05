@@ -1221,3 +1221,14 @@
 "Unpinned" = "Đã bỏ ghim";
 "Hold to pin to the front" = "Giữ để ghim lên đầu";
 "Hold to unpin" = "Giữ để bỏ ghim";
+"Hold to Consolidate" = "Giữ để gộp";
+"Build Unsigned Transaction" = "Tạo giao dịch chưa ký";
+"Coin Control" = "Kiểm soát coin";
+"Automatic" = "Tự động";
+"Consolidating This Address" = "Đang gộp địa chỉ này";
+"Valid address" = "Địa chỉ hợp lệ";
+"Invalid address format" = "Định dạng địa chỉ không hợp lệ";
+"Normal" = "Bình thường";
+"Fast" = "Nhanh";
+"Priority" = "Ưu tiên";
+"Resolved: %@" = "Đã tìm thấy: %@";

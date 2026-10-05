@@ -1221,3 +1221,14 @@
 "Unpinned" = "Откреплено";
 "Hold to pin to the front" = "Удерживайте, чтобы закрепить в начале";
 "Hold to unpin" = "Удерживайте, чтобы открепить";
+"Hold to Consolidate" = "Удерживайте для объединения";
+"Build Unsigned Transaction" = "Создать неподписанную транзакцию";
+"Coin Control" = "Выбор монет";
+"Automatic" = "Автоматически";
+"Consolidating This Address" = "Объединение этого адреса";
+"Valid address" = "Корректный адрес";
+"Invalid address format" = "Неверный формат адреса";
+"Normal" = "Обычная";
+"Fast" = "Быстрая";
+"Priority" = "Приоритетная";
+"Resolved: %@" = "Найдено: %@";

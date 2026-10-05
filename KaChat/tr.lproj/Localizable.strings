@@ -1221,3 +1221,14 @@
 "Unpinned" = "Sabitleme kaldırıldı";
 "Hold to pin to the front" = "Başa sabitlemek için basılı tut";
 "Hold to unpin" = "Sabitlemeyi kaldırmak için basılı tut";
+"Hold to Consolidate" = "Birleştirmek için basılı tut";
+"Build Unsigned Transaction" = "İmzasız işlem oluştur";
+"Coin Control" = "Coin kontrolü";
+"Automatic" = "Otomatik";
+"Consolidating This Address" = "Bu adres birleştiriliyor";
+"Valid address" = "Geçerli adres";
+"Invalid address format" = "Geçersiz adres biçimi";
+"Normal" = "Normal";
+"Fast" = "Hızlı";
+"Priority" = "Öncelikli";
+"Resolved: %@" = "Çözümlendi: %@";

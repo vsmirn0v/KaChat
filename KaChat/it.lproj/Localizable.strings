@@ -1221,3 +1221,14 @@
 "Unpinned" = "Sbloccato";
 "Hold to pin to the front" = "Tieni premuto per fissare in cima";
 "Hold to unpin" = "Tieni premuto per sbloccare";
+"Hold to Consolidate" = "Tieni premuto per consolidare";
+"Build Unsigned Transaction" = "Crea transazione non firmata";
+"Coin Control" = "Controllo monete";
+"Automatic" = "Automatico";
+"Consolidating This Address" = "Consolidamento di questo indirizzo";
+"Valid address" = "Indirizzo valido";
+"Invalid address format" = "Formato indirizzo non valido";
+"Normal" = "Normale";
+"Fast" = "Veloce";
+"Priority" = "Priorità";
+"Resolved: %@" = "Risolto: %@";

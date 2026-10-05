@@ -1221,3 +1221,14 @@
 "Unpinned" = "পিন সরানো হয়েছে";
 "Hold to pin to the front" = "সামনে পিন করতে চেপে ধরুন";
 "Hold to unpin" = "পিন সরাতে চেপে ধরুন";
+"Hold to Consolidate" = "একত্র করতে চেপে ধরুন";
+"Build Unsigned Transaction" = "স্বাক্ষরবিহীন লেনদেন তৈরি করুন";
+"Coin Control" = "কয়েন কন্ট্রোল";
+"Automatic" = "স্বয়ংক্রিয়";
+"Consolidating This Address" = "এই ঠিকানাটি একত্র করা হচ্ছে";
+"Valid address" = "বৈধ ঠিকানা";
+"Invalid address format" = "অবৈধ ঠিকানার ফরম্যাট";
+"Normal" = "সাধারণ";
+"Fast" = "দ্রুত";
+"Priority" = "অগ্রাধিকার";
+"Resolved: %@" = "পাওয়া গেছে: %@";
