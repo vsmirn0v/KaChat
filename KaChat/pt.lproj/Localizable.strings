@@ -1247,3 +1247,4 @@
 "Waiting for the faucet's payment..." = "Aguardando o pagamento do faucet...";
 "Claimed. You can claim again in %@." = "Resgatado. Você pode resgatar de novo em %@.";
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "Copia seu endereço de conversa e abre o faucet TN10: cole, passe pela verificação e resgate o máximo oferecido.";
+"Your TN10 chatting address is copied. Paste it into the faucet's address field." = "Seu endereço de conversa TN10 foi copiado. Cole no campo de endereço do faucet.";

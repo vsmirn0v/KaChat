@@ -1247,3 +1247,4 @@
 "Waiting for the faucet's payment..." = "ফসেটের পেমেন্টের অপেক্ষায়...";
 "Claimed. You can claim again in %@." = "দাবি করা হয়েছে। আবার দাবি করতে পারবেন %@ পরে।";
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "আপনার চ্যাটিং ঠিকানা কপি করে TN10 ফসেট খোলে: পেস্ট করুন, যাচাই পার হন এবং সর্বোচ্চ পরিমাণ দাবি করুন।";
+"Your TN10 chatting address is copied. Paste it into the faucet's address field." = "আপনার TN10 চ্যাটিং ঠিকানা কপি হয়েছে। ফসেটের ঠিকানার ঘরে পেস্ট করুন।";

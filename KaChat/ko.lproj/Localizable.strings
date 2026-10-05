@@ -1247,3 +1247,4 @@
 "Waiting for the faucet's payment..." = "포싯 송금을 기다리는 중...";
 "Claimed. You can claim again in %@." = "받았습니다. %@ 후에 다시 받을 수 있습니다.";
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "채팅 주소를 복사하고 TN10 포싯을 엽니다. 붙여넣고 확인을 통과한 뒤 최대 금액을 받으세요.";
+"Your TN10 chatting address is copied. Paste it into the faucet's address field." = "TN10 채팅 주소가 복사되었습니다. 포싯의 주소 칸에 붙여넣으세요.";

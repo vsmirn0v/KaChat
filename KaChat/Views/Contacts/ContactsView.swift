@@ -5421,7 +5421,8 @@ struct ProfileHelpView: View {
 
 /// "Claim Testnet Kaspa", above the Chatting card on testnet. The official TN10 faucet sits
 /// behind a Cloudflare check, so it can't be claimed from in the background: the button copies
-/// the chatting address and opens the faucet in the in-app browser, where you paste it, pass the
+/// the chatting address (`kaspatest:` form) and opens the faucet in the in-app browser, with a
+/// strip saying it's copied, where you paste it, pass the
 /// check and claim the most it offers. The faucet allows one claim a day, so once the address's
 /// balance goes up after a visit the button locks for 24 hours (kept per address).
 struct TestnetFaucetClaimButton: View {
@@ -5437,6 +5438,14 @@ struct TestnetFaucetClaimButton: View {
     @State private var claimedAt: Date?
 
     private var defaultsKey: String { "kachat_tn10_faucet_claimed_\(address.lowercased())" }
+
+    /// The chatting address in its TN10 (`kaspatest:`) form - what the faucet's address field
+    /// takes. The wallet already shows it that way on testnet; this makes sure of it.
+    private var tn10Address: String {
+        guard let a = KaspaAddress(address: address.lowercased()), a.hrp != "kaspatest" else { return address }
+        let converted = KaspaAddress(hrp: "kaspatest", type: a.type, payload: a.payload).address
+        return converted.isEmpty ? address : converted
+    }
 
     private func unlockDate(_ now: Date) -> Date? {
         guard let claimedAt else { return nil }
@@ -5456,8 +5465,8 @@ struct TestnetFaucetClaimButton: View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let until = unlockDate(context.date)
             Button {
-                UIPasteboard.general.string = address
-                Haptics.impact(.light)
+                UIPasteboard.general.string = tn10Address
+                Haptics.success()
                 balanceBefore = walletManager.currentWallet?.balanceSompi
                 showFaucet = true
             } label: {
@@ -5502,7 +5511,10 @@ struct TestnetFaucetClaimButton: View {
             claimedAt = UserDefaults.standard.object(forKey: defaultsKey) as? Date
         }
         .fullScreenCover(isPresented: $showFaucet, onDismiss: { Task { await checkForClaim() } }) {
-            InAppBrowserScreen(url: Self.faucetURL) { showFaucet = false }
+            InAppBrowserScreen(
+                url: Self.faucetURL,
+                notice: AppLocalization.string("Your TN10 chatting address is copied. Paste it into the faucet's address field.")
+            ) { showFaucet = false }
         }
     }
 
@@ -5623,6 +5635,8 @@ struct ProfileAppsView: View {
 /// exactly the closed-app path. All of it resumes when the X is tapped.
 struct InAppBrowserScreen: View {
     let url: URL
+    /// Optional strip under the top bar (Claim Testnet Kaspa: "your address is copied").
+    var notice: String? = nil
     let onClose: () -> Void
 
     @State private var isLoading = true
@@ -5678,6 +5692,19 @@ struct InAppBrowserScreen: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            if let notice {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.on.clipboard.fill")
+                        .foregroundColor(.accentColor)
+                    Text(verbatim: notice)
+                        .font(.footnote.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(Color.accentColor.opacity(0.15))
+            }
             Divider()
             InAppWebView(url: url, isLoading: $isLoading)
                 .ignoresSafeArea(edges: .bottom)

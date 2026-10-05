@@ -1247,3 +1247,4 @@
 "Waiting for the faucet's payment..." = "مستني دفعة الصنبور...";
 "Claimed. You can claim again in %@." = "تم الطلب. تقدر تطلب تاني بعد %@.";
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "بينسخ عنوان الدردشة ويفتح صنبور TN10: الصقه، وعدّي التحقق، واطلب أكبر مبلغ متاح.";
+"Your TN10 chatting address is copied. Paste it into the faucet's address field." = "عنوان دردشة TN10 اتنسخ. الصقه في خانة العنوان في الصنبور.";

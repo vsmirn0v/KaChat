@@ -1247,3 +1247,4 @@
 "Waiting for the faucet's payment..." = "正在等待水龙头付款...";
 "Claimed. You can claim again in %@." = "已领取。%@后可再次领取。";
 "Copies your chatting address and opens the TN10 faucet: paste it, pass the check and claim the most it offers." = "复制你的聊天地址并打开 TN10 水龙头：粘贴地址、通过验证，然后领取最高额度。";
+"Your TN10 chatting address is copied. Paste it into the faucet's address field." = "已复制你的 TN10 聊天地址。请粘贴到水龙头的地址栏中。";
