@@ -58,7 +58,30 @@ struct GroupChatDetailView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var settingsViewModel: SettingsViewModel
-    @State private var draft = ""
+    /// The composer's text, held by reference so a keystroke doesn't redraw the whole chat
+    /// (see `ChatDetailView.messageText`): `draft` setter redraws, typing doesn't.
+    @State private var composerBox = ComposerTextBox()
+    @State private var composerHasText = false
+    @State private var composerRevision = 0
+    @State private var composerHeight: CGFloat = 0
+    private var draft: String {
+        get { composerBox.text }
+        nonmutating set {
+            composerBox.text = newValue
+            composerHasText = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            composerRevision &+= 1
+        }
+    }
+    private var composerTextBinding: Binding<String> {
+        Binding(
+            get: { composerBox.text },
+            set: { newValue in
+                composerBox.text = newValue
+                let has = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if has != composerHasText { composerHasText = has }
+            }
+        )
+    }
     @State private var reactiveReadMarkPending = false
     @State private var showInfo = false
     /// Local-only multi-select for deleting individual messages (never the whole group - see
@@ -190,6 +213,7 @@ struct GroupChatDetailView: View {
     // Live "fee: N KAS" preview above the composer - matches 1:1/public chat's identical bubble.
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
+    @State private var feeEstimateLength: Int?
     @State private var feeEstimateTask: Task<Void, Never>?
     @State private var feeShimmerPhase: CGFloat = -1
     /// User-set fee, from tapping the fee pill - see ChatDetailView.feeOverrideSompi's doc comment.
@@ -811,7 +835,7 @@ struct GroupChatDetailView: View {
             Button("Save") { commitFeeOverride() }
             Button("Use Default") {
                 feeOverrideSompi = nil
-                scheduleTextFeeEstimate(for: draft)
+                scheduleTextFeeEstimate(for: draft, force: true)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -1022,7 +1046,7 @@ struct GroupChatDetailView: View {
         guard settingsViewModel.settings.showFeeEstimate else { return false }
         if recorder.state == .recording || recorder.state == .encoding { return true }
         if pendingPhotoImage != nil { return true }
-        return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return composerHasText
     }
 
     private var feeBubble: some View {
@@ -1065,7 +1089,7 @@ struct GroupChatDetailView: View {
     private func commitFeeOverride() {
         guard let kas = Double(feeEditorText), kas >= 0 else { return }
         feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
-        scheduleTextFeeEstimate(for: draft)
+        scheduleTextFeeEstimate(for: draft, force: true)
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
@@ -1088,23 +1112,33 @@ struct GroupChatDetailView: View {
         }
     }
 
-    private func scheduleTextFeeEstimate(for text: String) {
-        feeEstimateTask?.cancel()
+    /// While typing (`force` false): waits for a 0.6 s pause, and skips the estimate while the
+    /// message is within 24 bytes of the last estimated length - the fee follows the size, and
+    /// each estimate runs on the main thread. Replies and fee overrides force it.
+    private func scheduleTextFeeEstimate(for text: String, force: Bool = false) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
+            feeEstimateTask?.cancel()
+            feeEstimateLength = nil
+            if feeEstimateSompi != nil { feeEstimateSompi = nil }
+            if isEstimatingFee { isEstimatingFee = false }
             return
         }
-        isEstimatingFee = true
+        let length = trimmed.utf8.count
+        if !force, feeEstimateSompi != nil, let last = feeEstimateLength, abs(length - last) < 24 {
+            return
+        }
+        feeEstimateTask?.cancel()
+        if !isEstimatingFee { isEstimatingFee = true }
         let estimatedText = encodeMentions(trimmed)
         feeEstimateTask = Task {
-            try? await Task.sleep(nanoseconds: 200_000_000)
+            try? await Task.sleep(nanoseconds: force ? 200_000_000 : 600_000_000)
             guard !Task.isCancelled else { return }
             do {
                 let estimate = try await groupChatService.estimateGroupMessageFee(estimatedText, for: group.id, feeOverride: feeOverrideSompi)
                 guard !Task.isCancelled else { return }
                 feeEstimateSompi = estimate
+                feeEstimateLength = length
                 isEstimatingFee = false
             } catch {
                 guard !Task.isCancelled else { return }
@@ -1276,13 +1310,18 @@ struct GroupChatDetailView: View {
     private var textRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             HStack(spacing: 4) {
+                let _ = composerRevision
+                let _ = composerHeight
                 // ComposerTextView (not a plain TextField) so Cmd+V image paste works on macOS,
                 // matching 1:1/public chat - a plain TextField only ever intercepts text paste.
                 ComposerTextView(
-                    text: $draft,
+                    text: composerTextBinding,
                     isFocused: $isComposerFocused,
                     onTextChange: { newValue in
                         scheduleTextFeeEstimate(for: newValue)
+                    },
+                    onHeightChange: { height in
+                        if abs(height - composerHeight) > 0.5 { composerHeight = height }
                     },
                     onSubmit: { send() },
                     placeholder: "Message",
@@ -1301,7 +1340,7 @@ struct GroupChatDetailView: View {
                 .padding(.vertical, 8)
                 .background(glassBackground(cornerRadius: 20))
 
-            if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !composerHasText {
                 plusMenu
             } else {
                 Button {

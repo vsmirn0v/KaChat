@@ -69,7 +69,42 @@ struct ChatDetailView: View {
         _openPaymentOnAppear = State(initialValue: startInPaymentMode)
     }
 
-    @State private var messageText = ""
+    /// The composer text. Setting it (send, draft, reply edit) redraws the screen; typing
+    /// writes `composerBox` directly through `composerTextBinding` and doesn't.
+    private var messageText: String {
+        get { composerBox.text }
+        nonmutating set {
+            composerBox.text = newValue
+            composerHasText = Self.hasContent(newValue)
+            composerRevision &+= 1
+        }
+    }
+
+    private static func hasContent(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// What the text view writes on every keystroke: the box, plus `composerHasText` only when
+    /// it flips.
+    private var composerTextBinding: Binding<String> {
+        Binding(
+            get: { composerBox.text },
+            set: { newValue in
+                composerBox.text = newValue
+                let has = Self.hasContent(newValue)
+                if has != composerHasText { composerHasText = has }
+            }
+        )
+    }
+
+    /// The composer's text lives in a box, not in `@State`: a keystroke then redraws only what
+    /// depends on it - the send button vs +, the fee bubble (`composerHasText`) and the
+    /// composer's height - not the whole conversation, which made typing lag. Code that sets
+    /// the text goes through `messageText`, which redraws so the text view picks it up.
+    @State private var composerBox = ComposerTextBox()
+    @State private var composerHasText = false
+    @State private var composerRevision = 0
+    @State private var composerHeight: CGFloat = 0
     @State private var isSending = false
     @State private var error: String?
     @State private var didInitialScroll = false
@@ -200,6 +235,8 @@ struct ChatDetailView: View {
     @State private var inboxSupported = false
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
+    /// The message length (bytes) the shown estimate is for (see `scheduleFeeEstimate`).
+    @State private var feeEstimateLength: Int?
     @State private var feeEstimateTask: Task<Void, Never>?
     /// User-set fee, from tapping the fee pill - overrides the live estimate for both display
     /// and the actual send, cleared once that send completes (matches Android's `feeRateOverride`
@@ -1045,7 +1082,7 @@ struct ChatDetailView: View {
             Button("Save") { commitFeeOverride() }
             Button("Use Default") {
                 feeOverrideSompi = nil
-                scheduleFeeEstimate(for: messageText)
+                scheduleFeeEstimate(for: messageText, force: true)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -1147,7 +1184,7 @@ struct ChatDetailView: View {
             // to preserve the scroll position and loaded message count.
         }
         .onChange(of: chatService.replyingTo) { newValue in
-            scheduleFeeEstimate(for: messageText)
+            scheduleFeeEstimate(for: messageText, force: true)
             if newValue == nil {
                 replyBannerHeight = 0
             }
@@ -2011,7 +2048,7 @@ struct ChatDetailView: View {
         Group {
             if isDeclined {
                 EmptyView()
-            } else if inputMode == .message && pendingPhotoImage == nil && messageText.isEmpty {
+            } else if inputMode == .message && pendingPhotoImage == nil && !composerHasText {
                 composerPlusMenu
             } else if shouldShowAudioModeSwitchActions {
                 HStack(spacing: 8) {
@@ -2634,15 +2671,23 @@ struct ChatDetailView: View {
                 if let pendingPhotoImage {
                     pendingPhotoRow(pendingPhotoImage)
                 } else {
+                    // Read so a programmatic change (`messageText = ...`) redraws this and
+                    // the text view picks the new text up.
+                    let _ = composerRevision
+                    let _ = composerHeight
                     HStack(spacing: 4) {
                         ComposerTextView(
-                            text: $messageText,
+                            text: composerTextBinding,
                             isFocused: $isMessageFocused,
                             onTextChange: { newValue in
                                 scheduleFeeEstimate(for: newValue)
                                 if inputMode == .message {
                                     chatService.setDraft(newValue, for: contact.address)
                                 }
+                            },
+                            // A new line grows the composer: the one keystroke-driven redraw.
+                            onHeightChange: { height in
+                                if abs(height - composerHeight) > 0.5 { composerHeight = height }
                             },
                             onSubmit: { handleSend() },
                             insertionRequest: emojiInsertionRequest,
@@ -3902,7 +3947,7 @@ struct ChatDetailView: View {
         guard settingsViewModel.settings.showFeeEstimate else { return false }
         switch inputMode {
         case .message:
-            return pendingPhotoImage != nil || !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return pendingPhotoImage != nil || composerHasText
         case .audio:
             return isRecording || isEncodingAudio || recordedAudioPreviewURL != nil
         }
@@ -3915,30 +3960,41 @@ struct ChatDetailView: View {
     private func commitFeeOverride() {
         guard let kas = Double(feeEditorText), kas >= 0 else { return }
         feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
-        scheduleFeeEstimate(for: messageText)
+        scheduleFeeEstimate(for: messageText, force: true)
     }
 
-    private func scheduleFeeEstimate(for text: String) {
-        feeEstimateTask?.cancel()
-
+    /// Re-estimates the message fee. While typing (`force` false) it waits for a 0.6 s pause and
+    /// skips the estimate entirely while the message is within 24 bytes of the last estimated
+    /// length - the fee follows the size, and each estimate (key, encryption, coin selection)
+    /// runs on the main thread. A reply, fee override or mode change forces it.
+    private func scheduleFeeEstimate(for text: String, force: Bool = false) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
+            feeEstimateTask?.cancel()
+            feeEstimateLength = nil
+            if feeEstimateSompi != nil { feeEstimateSompi = nil }
+            if isEstimatingFee { isEstimatingFee = false }
             return
         }
 
         guard inputMode == .message else { return }
 
-        isEstimatingFee = true
+        let length = trimmed.utf8.count
+        if !force, feeEstimateSompi != nil, let last = feeEstimateLength, abs(length - last) < 24 {
+            return
+        }
+
+        feeEstimateTask?.cancel()
+        if !isEstimatingFee { isEstimatingFee = true }
         feeEstimateTask = Task {
-            try? await Task.sleep(nanoseconds: 200_000_000)
+            try? await Task.sleep(nanoseconds: force ? 200_000_000 : 600_000_000)
             if Task.isCancelled { return }
             do {
                 let estimate = try await chatService.estimateMessageFee(to: contact, content: trimmed, feeOverride: feeOverrideSompi)
                 if Task.isCancelled { return }
                 await MainActor.run {
                     feeEstimateSompi = estimate
+                    feeEstimateLength = length
                     isEstimatingFee = false
                 }
             } catch {
@@ -5549,4 +5605,10 @@ struct ZeroBalanceFundingSheetView: View {
             if let balance, balance > 0 { dismiss() }
         }
     }
+}
+
+/// The chat composer's text, held by reference so typing doesn't redraw the conversation (see
+/// `ChatDetailView.messageText`).
+final class ComposerTextBox {
+    var text = ""
 }

@@ -43,7 +43,30 @@ struct PublicChatChannelView: View {
         }
     }
 
-    @State private var messageText = ""
+    /// The composer's text, held by reference so a keystroke doesn't redraw the whole chat
+    /// (see `ChatDetailView.messageText`): `messageText` setter redraws, typing doesn't.
+    @State private var composerBox = ComposerTextBox()
+    @State private var composerHasText = false
+    @State private var composerRevision = 0
+    @State private var composerHeight: CGFloat = 0
+    private var messageText: String {
+        get { composerBox.text }
+        nonmutating set {
+            composerBox.text = newValue
+            composerHasText = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            composerRevision &+= 1
+        }
+    }
+    private var composerTextBinding: Binding<String> {
+        Binding(
+            get: { composerBox.text },
+            set: { newValue in
+                composerBox.text = newValue
+                let has = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if has != composerHasText { composerHasText = has }
+            }
+        )
+    }
     @State private var isLoadingOlder = false
     /// The first loaded message before "Load earlier messages", to stay put once older rows land.
     @State private var keepInPlaceAfterOlderLoad: String?
@@ -69,6 +92,7 @@ struct PublicChatChannelView: View {
     @State private var bottomAnchorVisibilityWorkItem: DispatchWorkItem?
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
+    @State private var feeEstimateLength: Int?
     @State private var feeEstimateTask: Task<Void, Never>?
     @State private var feeShimmerPhase: CGFloat = -1
     /// A once-a-minute clock for the reaction pill's green "sent" check, which is meant to go
@@ -232,7 +256,7 @@ struct PublicChatChannelView: View {
             Button("Save") { commitFeeOverride() }
             Button("Use Default") {
                 feeOverrideSompi = nil
-                scheduleFeeEstimate(for: messageText)
+                scheduleFeeEstimate(for: messageText, force: true)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -805,11 +829,16 @@ struct PublicChatChannelView: View {
                     recordingBar
                 } else {
                     HStack(spacing: 12) {
+                        let _ = composerRevision
+                        let _ = composerHeight
                         ComposerTextView(
-                            text: $messageText,
+                            text: composerTextBinding,
                             isFocused: $isMessageFocused,
                             onTextChange: { newValue in
                                 scheduleFeeEstimate(for: newValue)
+                            },
+                            onHeightChange: { height in
+                                if abs(height - composerHeight) > 0.5 { composerHeight = height }
                             },
                             onSubmit: { send() },
                             placeholder: "Message #\(channelName)",
@@ -845,7 +874,7 @@ struct PublicChatChannelView: View {
         .padding(.horizontal)
         .padding(.vertical, 8)
         .onChange(of: publicChatService.replyingTo) { _ in
-            scheduleFeeEstimate(for: messageText)
+            scheduleFeeEstimate(for: messageText, force: true)
         }
         .onChange(of: recorder.elapsedSeconds) { elapsed in
             updateRecordingFeeEstimate(elapsedSeconds: elapsed)
@@ -881,7 +910,7 @@ struct PublicChatChannelView: View {
 
     private var sendOrRecordButton: some View {
         Group {
-            if messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !composerHasText {
                 Button {
                     startVoiceMessage()
                 } label: {
@@ -932,7 +961,7 @@ struct PublicChatChannelView: View {
     private var shouldShowFeeBubble: Bool {
         guard settingsViewModel.settings.showFeeEstimate else { return false }
         if recorder.state == .recording || recorder.state == .encoding { return true }
-        return !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return composerHasText
     }
 
     private var feeBubble: some View {
@@ -975,7 +1004,7 @@ struct PublicChatChannelView: View {
     private func commitFeeOverride() {
         guard let kas = Double(feeEditorText), kas >= 0 else { return }
         feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
-        scheduleFeeEstimate(for: messageText)
+        scheduleFeeEstimate(for: messageText, force: true)
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
@@ -994,22 +1023,32 @@ struct PublicChatChannelView: View {
         }
     }
 
-    private func scheduleFeeEstimate(for text: String) {
-        feeEstimateTask?.cancel()
+    /// While typing (`force` false): waits for a 0.6 s pause, and skips the estimate while the
+    /// message is within 24 bytes of the last estimated length - the fee follows the size, and
+    /// each estimate runs on the main thread. Replies and fee overrides force it.
+    private func scheduleFeeEstimate(for text: String, force: Bool = false) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
+            feeEstimateTask?.cancel()
+            feeEstimateLength = nil
+            if feeEstimateSompi != nil { feeEstimateSompi = nil }
+            if isEstimatingFee { isEstimatingFee = false }
             return
         }
-        isEstimatingFee = true
+        let length = trimmed.utf8.count
+        if !force, feeEstimateSompi != nil, let last = feeEstimateLength, abs(length - last) < 24 {
+            return
+        }
+        feeEstimateTask?.cancel()
+        if !isEstimatingFee { isEstimatingFee = true }
         feeEstimateTask = Task {
-            try? await Task.sleep(nanoseconds: 200_000_000)
+            try? await Task.sleep(nanoseconds: force ? 200_000_000 : 600_000_000)
             guard !Task.isCancelled else { return }
             do {
                 let estimate = try await publicChatService.estimatePublicChatFee(channel: channelName, content: trimmed, feeOverride: feeOverrideSompi)
                 guard !Task.isCancelled else { return }
                 feeEstimateSompi = estimate
+                feeEstimateLength = length
                 isEstimatingFee = false
             } catch {
                 guard !Task.isCancelled else { return }

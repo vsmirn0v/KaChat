@@ -94,6 +94,9 @@ struct ComposerTextView: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     var onTextChange: (String) -> Void
+    /// The text's natural height after a keystroke, so a parent that doesn't redraw per
+    /// keystroke (the 1:1 chat) still lays out again when a line is added or removed.
+    var onHeightChange: ((CGFloat) -> Void)? = nil
     var onSubmit: () -> Void
     var placeholder: String = String(localized: "Message")
     var maxLines: Int = 5
@@ -301,6 +304,10 @@ struct ComposerTextView: UIViewRepresentable {
                 label.isHidden = !newText.isEmpty
             }
             textView.invalidateIntrinsicContentSize()
+            if let onHeightChange = parent.onHeightChange, textView.bounds.width > 0 {
+                let fitting = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude))
+                onHeightChange(fitting.height)
+            }
             reportMentionQuery(for: textView)
         }
 
