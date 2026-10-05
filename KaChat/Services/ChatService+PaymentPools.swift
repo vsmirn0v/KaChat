@@ -433,17 +433,21 @@ extension ChatService {
     /// when OFF - the toggle's OFF promise is chatting-to-chatting end to end, source included.
     /// Must be used by every estimator that predicts what `sendPaymentInternal` will spend, or
     /// the estimate silently computes against the wrong balance/UTXO set.
-    func paymentFundingSourceAddress() throws -> String {
+    /// `spendingIndex` picks a spending address other than the primary (Chats Payment Privacy
+    /// on only - off, payments always come from the chatting address).
+    func paymentFundingSourceAddress(spendingIndex: Int? = nil) throws -> String {
         guard let wallet = WalletManager.shared.currentWallet else {
             throw KasiaError.walletNotFound
         }
         if !AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress) {
             return wallet.publicAddress
         }
-        guard let spendingAddress = WalletManager.shared.currentSpendingAddress() else {
+        let address = spendingIndex.flatMap { WalletManager.shared.spendingAddress(at: $0) }
+            ?? WalletManager.shared.currentSpendingAddress()
+        guard let address else {
             throw KasiaError.walletNotFound
         }
-        return spendingAddress
+        return address
     }
 
     /// The destination address for a payment to `contact`: an unused address from their stored

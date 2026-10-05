@@ -2262,6 +2262,8 @@ extension ChatService {
         delaySeconds: TimeInterval,
         paymentAmountSompi: UInt64? = nil,
         paymentNote: String = "",
+        /// The spending address a payment was asked to come from (see `sendPayment`).
+        paymentSourceIndex: Int? = nil,
         handshakeIsResponse: Bool? = nil
     ) {
         guard !scheduledSendRetries.contains(pendingTxId) else { return }
@@ -2299,7 +2301,8 @@ extension ChatService {
                             to: contact,
                             amountSompi: paymentAmountSompi,
                             note: paymentNote,
-                            pendingTxId: retryPendingTxId
+                            pendingTxId: retryPendingTxId,
+                            sourceSpendingIndex: paymentSourceIndex
                         )
                     case .handshake:
                         let isResponse = handshakeIsResponse ?? self.shouldRetryHandshakeAsResponse(for: contact.address)
@@ -2325,7 +2328,10 @@ extension ChatService {
         amountSompi: UInt64,
         note: String = "",
         pendingTxId: String? = nil,
-        extraFeeSompi: UInt64 = 0
+        extraFeeSompi: UInt64 = 0,
+        /// Pay from this spending address instead of the primary (Chats Payment Privacy on; the
+        /// Send KAS sheet's Available pill). nil = the primary, as always.
+        sourceSpendingIndex: Int? = nil
     ) async throws -> String? {
         // Paying someone is reaching out to them, like writing to them.
         acceptChat(contact.address)
@@ -2335,7 +2341,8 @@ extension ChatService {
                 amountSompi: amountSompi,
                 note: note,
                 pendingTxId: pendingTxId,
-                extraFeeSompi: extraFeeSompi
+                extraFeeSompi: extraFeeSompi,
+                sourceSpendingIndex: sourceSpendingIndex
             )
         }
     }
@@ -2347,7 +2354,8 @@ extension ChatService {
         note: String = "",
         pendingTxId: String? = nil,
         /// Extra priority fee (Fast/Priority tiers) on top of the computed base fee.
-        extraFeeSompi: UInt64 = 0
+        extraFeeSompi: UInt64 = 0,
+        sourceSpendingIndex: Int? = nil
     ) async throws -> String? {
         guard amountSompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
@@ -2373,8 +2381,12 @@ extension ChatService {
         let sourcePrivateKey: Data
         let changeAddress: String?
         let freshChangeIndex: Int?
+        // A picked source (not the primary) keeps the primary where it is: its change still goes
+        // to a fresh address, which is revealed rather than made primary.
+        let primaryIndex = WalletManager.shared.currentSpendingAddressIndex
+        let keepsPrimary = sourceSpendingIndex != nil && sourceSpendingIndex != primaryIndex
         if chatsPrivacyOn {
-            let spendingIndex = WalletManager.shared.currentSpendingAddressIndex
+            let spendingIndex = sourceSpendingIndex ?? primaryIndex
             guard let spendingAddress = WalletManager.shared.spendingAddress(at: spendingIndex),
                   let spendingPrivateKey = WalletManager.shared.spendingPrivateKey(at: spendingIndex) else {
                 throw KasiaError.keychainError("Could not derive spending address")
@@ -2533,7 +2545,11 @@ extension ChatService {
             clearNoInputRetryState(for: activePendingTxId)
             saveMessages()
             if let freshChangeIndex {
-                await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+                if keepsPrimary {
+                    await WalletManager.shared.revealSpendingAddress(at: freshChangeIndex)
+                } else {
+                    await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+                }
             }
             handlePoolPaymentSubmitted(
                 contact: contact,
@@ -2559,7 +2575,11 @@ extension ChatService {
                 clearNoInputRetryState(for: activePendingTxId)
                 saveMessages()
                 if let freshChangeIndex {
-                    await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+                    if keepsPrimary {
+                        await WalletManager.shared.revealSpendingAddress(at: freshChangeIndex)
+                    } else {
+                        await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+                    }
                 }
                 handlePoolPaymentSubmitted(
                     contact: contact,
@@ -2585,7 +2605,8 @@ extension ChatService {
                     messageType: .payment,
                     delaySeconds: delay,
                     paymentAmountSompi: amountSompi,
-                    paymentNote: note
+                    paymentNote: note,
+                    paymentSourceIndex: sourceSpendingIndex
                 )
                 // Deferred, not sent - nothing to confirm yet.
                 return nil
@@ -3245,14 +3266,14 @@ extension ChatService {
         return messageFee
     }
 
-    func estimatePaymentFee(to contact: Contact, amountSompi: UInt64, note: String = "") async throws -> UInt64 {
+    func estimatePaymentFee(to contact: Contact, amountSompi: UInt64, note: String = "", sourceSpendingIndex: Int? = nil) async throws -> UInt64 {
         guard amountSompi > 0 else { throw KasiaError.networkError("Amount is zero") }
         // Must source from whatever `sendPaymentInternal` will actually spend from - the
         // spending chain with Chats Payment Privacy ON, the chatting address with it OFF (see
         // `paymentFundingSourceAddress`). Estimating from a hardcoded source here used to
         // silently compute against the wrong balance/UTXO set whenever it differed from the
         // address actually spent from.
-        let sourceAddress = try paymentFundingSourceAddress()
+        let sourceAddress = try paymentFundingSourceAddress(spendingIndex: sourceSpendingIndex)
         guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
             throw KasiaError.invalidAddress
         }
@@ -3280,9 +3301,9 @@ extension ChatService {
     }
 
     /// Calculate maximum sendable amount (balance - fee for send-all transaction with no change output)
-    func estimateMaxPaymentAmount(to contact: Contact, note: String = "") async throws -> UInt64 {
+    func estimateMaxPaymentAmount(to contact: Contact, note: String = "", sourceSpendingIndex: Int? = nil) async throws -> UInt64 {
         // Same toggle-aware sourcing as `estimatePaymentFee` above - see its doc comment.
-        let sourceAddress = try paymentFundingSourceAddress()
+        let sourceAddress = try paymentFundingSourceAddress(spendingIndex: sourceSpendingIndex)
         guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
             throw KasiaError.invalidAddress
         }

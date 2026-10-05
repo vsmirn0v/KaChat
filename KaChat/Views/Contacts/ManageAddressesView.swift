@@ -1894,10 +1894,11 @@ struct SpendingAddressWithdrawView: View {
 /// White-background QR display for a single spending address, matching the same visual
 /// treatment as ChattingAddressQRView (literal colors, not adaptive semantic colors, so text
 /// stays readable regardless of system dark/light mode without affecting the nav bar).
-/// Which spending address a send comes from, picked from the Send screen's Available pill:
+/// Which spending address a send comes from, picked from a Send screen's Available pill (the
+/// spending-address Send, and the 1:1 chat's Send KAS sheet):
 /// every spending address you can see (plus hidden ones that hold Kaspa), funded ones first, each
 /// with its balance. Picking one changes this send only - the primary stays where it is.
-private struct SpendingSourcePicker: View {
+struct SpendingSourcePicker: View {
     let currentIndex: Int
     let onPick: (SpendingAddressEntry) -> Void
     @Environment(\.dismiss) private var dismiss

@@ -237,6 +237,11 @@ struct ChatDetailView: View {
     @State private var isEstimatingPaymentFee = false
     @State private var paymentFeeTask: Task<Void, Never>?
     @State private var paymentError: String?
+    /// The spending address this payment comes from, when not the primary (Chats Payment
+    /// Privacy on): picked from the sheet's Available pill. nil = the primary. Resets each time
+    /// the sheet opens; the primary itself never changes.
+    @State private var paymentSource: SpendingAddressEntry?
+    @State private var showPaymentSourcePicker = false
     @State private var spendingBalanceSompi: UInt64?
     /// Post-send retry schedule for the Available pill (see scheduleSpendingBalanceRetries).
     @State private var spendingBalanceRetryTask: Task<Void, Never>?
@@ -1042,6 +1047,9 @@ struct ChatDetailView: View {
             schedulePaymentFee(for: newValue)
         }
         .onChange(of: paymentNote) { _ in
+            schedulePaymentFee(for: amountText)
+        }
+        .onChange(of: paymentSource?.index) { _ in
             schedulePaymentFee(for: amountText)
         }
         .onAppear {
@@ -2762,8 +2770,6 @@ struct ChatDetailView: View {
         }
     }
 
-    /// Drives the Manage Addresses sheet opened from the available-balance bubble below.
-    @State private var showManageAddresses = false
 
     /// True while the next payment to this contact will go to a fresh pool address (see
     /// ChatService+PaymentPools) - refreshed on entering payment mode and after each send.
@@ -2879,6 +2885,7 @@ struct ChatDetailView: View {
         fiatAmountState.reset()
         paymentNote = ""
         paymentError = nil
+        paymentSource = nil
         paymentFeeSompi = nil
         isEstimatingPaymentFee = false
         paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
@@ -2975,7 +2982,7 @@ struct ChatDetailView: View {
             onMax: {
                 Task {
                     do {
-                        let maxSompi = try await chatService.estimateMaxPaymentAmount(to: contact)
+                        let maxSompi = try await chatService.estimateMaxPaymentAmount(to: contact, sourceSpendingIndex: paymentSource?.index)
                         await MainActor.run {
                             let kas = Double(maxSompi) / 100_000_000.0
                             amountText = fiatAmountState.setMaxKas(kas, priceInCurrency: portfolioViewModel.currentPriceUsd)
@@ -3026,13 +3033,22 @@ struct ChatDetailView: View {
 
     private var availableBalanceBubble: some View {
         let privacyOn = isChatsPaymentPrivacyOn
-        let balanceSompi = privacyOn ? spendingBalanceSompi : walletManager.currentWallet?.balanceSompi
+        let primaryIndex = walletManager.currentSpendingAddressIndex
+        let balanceSompi = privacyOn
+            ? (paymentSource?.balanceSompi ?? spendingBalanceSompi)
+            : walletManager.currentWallet?.balanceSompi
         return HStack(spacing: 6) {
             if privacyOn {
                 Text(localizedAvailableBalanceText(balanceSompi))
                     .underline()
                     .lineLimit(1)
                     .truncationMode(.tail)
+                // Which spending address pays: the primary unless another was picked here.
+                Text(verbatim: "·")
+                Text(paymentSource?.displayLabel ?? "Address #\(primaryIndex)")
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.scaled(size: 8, weight: .bold))
             } else {
                 Text(localizedAvailableBalanceText(balanceSompi))
                     .lineLimit(1)
@@ -3054,29 +3070,17 @@ struct ChatDetailView: View {
         .padding(.vertical, 6)
         .background(glassBackground(cornerRadius: 14))
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        // Privacy on: tap to pay from another spending address (this payment only - the primary
+        // stays). Privacy off pays from the chatting address, so there's nothing to pick.
         .allowsHitTesting(privacyOn)
         .onTapGesture {
             guard isChatsPaymentPrivacyOn else { return }
-            showManageAddresses = true
+            showPaymentSourcePicker = true
         }
-        .sheet(
-            isPresented: $showManageAddresses,
-            onDismiss: {
-                // Catch-all refresh: covers balance changes made in the sheet that don't move
-                // the primary index (consolidation, withdrawals) - the primary-change case is
-                // additionally covered live by the .task keyed on spendingAddressIndex.
-                Task { await loadSpendingBalance() }
-            }
-        ) {
-            // Own NavigationStack: ManageAddressesView relies on navigationTitle and pushes
-            // its per-address detail screens via NavigationLink.
-            NavigationStack {
-                ManageAddressesView()
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button("Done") { showManageAddresses = false }
-                        }
-                    }
+        .accessibilityHint(privacyOn ? Text("Choose which spending address to send from") : Text(verbatim: ""))
+        .sheet(isPresented: $showPaymentSourcePicker) {
+            SpendingSourcePicker(currentIndex: paymentSource?.index ?? primaryIndex) { picked in
+                paymentSource = picked.index == primaryIndex ? nil : picked
             }
         }
     }
@@ -3215,7 +3219,7 @@ struct ChatDetailView: View {
                 let note = paymentNote.trimmingCharacters(in: .whitespacesAndNewlines)
                 // nil means DEFERRED (no confirmed inputs yet) - the retry timer owns it; either
                 // way the payment bubble is already in the chat.
-                _ = try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: note)
+                _ = try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: note, sourceSpendingIndex: paymentSource?.index)
                 await MainActor.run {
                     Haptics.success()
                     amountText = ""
@@ -3928,12 +3932,13 @@ struct ChatDetailView: View {
             return
         }
         let note = paymentNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = paymentSource?.index
 
         isEstimatingPaymentFee = true
         paymentFeeTask = Task {
             try? await Task.sleep(nanoseconds: 200_000_000)
             if Task.isCancelled { return }
-            let estimate = try? await chatService.estimatePaymentFee(to: contact, amountSompi: amountSompi, note: note)
+            let estimate = try? await chatService.estimatePaymentFee(to: contact, amountSompi: amountSompi, note: note, sourceSpendingIndex: source)
             if Task.isCancelled { return }
             await MainActor.run {
                 paymentFeeSompi = estimate
