@@ -30,7 +30,57 @@ struct ActionSheetRow: View {
     var customIcon: Image? = nil
     let action: () -> Void
 
+    /// Set by `ActionSheetTiles`: draw as a square tile (icon over title) instead of a row.
+    @Environment(\.actionSheetTiles) private var asTile
+
     var body: some View {
+        if asTile {
+            tile
+        } else {
+            row
+        }
+    }
+
+    /// The square form, for long-press menus: the icon and a short title, so a glance says what
+    /// each one does. The explanatory line becomes the VoiceOver hint.
+    private var tile: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                ZStack {
+                    if isBusy {
+                        ProgressView()
+                    } else if let customIcon {
+                        customIcon
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 26, height: 26)
+                    } else {
+                        Image(systemName: systemImage)
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundColor(tint)
+                    }
+                }
+                .frame(height: 30)
+                Text(LocalizedStringKey(title))
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(tint == .accentColor ? .primary : tint)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .frame(height: ActionSheetTileMetrics.tileHeight)
+            .background(glassBackground(cornerRadius: 18))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .opacity(isDisabled ? 0.45 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy || isDisabled)
+        .accessibilityHint(Text(LocalizedStringKey(subtitle)))
+    }
+
+    private var row: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Group {
@@ -68,6 +118,50 @@ struct ActionSheetRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isBusy || isDisabled)
+    }
+}
+
+private struct ActionSheetTilesKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Whether `ActionSheetRow`s draw as square tiles (inside `ActionSheetTiles`).
+    var actionSheetTiles: Bool {
+        get { self[ActionSheetTilesKey.self] }
+        set { self[ActionSheetTilesKey.self] = newValue }
+    }
+}
+
+/// Lays the `ActionSheetRow`s inside it out as square tiles, three to a row - the look of every
+/// long-press menu in the app (messages, chat rows, group and room circles, room rows), so each
+/// option reads at a glance instead of as a paragraph.
+struct ActionSheetTiles<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        let spacing = ActionSheetTileMetrics.spacing
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: spacing), count: 3), spacing: spacing) {
+            content
+        }
+        .environment(\.actionSheetTiles, true)
+    }
+}
+
+/// Sizes for `ActionSheetTiles`, and a sheet height to fit them.
+enum ActionSheetTileMetrics {
+    static let tileHeight: CGFloat = 96
+    static let spacing: CGFloat = 12
+
+    /// The grid's height for `count` tiles.
+    static func gridHeight(for count: Int) -> CGFloat {
+        let rows = CGFloat(max(1, (count + 2) / 3))
+        return rows * tileHeight + (rows - 1) * spacing
+    }
+
+    /// A tiles sheet's height: its title area, the grid, and the bottom padding.
+    static func sheetHeight(tiles count: Int, header: CGFloat = 70) -> CGFloat {
+        header + gridHeight(for: count) + 44
     }
 }
 
@@ -719,7 +813,7 @@ struct MessageActionsSheet: View {
             .padding(.bottom, 4)
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 12) {
+                ActionSheetTiles {
                     ForEach(request.actions) { action in
                         ActionSheetRow(
                             title: action.title,
@@ -746,8 +840,7 @@ struct MessageActionsSheet: View {
 
     private var height: CGFloat {
         let header: CGFloat = request.preview == nil ? 76 : 116
-        let rows = CGFloat(request.actions.count) * 78
-        return min(UIScreen.main.bounds.height * 0.85, header + rows + 24)
+        return min(UIScreen.main.bounds.height * 0.85, header + ActionSheetTileMetrics.gridHeight(for: request.actions.count) + 40)
     }
 }
 

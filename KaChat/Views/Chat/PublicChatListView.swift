@@ -350,51 +350,53 @@ struct PublicChatListView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            if publicChatService.unreadCount(forChannel: name) > 0 {
-                ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this room.", systemImage: "envelope.open") {
-                    roomActionTarget = nil
-                    publicChatService.markChannelRead(name)
+            ActionSheetTiles {
+                if publicChatService.unreadCount(forChannel: name) > 0 {
+                    ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this room.", systemImage: "envelope.open") {
+                        roomActionTarget = nil
+                        publicChatService.markChannelRead(name)
+                    }
+                } else {
+                    ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
+                        roomActionTarget = nil
+                        publicChatService.markChannelUnread(name)
+                    }
                 }
-            } else {
-                ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
+
+                ActionSheetRow(
+                    title: notifyOn ? "Turn Off Notifications" : "Turn On Notifications",
+                    subtitle: notifyOn
+                        ? "No notification for new messages in this room."
+                        : (isCurated ? "Notifies you of new messages, even when the app is closed."
+                                     : "Notifies you of new messages while the app is open."),
+                    systemImage: notifyOn ? "bell.slash" : "bell"
+                ) {
                     roomActionTarget = nil
-                    publicChatService.markChannelUnread(name)
+                    if let channel { toggleNotify(channel) }
                 }
-            }
 
-            ActionSheetRow(
-                title: notifyOn ? "Turn Off Notifications" : "Turn On Notifications",
-                subtitle: notifyOn
-                    ? "No notification for new messages in this room."
-                    : (isCurated ? "Notifies you of new messages, even when the app is closed."
-                                 : "Notifies you of new messages while the app is open."),
-                systemImage: notifyOn ? "bell.slash" : "bell"
-            ) {
-                roomActionTarget = nil
-                if let channel { toggleNotify(channel) }
-            }
-
-            ActionSheetRow(title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", systemImage: "link") {
-                roomActionTarget = nil
-                UIPasteboard.general.string = KaChatInternalLink.publicChatRoom(channel: name).universalLinkString
-                showToast("Room link copied")
-            }
-
-            if channel != nil, !isCurated {
-                ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
+                ActionSheetRow(title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", systemImage: "link") {
                     roomActionTarget = nil
-                    // One sheet closing, another opening: give the first its dismissal, or
-                    // the second is silently dropped.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { channelToLeave = name }
+                    UIPasteboard.general.string = KaChatInternalLink.publicChatRoom(channel: name).universalLinkString
+                    showToast("Room link copied")
                 }
-            } else if isCurated {
-                // A default room is never really deleted - it is switched off, exactly like its
-                // toggle in Public Chats settings, and that toggle brings it back. Nothing is
-                // lost, so it needs no confirmation.
-                ActionSheetRow(title: "Delete", subtitle: "Switches this default room off. Turn it back on in Public Chats settings.", systemImage: "trash", tint: .red) {
-                    roomActionTarget = nil
-                    publicChatService.removeFromList(name)
-                    showToast(String(localized: "#\(name) is off - turn it back on in Public Chats settings"))
+
+                if channel != nil, !isCurated {
+                    ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
+                        roomActionTarget = nil
+                        // One sheet closing, another opening: give the first its dismissal, or
+                        // the second is silently dropped.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { channelToLeave = name }
+                    }
+                } else if isCurated {
+                    // A default room is never really deleted - it is switched off, exactly like its
+                    // toggle in Public Chats settings, and that toggle brings it back. Nothing is
+                    // lost, so it needs no confirmation.
+                    ActionSheetRow(title: "Delete", subtitle: "Switches this default room off. Turn it back on in Public Chats settings.", systemImage: "trash", tint: .red) {
+                        roomActionTarget = nil
+                        publicChatService.removeFromList(name)
+                        showToast(String(localized: "#\(name) is off - turn it back on in Public Chats settings"))
+                    }
                 }
             }
 
@@ -403,7 +405,7 @@ struct PublicChatListView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(410)])
+        .presentationDetents([.height(ActionSheetTileMetrics.sheetHeight(tiles: 5))])
         .presentationDragIndicator(.visible)
     }
 

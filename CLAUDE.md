@@ -307,6 +307,16 @@ The input bubble is the text field only. Everything else is in the "+" sheet:
   details half sheet: amount, memo, time, View in Explorer (the Settings explorer) and Copy
   Transaction ID. A payment that isn't on chain yet says so instead.
 
+### Long-press menus
+
+Every long-press menu is a half sheet of square tiles, three to a row: an icon over a short
+title. This covers the message menu (`MessageActionsSheet`), chat rows, group and room circles,
+and room rows.
+- Build them with `ActionSheetRow`s inside `ActionSheetTiles`. The row's `subtitle` becomes the
+  VoiceOver hint.
+- Size the sheet with `ActionSheetTileMetrics.sheetHeight(tiles:)`.
+- Other half sheets (confirmations, the composer's options, account menus) keep the row form.
+
 ### Send Kaspa screens
 
 Every Send Kaspa screen is built from the shared pieces in `Views/Shared/SendKaspaComponents.swift`,

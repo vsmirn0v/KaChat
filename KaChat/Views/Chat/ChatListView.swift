@@ -1304,49 +1304,51 @@ struct ChatListView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            if conversation.unreadCount > 0 {
-                ActionSheetRow(
-                    title: "Mark as Read",
-                    subtitle: "Clears the unread badge on this chat.",
-                    systemImage: "envelope.open"
-                ) {
-                    conversationActionTarget = nil
-                    Task { await chatService.markConversationAsRead(conversation) }
+            ActionSheetTiles {
+                if conversation.unreadCount > 0 {
+                    ActionSheetRow(
+                        title: "Mark as Read",
+                        subtitle: "Clears the unread badge on this chat.",
+                        systemImage: "envelope.open"
+                    ) {
+                        conversationActionTarget = nil
+                        Task { await chatService.markConversationAsRead(conversation) }
+                    }
+                } else {
+                    ActionSheetRow(
+                        title: "Mark as Unread",
+                        subtitle: "Puts the unread badge back so you come across it again.",
+                        systemImage: "envelope.badge"
+                    ) {
+                        conversationActionTarget = nil
+                        chatService.markConversationAsUnread(conversation)
+                    }
                 }
-            } else {
+
                 ActionSheetRow(
-                    title: "Mark as Unread",
-                    subtitle: "Puts the unread badge back so you come across it again.",
-                    systemImage: "envelope.badge"
+                    title: isSilent ? "Unsilence" : "Silence",
+                    subtitle: isSilent
+                        ? "Notifications from this chat resume."
+                        : "No notification from this chat, whatever your app-wide setting says.",
+                    systemImage: isSilent ? "bell" : "bell.slash"
                 ) {
                     conversationActionTarget = nil
-                    chatService.markConversationAsUnread(conversation)
+                    setSilent(!isSilent, for: conversation.contact)
                 }
-            }
 
-            ActionSheetRow(
-                title: isSilent ? "Unsilence" : "Silence",
-                subtitle: isSilent
-                    ? "Notifications from this chat resume."
-                    : "No notification from this chat, whatever your app-wide setting says.",
-                systemImage: isSilent ? "bell" : "bell.slash"
-            ) {
-                conversationActionTarget = nil
-                setSilent(!isSilent, for: conversation.contact)
-            }
-
-            // Your chat with yourself cannot be deleted - it is always there, first in the list.
-            if !isOwnChat(conversation.contact) {
-                ActionSheetRow(
-                    title: "Delete",
-                    subtitle: "Removes this chat and its messages from this device.",
-                    systemImage: "trash",
-                    tint: .red
-                ) {
-                    conversationActionTarget = nil
-                    // One turn later: the confirmation alert cannot present while the sheet is
-                    // still on its way out.
-                    DispatchQueue.main.async { rowDeleteContact = conversation.contact }
+                // Your chat with yourself cannot be deleted - it is always there, first in the list.
+                if !isOwnChat(conversation.contact) {
+                    ActionSheetRow(
+                        title: "Delete",
+                        subtitle: "Removes this chat and its messages from this device.",
+                        systemImage: "trash",
+                        tint: .red
+                    ) {
+                        conversationActionTarget = nil
+                        // One turn later: the confirmation alert cannot present while the sheet is
+                        // still on its way out.
+                        DispatchQueue.main.async { rowDeleteContact = conversation.contact }
+                    }
                 }
             }
 
@@ -1355,7 +1357,7 @@ struct ChatListView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(400)])
+        .presentationDetents([.height(ActionSheetTileMetrics.sheetHeight(tiles: 4))])
         .presentationDragIndicator(.visible)
     }
 
@@ -1373,33 +1375,37 @@ struct ChatListView: View {
                     .lineLimit(1)
                     .padding(.top, 20)
                     .padding(.bottom, 4)
-                if groupChatService.unreadCount(for: group) > 0 {
-                    ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this group.", systemImage: "envelope.open") {
-                        circleActionTarget = nil
-                        groupChatService.markGroupAsRead(group.id)
+
+                ActionSheetTiles {
+                    if groupChatService.unreadCount(for: group) > 0 {
+                        ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this group.", systemImage: "envelope.open") {
+                            circleActionTarget = nil
+                            groupChatService.markGroupAsRead(group.id)
+                        }
+                    } else {
+                        ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
+                            circleActionTarget = nil
+                            groupChatService.markGroupAsUnread(group.id)
+                        }
                     }
-                } else {
-                    ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
+                    circlePinRow(id: id, isPinned: isPinned)
+                    ActionSheetRow(
+                        title: isSilent ? "Unsilence" : "Silence",
+                        subtitle: isSilent
+                            ? "Notifications from this group resume, including mentions."
+                            : "No notification from this group, mentions included.",
+                        systemImage: isSilent ? "bell" : "bell.slash"
+                    ) {
                         circleActionTarget = nil
-                        groupChatService.markGroupAsUnread(group.id)
+                        groupChatService.setSilentNotifications(!isSilent, for: group.id)
+                    }
+                    ActionSheetRow(title: "Delete", subtitle: "Removes this group and its messages from this device.", systemImage: "trash", tint: .red) {
+                        circleActionTarget = nil
+                        // One turn later: the alert can't present while the sheet is going down.
+                        DispatchQueue.main.async { circleDeleteGroup = group }
                     }
                 }
-                circlePinRow(id: id, isPinned: isPinned)
-                ActionSheetRow(
-                    title: isSilent ? "Unsilence" : "Silence",
-                    subtitle: isSilent
-                        ? "Notifications from this group resume, including mentions."
-                        : "No notification from this group, mentions included.",
-                    systemImage: isSilent ? "bell" : "bell.slash"
-                ) {
-                    circleActionTarget = nil
-                    groupChatService.setSilentNotifications(!isSilent, for: group.id)
-                }
-                ActionSheetRow(title: "Delete", subtitle: "Removes this group and its messages from this device.", systemImage: "trash", tint: .red) {
-                    circleActionTarget = nil
-                    // One turn later: the alert can't present while the sheet is going down.
-                    DispatchQueue.main.async { circleDeleteGroup = group }
-                }
+
             } else if id.hasPrefix("r:") {
                 let name = String(id.dropFirst(2))
                 let rooms = PublicChatService.shared
@@ -1411,51 +1417,55 @@ struct ChatListView: View {
                     .lineLimit(1)
                     .padding(.top, 20)
                     .padding(.bottom, 4)
-                if rooms.unreadCount(forChannel: name) > 0 {
-                    ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this room.", systemImage: "envelope.open") {
-                        circleActionTarget = nil
-                        rooms.markChannelRead(name)
+
+                ActionSheetTiles {
+                    if rooms.unreadCount(forChannel: name) > 0 {
+                        ActionSheetRow(title: "Mark as Read", subtitle: "Clears the unread badge on this room.", systemImage: "envelope.open") {
+                            circleActionTarget = nil
+                            rooms.markChannelRead(name)
+                        }
+                    } else {
+                        ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
+                            circleActionTarget = nil
+                            rooms.markChannelUnread(name)
+                        }
                     }
-                } else {
-                    ActionSheetRow(title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", systemImage: "envelope.badge") {
+                    circlePinRow(id: id, isPinned: isPinned)
+                    ActionSheetRow(
+                        title: notifyOn ? "Turn Off Notifications" : "Turn On Notifications",
+                        subtitle: notifyOn
+                            ? "No notification for new messages in this room."
+                            : (isCurated ? "Notifies you of new messages, even when the app is closed."
+                                         : "Notifies you of new messages while the app is open."),
+                        systemImage: notifyOn ? "bell.slash" : "bell"
+                    ) {
                         circleActionTarget = nil
-                        rooms.markChannelUnread(name)
+                        rooms.setNotifyEnabled(!notifyOn, forChannel: name)
+                        showToast(AppLocalization.string(notifyOn
+                            ? "Notifications are off for this public chat"
+                            : (isCurated
+                                ? "You'll get notifications for new messages in this public chat, even when the app is closed"
+                                : "You'll get a notification for new messages in this public chat as long as your app remains open")))
+                    }
+                    ActionSheetRow(title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", systemImage: "link") {
+                        circleActionTarget = nil
+                        UIPasteboard.general.string = KaChatInternalLink.publicChatRoom(channel: name).universalLinkString
+                        showToast(AppLocalization.string("Room link copied"))
+                    }
+                    if isCurated {
+                        ActionSheetRow(title: "Delete", subtitle: "Switches this default room off. Turn it back on in Public Chats settings.", systemImage: "trash", tint: .red) {
+                            circleActionTarget = nil
+                            if selectedPublicRoom == name { selectedPublicRoom = nil }
+                            rooms.removeFromList(name)
+                        }
+                    } else if channel != nil {
+                        ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
+                            circleActionTarget = nil
+                            DispatchQueue.main.async { circleDeleteRoom = name }
+                        }
                     }
                 }
-                circlePinRow(id: id, isPinned: isPinned)
-                ActionSheetRow(
-                    title: notifyOn ? "Turn Off Notifications" : "Turn On Notifications",
-                    subtitle: notifyOn
-                        ? "No notification for new messages in this room."
-                        : (isCurated ? "Notifies you of new messages, even when the app is closed."
-                                     : "Notifies you of new messages while the app is open."),
-                    systemImage: notifyOn ? "bell.slash" : "bell"
-                ) {
-                    circleActionTarget = nil
-                    rooms.setNotifyEnabled(!notifyOn, forChannel: name)
-                    showToast(AppLocalization.string(notifyOn
-                        ? "Notifications are off for this public chat"
-                        : (isCurated
-                            ? "You'll get notifications for new messages in this public chat, even when the app is closed"
-                            : "You'll get a notification for new messages in this public chat as long as your app remains open")))
-                }
-                ActionSheetRow(title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", systemImage: "link") {
-                    circleActionTarget = nil
-                    UIPasteboard.general.string = KaChatInternalLink.publicChatRoom(channel: name).universalLinkString
-                    showToast(AppLocalization.string("Room link copied"))
-                }
-                if isCurated {
-                    ActionSheetRow(title: "Delete", subtitle: "Switches this default room off. Turn it back on in Public Chats settings.", systemImage: "trash", tint: .red) {
-                        circleActionTarget = nil
-                        if selectedPublicRoom == name { selectedPublicRoom = nil }
-                        rooms.removeFromList(name)
-                    }
-                } else if channel != nil {
-                    ActionSheetRow(title: "Delete", subtitle: "Removes this room and its messages from this device.", systemImage: "trash", tint: .red) {
-                        circleActionTarget = nil
-                        DispatchQueue.main.async { circleDeleteRoom = name }
-                    }
-                }
+
             }
 
             Spacer(minLength: 0)
@@ -1463,7 +1473,7 @@ struct ChatListView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(id.hasPrefix("r:") ? 520 : 460)])
+        .presentationDetents([.height(ActionSheetTileMetrics.sheetHeight(tiles: 6))])
         .presentationDragIndicator(.visible)
     }
 
