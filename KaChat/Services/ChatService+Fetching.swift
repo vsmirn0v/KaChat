@@ -149,7 +149,7 @@ extension ChatService {
         AppLog.log("[ChatService] Fetched total %d transactions from Kaspa API", transactions.count)
 
         var knsHandledCount = 0
-        for transaction in transactions where isKNSRevealTransaction(transaction) {
+        for transaction in transactions where isKNSRevealTransaction(transaction) || isKachatContractTransaction(transaction) {
             if await handleKNSOperationTransactionIfNeeded(
                 transaction,
                 myAddress: address,
@@ -889,6 +889,11 @@ extension ChatService {
         for transaction in transactions {
             let txId = transaction.transactionId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !txId.isEmpty else { continue }
+            // .kachat registry and offer transactions are never chat payments either.
+            if isKachatContractTransaction(transaction) {
+                revealTxIds.insert(txId)
+                continue
+            }
             guard isKNSRevealTransaction(transaction) else { continue }
 
             revealTxIds.insert(txId)
@@ -905,6 +910,40 @@ extension ChatService {
         }
 
         return revealTxIds.union(commitTxIds)
+    }
+
+    /// A `.kachat` registry or offer transaction (register and its commit, buy, list, extend,
+    /// renew, transfer, offers, release, reclaim): it carries a `kchat:1:name:` /
+    /// `kchat:1:offer:` payload, or pays to or from a script (P2SH) address - the commit, the
+    /// name's 1 KAS bond, the gaps, an offer's locked KAS. A chat partner is always a key
+    /// address, so such a transaction is never a payment chat (it shows in the wallet history).
+    func isKachatContractTransaction(_ transaction: KaspaFullTransactionResponse) -> Bool {
+        if let payload = transaction.payload, !payload.isEmpty,
+           Self.payloadHasPrefix(payload, ["kchat:1:name:", "kchat:1:offer:"]) {
+            return true
+        }
+        if transaction.outputs.contains(where: { Self.isScriptAddress($0.scriptPublicKeyAddress) }) {
+            return true
+        }
+        return transaction.inputs?.contains(where: { Self.isScriptAddress($0.previousOutpointAddress) }) ?? false
+    }
+
+    /// A pay-to-script-hash address (`kaspa:p...` / `kaspatest:p...`): a contract, never a chat.
+    nonisolated static func isScriptAddress(_ address: String?) -> Bool {
+        guard let address, !address.isEmpty, let parsed = KaspaAddress(address: address.lowercased()) else { return false }
+        return parsed.type == .scriptHash
+    }
+
+    /// Removes payment chats an older build made from contract transactions: conversations
+    /// whose other side is a script address (the .kachat commit and bond showed up as "sent 0.2"
+    /// and "sent 1"). Their payments are suppressed for good, and the emptied auto-added
+    /// conversations go away.
+    func purgeContractAddressPaymentChats() {
+        let txIds = conversations
+            .filter { Self.isScriptAddress($0.contact.address) }
+            .flatMap { $0.messages.filter { $0.messageType == .payment }.map(\.txId) }
+        guard !txIds.isEmpty else { return }
+        registerSuppressedPaymentTxIds(txIds, reason: "contract-address-chat")
     }
 
     @discardableResult

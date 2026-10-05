@@ -324,6 +324,9 @@ final class KachatNamesService: ObservableObject {
         let (txId, endpoint) = try await NodePoolService.shared.submitRpcTransaction(Self.rpcTransaction(tx))
         AppLog.log("[KachatNames] submitted %@ via %@", txId, endpoint)
         guard txId.lowercased() == expected else { throw ServiceError.submitMismatch(expected: expected, got: txId) }
+        // A name transaction moves KAS to contracts (commit, bond, offers): keep it out of the
+        // chats from the moment it's sent, before any sync could read it as a payment.
+        ChatService.shared.registerSuppressedPaymentTxIds([txId], reason: "kachat-names")
         return txId
     }
 

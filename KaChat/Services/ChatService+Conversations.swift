@@ -809,6 +809,7 @@ extension ChatService {
         // If self-stash confirms we have handshakes with a contact but conversation has
         // no handshake messages, the earliest payment is likely the handshake (Bug 4 fix)
         await reclassifyMisidentifiedHandshakes()
+        purgeContractAddressPaymentChats()
 
         // Migrate legacy aliases to deterministic routing states (one-time)
         if let privKey = privateKey {
