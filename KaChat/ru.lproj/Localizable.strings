@@ -857,10 +857,8 @@
 "Buy Name" = "Купить имя";
 "1 Day" = "1 день";
 "3 Days" = "3 дня";
-"30 Days" = "30 дней";
 "Listed at" = "Цена продажи";
 "Your offer" = "Ваше предложение";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "Ваши KAS заблокированы в блокчейне, пока продавец не примет предложение, вы его не отзовёте или оно не истечёт. Больше никто не может их тронуть.";
 "Expires" = "Истекает";
 "Expires after" = "Истекает через";
 "Send Offer" = "Отправить предложение";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "До истечения этого имени меньше 30 дней. Его скоро придётся продлить.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Платёж доходит до продавца, а имя — до вас в одной транзакции: либо оба, либо ничего.";
 "Price (to the seller)" = "Цена (продавцу)";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "Это имя продаётся дешевле вашего предложения. Любой может купить его на ваше предложение — лучше купите его сами.";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "Ваши KAS заблокированы в сети, пока владелец не примет предложение, вы его не отзовёте или оно не истечёт, — после этого кто угодно может вернуть их вам.";
 "Refundable after" = "Можно вернуть через";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "Продление добавляется к текущему сроку, даже если он уже прошёл. Цена уходит майнерам.";
 "Price per year" = "Цена за год";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "Продление открыто";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Дополнение добавляет годы к текущему оплаченному периоду, который вмещает не больше 2 лет. Цена уходит майнерам.";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "Продление начинает следующий период с текущей даты окончания, так что время не теряется и не добавляется, даже если срок уже прошёл. Цена уходит майнерам.";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "Это имя уже оплачено на 2 года от начала периода. Продление откроется %@.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Индексатор имён не прислал оплаченный период этого имени. Потяните вниз, чтобы обновить, и попробуйте снова.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Дополняйте, продлевайте, выставляйте на продажу, передавайте или освобождайте их и выберите то, которое KaChat показывает для вас.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Имя ваше на оплаченные годы, не больше 2 вперёд. Имя на 1 год можно дополнить до 2 лет; за 10 дней до окончания срока его можно продлить.";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "Отклонено - у имени сменился владелец, возвращается вам";
 "Declined - made to an earlier owner" = "Отклонено - сделано прежнему владельцу";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "Это предложение сделано до смены владельца имени, поэтому оно отклонено и возвращается покупателю.";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "Это имя уже оплачено на максимальный срок. Продление откроется %@.";
+"The price record is busy right now. Try again in a moment." = "Запись цен сейчас занята. Попробуйте ещё раз через мгновение.";
+"You can't make an offer on your own name." = "Нельзя сделать предложение на собственное имя.";
+"An offer can run for up to 7 days." = "Предложение может действовать до 7 дней.";
+"Price per %@" = "Цена за %@";
+"Available · %@ per %@" = "Доступно · %1$@ за %2$@";
+"Extend to %@" = "Дополнить до %@";
+"Pays for more time now, up to the %@ limit." = "Оплачивает больше времени сейчас, до предела в %@.";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "Продление добавляет время к текущему оплаченному периоду, который вмещает не больше %@. Плата уходит майнерам.";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "Имя ваше на оплаченное время, не больше чем на %1$@ вперёд. За %2$@ до истечения его можно продлить.";
+"Decline Offer" = "Отклонить предложение";
+"Offer declined" = "Предложение отклонено";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "Предложение возвращается покупателю. Комиссия сети берётся из самого предложения, так что отказ вам ничего не стоит.";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "Ваши KAS заблокированы в сети, пока владелец не примет или не отклонит предложение, вы его не отзовёте или оно не истечёт, — после этого кто угодно может вернуть их вам.";
+"This name is listed for less than your offer. Consider buying it instead." = "Это имя выставлено дешевле вашего предложения. Возможно, лучше просто купить его.";

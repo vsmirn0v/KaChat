@@ -857,10 +857,8 @@
 "Buy Name" = "名前を購入";
 "1 Day" = "1日";
 "3 Days" = "3日";
-"30 Days" = "30日";
 "Listed at" = "出品価格";
 "Your offer" = "あなたのオファー";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS は売り手が承諾するか、オファーを取り下げるか、期限が切れるまでオンチェーンでロックされます。他の誰も触れられません。";
 "Expires" = "期限";
 "Expires after" = "期限";
 "Send Offer" = "オファーを送信";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "この名前の期限まで 30 日を切っています。すぐに更新が必要です。";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "支払いは売り手に、名前はあなたに同じ取引で届きます。両方が成立するか、どちらも成立しないかです。";
 "Price (to the seller)" = "価格（売り手へ）";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "この名前はあなたのオファーより安く出品されています。誰でもあなたのオファーで購入できてしまうので、直接購入を検討してください。";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS は所有者が承諾するか、あなたが取り下げるか、期限が来るまでチェーン上にロックされます。その後は誰でもあなたに返せます。";
 "Refundable after" = "返金可能になるまで";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "更新は現在の期限に加算されます（期限を過ぎていても）。価格はマイナーに渡ります。";
 "Price per year" = "1 年あたりの価格";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "更新受付中";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "延長すると現在の支払い済み期間に年数が加わります。期間は最長 2 年です。価格はマイナーに渡ります。";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "更新すると現在の有効期限から次の期間が始まるので、期限を過ぎていても時間が失われたり増えたりしません。価格はマイナーに渡ります。";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "この名前は期間の開始からすでに 2 年分支払われています。更新は %@ から可能です。";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "名前インデクサーがこの名前の支払い済み期間を返しませんでした。引っ張って更新し、もう一度お試しください。";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "延長、更新、出品、譲渡、解放ができ、KaChat に表示する名前も選べます。";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "名前は支払った年数の間あなたのものです（最長 2 年先まで）。1 年の名前は 2 年に延長でき、期限の 10 日前から更新できます。";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "辞退 - 名前の所有者が変わったため、あなたに返却中";
 "Declined - made to an earlier owner" = "辞退 - 以前の所有者へのオファー";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "このオファーは名前の所有者が変わる前に出されたため、辞退扱いとなり購入者に返却されます。";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "この名前はすでに最長の期間まで支払い済みです。更新は %@ から可能です。";
+"The price record is busy right now. Try again in a moment." = "価格レコードは現在使用中です。少し待ってからもう一度お試しください。";
+"You can't make an offer on your own name." = "自分の名前にオファーすることはできません。";
+"An offer can run for up to 7 days." = "オファーの期間は最長 7 日です。";
+"Price per %@" = "%@ あたりの価格";
+"Available · %@ per %@" = "利用可能 · %2$@ あたり %1$@";
+"Extend to %@" = "%@ に延長";
+"Pays for more time now, up to the %@ limit." = "今、さらに期間分を支払います（上限 %@）。";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "延長すると現在の支払い期間に時間が追加されます。期間は最長 %@ です。代金はマイナーに支払われます。";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "支払った期間中、名前はあなたのものです（最長 %1$@ 先まで）。期限の %2$@ 前から更新できます。";
+"Decline Offer" = "オファーを辞退";
+"Offer declined" = "オファー辞退済み";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "オファーは購入者に返されます。ネットワーク手数料はオファーから差し引かれるため、辞退に費用はかかりません。";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS は所有者が承諾または辞退するか、あなたが取り下げるか、期限が来るまでチェーン上にロックされます。その後は誰でもあなたに返せます。";
+"This name is listed for less than your offer. Consider buying it instead." = "この名前はあなたのオファーより安く出品されています。代わりに購入することを検討してください。";

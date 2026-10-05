@@ -857,10 +857,8 @@
 "Buy Name" = "קניית שם";
 "1 Day" = "יום אחד";
 "3 Days" = "3 ימים";
-"30 Days" = "30 ימים";
 "Listed at" = "מחיר מבוקש";
 "Your offer" = "ההצעה שלך";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "ה-KAS שלכם נשארים נעולים בשרשרת עד שהמוכר יקבל, תמשכו את ההצעה או שתפוג. אף אחד אחר לא יכול לגעת בהם.";
 "Expires" = "תפוגה";
 "Expires after" = "פג תוקף אחרי";
 "Send Offer" = "שליחת הצעה";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "נותרו פחות מ-30 יום עד שהשם יפוג. תצטרכו לחדש אותו בקרוב.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "התשלום מגיע למוכר והשם מגיע אליך באותה עסקה - שניהם קורים, או אף אחד מהם.";
 "Price (to the seller)" = "מחיר (למוכר)";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "השם מוצע למכירה בפחות מההצעה שלך. כל אחד יכול לקנות אותו עם ההצעה שלך, אז עדיף לקנות אותו ישירות.";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "ה-KAS שלך נשאר נעול בשרשרת עד שהבעלים יקבל, תמשכו את ההצעה או שהיא תפוג - ואז כל אחד יכול להחזיר אותו אליכם.";
 "Refundable after" = "ניתן להחזר אחרי";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "חידוש מתווסף לתאריך התפוגה הנוכחי, גם אם הוא כבר עבר. המחיר הולך לכורים.";
 "Price per year" = "מחיר לשנה";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "החידוש פתוח";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "הארכה מוסיפה שנים לתקופה המשולמת הנוכחית, שמחזיקה לכל היותר שנתיים. המחיר הולך לכורים.";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "חידוש מתחיל את התקופה הבאה בתאריך התפוגה הנוכחי, כך ששום זמן לא אובד ולא מתווסף, גם אם התאריך כבר עבר. המחיר הולך לכורים.";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "השם הזה כבר שולם לשנתיים מתחילת התקופה שלו. החידוש נפתח ב-%@.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "האינדקסר של השמות לא שלח את התקופה המשולמת של השם הזה. משכו לרענון ונסו שוב.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "האריכו, חדשו, הציעו למכירה, העבירו או שחררו אותם, ובחרו את השם ש-KaChat מציג עבורכם.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "השם שלכם לשנים ששילמתם, לכל היותר שנתיים מראש. שם לשנה אחת אפשר להאריך לשנתיים; מ-10 ימים לפני התפוגה אפשר לחדש אותו.";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "נדחתה - השם עבר בעלות, חוזרת אליכם";
 "Declined - made to an earlier owner" = "נדחתה - הוגשה לבעלים קודמים";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "ההצעה הוגשה לפני שהשם עבר בעלות, ולכן נדחתה והיא חוזרת לקונה.";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "השם הזה כבר משולם עד התקופה הארוכה ביותר. החידוש נפתח ב-%@.";
+"The price record is busy right now. Try again in a moment." = "רשומת המחירים תפוסה כרגע. נסו שוב בעוד רגע.";
+"You can't make an offer on your own name." = "אי אפשר להציע הצעה על השם שלך.";
+"An offer can run for up to 7 days." = "הצעה יכולה להימשך עד 7 ימים.";
+"Price per %@" = "מחיר ל-%@";
+"Available · %@ per %@" = "זמין · %1$@ ל-%2$@";
+"Extend to %@" = "הארכה ל-%@";
+"Pays for more time now, up to the %@ limit." = "משלם עכשיו על זמן נוסף, עד למגבלה של %@.";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "הארכה מוסיפה זמן לתקופה המשולמת הנוכחית, שמכילה לכל היותר %@. המחיר עובר לכורים.";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "השם שלך לזמן ששילמת, לכל היותר %1$@ מראש. החל מ-%2$@ לפני שהוא פג אפשר לחדש אותו.";
+"Decline Offer" = "דחיית ההצעה";
+"Offer declined" = "ההצעה נדחתה";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "ההצעה חוזרת לקונה. עמלת הרשת יורדת מההצעה עצמה, כך שהדחייה לא עולה לך כלום.";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "ה-KAS שלך נשאר נעול בשרשרת עד שהבעלים יקבל או ידחה, תמשכו את ההצעה או שהיא תפוג - ואז כל אחד יכול להחזיר אותו אליכם.";
+"This name is listed for less than your offer. Consider buying it instead." = "השם הזה מוצע למכירה בפחות מההצעה שלך. כדאי לשקול לקנות אותו במקום.";

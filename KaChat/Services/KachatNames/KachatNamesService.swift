@@ -103,13 +103,14 @@ final class KachatNamesService: ObservableObject {
         let m: KachatNames.Manifest
         do {
             m = try KachatNames.Manifest.decode(data)
-            try m.verify()
+            // an indexer-served manifest is trusted only when every template is pinned in the app
+            try m.verify(source: source == "bundle" ? .bundle : .indexer)
         } catch {
-            // A registry v1 manifest (the bundled one until the v2 genesis) is expected, not an
-            // error: say "being upgraded", once, and stop re-reading the bundle.
+            // An earlier registry's manifest (the bundled one until the v3 genesis) is expected,
+            // not an error: say "being upgraded", once, and stop re-reading the bundle.
             let refused: Error = Self.isRegistryUpgrading(error) ? ServiceError.registryUpgrading : error
             if Self.isRegistryUpgrading(error) {
-                if !registryUpgrading { AppLog.log("[KachatNames] the %@ manifest is registry v1; .kachat waits for the v2 genesis manifest", source) }
+                if !registryUpgrading { AppLog.log("[KachatNames] the %@ manifest is an earlier registry; .kachat waits for the v3 genesis manifest", source) }
                 registryUpgrading = true
             }
             if source == "bundle" { bundleFailure = refused }
@@ -236,6 +237,14 @@ final class KachatNamesService: ObservableObject {
         let m = try await loadManifest()
         let u = try await liveUtxo(script: script, outpoint: outpoint)
         guard u.entry.covenantId == m.registryCovenantId else { throw ServiceError.notOnChain("a registry UTXO") }
+        return u
+    }
+
+    /// `liveUtxo` for a price shard, which must also carry the price covenant id (registry v3).
+    func livePriceUtxo(script: Data, outpoint: KachatNames.Outpoint) async throws -> KachatNames.Utxo {
+        let m = try await loadManifest()
+        let u = try await liveUtxo(script: script, outpoint: outpoint)
+        guard u.entry.covenantId == m.priceCovenantId else { throw ServiceError.notOnChain("a price shard") }
         return u
     }
 

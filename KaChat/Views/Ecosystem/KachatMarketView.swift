@@ -755,14 +755,14 @@ struct KachatOfferSheet: View {
     @State private var expiry: Expiry = .threeDays
 
     private enum Expiry: String, CaseIterable, Hashable {
-        case oneDay, threeDays, sevenDays, thirtyDays
+        // up to 7 days, the app's cap on offers (KachatNamesActions.maxOfferDays)
+        case oneDay, threeDays, sevenDays
 
         var title: LocalizedStringKey {
             switch self {
             case .oneDay: return "1 Day"
             case .threeDays: return "3 Days"
             case .sevenDays: return "7 Days"
-            case .thirtyDays: return "30 Days"
             }
         }
     }
@@ -802,7 +802,7 @@ struct KachatOfferSheet: View {
                 } header: {
                     Text("Your offer")
                 } footer: {
-                    KaspaUnit.text("Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it.")
+                    KaspaUnit.text("Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you.")
                 }
 
                 Section {

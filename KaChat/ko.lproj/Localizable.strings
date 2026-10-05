@@ -857,10 +857,8 @@
 "Buy Name" = "이름 구매";
 "1 Day" = "1일";
 "3 Days" = "3일";
-"30 Days" = "30일";
 "Listed at" = "판매 가격";
 "Your offer" = "내 제안";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS는 판매자가 수락하거나, 제안을 철회하거나, 만료될 때까지 체인에 잠겨 있습니다. 다른 누구도 손댈 수 없습니다.";
 "Expires" = "만료";
 "Expires after" = "만료 기간";
 "Send Offer" = "제안 보내기";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "이 이름은 만료까지 30일도 안 남았어요. 곧 갱신해야 해요.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "결제는 판매자에게, 이름은 나에게 같은 거래에서 도착해요. 둘 다 이루어지거나 둘 다 안 이루어져요.";
 "Price (to the seller)" = "가격 (판매자에게)";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "이 이름은 내 제안보다 싸게 판매 중이에요. 누구나 내 제안으로 구매할 수 있으니 바로 구매하는 걸 고려하세요.";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "내 KAS는 소유자가 수락하거나, 내가 제안을 철회하거나, 만료될 때까지 체인에 잠겨 있어요. 그 뒤에는 누구나 나에게 돌려줄 수 있어요.";
 "Refundable after" = "환불 가능 시점";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "갱신은 현재 만료일에 더해져요. 이미 지났어도 마찬가지예요. 가격은 채굴자에게 가요.";
 "Price per year" = "연간 가격";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "갱신 가능";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "연장하면 현재 결제된 기간에 연수가 더해져요. 한 기간은 최대 2년이에요. 가격은 채굴자에게 가요.";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "갱신하면 현재 만료일부터 다음 기간이 시작되므로, 만료일이 지났더라도 시간을 잃거나 더 얻지 않아요. 가격은 채굴자에게 가요.";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "이 이름은 기간 시작부터 이미 2년치가 결제되었어요. 갱신은 %@부터 가능해요.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "이름 인덱서가 이 이름의 결제 기간을 보내지 않았어요. 아래로 당겨 새로 고친 뒤 다시 시도하세요.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "연장, 갱신, 판매 등록, 전송, 해제를 하고 KaChat이 보여 줄 이름을 고르세요.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "이름은 결제한 연수 동안 내 것이에요(최대 2년 앞까지). 1년 이름은 2년으로 연장할 수 있고, 만료 10일 전부터 갱신할 수 있어요.";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "거절됨 - 이름 소유자가 바뀌어 나에게 반환 중";
 "Declined - made to an earlier owner" = "거절됨 - 이전 소유자에게 한 제안";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "이 제안은 이름의 소유자가 바뀌기 전에 이루어져 거절되었으며 구매자에게 반환됩니다.";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "이 이름은 이미 최대 기간까지 결제되어 있어요. 갱신은 %@부터 가능해요.";
+"The price record is busy right now. Try again in a moment." = "가격 기록이 지금 사용 중이에요. 잠시 후 다시 시도하세요.";
+"You can't make an offer on your own name." = "내 이름에는 제안할 수 없어요.";
+"An offer can run for up to 7 days." = "제안은 최대 7일까지 유지돼요.";
+"Price per %@" = "%@당 가격";
+"Available · %@ per %@" = "사용 가능 · %2$@당 %1$@";
+"Extend to %@" = "%@(으)로 연장";
+"Pays for more time now, up to the %@ limit." = "지금 더 많은 기간을 결제해요. 최대 %@까지예요.";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "연장하면 현재 결제 기간에 시간이 더해지며, 기간은 최대 %@예요. 가격은 채굴자에게 가요.";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "결제한 기간 동안 이름은 내 것이에요. 최대 %1$@ 앞까지예요. 만료 %2$@ 전부터 갱신할 수 있어요.";
+"Decline Offer" = "제안 거절";
+"Offer declined" = "제안 거절됨";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "제안은 구매자에게 돌아가요. 네트워크 수수료는 제안 금액에서 빠지므로 거절해도 비용이 들지 않아요.";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "내 KAS는 소유자가 수락하거나 거절하거나, 내가 제안을 철회하거나, 만료될 때까지 체인에 잠겨 있어요. 그 뒤에는 누구나 나에게 돌려줄 수 있어요.";
+"This name is listed for less than your offer. Consider buying it instead." = "이 이름은 내 제안보다 낮은 가격에 판매 중이에요. 대신 바로 구매하는 것을 고려해 보세요.";

@@ -857,10 +857,8 @@
 "Buy Name" = "شراء الاسم";
 "1 Day" = "يوم واحد";
 "3 Days" = "3 أيام";
-"30 Days" = "30 يومًا";
 "Listed at" = "سعر العرض";
 "Your offer" = "عرضك";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "تبقى KAS الخاصة بك مقفلة على السلسلة حتى يقبل البائع أو تسحب العرض أو تنتهي صلاحيته. لا يمكن لأحد غيرك لمسها.";
 "Expires" = "تنتهي";
 "Expires after" = "تنتهي بعد";
 "Send Offer" = "إرسال العرض";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "تبقّى أقل من 30 يومًا على انتهاء هذا الاسم. ستحتاج إلى تجديده قريبًا.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "يصل الدفع إلى البائع والاسم إليك في المعاملة نفسها - إما أن يحدث الأمران أو لا يحدث أي منهما.";
 "Price (to the seller)" = "السعر (للبائع)";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "هذا الاسم معروض بأقل من عرضك. يمكن لأي شخص شراء العرض المعروض بعرضك، لذا فكّر في شرائه مباشرة.";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "تبقى KAS الخاصة بك مقفلة على السلسلة حتى يقبل المالك أو تسحب العرض أو تنتهي مدته - وعندها يمكن لأي شخص إعادتها إليك.";
 "Refundable after" = "قابل للاسترداد بعد";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "يُضاف التجديد إلى تاريخ الانتهاء الحالي حتى لو كان قد مضى. يذهب السعر إلى المعدِّنين.";
 "Price per year" = "السعر لكل سنة";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "التجديد متاح";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "يضيف التمديد سنوات إلى الفترة المدفوعة الحالية، التي لا تتجاوز سنتين. يذهب السعر إلى المعدِّنين.";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "يبدأ التجديد الفترة التالية عند تاريخ الانتهاء الحالي، فلا يضيع وقت ولا يُضاف، حتى بعد مروره. يذهب السعر إلى المعدِّنين.";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "هذا الاسم مدفوع بالفعل لسنتين من بداية فترته. يبدأ التجديد في %@.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "لم يرسل مفهرس الأسماء الفترة المدفوعة لهذا الاسم. اسحب للتحديث وحاول مرة أخرى.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "مدّدها أو جدّدها أو اعرضها للبيع أو انقلها أو تخلَّ عنها، واختر الاسم الذي يعرضه KaChat لك.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "الاسم لك طوال السنوات التي دفعتها، وسنتين مقدمًا كحد أقصى. يمكن تمديد اسم لسنة واحدة إلى سنتين؛ ومن 10 أيام قبل انتهائه يمكنك تجديده.";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "مرفوض - الاسم اتغير صاحبه، راجع ليك";
 "Declined - made to an earlier owner" = "مرفوض - اتقدم لصاحب قديم";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "العرض ده اتقدم قبل ما صاحب الاسم يتغير، فاترفض وراجع للمشتري.";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "هذا الاسم مدفوع بالفعل حتى أطول فترة. يبدأ التجديد في %@.";
+"The price record is busy right now. Try again in a moment." = "سجل الأسعار مشغول الآن. حاول مرة أخرى بعد لحظة.";
+"You can't make an offer on your own name." = "لا يمكنك تقديم عرض على اسمك.";
+"An offer can run for up to 7 days." = "يمكن أن يستمر العرض حتى 7 أيام.";
+"Price per %@" = "السعر لكل %@";
+"Available · %@ per %@" = "متاح · %1$@ لكل %2$@";
+"Extend to %@" = "تمديد إلى %@";
+"Pays for more time now, up to the %@ limit." = "يدفع مقابل وقت إضافي الآن، حتى حد %@.";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "يضيف التمديد وقتًا إلى الفترة المدفوعة الحالية، التي تتسع لـ %@ كحد أقصى. يذهب السعر إلى المعدّنين.";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "الاسم لك للمدة التي دفعتها، حتى %1$@ مقدمًا. يمكنك تجديده قبل انتهائه بـ %2$@.";
+"Decline Offer" = "رفض العرض";
+"Offer declined" = "رُفض العرض";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "يعود العرض إلى المشتري. تُقتطع رسوم الشبكة من العرض، فلا يكلّفك الرفض شيئًا.";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "تبقى KAS الخاصة بك مقفلة على السلسلة حتى يقبل المالك أو يرفض، أو تسحب العرض، أو تنتهي مدته - وعندها يمكن لأي شخص إعادتها إليك.";
+"This name is listed for less than your offer. Consider buying it instead." = "هذا الاسم معروض للبيع بأقل من عرضك. فكّر في شرائه بدلًا من ذلك.";

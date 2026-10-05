@@ -91,7 +91,7 @@ final class KachatNamesActions: ObservableObject {
             case .renewalNotOpen(let opens):
                 return String(format: AppLocalization.string("Renewal opens on %@"), KachatNamesActions.dayString(opens))
             case .periodFull(let opens):
-                return String(format: AppLocalization.string("This name is already paid for 2 years from the start of its period. Renewal opens on %@."),
+                return String(format: AppLocalization.string("This name is already paid up to its longest period. Renewal opens on %@."),
                               KachatNamesActions.dayString(opens))
             case .periodUnknown:
                 return AppLocalization.string("The names indexer didn't send this name's paid period. Pull to refresh and try again.")
@@ -99,12 +99,13 @@ final class KachatNamesActions: ObservableObject {
         }
     }
 
-    /// A unix-ms day ("Oct 12, 2027") in the in-app language.
+    /// A unix-ms day ("Oct 12, 2027") in the in-app language, with the time when it is within two
+    /// days (testnet's 10-minute periods, or a renewal that opens tomorrow).
     nonisolated static func dayString(_ ms: Int64) -> String {
         let f = DateFormatter()
         f.locale = AppLocalization.locale
         f.dateStyle = .medium
-        f.timeStyle = .none
+        f.timeStyle = abs(ms - KachatNames.nowMs()) < 2 * 86_400_000 ? .short : .none
         return f.string(from: Date(timeIntervalSince1970: TimeInterval(ms) / 1000))
     }
 
@@ -173,17 +174,19 @@ final class KachatNamesActions: ObservableObject {
     /// address. Everything else, including extend and renew (anyone may pay those), uses the
     /// chatting address.
     private func signer(for op: Operation) throws -> Signer {
-        let held: KachatNames.NameInfo?
+        let heldBy: Data?
         switch op {
-        case .transfer(let n, _), .list(let n, _), .release(let n): held = n
-        case .accept(_, let n): held = n
-        default: held = nil
+        case .transfer(let n, _), .list(let n, _), .release(let n): heldBy = n.owner
+        case .accept(_, let n): heldBy = n.owner
+        // the seller declines with the key the offer was made to
+        case .decline(let o): heldBy = o.seller
+        default: heldBy = nil
         }
-        if let n = held, case .spending(let index, let address)? = ownAddress(of: n.owner) {
+        if let owner = heldBy, case .spending(let index, let address)? = ownAddress(of: owner) {
             try service.requireTestnet()
             guard let key = WalletManager.shared.spendingPrivateKey(at: index) else { throw ActionError.noWallet }
             let me = try KachatNamesService.xonlyKey(privateKey: key)
-            guard me == n.owner else { throw ActionError.keyMismatch }
+            guard me == owner else { throw ActionError.keyMismatch }
             return Signer(address: address.lowercased(), privateKey: key, me: me)
         }
         return try signer()
@@ -262,6 +265,28 @@ final class KachatNamesActions: ObservableObject {
         return KachatNames.OfferRecord(fields: o.fields, value: u.entry.amount, utxo: u, name: o.name)
     }
 
+    /// A live price shard for a register, extend or renew (registry v3): a random one of the K, so
+    /// paid operations at the same moment rarely pick the same shard, skipping `avoid` (shards a
+    /// previous attempt lost to someone else) and any the node no longer has at that state.
+    private func liveShard(_ m: KachatNames.Manifest, avoid: Set<Int64> = []) async throws -> KachatNames.PriceRecord {
+        let all = try await registry.shards()
+        lastShards = all
+        let fresh = all.filter { !avoid.contains($0.shard) }.shuffled()
+        let lost = all.filter { avoid.contains($0.shard) }.shuffled()
+        for s in fresh + lost {
+            guard let u = try? await service.livePriceUtxo(script: m.price.script(s.fields.encoded), outpoint: s.outpoint) else { continue }
+            return KachatNames.PriceRecord(fields: s.fields, value: u.entry.amount, utxo: u)
+        }
+        throw KachatNames.Failure(AppLocalization.string("The price record is busy right now. Try again in a moment."))
+    }
+
+    private var lastShards: [KachatNames.ShardInfo] = []
+
+    /// Longest an offer can run before its buyer may take it back (the app's cap, registry v3).
+    nonisolated static let maxOfferDays: UInt64 = 7
+    /// Kaspa's DAA scores per second (offer refund times are DAA scores).
+    nonisolated static let daaPerSecond: UInt64 = 10
+
     // MARK: - Operations
 
     enum Operation {
@@ -273,10 +298,13 @@ final class KachatNamesActions: ObservableObject {
         /// price 0 delists
         case list(KachatNames.NameInfo, price: UInt64)
         case buy(KachatNames.NameInfo)
-        case offer(name: String, amount: UInt64, refundAfterDaa: UInt64, target: KachatNames.NameInfo?)
+        /// made to the name's current owner, the only one who can accept or decline it
+        case offer(target: KachatNames.NameInfo, amount: UInt64, refundAfterDaa: UInt64)
         case withdraw(KachatNames.OfferInfo)
         case refund(KachatNames.OfferInfo)
         case accept(KachatNames.OfferInfo, name: KachatNames.NameInfo)
+        /// the seller sends it back to the buyer (registry v3); the network fee comes out of the offer
+        case decline(KachatNames.OfferInfo)
         case release(KachatNames.NameInfo)
         case reclaim(KachatNames.NameInfo)
     }
@@ -288,7 +316,13 @@ final class KachatNamesActions: ObservableObject {
         return try await build(op, s).plan
     }
 
-    private func build(_ op: Operation, _ s: Signer) async throws -> (plan: KachatNames.Plan, env: KachatNames.Env) {
+    /// The price shard a built plan spends (register, extend, renew), so a retry can avoid it.
+    private func shardSpent(by plan: KachatNames.Plan) -> Int64? {
+        guard let u = plan.inputs.first(where: { $0.role == .priceUse })?.utxo else { return nil }
+        return lastShards.first { $0.outpoint == u.outpoint }?.shard
+    }
+
+    private func build(_ op: Operation, _ s: Signer, avoidShards: Set<Int64> = []) async throws -> (plan: KachatNames.Plan, env: KachatNames.Env) {
         let m = try await registry.prepare()
         let (b, env, wallet) = try await context(s)
         let plan: KachatNames.Plan
@@ -296,14 +330,14 @@ final class KachatNamesActions: ObservableObject {
         case .extend(let n, let years):
             guard n.periodStart != nil else { throw ActionError.periodUnknown }
             guard years >= 1, years <= n.extendableYears(m.params) else { throw ActionError.periodFull(renewalOpensMs: n.renewOpens(m.params)) }
-            plan = try b.extend(env: env, wallet: wallet, name: try await liveName(n, m), years: years)
+            plan = try b.extend(env: env, wallet: wallet, name: try await liveName(n, m), shard: try await liveShard(m, avoid: avoidShards), years: years)
         case .renew(let n, let years):
             // Valid only once the network's median time passes the window opening (the mempool
             // keeps no future-dated transactions): refuse before, and say when it opens.
             guard KachatNames.Builder.renewWindowOpen(env: env, params: m.params, expiresAt: n.expiresAt) else {
                 throw ActionError.renewalNotOpen(opensMs: n.renewOpens(m.params))
             }
-            plan = try b.renew(env: env, wallet: wallet, name: try await liveName(n, m), years: years)
+            plan = try b.renew(env: env, wallet: wallet, name: try await liveName(n, m), shard: try await liveShard(m, avoid: avoidShards), years: years)
         case .transfer(let n, let to):
             try Self.validateKey(to, AppLocalization.string("The new owner"))
             plan = try b.transfer(env: env, wallet: wallet, name: try await liveName(n, m), newOwner: to)
@@ -315,10 +349,17 @@ final class KachatNamesActions: ObservableObject {
         case .buy(let n):
             try Self.validateKey(env.me, AppLocalization.string("Your key"))
             plan = try b.buy(env: env, wallet: wallet, name: try await liveName(n, m))
-        case .offer(let name, let amount, let refundAfter, let target):
+        case .offer(let target, let amount, let refundAfter):
             try Self.validateKey(env.me, AppLocalization.string("Your key"))
-            _ = target
-            plan = try b.offer(env: env, wallet: wallet, name: name, amount: amount, refundAfter: refundAfter)
+            guard target.owner != env.me else {
+                throw KachatNames.Failure(AppLocalization.string("You can't make an offer on your own name."))
+            }
+            // the app's cap: the buyer's funds come back within a week at most
+            let cap = env.blockDaa + Self.maxOfferDays * 86_400 * Self.daaPerSecond
+            guard refundAfter > env.blockDaa, refundAfter <= cap else {
+                throw KachatNames.Failure(AppLocalization.string("An offer can run for up to 7 days."))
+            }
+            plan = try b.offer(env: env, wallet: wallet, target: try await liveName(target, m), amount: amount, refundAfter: refundAfter)
         case .withdraw(let o):
             plan = try b.withdrawOffer(env: env, offer: try await liveOffer(o, m))
         case .refund(let o):
@@ -328,12 +369,14 @@ final class KachatNamesActions: ObservableObject {
             if o.refundable(atDaa: env.blockDaa) {
                 throw KachatNames.Failure(AppLocalization.string("This offer has expired. It's going back to the buyer."))
             }
-            // Made to an earlier owner: declined, never accepted by the app.
-            if Self.isDeclined(o, ownerSince: Self.ownerSince((try? await registry.history(name: n.name)) ?? [])) {
+            // Made to an earlier owner: the contract refuses it, and it goes back to the buyer.
+            if o.isDeclined(currentOwner: n.owner) {
                 throw KachatNames.Failure(AppLocalization.string("This offer was made before the name changed hands, so it's declined and going back to the buyer."))
             }
             try Self.validateKey(o.buyer, AppLocalization.string("The buyer"))
             plan = try b.acceptOffer(env: env, name: try await liveName(n, m), offer: try await liveOffer(o, m))
+        case .decline(let o):
+            plan = try b.declineOffer(env: env, offer: try await liveOffer(o, m))
         case .release(let n):
             let gaps = try await registry.exitGaps(for: n)
             plan = try b.release(env: env, parts: KachatNames.ExitParts(
@@ -351,15 +394,47 @@ final class KachatNamesActions: ObservableObject {
     @discardableResult
     func perform(_ op: Operation) async throws -> String {
         let s = try signer(for: op)
-        let (plan, env) = try await build(op, s)
-        let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
-        if case .offer = op, let o = plan.newOffer {
-            registry.trackOffer(KachatNames.OfferInfo(
-                outpoint: o.utxo.outpoint, key: o.fields.key, name: o.name, buyer: o.fields.buyer,
-                amount: o.value, refundAfter: o.fields.refundAfter, createdAt: KachatNames.nowMs()))
+        let txId = try await submit(op, s)
+        switch op {
+        // A name that leaves this owner takes no offers with it: the ones made to this owner
+        // can never be accepted any more, so they go straight back to their buyers.
+        case .transfer(let n, _), .release(let n):
+            declineOpenOffers(on: n, except: nil)
+        case .accept(let o, let n):
+            declineOpenOffers(on: n, except: o)
+        default:
+            break
         }
         registry.refreshAfter(txId: txId)
         return txId
+    }
+
+    /// Signs and submits `op`. A register, extend or renew that lost its price shard to someone
+    /// else's transaction (the node rejects it as already spent; nothing was sent) is rebuilt
+    /// on another shard, up to twice.
+    private func submit(_ op: Operation, _ s: Signer) async throws -> String {
+        var avoid: Set<Int64> = []
+        for attempt in 0..<3 {
+            let (plan, env) = try await build(op, s, avoidShards: avoid)
+            do {
+                let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
+                if case .offer = op, let o = plan.newOffer {
+                    registry.trackOffer(KachatNames.OfferInfo(
+                        outpoint: o.utxo.outpoint, key: o.fields.key, name: o.name, buyer: o.fields.buyer, seller: o.fields.seller,
+                        amount: o.value, refundAfter: o.fields.refundAfter, createdAt: KachatNames.nowMs()))
+                }
+                return txId
+            } catch {
+                guard attempt < 2, let shard = shardSpent(by: plan), Self.isSpentConflict(error) else { throw error }
+                avoid.insert(shard)
+            }
+        }
+        throw KachatNames.Failure("unreachable")
+    }
+
+    nonisolated static func isSpentConflict(_ error: Error) -> Bool {
+        let lower = error.localizedDescription.lowercased()
+        return lower.contains("already spent") || lower.contains("double spend") || lower.contains("orphan")
     }
 
     // MARK: - Expired offers
@@ -390,40 +465,51 @@ final class KachatNamesActions: ObservableObject {
 
     /// Offers this app is withdrawing because the name changed hands (see `withdrawDeclinedOffers`).
     @Published private(set) var withdrawingOffers: Set<String> = []
+    /// Offers this app is declining for their seller (see `declineOpenOffers`).
+    @Published private(set) var decliningOffers: Set<String> = []
 
-    /// When the name last got a new owner: its latest register, transfer, sale or accepted offer.
-    nonisolated static func ownerSince(_ history: [KachatNames.Event]) -> Int64? {
-        history.filter { ["register", "transfer", "sale", "offer_accepted", "offer_accept"].contains($0.op) }
-            .compactMap(\.at).max()
+    /// Sends back every open offer on `n` made to its owner, once the name leaves them (transfer,
+    /// release, or an accepted offer - `except` is that one). Each is the seller's `decline`, so
+    /// it costs the seller nothing: the network fee comes out of the offer.
+    func declineOpenOffers(on n: KachatNames.NameInfo, except accepted: KachatNames.OfferInfo?) {
+        guard KachatNamesService.isLaunched else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let open = ((try? await self.registry.offers(for: n.name)) ?? [])
+                .filter { $0.seller == n.owner && $0.id != accepted?.id && !self.decliningOffers.contains($0.id) }
+            for o in open {
+                self.decliningOffers.insert(o.id)
+                do {
+                    let txId = try await self.perform(.decline(o))
+                    AppLog.log("[KachatNames] declined offer %@ on %@ (the name left this owner): %@", o.id, n.name, txId)
+                } catch {
+                    AppLog.log("[KachatNames] offer %@ not declined: %@", o.id, error.localizedDescription)
+                }
+            }
+        }
     }
 
-    /// An offer made before the name's current owner got it (or on a name since released):
-    /// declined. The contract would still let the new owner accept it until it expires, so the
-    /// app treats it as declined - the owner can't accept it, and the buyer's app pulls it back.
-    nonisolated static func isDeclined(_ offer: KachatNames.OfferInfo, ownerSince: Int64?, nameFree: Bool = false) -> Bool {
-        if nameFree { return true }
-        guard let made = offer.createdAt, let since = ownerSince else { return false }
-        return made < since
-    }
-
-    /// Pulls this wallet's declined offers back (a withdraw, signed by the buyer - you - and paid
-    /// back to you). Before its refund time only the buyer can return an offer, so the buyer's
-    /// app does it as soon as it sees the name changed hands; after that, `returnExpiredOffers`
-    /// covers it from any app. Each offer is tried once per session.
+    /// Pulls this wallet's declined offers back: those made to an earlier owner of the name (the
+    /// contract refuses them now) or on a name since released. A withdraw, signed by the buyer -
+    /// you - and paid back to you. Before its refund time only the buyer or the seller can return
+    /// an offer, so the buyer's app does it as soon as it sees the name changed hands; after that,
+    /// `returnExpiredOffers` covers it from any app. Each offer is tried once per session.
     func withdrawDeclinedOffers(_ offers: [KachatNames.OfferInfo]) async {
         guard KachatNamesService.isLaunched, let me = myKey else { return }
         let mine = offers.filter { $0.buyer == me && !withdrawingOffers.contains($0.id) && !returningOffers.contains($0.id) }
         guard !mine.isEmpty else { return }
-        var historyByName: [String: [KachatNames.Event]] = [:]
-        var freeNames: Set<String> = []
+        var ownerByName: [String: Data?] = [:]
         for o in mine {
             guard let name = o.name else { continue }
-            if historyByName[name] == nil {
-                historyByName[name] = (try? await registry.history(name: name)) ?? []
-                if case .free? = try? await registry.lookup(name) { freeNames.insert(name) }
+            if ownerByName[name] == nil {
+                switch try? await registry.lookup(name) {
+                case .registered(let n)?: ownerByName[name] = .some(n.owner)
+                case .free?: ownerByName[name] = .some(Data?.none)
+                case nil: continue
+                }
             }
-            let since = Self.ownerSince(historyByName[name] ?? [])
-            guard Self.isDeclined(o, ownerSince: since, nameFree: freeNames.contains(name)) else { continue }
+            // still made to the name's current owner: it stands
+            if case .some(.some(let current)) = ownerByName[name], !o.isDeclined(currentOwner: current) { continue }
             withdrawingOffers.insert(o.id)
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -498,7 +584,8 @@ final class KachatNamesActions: ObservableObject {
         let (b, env, wallet) = try await context(s)
         let salt = try KachatNamesService.newSalt()
         let spendable = wallet.reduce(UInt64(0)) { $0 + $1.entry.amount }
-        let price = m.params.price(forLength: name.utf8.count) * UInt64(years)
+        let shard = try await liveShard(m)
+        let price = shard.fields.price(forLength: name.utf8.count) * UInt64(years)
         var commitFee: UInt64 = 0
         var registerFee: UInt64 = 0
         if let commitPlan = try? b.commit(env: env, wallet: wallet, name: name, salt: salt) {
@@ -511,7 +598,7 @@ final class KachatNamesActions: ObservableObject {
                     blockDaaScore: env.blockDaa, covenantId: m.registryCovenantId))
                 let rest = wallet.filter { u in !commitPlan.inputs.contains { $0.utxo.outpoint == u.outpoint } }
                 if let reg = try? b.register(env: env, wallet: rest, gap: KachatNames.GapRecord(lo: gap.lo, hi: gap.hi, value: m.params.gapValue, utxo: gapUtxo),
-                                             commit: commit, years: years, now: KachatNames.Builder.registerNow(env: env)) {
+                                             commit: commit, shard: shard, years: years, now: KachatNames.Builder.registerNow(env: env)) {
                     registerFee = reg.networkFee
                 }
             }
@@ -725,6 +812,9 @@ final class KachatNamesActions: ObservableObject {
             let plan = try b.register(
                 env: env, wallet: wallet, gap: try await liveGap(gap, m),
                 commit: KachatNames.CommitRecord(name: p.name, owner: s.me, salt: salt, value: commit.entry.amount, utxo: commit),
+                // a random live shard each try: one someone else just spent fails this try, and
+                // the next tick picks again
+                shard: try await liveShard(m),
                 years: p.years, now: KachatNames.Builder.registerNow(env: env)
             )
             let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)

@@ -857,10 +857,8 @@
 "Buy Name" = "Comprar nome";
 "1 Day" = "1 dia";
 "3 Days" = "3 dias";
-"30 Days" = "30 dias";
 "Listed at" = "Preço anunciado";
 "Your offer" = "Sua oferta";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "Seus KAS ficam bloqueados na blockchain até o vendedor aceitar, você retirar a oferta ou ela expirar. Ninguém mais pode mexer neles.";
 "Expires" = "Expira";
 "Expires after" = "Expira após";
 "Send Offer" = "Enviar oferta";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "Faltam menos de 30 dias para este nome expirar. Você precisaria renová-lo em breve.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "O pagamento chega ao vendedor e o nome chega a você na mesma transação - acontecem os dois, ou nenhum.";
 "Price (to the seller)" = "Preço (para o vendedor)";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "Este nome está à venda por menos que sua oferta. Qualquer pessoa poderia comprá-lo com sua oferta, então considere comprá-lo diretamente.";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "Seus KAS ficam travados na chain até o dono aceitar, você retirar a oferta ou ela expirar - aí qualquer pessoa pode devolvê-los a você.";
 "Refundable after" = "Reembolsável após";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "A renovação soma à expiração atual, mesmo que ela já tenha passado. O preço vai para os mineradores.";
 "Price per year" = "Preço por ano";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "Renovação aberta";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Estender adiciona anos ao período pago atual, que cobre no máximo 2 anos. O preço vai para os mineradores.";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "Uma renovação começa o próximo período na expiração atual, então nenhum tempo é perdido ou ganho, mesmo depois que ela passou. O preço vai para os mineradores.";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "Este nome já está pago por 2 anos desde o início do período. A renovação abre em %@.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "O indexador de nomes não enviou o período pago deste nome. Puxe para atualizar e tente de novo.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Estenda, renove, anuncie, transfira ou libere seus nomes, e escolha o que o KaChat mostra para você.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "O nome é seu pelos anos pagos, no máximo 2 adiantados. Um nome de 1 ano pode ser estendido para 2 anos; a partir de 10 dias antes de expirar, você pode renová-lo.";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "Recusada - o nome mudou de dono, voltando para você";
 "Declined - made to an earlier owner" = "Recusada - feita a um dono anterior";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "Esta oferta foi feita antes de o nome mudar de dono, então está recusada e voltando para o comprador.";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "Este nome já está pago até o período mais longo. A renovação abre em %@.";
+"The price record is busy right now. Try again in a moment." = "O registro de preços está ocupado agora. Tente novamente em instantes.";
+"You can't make an offer on your own name." = "Você não pode fazer uma oferta pelo seu próprio nome.";
+"An offer can run for up to 7 days." = "Uma oferta pode durar até 7 dias.";
+"Price per %@" = "Preço por %@";
+"Available · %@ per %@" = "Disponível · %1$@ por %2$@";
+"Extend to %@" = "Estender para %@";
+"Pays for more time now, up to the %@ limit." = "Paga mais tempo agora, até o limite de %@.";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "Estender adiciona tempo ao período pago atual, que comporta no máximo %@. O preço vai para os mineradores.";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "O nome é seu pelo tempo que você pagou, no máximo %1$@ adiante. A partir de %2$@ antes de vencer, você pode renová-lo.";
+"Decline Offer" = "Recusar oferta";
+"Offer declined" = "Oferta recusada";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "A oferta volta para o comprador. A taxa de rede sai da própria oferta, então recusar não custa nada para você.";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "Seus KAS ficam travados na chain até o dono aceitar ou recusar, você retirar a oferta ou ela expirar - aí qualquer pessoa pode devolvê-los a você.";
+"This name is listed for less than your offer. Consider buying it instead." = "Este nome está à venda por menos que a sua oferta. Considere comprá-lo diretamente.";

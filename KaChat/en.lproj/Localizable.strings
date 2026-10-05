@@ -858,10 +858,8 @@
 "Buy Name" = "Buy Name";
 "1 Day" = "1 Day";
 "3 Days" = "3 Days";
-"30 Days" = "30 Days";
 "Listed at" = "Listed at";
 "Your offer" = "Your offer";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it.";
 "Expires" = "Expires";
 "Expires after" = "Expires after";
 "Send Offer" = "Send Offer";
@@ -1052,8 +1050,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "Less than 30 days are left before this name expires. You'd have to renew it soon.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does.";
 "Price (to the seller)" = "Price (to the seller)";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead.";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you.";
 "Refundable after" = "Refundable after";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "A renewal adds to the current expiry, even after it passed. The price goes to the miners.";
 "Price per year" = "Price per year";
@@ -1157,7 +1153,6 @@
 "Renewal open" = "Renewal open";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners.";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners.";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "This name is already paid for 2 years from the start of its period. Renewal opens on %@.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "The names indexer didn't send this name's paid period. Pull to refresh and try again.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it.";
@@ -1269,3 +1264,20 @@
 "Declined - the name changed hands, returning to you" = "Declined - the name changed hands, returning to you";
 "Declined - made to an earlier owner" = "Declined - made to an earlier owner";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "This offer was made before the name changed hands, so it's declined and going back to the buyer.";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "This name is already paid up to its longest period. Renewal opens on %@.";
+"The price record is busy right now. Try again in a moment." = "The price record is busy right now. Try again in a moment.";
+"You can't make an offer on your own name." = "You can't make an offer on your own name.";
+"An offer can run for up to 7 days." = "An offer can run for up to 7 days.";
+"Price per %@" = "Price per %@";
+"Available · %@ per %@" = "Available · %@ per %@";
+"Extend to %@" = "Extend to %@";
+"Pays for more time now, up to the %@ limit." = "Pays for more time now, up to the %@ limit.";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "Extending adds time to the current paid period, which holds at most %@. The price goes to the miners.";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it.";
+"Decline Offer" = "Decline Offer";
+"Offer declined" = "Offer declined";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing.";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you.";
+"This name is listed for less than your offer. Consider buying it instead." = "This name is listed for less than your offer. Consider buying it instead.";

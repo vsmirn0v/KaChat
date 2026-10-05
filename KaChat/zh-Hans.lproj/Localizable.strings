@@ -857,10 +857,8 @@
 "Buy Name" = "购买名称";
 "1 Day" = "1 天";
 "3 Days" = "3 天";
-"30 Days" = "30 天";
 "Listed at" = "挂单价格";
 "Your offer" = "你的出价";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "你的 KAS 会锁定在链上，直到卖家接受、你撤回出价或出价过期。其他任何人都无法动用。";
 "Expires" = "有效期";
 "Expires after" = "有效期";
 "Send Offer" = "发送出价";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "这个名称将在 30 天内到期，你很快就需要续期。";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "付款到达卖家、名称到达你，在同一笔交易中完成——要么都发生，要么都不发生。";
 "Price (to the seller)" = "价格（归卖家）";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "这个名称的售价低于你的报价。任何人都可以用你的报价买下它，建议直接购买。";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "你的 KAS 会锁定在链上，直到所有者接受、你撤回报价或报价到期——之后任何人都可以把它退还给你。";
 "Refundable after" = "可退还时间";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "续期从当前到期时间往后累加，即使已经过期也是如此。价格归矿工。";
 "Price per year" = "每年价格";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "可续期";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "延长会为当前已付期间增加年数，每个期间最多 2 年。价格归矿工。";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "续期从当前到期时间开始下一个期间，因此不会损失或多出时间，即使已过期也是如此。价格归矿工。";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "此名称自期间开始起已付满 2 年。续期于 %@ 开放。";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "名称索引器没有返回此名称的已付期间。下拉刷新后重试。";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "延长、续期、挂售、转让或释放名称，并选择 KaChat 为你显示的那一个。";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "名称在你付费的年数内归你所有，最多提前 2 年。1 年期的名称可以延长到 2 年；到期前 10 天起可以续期。";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "已拒绝 - 名称已易主，正在退还给你";
 "Declined - made to an earlier owner" = "已拒绝 - 向前任所有者发出";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "此报价是在名称易主之前发出的，因此已被拒绝并正在退还给买家。";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "此名称已支付至最长期限。续期于 %@ 开放。";
+"The price record is busy right now. Try again in a moment." = "价格记录正忙。请稍后再试。";
+"You can't make an offer on your own name." = "你不能对自己的名称报价。";
+"An offer can run for up to 7 days." = "报价最长可持续 7 天。";
+"Price per %@" = "每 %@ 价格";
+"Available · %@ per %@" = "可用 · 每 %2$@ %1$@";
+"Extend to %@" = "延长至 %@";
+"Pays for more time now, up to the %@ limit." = "现在支付更多时长，上限为 %@。";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "延长会为当前已付期限增加时长，期限最多 %@。费用归矿工。";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "名称在你支付的时长内归你所有，最多提前 %1$@。到期前 %2$@ 起即可续期。";
+"Decline Offer" = "拒绝报价";
+"Offer declined" = "报价已拒绝";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "报价会退还给买家。网络费从报价中扣除，所以拒绝不会让你花费任何费用。";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "你的 KAS 会锁定在链上，直到所有者接受或拒绝、你撤回报价或报价到期——之后任何人都可以把它退还给你。";
+"This name is listed for less than your offer. Consider buying it instead." = "此名称的挂牌价低于你的报价。不如直接购买。";

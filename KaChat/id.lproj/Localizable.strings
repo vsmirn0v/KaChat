@@ -857,10 +857,8 @@
 "Buy Name" = "Beli Nama";
 "1 Day" = "1 Hari";
 "3 Days" = "3 Hari";
-"30 Days" = "30 Hari";
 "Listed at" = "Harga jual";
 "Your offer" = "Penawaranmu";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS-mu tetap terkunci di chain sampai penjual menerima, kamu menarik penawaran, atau kedaluwarsa. Tidak ada orang lain yang bisa menyentuhnya.";
 "Expires" = "Kedaluwarsa";
 "Expires after" = "Kedaluwarsa setelah";
 "Send Offer" = "Kirim Penawaran";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "Kurang dari 30 hari lagi nama ini kedaluwarsa. Anda perlu memperpanjangnya segera.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Pembayaran sampai ke penjual dan nama sampai ke Anda dalam transaksi yang sama - keduanya terjadi, atau tidak sama sekali.";
 "Price (to the seller)" = "Harga (untuk penjual)";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "Nama ini dijual lebih murah dari penawaran Anda. Siapa pun bisa membelinya dengan penawaran Anda, jadi sebaiknya beli langsung.";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS Anda tetap terkunci di chain sampai pemilik menerima, Anda menarik penawaran, atau penawaran kedaluwarsa - lalu siapa pun bisa mengembalikannya kepada Anda.";
 "Refundable after" = "Bisa dikembalikan setelah";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "Perpanjangan ditambahkan ke tanggal kedaluwarsa saat ini, meski sudah lewat. Harga diberikan ke penambang.";
 "Price per year" = "Harga per tahun";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "Perpanjangan dibuka";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Menambah masa memberi tahun tambahan pada periode berbayar saat ini, yang paling lama 2 tahun. Harga diberikan ke penambang.";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "Perpanjangan memulai periode berikutnya pada tanggal kedaluwarsa saat ini, jadi tidak ada waktu yang hilang atau bertambah, meski sudah lewat. Harga diberikan ke penambang.";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "Nama ini sudah dibayar untuk 2 tahun sejak awal periodenya. Perpanjangan dibuka %@.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Pengindeks nama tidak mengirim periode berbayar nama ini. Tarik untuk menyegarkan dan coba lagi.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Tambah masa, perpanjang, jual, transfer, atau lepas nama Anda, dan pilih yang ditampilkan KaChat untuk Anda.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Nama ini milik Anda selama tahun yang dibayar, paling lama 2 tahun ke depan. Nama 1 tahun bisa ditambah menjadi 2 tahun; mulai 10 hari sebelum kedaluwarsa Anda bisa memperpanjangnya.";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "Ditolak - pemilik nama berganti, dana kembali ke Anda";
 "Declined - made to an earlier owner" = "Ditolak - diajukan ke pemilik sebelumnya";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "Penawaran ini diajukan sebelum nama berganti pemilik, jadi ditolak dan dananya kembali ke pembeli.";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "Nama ini sudah dibayar hingga periode terpanjangnya. Perpanjangan dibuka %@.";
+"The price record is busy right now. Try again in a moment." = "Catatan harga sedang sibuk. Coba lagi sebentar lagi.";
+"You can't make an offer on your own name." = "Anda tidak bisa mengajukan penawaran untuk nama Anda sendiri.";
+"An offer can run for up to 7 days." = "Penawaran bisa berlaku hingga 7 hari.";
+"Price per %@" = "Harga per %@";
+"Available · %@ per %@" = "Tersedia · %1$@ per %2$@";
+"Extend to %@" = "Tambah hingga %@";
+"Pays for more time now, up to the %@ limit." = "Membayar lebih banyak waktu sekarang, hingga batas %@.";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "Menambah waktu ke periode berbayar saat ini, yang menampung paling lama %@. Harganya diberikan ke penambang.";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "Nama ini milik Anda selama waktu yang Anda bayar, paling lama %1$@ ke depan. Mulai %2$@ sebelum kedaluwarsa Anda bisa memperpanjangnya.";
+"Decline Offer" = "Tolak Penawaran";
+"Offer declined" = "Penawaran ditolak";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "Penawaran kembali ke pembeli. Biaya jaringannya diambil dari penawaran, jadi menolak tidak memakan biaya apa pun bagi Anda.";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS Anda tetap terkunci di chain sampai pemilik menerima atau menolak, Anda menarik penawaran, atau penawaran kedaluwarsa - lalu siapa pun bisa mengembalikannya kepada Anda.";
+"This name is listed for less than your offer. Consider buying it instead." = "Nama ini dijual lebih murah dari penawaran Anda. Pertimbangkan untuk membelinya saja.";

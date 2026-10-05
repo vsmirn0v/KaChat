@@ -857,10 +857,8 @@
 "Buy Name" = "Adı Satın Al";
 "1 Day" = "1 Gün";
 "3 Days" = "3 Gün";
-"30 Days" = "30 Gün";
 "Listed at" = "İlan fiyatı";
 "Your offer" = "Teklifin";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS'ın satıcı kabul edene, teklifi geri çekene ya da süresi dolana kadar zincirde kilitli kalır. Başka kimse dokunamaz.";
 "Expires" = "Süre";
 "Expires after" = "Süre sonu";
 "Send Offer" = "Teklifi Gönder";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "Bu adın süresinin dolmasına 30 günden az kaldı. Yakında yenilemeniz gerekir.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Ödeme satıcıya, ad size aynı işlemde ulaşır - ya ikisi de olur ya hiçbiri.";
 "Price (to the seller)" = "Fiyat (satıcıya)";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "Bu ad teklifinizden daha ucuza satışta. Herkes teklifinizle satın alabilir; doğrudan satın almayı düşünün.";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS'ınız sahibi kabul edene, teklifi geri çekene veya süresi dolana kadar zincirde kilitli kalır - sonra herkes size geri gönderebilir.";
 "Refundable after" = "Şu süreden sonra iade edilebilir";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "Yenileme, geçmiş olsa bile mevcut bitiş tarihine eklenir. Fiyat madencilere gider.";
 "Price per year" = "Yıllık fiyat";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "Yenileme açık";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Uzatma, en fazla 2 yıl kapsayan mevcut ödenmiş döneme yıl ekler. Fiyat madencilere gider.";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "Yenileme, sonraki dönemi mevcut bitiş tarihinde başlatır; tarih geçmiş olsa bile zaman kaybedilmez veya kazanılmaz. Fiyat madencilere gider.";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "Bu ad, dönemin başından itibaren zaten 2 yıl için ödendi. Yenileme %@ tarihinde açılır.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Ad dizinleyicisi bu adın ödenmiş dönemini göndermedi. Yenilemek için aşağı çekip tekrar deneyin.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Onları uzatın, yenileyin, satışa çıkarın, aktarın veya bırakın ve KaChat'in sizin için gösterdiğini seçin.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Ad, ödediğiniz yıllar boyunca sizindir, en fazla 2 yıl ileriye. 1 yıllık bir ad 2 yıla uzatılabilir; bitişinden 10 gün önceden itibaren yenileyebilirsiniz.";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "Reddedildi - adın sahibi değişti, sana dönüyor";
 "Declined - made to an earlier owner" = "Reddedildi - önceki sahibine yapılmış";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "Bu teklif ad el değiştirmeden önce yapıldığı için reddedildi ve alıcıya geri dönüyor.";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "Bu ad zaten en uzun dönemine kadar ödenmiş. Yenileme %@ tarihinde açılır.";
+"The price record is busy right now. Try again in a moment." = "Fiyat kaydı şu anda meşgul. Birazdan tekrar deneyin.";
+"You can't make an offer on your own name." = "Kendi adınıza teklif veremezsiniz.";
+"An offer can run for up to 7 days." = "Bir teklif en fazla 7 gün sürebilir.";
+"Price per %@" = "%@ başına fiyat";
+"Available · %@ per %@" = "Müsait · %2$@ başına %1$@";
+"Extend to %@" = "%@ süresine uzat";
+"Pays for more time now, up to the %@ limit." = "Şimdi daha fazla süre için öder, %@ sınırına kadar.";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "Uzatma, mevcut ödenmiş döneme süre ekler; dönem en fazla %@ olabilir. Ücret madencilere gider.";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "Ad, ödediğiniz süre boyunca sizindir, en fazla %1$@ ilerisine kadar. Süresi dolmadan %2$@ önce yenileyebilirsiniz.";
+"Decline Offer" = "Teklifi Reddet";
+"Offer declined" = "Teklif reddedildi";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "Teklif alıcıya geri döner. Ağ ücreti tekliften karşılanır, yani reddetmek size hiçbir şeye mal olmaz.";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS'ınız sahibi kabul edene veya reddedene, teklifi geri çekene veya süresi dolana kadar zincirde kilitli kalır - sonra herkes size geri gönderebilir.";
+"This name is listed for less than your offer. Consider buying it instead." = "Bu ad teklifinizden daha düşük bir fiyata listelenmiş. Bunun yerine satın almayı düşünün.";

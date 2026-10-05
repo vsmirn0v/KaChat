@@ -857,10 +857,8 @@
 "Buy Name" = "Mua tên";
 "1 Day" = "1 ngày";
 "3 Days" = "3 ngày";
-"30 Days" = "30 ngày";
 "Listed at" = "Giá rao";
 "Your offer" = "Đề nghị của bạn";
-"Your KAS stays locked on chain until the seller accepts, you withdraw the offer, or it expires. Nobody else can touch it." = "KAS của bạn bị khóa trên chuỗi cho đến khi người bán chấp nhận, bạn rút đề nghị hoặc hết hạn. Không ai khác có thể đụng vào.";
 "Expires" = "Hết hạn";
 "Expires after" = "Hết hạn sau";
 "Send Offer" = "Gửi đề nghị";
@@ -1051,8 +1049,6 @@
 "Less than 30 days are left before this name expires. You'd have to renew it soon." = "Còn chưa đến 30 ngày nữa tên này hết hạn. Bạn sẽ cần gia hạn sớm.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Khoản thanh toán đến người bán và tên đến bạn trong cùng một giao dịch - cả hai cùng xảy ra, hoặc không gì cả.";
 "Price (to the seller)" = "Giá (trả cho người bán)";
-"This name is listed for less than your offer. Anyone could buy the listing with your offer, so consider buying it instead." = "Tên này đang rao bán thấp hơn đề nghị của bạn. Ai cũng có thể dùng đề nghị của bạn để mua, nên hãy cân nhắc mua trực tiếp.";
-"Your KAS stays locked on chain until the owner accepts, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS của bạn bị khóa trên chuỗi cho đến khi chủ chấp nhận, bạn rút đề nghị, hoặc đề nghị hết hạn - sau đó ai cũng có thể trả lại cho bạn.";
 "Refundable after" = "Có thể hoàn sau";
 "A renewal adds to the current expiry, even after it passed. The price goes to the miners." = "Gia hạn được cộng vào hạn hiện tại, kể cả khi đã quá hạn. Giá trả cho thợ đào.";
 "Price per year" = "Giá mỗi năm";
@@ -1156,7 +1152,6 @@
 "Renewal open" = "Đang mở gia hạn";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Kéo dài thêm năm vào kỳ đã trả hiện tại, mỗi kỳ tối đa 2 năm. Giá trả cho thợ đào.";
 "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "Gia hạn bắt đầu kỳ tiếp theo tại ngày hết hạn hiện tại, nên không mất hay thêm thời gian, kể cả khi đã quá hạn. Giá trả cho thợ đào.";
-"This name is already paid for 2 years from the start of its period. Renewal opens on %@." = "Tên này đã được trả đủ 2 năm tính từ đầu kỳ. Mở gia hạn vào %@.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Bộ chỉ mục tên không gửi kỳ đã trả của tên này. Kéo xuống để làm mới rồi thử lại.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Kéo dài, gia hạn, rao bán, chuyển hoặc nhả tên, và chọn tên KaChat hiển thị cho bạn.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Tên là của bạn trong số năm đã trả, tối đa trước 2 năm. Tên 1 năm có thể kéo dài thành 2 năm; từ 10 ngày trước khi hết hạn bạn có thể gia hạn.";
@@ -1268,3 +1263,20 @@
 "Declined - the name changed hands, returning to you" = "Bị từ chối - tên đã đổi chủ, đang hoàn lại cho bạn";
 "Declined - made to an earlier owner" = "Bị từ chối - gửi cho chủ cũ";
 "This offer was made before the name changed hands, so it's declined and going back to the buyer." = "Đề nghị này được gửi trước khi tên đổi chủ, nên đã bị từ chối và đang hoàn lại cho người mua.";
+
+/* .kachat registry v3: prices from the price record, the period clock, declining offers */
+"This name is already paid up to its longest period. Renewal opens on %@." = "Tên này đã được trả đến kỳ dài nhất. Mở gia hạn vào %@.";
+"The price record is busy right now. Try again in a moment." = "Bản ghi giá đang bận. Hãy thử lại sau giây lát.";
+"You can't make an offer on your own name." = "Bạn không thể đưa đề nghị cho tên của chính mình.";
+"An offer can run for up to 7 days." = "Một đề nghị có thể kéo dài tối đa 7 ngày.";
+"Price per %@" = "Giá mỗi %@";
+"Available · %@ per %@" = "Còn trống · %1$@ mỗi %2$@";
+"Extend to %@" = "Kéo dài đến %@";
+"Pays for more time now, up to the %@ limit." = "Trả thêm thời gian ngay bây giờ, tối đa %@.";
+"Extending adds time to the current paid period, which holds at most %@. The price goes to the miners." = "Kéo dài sẽ thêm thời gian vào kỳ đã trả hiện tại, tối đa %@. Khoản phí được trả cho thợ đào.";
+"The name is yours for the time you paid, at most %@ ahead. From %@ before it expires you can renew it." = "Tên là của bạn trong thời gian bạn đã trả, tối đa %1$@ về sau. Từ %2$@ trước khi hết hạn, bạn có thể gia hạn.";
+"Decline Offer" = "Từ chối đề nghị";
+"Offer declined" = "Đã từ chối đề nghị";
+"The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "Đề nghị được trả lại cho người mua. Phí mạng được trừ vào đề nghị, nên từ chối không tốn gì của bạn.";
+"Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS của bạn bị khóa trên chuỗi cho đến khi chủ chấp nhận hoặc từ chối, bạn rút đề nghị, hoặc đề nghị hết hạn - sau đó ai cũng có thể trả lại cho bạn.";
+"This name is listed for less than your offer. Consider buying it instead." = "Tên này đang được bán với giá thấp hơn đề nghị của bạn. Hãy cân nhắc mua luôn.";
