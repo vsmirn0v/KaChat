@@ -311,11 +311,11 @@ The input bubble is the text field only. Everything else is in the "+" sheet:
 
 Every long-press menu is a half sheet of square tiles, three to a row: an icon over a short
 title. This covers the message menu (`MessageActionsSheet`), chat rows, group and room circles,
-and room rows.
+and room rows. The chat composers' **+** sheets (1:1 and group) use the same tiles.
 - Build them with `ActionSheetRow`s inside `ActionSheetTiles`. The row's `subtitle` becomes the
   VoiceOver hint.
 - Size the sheet with `ActionSheetTileMetrics.sheetHeight(tiles:)`.
-- Other half sheets (confirmations, the composer's options, account menus) keep the row form.
+- Other half sheets (confirmations, account menus) keep the row form.
 
 ### Send Kaspa screens
 

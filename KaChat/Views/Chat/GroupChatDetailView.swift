@@ -1340,38 +1340,40 @@ struct GroupChatDetailView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            // Camera, Photo and Voice Message each ask on chain or via Nextcloud when a server is
-            // connected (that choice replaced the "Send Media via Nextcloud" setting), and go
-            // straight on chain when none is.
-            ActionSheetRow(
-                title: "Camera",
-                subtitle: "Take a photo and send it to the group.",
-                systemImage: "camera"
-            ) {
-                chooseMedia(.camera)
-            }
-            ActionSheetRow(
-                title: "Photo",
-                subtitle: "Pick an image from your library and send it to the group.",
-                systemImage: "photo"
-            ) {
-                chooseMedia(.photo)
-            }
-            ActionSheetRow(
-                title: "Voice Message",
-                subtitle: "Record a voice message and send it to the group.",
-                systemImage: "mic"
-            ) {
-                chooseMedia(.voice)
-            }
-            if nextcloudService.isConnected {
+            ActionSheetTiles {
+                // Camera, Photo and Voice Message each ask on chain or via Nextcloud when a server is
+                // connected (that choice replaced the "Send Media via Nextcloud" setting), and go
+                // straight on chain when none is.
                 ActionSheetRow(
-                    title: "File",
-                    subtitle: "Send any file from your Nextcloud. It shows as a preview.",
-                    systemImage: "doc"
+                    title: "Camera",
+                    subtitle: "Take a photo and send it to the group.",
+                    systemImage: "camera"
                 ) {
-                    showPlusSheet = false
-                    DispatchQueue.main.async { showNextcloudPicker = true }
+                    chooseMedia(.camera)
+                }
+                ActionSheetRow(
+                    title: "Photo",
+                    subtitle: "Pick an image from your library and send it to the group.",
+                    systemImage: "photo"
+                ) {
+                    chooseMedia(.photo)
+                }
+                ActionSheetRow(
+                    title: "Voice Message",
+                    subtitle: "Record a voice message and send it to the group.",
+                    systemImage: "mic"
+                ) {
+                    chooseMedia(.voice)
+                }
+                if nextcloudService.isConnected {
+                    ActionSheetRow(
+                        title: "File",
+                        subtitle: "Send any file from your Nextcloud. It shows as a preview.",
+                        systemImage: "doc"
+                    ) {
+                        showPlusSheet = false
+                        DispatchQueue.main.async { showNextcloudPicker = true }
+                    }
                 }
             }
 
@@ -1380,8 +1382,7 @@ struct GroupChatDetailView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // Four rows with subtitles when Nextcloud is connected.
-        .presentationDetents([.height(nextcloudService.isConnected ? 420 : 340)])
+        .presentationDetents([.height(ActionSheetTileMetrics.sheetHeight(tiles: nextcloudService.isConnected ? 4 : 3))])
         .presentationDragIndicator(.visible)
     }
 

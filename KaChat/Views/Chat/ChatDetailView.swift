@@ -2247,70 +2247,72 @@ struct ChatDetailView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            // Pay first: the Kaspa logo left the input bubble, so this is the way into payment mode.
-            ActionSheetRow(
-                title: "Pay in Kaspa",
-                subtitle: "Send Kaspa to this contact.",
-                systemImage: "k.circle",
-                customIcon: Image("KaspaLogo")
-            ) {
-                // Opens once this sheet is gone (see the sheet's onDismiss).
-                openPaymentAfterPlusSheet = true
-                showComposerPlusSheet = false
-            }
-            // Camera, Photo and Voice Message each ask on chain or via Nextcloud when a server is
-            // connected (that choice replaced the "Send Media via Nextcloud" setting), and go
-            // straight on chain when none is.
-            ActionSheetRow(
-                title: "Camera",
-                subtitle: "Take a photo and send it.",
-                systemImage: "camera"
-            ) {
-                chooseMedia(.camera)
-            }
-            ActionSheetRow(
-                title: "Photo",
-                subtitle: "Pick an image from your library and send it.",
-                systemImage: "photo"
-            ) {
-                chooseMedia(.photo)
-            }
-            ActionSheetRow(
-                title: "Voice Message",
-                subtitle: "Record a voice message and send it.",
-                systemImage: "mic"
-            ) {
-                chooseMedia(.voice)
-            }
-            if nextcloudService.isConnected {
+            ActionSheetTiles {
+                // Pay first: the Kaspa logo left the input bubble, so this is the way into payment mode.
                 ActionSheetRow(
-                    title: "File",
-                    subtitle: "Send any file from your Nextcloud. It shows as a preview.",
-                    systemImage: "doc"
+                    title: "Pay in Kaspa",
+                    subtitle: "Send Kaspa to this contact.",
+                    systemImage: "k.circle",
+                    customIcon: Image("KaspaLogo")
                 ) {
+                    // Opens once this sheet is gone (see the sheet's onDismiss).
+                    openPaymentAfterPlusSheet = true
                     showComposerPlusSheet = false
-                    DispatchQueue.main.async { showNextcloudPicker = true }
                 }
-            }
-            ActionSheetRow(
-                title: "Play Chess",
-                subtitle: "Invite this contact to a game on chain.",
-                systemImage: "checkerboard.rectangle"
-            ) {
-                composerSheetStep = .chess
-            }
-            // Only where first contact still needs one: an indexer without inbox lookups.
-            if canSendRequestToCommunicate && !inboxSupported {
-                // Says what already happened once a request is out, matching the dedicated
-                // button above the composer - so a second tap reads as a deliberate re-send
-                // rather than as the first one having done nothing.
+                // Camera, Photo and Voice Message each ask on chain or via Nextcloud when a server is
+                // connected (that choice replaced the "Send Media via Nextcloud" setting), and go
+                // straight on chain when none is.
                 ActionSheetRow(
-                    title: hasUnansweredOutgoingHandshake ? "Handshake sent - send again" : "Send Handshake",
-                    subtitle: "Asks to open an encrypted conversation.",
-                    systemImage: "hand.wave"
+                    title: "Camera",
+                    subtitle: "Take a photo and send it.",
+                    systemImage: "camera"
                 ) {
-                    showComposerPlusSheet = false
-                    sendHandshake()
+                    chooseMedia(.camera)
+                }
+                ActionSheetRow(
+                    title: "Photo",
+                    subtitle: "Pick an image from your library and send it.",
+                    systemImage: "photo"
+                ) {
+                    chooseMedia(.photo)
+                }
+                ActionSheetRow(
+                    title: "Voice Message",
+                    subtitle: "Record a voice message and send it.",
+                    systemImage: "mic"
+                ) {
+                    chooseMedia(.voice)
+                }
+                if nextcloudService.isConnected {
+                    ActionSheetRow(
+                        title: "File",
+                        subtitle: "Send any file from your Nextcloud. It shows as a preview.",
+                        systemImage: "doc"
+                    ) {
+                        showComposerPlusSheet = false
+                        DispatchQueue.main.async { showNextcloudPicker = true }
+                    }
+                }
+                ActionSheetRow(
+                    title: "Play Chess",
+                    subtitle: "Invite this contact to a game on chain.",
+                    systemImage: "checkerboard.rectangle"
+                ) {
+                    composerSheetStep = .chess
+                }
+                // Only where first contact still needs one: an indexer without inbox lookups.
+                if canSendRequestToCommunicate && !inboxSupported {
+                    // Says what already happened once a request is out, matching the dedicated
+                    // button above the composer - so a second tap reads as a deliberate re-send
+                    // rather than as the first one having done nothing.
+                    ActionSheetRow(
+                        title: hasUnansweredOutgoingHandshake ? "Handshake sent - send again" : "Send Handshake",
+                        subtitle: "Asks to open an encrypted conversation.",
+                        systemImage: "hand.wave"
+                    ) {
+                        showComposerPlusSheet = false
+                        sendHandshake()
+                    }
                 }
             }
 
@@ -2326,13 +2328,12 @@ struct ChatDetailView: View {
         .presentationDragIndicator(.visible)
     }
 
-    /// Header plus ~80pt per two-line row - the same measure the group chat's "+" sheet uses
-    /// (340 for three rows, 420 for four).
+    /// Fits the tiles: pay, camera, photo, voice, chess, plus file and a handshake when they apply.
     private var composerPlusSheetHeight: CGFloat {
-        var rows = 5
-        if nextcloudService.isConnected { rows += 1 }
-        if canSendRequestToCommunicate && !inboxSupported { rows += 1 }
-        return 100 + CGFloat(rows) * 80
+        var tiles = 5
+        if nextcloudService.isConnected { tiles += 1 }
+        if canSendRequestToCommunicate && !inboxSupported { tiles += 1 }
+        return ActionSheetTileMetrics.sheetHeight(tiles: tiles)
     }
 
 
