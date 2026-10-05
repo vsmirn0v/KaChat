@@ -1217,3 +1217,7 @@
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "عنوان جديد عمره ما اتستخدم. الـKaspa اللي تتبعت هنا بتوصل للحساب ده وبتظهر في رصيد الصرف بتاعك. استخدم العنوان ده لأي حاجة مش ليها علاقة بالشات أو الدومينات.";
 "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "العنوان ده للشات والدومينات بس. 1 Kaspa يكفي لحوالي 500 استخدام في التطبيق. الدومينات بتتكلف من 35 لـ4000 Kaspa حسب الاسم.";
 "Profiles can be saved once .kachat launches on mainnet." = "هتقدر تحفظ البروفايلات أول ما ‎.kachat ينزل على الشبكة الرئيسية.";
+"Pinned to the front" = "اتثبت في الأول";
+"Unpinned" = "اتشال التثبيت";
+"Hold to pin to the front" = "اضغط مطوّل عشان تثبته في الأول";
+"Hold to unpin" = "اضغط مطوّل عشان تشيل التثبيت";

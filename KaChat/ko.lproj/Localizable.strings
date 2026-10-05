@@ -1217,3 +1217,7 @@
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "한 번도 사용하지 않은 새 주소입니다. 여기로 보낸 Kaspa는 이 계정에 들어오며 지출 잔액에 표시됩니다. 채팅이나 도메인과 관련 없는 모든 용도에 이 주소를 사용하세요.";
 "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "이 주소는 채팅과 도메인 전용입니다. 1 Kaspa로 앱에서 약 500번의 활동을 할 수 있습니다. 도메인은 이름에 따라 35~4,000 Kaspa입니다.";
 "Profiles can be saved once .kachat launches on mainnet." = ".kachat이 메인넷에 출시되면 프로필을 저장할 수 있습니다.";
+"Pinned to the front" = "맨 앞에 고정됨";
+"Unpinned" = "고정 해제됨";
+"Hold to pin to the front" = "길게 눌러 맨 앞에 고정";
+"Hold to unpin" = "길게 눌러 고정 해제";

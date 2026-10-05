@@ -1217,3 +1217,7 @@
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "عنوان جديد لم يُستخدم من قبل. تصل عملات Kaspa المرسلة إليه إلى هذا الحساب وتظهر في رصيد الإنفاق. استخدم هذا العنوان لكل ما لا يتعلق بالدردشة أو النطاقات.";
 "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "يجب أن يكون هذا العنوان للدردشة والنطاقات فقط. يكفي 1 Kaspa لنحو 500 تفاعل في التطبيق. تتراوح تكلفة النطاقات بين 35 و4000 Kaspa حسب الاسم.";
 "Profiles can be saved once .kachat launches on mainnet." = "يمكن حفظ الملفات الشخصية بعد إطلاق ‎.kachat على الشبكة الرئيسية.";
+"Pinned to the front" = "تم التثبيت في المقدمة";
+"Unpinned" = "تم إلغاء التثبيت";
+"Hold to pin to the front" = "اضغط مطولاً للتثبيت في المقدمة";
+"Hold to unpin" = "اضغط مطولاً لإلغاء التثبيت";

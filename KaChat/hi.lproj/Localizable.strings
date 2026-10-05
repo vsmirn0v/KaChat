@@ -1217,3 +1217,7 @@
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "एक नया पता, जो पहले कभी इस्तेमाल नहीं हुआ। यहाँ भेजे गए Kaspa इस खाते में आते हैं और आपके खर्च बैलेंस में दिखते हैं। चैट या डोमेन से असंबंधित हर चीज़ के लिए यही पता इस्तेमाल करें।";
 "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "यह पता केवल चैट और डोमेन के लिए है। 1 Kaspa ऐप में लगभग 500 इंटरैक्शन के लिए काफ़ी है। नाम के हिसाब से डोमेन की कीमत 35 से 4,000 Kaspa तक है।";
 "Profiles can be saved once .kachat launches on mainnet." = ".kachat के मेननेट पर लॉन्च होते ही प्रोफ़ाइल सेव की जा सकेंगी।";
+"Pinned to the front" = "सबसे आगे पिन किया गया";
+"Unpinned" = "पिन हटाया गया";
+"Hold to pin to the front" = "सबसे आगे पिन करने के लिए दबाकर रखें";
+"Hold to unpin" = "पिन हटाने के लिए दबाकर रखें";

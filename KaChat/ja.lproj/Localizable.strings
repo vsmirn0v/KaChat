@@ -1217,3 +1217,7 @@
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "一度も使われていない新しいアドレスです。ここに送られたKaspaはこのアカウントに入り、支払い用残高に表示されます。チャットやドメイン以外のすべての用途にこのアドレスを使ってください。";
 "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "このアドレスはチャットとドメイン専用です。1 Kaspaでアプリ内の操作が約500回できます。ドメインは名前によって35〜4,000 Kaspaです。";
 "Profiles can be saved once .kachat launches on mainnet." = ".kachatがメインネットで開始されると、プロフィールを保存できるようになります。";
+"Pinned to the front" = "先頭に固定しました";
+"Unpinned" = "固定を解除しました";
+"Hold to pin to the front" = "長押しで先頭に固定";
+"Hold to unpin" = "長押しで固定を解除";

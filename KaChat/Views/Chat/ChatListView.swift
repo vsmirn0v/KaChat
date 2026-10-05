@@ -8,22 +8,13 @@ struct ChatListView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var groupChatService: GroupChatService
-    /// Not observed here. It was, for the Public Chats page's unread badge alone, so every room
-    /// message, read marker, reaction and poll re-rendered the whole chat list - all three
-    /// pages, underneath an open room too. The badge observes it by itself
-    /// (`PublicChatsUnreadBadge`), and the rooms page observes it on its own.
+    /// Not observed here: every room message, read marker, reaction and poll would re-render the
+    /// whole chat list. The circles row above the list (`ChatCirclesStrip`) observes it on its own.
     private var publicChats: PublicChatService { PublicChatService.shared }
     @State private var showPublicChatsSettings = false
-    /// The public room open on top of this list (see PublicChatListView.externalSelection).
+    /// The public room open on top of this list (opened from its circle, a notification or a link).
     @State private var selectedPublicRoom: String?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
-    enum ChatsListTab: Int, CaseIterable {
-        case chats, groups
-        /// The public chat rooms, as the third tab. They were their own "Public Chats" feature;
-        /// now they live here, one swipe past Group Chats, under the name Public Chats.
-        case publicChats
-    }
 
     @State private var searchText = ""
     @State private var selectedContact: Contact?
@@ -54,9 +45,9 @@ struct ChatListView: View {
     }
     /// From a profile link: the person whose User Info is up.
     @State private var linkedProfileContact: Contact?
-    @State private var selectedListTab: ChatsListTab = .chats
-    /// The page Select mode started on - page swipes snap back to it while editing.
-    @State private var editModeLockedTab: ChatsListTab?
+    /// Group chats and public rooms pinned to the front of the circles row, in order - ids
+    /// "g:<groupId>" / "r:<room>", saved per wallet.
+    @State private var circlePins: [String] = []
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -78,8 +69,6 @@ struct ChatListView: View {
     @State private var rowDeleteContact: Contact?
     /// The row whose long-press action sheet is up.
     @State private var conversationActionTarget: Conversation?
-    @State private var groupActionTarget: GroupChat?
-    @State private var rowDeleteGroup: GroupChat?
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
     @State private var selectedGroupIDs: Set<String> = []
@@ -141,33 +130,23 @@ struct ChatListView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if editMode == .active {
-                        if selectedListTab == .chats {
-                            Button(selectedContactIDs.count == filteredConversationsCache.count ? "Deselect All" : "Select All") {
-                                if selectedContactIDs.count == filteredConversationsCache.count {
-                                    selectedContactIDs = []
-                                } else {
-                                    selectedContactIDs = Set(filteredConversationsCache.map { $0.contact.id })
-                                }
-                            }
-                        } else if selectedListTab == .groups {
-                            Button(selectedGroupIDs.count == displayedGroups.count ? "Deselect All" : "Select All") {
-                                if selectedGroupIDs.count == displayedGroups.count {
-                                    selectedGroupIDs = []
-                                } else {
-                                    selectedGroupIDs = Set(displayedGroups.map { $0.id })
-                                }
-                            }
-                        } else {
-                            let allRooms = Set(PublicChatService.shared.listedChannels.map(\.channelName))
-                            Button(!allRooms.isEmpty && selectedPublicRooms == allRooms ? "Deselect All" : "Select All") {
-                                selectedPublicRooms = selectedPublicRooms == allRooms ? [] : allRooms
+                        // One selection across the chats and the circles above them.
+                        Button(isEverythingSelected ? "Deselect All" : "Select All") {
+                            if isEverythingSelected {
+                                selectedContactIDs = []
+                                selectedGroupIDs = []
+                                selectedPublicRooms = []
+                            } else {
+                                selectedContactIDs = Set(filteredConversationsCache.map { $0.contact.id })
+                                selectedGroupIDs = Set(displayedGroups.map { $0.id })
+                                selectedPublicRooms = Set(displayedRooms.map(\.channelName))
                             }
                         }
                     }
                 }
-                // Public Chats keeps its settings (which default rooms show at all) beside Select.
+                // Public room settings (which default rooms show), next to Select.
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if selectedListTab == .publicChats, editMode != .active {
+                    if editMode != .active {
                         Button {
                             showPublicChatsSettings = true
                         } label: {
@@ -198,13 +177,11 @@ struct ChatListView: View {
             )
             .refreshable {
                 isPullRefreshing = true
-                // Tab-aware: pulling on a list of groups should ask about groups, not run the
-                // 1:1 message sync and leave the thing you were looking at untouched.
-                if selectedListTab == .groups {
-                    await groupChatService.performCatchUpSync()
-                } else {
-                    await chatService.fetchNewMessages()
-                }
+                // One list now: chats and the group circles above them both refresh.
+                async let chats: Void = chatService.fetchNewMessages()
+                async let groups: Void = groupChatService.performCatchUpSync()
+                _ = await (chats, groups)
+                PublicChatService.shared.refreshChannels()
                 isPullRefreshing = false
                 // Apply everything that changed during the pull in a single rebuild, now that the
                 // refresh control is no longer animating — so the wheel spins smoothly throughout.
@@ -217,26 +194,19 @@ struct ChatListView: View {
             .sheet(item: $conversationActionTarget) { conversation in
             conversationRowSheet(for: conversation)
         }
-        .sheet(item: $groupActionTarget) { group in
-            groupRowSheet(for: group)
-        }
         .alert(
                 bulkDeleteAlertTitle,
                 isPresented: $showBulkDeleteConfirmation
             ) {
                 Button("Delete", role: .destructive) {
-                    if selectedListTab == .chats {
-                        let targets = filteredConversationsCache
-                            .filter { selectedContactIDs.contains($0.contact.id) }
-                            .map { $0.contact }
-                        deleteConversations(targets)
-                    } else if selectedListTab == .groups {
-                        let targets = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
-                        deleteGroups(targets)
-                    } else {
-                        for room in selectedPublicRooms {
-                            PublicChatService.shared.removeFromList(room)
-                        }
+                    let contacts = filteredConversationsCache
+                        .filter { selectedContactIDs.contains($0.contact.id) }
+                        .map { $0.contact }
+                    if !contacts.isEmpty { deleteConversations(contacts) }
+                    let groups = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
+                    if !groups.isEmpty { deleteGroups(groups) }
+                    for room in selectedPublicRooms {
+                        PublicChatService.shared.removeFromList(room)
                     }
                     editMode = .inactive
                 }
@@ -265,24 +235,7 @@ struct ChatListView: View {
                 Text("This permanently deletes every message in this chat from this device. This cannot be undone.")
             }
 
-        let withGroupRowDeleteAlert = withRowDeleteAlert
-            .alert(
-                "Delete Group?",
-                isPresented: Binding(
-                    get: { rowDeleteGroup != nil },
-                    set: { if !$0 { rowDeleteGroup = nil } }
-                ),
-                presenting: rowDeleteGroup
-            ) { group in
-                Button("Delete", role: .destructive) {
-                    deleteGroups([group])
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: { _ in
-                Text("This removes this group and its messages from this device. This cannot be undone, and other members won't be notified.")
-            }
-
-        return withGroupRowDeleteAlert
+        return withRowDeleteAlert
             .environment(\EnvironmentValues.editMode, $editMode)
     }
 
@@ -291,6 +244,9 @@ struct ChatListView: View {
         if let group = selectedGroup {
             GroupChatDetailView(group: group, onDeleted: { selectedGroup = nil })
                 .id(group.id)
+        } else if let room = selectedPublicRoom {
+            PublicChatChannelView(channelName: room)
+                .id(room)
         } else if let contact = selectedContact {
             ChatDetailView(contact: contact, startInPaymentMode: selectedContactStartInPaymentMode)
                 .id(contact.id)
@@ -301,40 +257,27 @@ struct ChatListView: View {
 
     @ViewBuilder
     private var chatListContent: some View {
-        VStack(spacing: 0) {
-            chatsTopTabBar
-                // The whole tab-bar strip is swipeable left/right - no row gestures up here to
-                // fight with.
-                .contentShape(Rectangle())
-                .gesture(listTabSwipe())
-            // A REAL page-style TabView (same as the KaPosts feeds): interactive, finger-
-            // tracked paging in both directions - far smoother than the transition-based slide
-            // this replaced. Safe now that rows have no swipe actions to fight with (delete/
-            // read live in Select mode). Edit mode pins the page via editModeLockedTab.
-            TabView(selection: $selectedListTab) {
-                chatsTabContent
-                    .tag(ChatsListTab.chats)
-                groupsTabContent
-                    .tag(ChatsListTab.groups)
-                // The public chat rooms screen, whole, as the third page. Its room selection is
-                // ours: the destination has to be declared outside this (lazy) TabView.
-                PublicChatListView(embeddedInChats: true, selection: $selectedPublicRoom, roomSelection: $selectedPublicRooms)
-                    .tag(ChatsListTab.publicChats)
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+        // One list: the chats, with the group chats and public rooms as circles above them
+        // (`ChatCirclesStrip`). The three-tab paging layout is gone.
+        chatsTabContent
+        .onReceive(NotificationCenter.default.publisher(for: .openPublicChat)) { notification in
+            guard let channel = notification.userInfo?["channel"] as? String else { return }
+            openRoomFromHandoff(channel)
         }
-        // A public chat notification or a shared room link lands on this tab; the rooms screen
-        // itself opens the room once it is showing.
-        .onReceive(NotificationCenter.default.publisher(for: .openPublicChat)) { _ in
-            withAnimation(.easeInOut(duration: 0.2)) { selectedListTab = .publicChats }
+        .onReceive(PublicChatService.shared.$pendingPublicChatNavigation) { pending in
+            guard let pending else { return }
+            PublicChatService.shared.pendingPublicChatNavigation = nil
+            openRoomFromHandoff(pending)
         }
         .onAppear {
-            if PublicChatService.shared.pendingPublicChatNavigation != nil {
-                selectedListTab = .publicChats
-            }
+            // The curated rooms always have store rows, so their circles and bell state exist.
+            PublicChatService.shared.ensureFeaturedChannelsJoined()
+            PublicChatService.shared.refreshChannels()
             // Cold start from a profile link.
             if chatService.pendingProfileAddress != nil { openPendingProfile() }
         }
+        .onChange(of: walletManager.currentWallet?.publicAddress) { _ in loadCirclePins() }
+        .onAppear { loadCirclePins() }
         .safeAreaInset(edge: .bottom) {
             if editMode == .active {
                 selectionActionBar
@@ -386,16 +329,6 @@ struct ChatListView: View {
                 selectedContactIDs = []
                 selectedGroupIDs = []
                 selectedPublicRooms = []
-                editModeLockedTab = nil
-            } else if newValue == .active {
-                editModeLockedTab = selectedListTab
-            }
-        }
-        .onChange(of: selectedListTab) { newValue in
-            // Selection mode is scoped to the list it started on (see chatsTabButton) - a page
-            // swipe mid-select snaps back to the locked page.
-            if let locked = editModeLockedTab, newValue != locked {
-                selectedListTab = locked
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
@@ -503,7 +436,6 @@ struct ChatListView: View {
     private func openPendingProfile() {
         guard let address = chatService.pendingProfileAddress else { return }
         chatService.pendingProfileAddress = nil
-        selectedListTab = .chats
         let contact = walletManager.currentWallet?.publicAddress.lowercased() == address.lowercased()
             ? Contact(address: address)
             : (contactsManager.getContact(byAddress: address) ?? contactsManager.getOrCreateContact(address: address))
@@ -547,8 +479,9 @@ struct ChatListView: View {
         guard let groupId = notification.userInfo?["groupId"] as? String, !groupId.isEmpty else {
             // Group notification with no group to open (the undecryptable-push fallback, thread
             // id "group") - show the Groups list, which is as specific as that tap can get.
+            // Group notification with nothing to open: the circles row on the chat list is as
+            // specific as that tap can get.
             groupChatService.pendingGroupListNavigation = false
-            selectedListTab = .groups
             return
         }
         navigateToGroup(groupId: groupId)
@@ -557,7 +490,6 @@ struct ChatListView: View {
     private func checkPendingGroupListNavigation() {
         guard groupChatService.pendingGroupListNavigation else { return }
         groupChatService.pendingGroupListNavigation = false
-        selectedListTab = .groups
     }
 
     private func checkPendingGroupNavigation() {
@@ -573,8 +505,8 @@ struct ChatListView: View {
 
     private func navigateToGroup(groupId: String) {
         guard let target = groupChatService.groups.first(where: { $0.id == groupId }) else { return }
-        selectedListTab = .groups
         selectedContact = nil
+        selectedPublicRoom = nil
         selectedGroup = target
     }
 
@@ -589,8 +521,6 @@ struct ChatListView: View {
             contact = nil
         }
         guard let target = contact else { return }
-
-        selectedListTab = .chats
 
         if shouldUseSplitLayout {
             selectedContactStartInPaymentMode = startInPaymentMode
@@ -642,14 +572,12 @@ struct ChatListView: View {
                         selectedContactStartInPaymentMode = false
                         selectedGroup = nil
                         selectedContact = contact
-                        selectedListTab = .chats
                         showCreateSheet = false
                     },
                     onCreateGroup: { group in
                         selectedContactStartInPaymentMode = false
                         selectedContact = nil
                         selectedGroup = group
-                        selectedListTab = .groups
                         showCreateSheet = false
                     },
                     onCancel: {
@@ -796,8 +724,7 @@ struct ChatListView: View {
         }
         Haptics.success()
         showCreateSheet = false
-        selectedListTab = .publicChats
-        selectedPublicRoom = normalized
+        openRoom(normalized)
     }
 
     /// The menu and the room name share this one height, so moving between them is a plain push.
@@ -862,87 +789,12 @@ struct ChatListView: View {
         .background(Color(UIColor.systemBackground))
     }
 
-    /// Underline-style tab bar (bold labels, teal indicator bar under the selected tab) - same
-    /// visual language as the app's other underline tab bars. Tap-only (see `chatListContent`).
-    /// inside the Chats tab's own list (see `chatsTabContent`), matching its original
-    /// placement/behavior (a pushed screen reached from a chat-like row, not a tab).
-    private var chatsTopTabBar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                chatsTabButton("Chats", tab: .chats)
-                chatsTabButton("Group Chats", tab: .groups)
-                chatsTabButton("Public Chats", tab: .publicChats)
-            }
-            Divider()
-        }
-    }
-
-    /// Horizontal swipe that switches the Chats/Groups tab - attached to the tab bar and the
-    /// full list surface alike.
-    private func listTabSwipe() -> some Gesture {
-        DragGesture(minimumDistance: 25, coordinateSpace: .global)
-            .onEnded { value in
-                guard editMode != .active else { return }
-                let dx = value.translation.width
-                let dy = value.translation.height
-                // Decisively horizontal only, so vertical list scrolling never trips it.
-                guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    let tabs = ChatsListTab.allCases
-                    guard let index = tabs.firstIndex(of: selectedListTab) else { return }
-                    if dx < 0, index + 1 < tabs.count {
-                        selectedListTab = tabs[index + 1]
-                    } else if dx > 0, index > 0 {
-                        selectedListTab = tabs[index - 1]
-                    }
-                }
-            }
-    }
-
-    private func chatsTabButton(_ title: String, tab: ChatsListTab) -> some View {
-        let isSelected = selectedListTab == tab
-        // Selection mode is scoped to whichever list it was started on - switching tabs mid-select
-        // would either strand a selection the visible list can't act on, or silently blend Chats
-        // and Group Chats selections together, so the other tab is inert while editing.
-        let isSwitchBlocked = editMode == .active && !isSelected
-        return Button {
-            guard !isSwitchBlocked else { return }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                selectedListTab = tab
-            }
-        } label: {
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Text(title)
-                        .font(.subheadline.weight(.bold))
-                        .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(isSwitchBlocked ? 0.25 : 0.5))
-
-                    switch tab {
-                    case .chats:
-                        ChatsTabUnreadBadge(count: chatService.conversations.reduce(0) { $0 + $1.unreadCount })
-                    case .groups:
-                        ChatsTabUnreadBadge(count: groupChatService.totalGroupUnreadCount)
-                    case .publicChats:
-                        PublicChatsUnreadBadge()
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 12)
-
-                Rectangle()
-                    .fill(isSelected ? Color.accentColor : Color.clear)
-                    .frame(height: 2.5)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
     /// Most recent activity first, matching chatsTabContent's identical sort for 1:1
     /// (refreshFilteredConversations) - falls back to createdAt for a group with no messages
     /// yet, so a brand-new empty group still sorts by when it was added/joined - then filtered
     /// by search, matching refreshFilteredConversations' match fields (alias/address/message
     /// content): group name, each member's alias-or-address, and message content. Shared by
-    /// groupsTabContent and the toolbar's Select All so both agree on what's "visible."
+    /// the toolbar's Select All and the delete/read actions so they agree on what's "visible."
     private var displayedGroups: [GroupChat] {
         // Decorate-sort-undecorate, like refreshFilteredConversations: the key is computed once
         // per group rather than once per comparison (the old comparator mapped+maxed the whole
@@ -978,78 +830,71 @@ struct ChatListView: View {
         }
     }
 
-    private var groupsTabContent: some View {
-        let groups = displayedGroups
-        return List(selection: $selectedGroupIDs) {
-            if !groups.isEmpty {
-                ForEach(groups) { group in
-                    Button {
-                        // Same reasoning as chatsTabContent's row Button: our own Button label
-                        // consumes the tap before List(selection:)'s native edit-mode row-selection
-                        // UI ever sees it, so selection is toggled explicitly here instead.
-                        if editMode == .active {
-                            if selectedGroupIDs.contains(group.id) {
-                                selectedGroupIDs.remove(group.id)
-                            } else {
-                                selectedGroupIDs.insert(group.id)
-                            }
-                        } else {
-                            selectedContact = nil
-                            selectedGroup = group
-                        }
-                    } label: {
-                        GroupChatRow(group: group)
-                    }
-                    .buttonStyle(ChatRowPressStyle())
-                    // See the conversation row: a Button label needs simultaneousGesture.
-                    .simultaneousGesture(
-                        LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-                            guard editMode != .active else { return }
-                            Haptics.impact(.medium)
-                            groupActionTarget = group
-                        }
-                    )
-                    .tag(group.id)
-                    .listRowBackground(
-                        shouldUseSplitLayout && selectedGroup?.id == group.id
-                            ? Color.accentColor.opacity(0.14)
-                            : Color.clear
-                    )
-                }
-
-                Text("\(groups.count) group\(groups.count == 1 ? "" : "s")")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-        }
-        .listStyle(.plain)
-        .overlay {
-            if groups.isEmpty && searchText.isEmpty {
-                groupsEmptyStateView
-            }
-        }
+    /// The public rooms the circles show, filtered by the search like `displayedGroups`. Read
+    /// without observing (see `publicChats`) - for Select All and the action bar.
+    private var displayedRooms: [PublicChatChannel] {
+        let rooms = PublicChatService.shared.listedChannels
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return rooms }
+        return rooms.filter { $0.channelName.range(of: query, options: .caseInsensitive) != nil }
     }
 
-    private var groupsEmptyStateView: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "person.3")
-                .font(.scaled(size: 60))
-                .foregroundColor(.secondary)
+    private var isEverythingSelected: Bool {
+        let total = filteredConversationsCache.count + displayedGroups.count + displayedRooms.count
+        let selected = selectedContactIDs.count + selectedGroupIDs.count + selectedPublicRooms.count
+        return total > 0 && selected >= total
+    }
 
-            Text("No Group Chats Yet")
-                .font(.title2)
-                .fontWeight(.semibold)
+    private var selectionCount: Int {
+        selectedContactIDs.count + selectedGroupIDs.count + selectedPublicRooms.count
+    }
 
-            Text("Start a new group from the add-chat button")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
+    // MARK: - Circles (group chats and public rooms)
+
+    private func openGroupFromCircle(_ group: GroupChat) {
+        selectedContact = nil
+        selectedPublicRoom = nil
+        selectedGroup = group
+    }
+
+    private func openRoom(_ name: String) {
+        selectedContact = nil
+        selectedGroup = nil
+        selectedPublicRoom = name
+    }
+
+    /// A room handed over from outside: a tapped notification or a shared room link. The name is
+    /// re-validated (a link's is attacker-controlled), and a room with no store row gets one
+    /// first, so it opens with its circle already in the row behind it.
+    private func openRoomFromHandoff(_ rawName: String) {
+        guard let normalized = KaChatInternalLink.normalizeAndValidateChannel(rawName) else { return }
+        if !PublicChatService.shared.channels.contains(where: { $0.channelName == normalized }) {
+            PublicChatService.shared.joinChannel(normalized)
         }
-        .padding()
+        openRoom(normalized)
+    }
+
+    private var circlePinsKey: String? {
+        guard let address = walletManager.currentWallet?.publicAddress.lowercased() else { return nil }
+        return "kachat_chat_circle_pins_\(address)"
+    }
+
+    private func loadCirclePins() {
+        guard let key = circlePinsKey else { circlePins = []; return }
+        circlePins = UserDefaults.standard.stringArray(forKey: key) ?? []
+    }
+
+    /// Hold a circle: pin it to the front (newest pin first), or unpin it.
+    private func toggleCirclePin(_ id: String) {
+        Haptics.impact(.medium)
+        if let index = circlePins.firstIndex(of: id) {
+            circlePins.remove(at: index)
+            showToast(AppLocalization.string("Unpinned"))
+        } else {
+            circlePins.insert(id, at: 0)
+            showToast(AppLocalization.string("Pinned to the front"))
+        }
+        if let key = circlePinsKey { UserDefaults.standard.set(circlePins, forKey: key) }
     }
 
     private var chatsTabContent: some View {
@@ -1066,6 +911,20 @@ struct ChatListView: View {
         let showsRequestsRow = searchText.isEmpty && editMode != .active
         let requestCount = showsRequestsRow ? chatService.messageRequests.count : 0
         return List(selection: $selectedContactIDs) {
+            // Group chats and public rooms, as circles under the search bar - swipe sideways for
+            // all of them. Tap opens, hold pins to the front, Select mode selects them too.
+            ChatCirclesStrip(
+                searchText: searchText,
+                pins: circlePins,
+                selectedGroupIDs: $selectedGroupIDs,
+                selectedRooms: $selectedPublicRooms,
+                onOpenGroup: openGroupFromCircle,
+                onOpenRoom: openRoom,
+                onTogglePin: toggleCirclePin
+            )
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
             // People who wrote first and haven't been accepted - one row, always there, right
             // above your own chat (NO_HANDSHAKE_MESSAGING.md).
             if showsRequestsRow {
@@ -1138,107 +997,56 @@ struct ChatListView: View {
             }
         }
         .listStyle(.plain)
-        .overlay {
-            // Rendered as an overlay rather than a List row so it can center properly over the
-            // whole list area instead of being subject to List's row/separator layout.
+        .overlay(alignment: .center) {
+            // Below the circles row rather than over it: only when there are no chats at all.
             if displayed.isEmpty && searchText.isEmpty {
                 emptyStateView
+                    .padding(.top, 120)
+                    .allowsHitTesting(false)
             }
         }
     }
 
+    /// Mark read, mark unread and delete, for everything selected: chats, group circles and room
+    /// circles alike.
     private var selectionActionBar: some View {
         VStack(spacing: 0) {
             Divider()
             HStack(spacing: 12) {
-                if selectedListTab == .chats {
-                    Button {
-                        let targets = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
-                        Task {
-                            await chatService.markConversationsAsRead(targets)
-                        }
-                        editMode = .inactive
-                    } label: {
-                        Image(systemName: "envelope.open")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedContactIDs.isEmpty)
-
-                    Button {
-                        let targets = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
-                        chatService.markConversationsAsUnread(targets)
-                        editMode = .inactive
-                    } label: {
-                        Image(systemName: "envelope.badge")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedContactIDs.isEmpty)
-
-                    Button(role: .destructive) {
-                        showBulkDeleteConfirmation = true
-                    } label: {
-                        Image(systemName: "trash")
-                            .foregroundColor(.red)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedContactIDs.isEmpty)
-                } else if selectedListTab == .publicChats {
-                    Button {
-                        for room in selectedPublicRooms { publicChats.markChannelRead(room) }
-                        editMode = .inactive
-                    } label: {
-                        Image(systemName: "envelope.open")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedPublicRooms.isEmpty)
-
-                    Button {
-                        for room in selectedPublicRooms { publicChats.markChannelUnread(room) }
-                        editMode = .inactive
-                    } label: {
-                        Image(systemName: "envelope.badge")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedPublicRooms.isEmpty)
-
-                    Button(role: .destructive) {
-                        showBulkDeleteConfirmation = true
-                    } label: {
-                        Image(systemName: "trash")
-                            .foregroundColor(.red)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedPublicRooms.isEmpty)
-                } else {
-                    Button {
-                        let targets = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
-                        groupChatService.markGroupsAsRead(targets)
-                        editMode = .inactive
-                    } label: {
-                        Image(systemName: "envelope.open")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedGroupIDs.isEmpty)
-
-                    Button {
-                        let targets = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
-                        groupChatService.markGroupsAsUnread(targets)
-                        editMode = .inactive
-                    } label: {
-                        Image(systemName: "envelope.badge")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedGroupIDs.isEmpty)
-
-                    Button(role: .destructive) {
-                        showBulkDeleteConfirmation = true
-                    } label: {
-                        Image(systemName: "trash")
-                            .foregroundColor(.red)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(selectedGroupIDs.isEmpty)
+                Button {
+                    let chats = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
+                    let groups = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
+                    if !groups.isEmpty { groupChatService.markGroupsAsRead(groups) }
+                    for room in selectedPublicRooms { PublicChatService.shared.markChannelRead(room) }
+                    if !chats.isEmpty { Task { await chatService.markConversationsAsRead(chats) } }
+                    editMode = .inactive
+                } label: {
+                    Image(systemName: "envelope.open")
+                        .frame(maxWidth: .infinity)
                 }
+                .disabled(selectionCount == 0)
+
+                Button {
+                    let chats = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
+                    let groups = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
+                    if !chats.isEmpty { chatService.markConversationsAsUnread(chats) }
+                    if !groups.isEmpty { groupChatService.markGroupsAsUnread(groups) }
+                    for room in selectedPublicRooms { PublicChatService.shared.markChannelUnread(room) }
+                    editMode = .inactive
+                } label: {
+                    Image(systemName: "envelope.badge")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(selectionCount == 0)
+
+                Button(role: .destructive) {
+                    showBulkDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(selectionCount == 0)
             }
             .font(.scaled(size: 18))
             .buttonStyle(.bordered)
@@ -1415,24 +1223,29 @@ struct ChatListView: View {
     /// nested inside string interpolation there was making the compiler unable to type-check the
     /// `.alert` expression in reasonable time.
     private var bulkDeleteAlertTitle: String {
-        if selectedListTab == .chats {
-            return "Delete \(selectedContactIDs.count) Chat\(selectedContactIDs.count == 1 ? "" : "s")?"
-        } else if selectedListTab == .groups {
-            return "Delete \(selectedGroupIDs.count) Group\(selectedGroupIDs.count == 1 ? "" : "s")?"
-        } else {
-            return "Delete \(selectedPublicRooms.count) Public Chat\(selectedPublicRooms.count == 1 ? "" : "s")?"
+        let chats = selectedContactIDs.count, groups = selectedGroupIDs.count, rooms = selectedPublicRooms.count
+        if groups == 0 && rooms == 0 {
+            return "Delete \(chats) Chat\(chats == 1 ? "" : "s")?"
+        } else if chats == 0 && rooms == 0 {
+            return "Delete \(groups) Group\(groups == 1 ? "" : "s")?"
+        } else if chats == 0 && groups == 0 {
+            return "Delete \(rooms) Public Chat\(rooms == 1 ? "" : "s")?"
         }
+        return "Delete \(chats + groups + rooms) Selected?"
     }
 
     private var bulkDeleteAlertMessage: String {
-        switch selectedListTab {
-        case .chats:
-            return "This permanently deletes every message in each selected chat from this device. This cannot be undone."
-        case .groups:
-            return "This removes each selected group and its messages from this device. This cannot be undone, and other members won't be notified."
-        case .publicChats:
-            return "Rooms you added are removed with their messages. Default rooms are only switched off - turn them back on any time in Public Chats settings (the gear)."
+        var parts: [String] = []
+        if !selectedContactIDs.isEmpty {
+            parts.append(AppLocalization.string("This permanently deletes every message in each selected chat from this device. This cannot be undone."))
         }
+        if !selectedGroupIDs.isEmpty {
+            parts.append(AppLocalization.string("This removes each selected group and its messages from this device. This cannot be undone, and other members won't be notified."))
+        }
+        if !selectedPublicRooms.isEmpty {
+            parts.append(AppLocalization.string("Rooms you added are removed with their messages. Default rooms are only switched off - turn them back on any time in Public Chats settings (the gear)."))
+        }
+        return parts.joined(separator: "\n\n")
     }
 
     /// Long-press context menu for a 1:1 conversation row. Read/Unread show contextually (the
@@ -1510,67 +1323,6 @@ struct ChatListView: View {
         var updated = contact
         updated.notificationModeOverride = silent ? .off : nil
         contactsManager.updateContact(updated)
-    }
-
-    /// Group-row counterpart to `conversationRowMenu` - same three actions on the group's own
-    /// `groupLastReadAt` badge mechanism and delete flow.
-    private func groupRowSheet(for group: GroupChat) -> some View {
-        let isSilent = groupChatService.silentNotifications(for: group.id)
-        return VStack(spacing: 12) {
-            Text(group.name)
-                .font(.headline)
-                .lineLimit(1)
-                .padding(.top, 20)
-                .padding(.bottom, 4)
-
-            if groupChatService.unreadCount(for: group) > 0 {
-                ActionSheetRow(
-                    title: "Mark as Read",
-                    subtitle: "Clears the unread badge on this group.",
-                    systemImage: "envelope.open"
-                ) {
-                    groupActionTarget = nil
-                    groupChatService.markGroupAsRead(group.id)
-                }
-            } else {
-                ActionSheetRow(
-                    title: "Mark as Unread",
-                    subtitle: "Puts the unread badge back so you come across it again.",
-                    systemImage: "envelope.badge"
-                ) {
-                    groupActionTarget = nil
-                    groupChatService.markGroupAsUnread(group.id)
-                }
-            }
-
-            ActionSheetRow(
-                title: isSilent ? "Unsilence" : "Silence",
-                subtitle: isSilent
-                    ? "Notifications from this group resume, including mentions."
-                    : "No notification from this group, mentions included.",
-                systemImage: isSilent ? "bell" : "bell.slash"
-            ) {
-                groupActionTarget = nil
-                groupChatService.setSilentNotifications(!isSilent, for: group.id)
-            }
-
-            ActionSheetRow(
-                title: "Delete",
-                subtitle: "Removes this group and its messages from this device.",
-                systemImage: "trash",
-                tint: .red
-            ) {
-                groupActionTarget = nil
-                DispatchQueue.main.async { rowDeleteGroup = group }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(400)])
-        .presentationDragIndicator(.visible)
     }
 
     /// Shared delete path for both Select-mode bulk deletes and single-row context-menu deletes
@@ -2099,6 +1851,18 @@ struct GroupChatRow: View {
         return cache
     }()
 
+    /// The decoded group photo, cached - shared with the circles row.
+    static func cachedPhoto(groupId: String, hex: String?) -> UIImage? {
+        guard let hex else { return nil }
+        let cacheKey = "\(groupId)|\(hex.count)|\(hex.suffix(256).hashValue)" as NSString
+        if let cached = groupPhotoCache.object(forKey: cacheKey) {
+            return cached
+        }
+        guard let data = Data(hexString: hex), let image = UIImage(data: data) else { return nil }
+        groupPhotoCache.setObject(image, forKey: cacheKey)
+        return image
+    }
+
     private var groupPhotoImage: UIImage? {
         guard let hex = groupChatService.groupPhotos[group.id] else { return nil }
         let cacheKey = "\(group.id)|\(hex.count)|\(hex.suffix(256).hashValue)" as NSString
@@ -2208,7 +1972,7 @@ struct GroupChatRow: View {
         .environmentObject(WalletManager.shared)
 }
 
-/// The red count beside a Chats / Group Chats / Public Chats page title.
+/// The red unread count - on the group and room circles.
 private struct ChatsTabUnreadBadge: View {
     let count: Int
 
@@ -2224,13 +1988,192 @@ private struct ChatsTabUnreadBadge: View {
     }
 }
 
-/// The Public Chats page's badge, observing `PublicChatService` on its own so room traffic
-/// re-renders this badge rather than the whole chat list.
-private struct PublicChatsUnreadBadge: View {
+/// Group chats and public rooms as a row of circles above the chats list, under the search bar.
+/// Swipe sideways for all of them. Pinned ones come first (in pin order), then the rest by latest
+/// activity. Tap opens; hold pins to the front or unpins; in Select mode a tap selects, for the
+/// list's mark read / unread / delete bar. Observes the room and group services itself, so room
+/// traffic re-renders this row rather than the whole chat list.
+private struct ChatCirclesStrip: View {
+    @EnvironmentObject private var groupChatService: GroupChatService
     @ObservedObject private var publicChats = PublicChatService.shared
+    @Environment(\.editMode) private var editMode
+    let searchText: String
+    let pins: [String]
+    @Binding var selectedGroupIDs: Set<String>
+    @Binding var selectedRooms: Set<String>
+    let onOpenGroup: (GroupChat) -> Void
+    let onOpenRoom: (String) -> Void
+    let onTogglePin: (String) -> Void
+
+    private enum Item: Identifiable {
+        case group(GroupChat)
+        case room(PublicChatChannel)
+
+        var id: String {
+            switch self {
+            case .group(let group): return "g:\(group.id)"
+            case .room(let room): return "r:\(room.channelName)"
+            }
+        }
+    }
+
+    private var isSelecting: Bool { editMode?.wrappedValue == .active }
+
+    private var items: [Item] {
+        let groupMessages = groupChatService.groupMessages
+        var dated: [(item: Item, at: Date)] = groupChatService.groups.map { group in
+            (.group(group), groupMessages[group.id]?.last?.timestamp ?? group.createdAt)
+        }
+        dated += publicChats.listedChannels.map { room in
+            let last = publicChats.messages(forChannel: room.channelName).last?.blockTime
+            let at = last.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) } ?? (room.joinedAt ?? .distantPast)
+            return (.room(room), at)
+        }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            dated = dated.filter { title(of: $0.item).range(of: query, options: .caseInsensitive) != nil }
+        }
+        let byId = Dictionary(dated.map { ($0.item.id, $0.item) }, uniquingKeysWith: { a, _ in a })
+        let pinned = pins.compactMap { byId[$0] }
+        let pinnedIds = Set(pinned.map(\.id))
+        let rest = dated.filter { !pinnedIds.contains($0.item.id) }.sorted { $0.at > $1.at }.map(\.item)
+        return pinned + rest
+    }
 
     var body: some View {
-        ChatsTabUnreadBadge(count: publicChats.totalUnreadCount)
+        let items = items
+        if items.isEmpty {
+            Color.clear.frame(height: 1)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(items) { item in
+                        circle(item)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+        }
+    }
+
+    private func title(of item: Item) -> String {
+        switch item {
+        case .group(let group): return group.name
+        case .room(let room): return "#\(room.channelName)"
+        }
+    }
+
+    private func unread(of item: Item) -> Int {
+        switch item {
+        case .group(let group): return groupChatService.unreadCount(for: group)
+        case .room(let room): return publicChats.unreadCount(forChannel: room.channelName)
+        }
+    }
+
+    private func isSelected(_ item: Item) -> Bool {
+        switch item {
+        case .group(let group): return selectedGroupIDs.contains(group.id)
+        case .room(let room): return selectedRooms.contains(room.channelName)
+        }
+    }
+
+    private func toggleSelection(_ item: Item) {
+        switch item {
+        case .group(let group):
+            if selectedGroupIDs.contains(group.id) { selectedGroupIDs.remove(group.id) } else { selectedGroupIDs.insert(group.id) }
+        case .room(let room):
+            if selectedRooms.contains(room.channelName) { selectedRooms.remove(room.channelName) } else { selectedRooms.insert(room.channelName) }
+        }
+    }
+
+    @ViewBuilder
+    private func avatar(_ item: Item) -> some View {
+        switch item {
+        case .group(let group):
+            if let image = GroupChatRow.cachedPhoto(groupId: group.id, hex: groupChatService.groupPhotos[group.id]) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.2))
+                    .overlay(
+                        Image(systemName: "person.3.fill")
+                            .font(.scaled(size: 18))
+                            .foregroundColor(.accentColor)
+                    )
+            }
+        case .room:
+            Circle()
+                .fill(Color.accentColor.opacity(0.2))
+                .overlay(
+                    Text("#")
+                        .font(.scaled(size: 26, weight: .bold, design: .rounded))
+                        .foregroundColor(.accentColor)
+                )
+        }
+    }
+
+    private func circle(_ item: Item) -> some View {
+        let selected = isSelected(item)
+        let pinned = pins.contains(item.id)
+        let unreadCount = unread(of: item)
+        return Button {
+            if isSelecting {
+                toggleSelection(item)
+            } else {
+                switch item {
+                case .group(let group): onOpenGroup(group)
+                case .room(let room): onOpenRoom(room.channelName)
+                }
+            }
+        } label: {
+            VStack(spacing: 6) {
+                avatar(item)
+                    .frame(width: 60, height: 60)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.accentColor, lineWidth: isSelecting && selected ? 3 : 0))
+                    .opacity(isSelecting && !selected ? 0.55 : 1)
+                    .overlay(alignment: .topTrailing) {
+                        if isSelecting {
+                            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 20))
+                                .foregroundColor(selected ? .accentColor : .secondary)
+                                .background(Circle().fill(Color(.systemBackground)))
+                                .offset(x: 4, y: -4)
+                        } else if unreadCount > 0 {
+                            ChatsTabUnreadBadge(count: unreadCount)
+                                .offset(x: 6, y: -4)
+                        }
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        if pinned && !isSelecting {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(4)
+                                .background(Circle().fill(Color.accentColor))
+                                .offset(x: -2, y: 2)
+                        }
+                    }
+                Text(verbatim: title(of: item))
+                    .font(.caption2)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .frame(width: 68)
+            }
+        }
+        .buttonStyle(.plain)
+        // A Button label needs simultaneousGesture (see the chat rows).
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                guard !isSelecting else { return }
+                onTogglePin(item.id)
+            }
+        )
+        .accessibilityLabel(Text(verbatim: title(of: item)))
+        .accessibilityHint(Text(pinned ? "Hold to unpin" : "Hold to pin to the front"))
     }
 }
 

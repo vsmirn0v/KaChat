@@ -1217,3 +1217,7 @@
 "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or domains." = "一个从未使用过的新地址。发送到这里的 Kaspa 会进入此账户，并计入你的可用余额。与聊天或域名无关的一切都应使用此地址。";
 "This address should be for chatting and domains only. 1 Kaspa is enough for about 500 interactions in the app. Domains cost from 35 to 4,000 Kaspa, depending on the name." = "此地址仅用于聊天和域名。1 Kaspa 足够在应用内进行约 500 次操作。域名价格为 35 至 4,000 Kaspa，取决于名称。";
 "Profiles can be saved once .kachat launches on mainnet." = ".kachat 在主网上线后即可保存个人资料。";
+"Pinned to the front" = "已置顶";
+"Unpinned" = "已取消置顶";
+"Hold to pin to the front" = "长按置顶";
+"Hold to unpin" = "长按取消置顶";
