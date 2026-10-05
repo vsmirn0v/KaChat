@@ -1191,7 +1191,6 @@
 "\"File\" in a chat's + menu opens this folder first." = "«فایل» در منوی + گفتگو ابتدا این پوشه را باز می‌کند.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "در منوی + گفتگو، دوربین، عکس و پیام صوتی هر بار می‌پرسند که روی زنجیره ارسال شود یا از طریق Nextcloud. از طریق Nextcloud، فایل با کیفیت کامل در پوشه %@ این سرور بارگذاری می‌شود و گفتگو یک پیوند اشتراک‌گذاری می‌برد (پیام‌های صوتی تا ۵ دقیقه). پیامِ حاوی پیوند رمزگذاری سرتاسری می‌ماند، اما خود فایل بدون رمزگذاری روی سرور شما ذخیره می‌شود و هر کسی که پیوندِ غیرقابل‌حدس را داشته باشد به آن دسترسی دارد.";
 "to %@" = "به %@";
-"Hold to Send" = "برای ارسال نگه دارید";
 "Add a memo (encrypted)" = "افزودن یادداشت (رمزگذاری‌شده)";
 "Switch between Kaspa and your currency" = "جابه‌جایی بین Kaspa و ارز شما";
 "Send Photo or Video via Nextcloud" = "ارسال عکس یا ویدیو از طریق Nextcloud";
@@ -1221,7 +1220,6 @@
 "Unpinned" = "سنجاق برداشته شد";
 "Hold to pin to the front" = "برای سنجاق کردن به ابتدا نگه دارید";
 "Hold to unpin" = "برای برداشتن سنجاق نگه دارید";
-"Hold to Consolidate" = "برای ادغام نگه دارید";
 "Build Unsigned Transaction" = "ساخت تراکنش امضانشده";
 "Coin Control" = "کنترل کوین";
 "Automatic" = "خودکار";
@@ -1232,3 +1230,5 @@
 "Fast" = "سریع";
 "Priority" = "اولویت‌دار";
 "Resolved: %@" = "پیدا شد: %@";
+"Slide to Send" = "برای ارسال بکشید";
+"Slide to Consolidate" = "برای ادغام بکشید";

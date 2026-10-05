@@ -1192,7 +1192,6 @@
 "\"File\" in a chat's + menu opens this folder first." = "« Fichier » dans le menu + d'un chat ouvre d'abord ce dossier.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "Dans le menu + d'un chat, Appareil photo, Photo et Message vocal demandent s'il faut envoyer on-chain ou via Nextcloud. Via Nextcloud, le fichier est envoyé en qualité maximale dans le dossier %@ de ce serveur et le chat contient un lien de partage (messages vocaux jusqu'à 5 minutes). Le message contenant le lien reste chiffré de bout en bout, mais le fichier lui-même est stocké non chiffré sur votre serveur et accessible à toute personne disposant du lien impossible à deviner.";
 "to %@" = "à %@";
-"Hold to Send" = "Maintenir pour envoyer";
 "Add a memo (encrypted)" = "Ajouter une note (chiffrée)";
 "Switch between Kaspa and your currency" = "Basculer entre Kaspa et votre devise";
 "Send Photo or Video via Nextcloud" = "Envoyer une photo ou une vidéo via Nextcloud";
@@ -1222,7 +1221,6 @@
 "Unpinned" = "Désépinglé";
 "Hold to pin to the front" = "Maintenir pour épingler en tête";
 "Hold to unpin" = "Maintenir pour désépingler";
-"Hold to Consolidate" = "Maintenir pour regrouper";
 "Build Unsigned Transaction" = "Créer la transaction non signée";
 "Coin Control" = "Contrôle des pièces";
 "Automatic" = "Automatique";
@@ -1233,3 +1231,5 @@
 "Fast" = "Rapide";
 "Priority" = "Prioritaire";
 "Resolved: %@" = "Résolu : %@";
+"Slide to Send" = "Glisser pour envoyer";
+"Slide to Consolidate" = "Glisser pour regrouper";

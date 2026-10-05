@@ -1191,7 +1191,6 @@
 "\"File\" in a chat's + menu opens this folder first." = "チャットの＋メニューの「ファイル」は最初にこのフォルダを開きます。";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "チャットの＋メニューでは、カメラ・写真・ボイスメッセージを選ぶたびに、オンチェーンで送るかNextcloudで送るかを尋ねます。Nextcloudの場合、ファイルはこのサーバーの%@フォルダにフル画質でアップロードされ、チャットには共有リンクが送られます（ボイスメッセージは最大5分）。リンクを含むメッセージはエンドツーエンドで暗号化されたままですが、ファイル自体はサーバー上に暗号化されずに保存され、推測できないリンクを知っている人なら誰でもアクセスできます。";
 "to %@" = "%@ へ";
-"Hold to Send" = "長押しで送信";
 "Add a memo (encrypted)" = "メモを追加（暗号化）";
 "Switch between Kaspa and your currency" = "Kaspaと通貨を切り替え";
 "Send Photo or Video via Nextcloud" = "Nextcloudで写真または動画を送信";
@@ -1221,7 +1220,6 @@
 "Unpinned" = "固定を解除しました";
 "Hold to pin to the front" = "長押しで先頭に固定";
 "Hold to unpin" = "長押しで固定を解除";
-"Hold to Consolidate" = "長押しで統合";
 "Build Unsigned Transaction" = "未署名トランザクションを作成";
 "Coin Control" = "コインコントロール";
 "Automatic" = "自動";
@@ -1232,3 +1230,5 @@
 "Fast" = "高速";
 "Priority" = "優先";
 "Resolved: %@" = "解決済み: %@";
+"Slide to Send" = "スライドして送信";
+"Slide to Consolidate" = "スライドして統合";

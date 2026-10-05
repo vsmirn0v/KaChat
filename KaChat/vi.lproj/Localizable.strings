@@ -1191,7 +1191,6 @@
 "\"File\" in a chat's + menu opens this folder first." = "\"Tệp\" trong menu + của cuộc trò chuyện sẽ mở thư mục này trước.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "Trong menu + của cuộc trò chuyện, Máy ảnh, Ảnh và Tin nhắn thoại sẽ hỏi gửi on-chain hay qua Nextcloud. Qua Nextcloud, tệp được tải lên với chất lượng gốc vào thư mục %@ của máy chủ này và cuộc trò chuyện mang một liên kết chia sẻ (tin nhắn thoại tối đa 5 phút). Tin nhắn chứa liên kết vẫn được mã hóa đầu cuối, nhưng bản thân tệp được lưu không mã hóa trên máy chủ của bạn và bất kỳ ai có liên kết không thể đoán này đều truy cập được.";
 "to %@" = "tới %@";
-"Hold to Send" = "Giữ để gửi";
 "Add a memo (encrypted)" = "Thêm ghi chú (đã mã hóa)";
 "Switch between Kaspa and your currency" = "Chuyển giữa Kaspa và tiền tệ của bạn";
 "Send Photo or Video via Nextcloud" = "Gửi ảnh hoặc video qua Nextcloud";
@@ -1221,7 +1220,6 @@
 "Unpinned" = "Đã bỏ ghim";
 "Hold to pin to the front" = "Giữ để ghim lên đầu";
 "Hold to unpin" = "Giữ để bỏ ghim";
-"Hold to Consolidate" = "Giữ để gộp";
 "Build Unsigned Transaction" = "Tạo giao dịch chưa ký";
 "Coin Control" = "Kiểm soát coin";
 "Automatic" = "Tự động";
@@ -1232,3 +1230,5 @@
 "Fast" = "Nhanh";
 "Priority" = "Ưu tiên";
 "Resolved: %@" = "Đã tìm thấy: %@";
+"Slide to Send" = "Trượt để gửi";
+"Slide to Consolidate" = "Trượt để gộp";

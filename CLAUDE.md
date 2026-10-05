@@ -300,7 +300,7 @@ The input bubble is the text field only. Everything else is in the "+" sheet:
   - Paste, drop and share-extension photos go on chain.
 - **Paying:** Pay in Kaspa (and `startInPaymentMode`) opens the Send KAS sheet, not a composer
   mode. It has an exact amount (KAS or fiat, Max), an encrypted memo (the payment payload's
-  note, ≤140 chars, shown in the bubble) and `HoldToSendButton` (0.8 s hold). The sender's
+  note, ≤140 chars, shown in the bubble) and `SendActionButton` (slide to send). The sender's
   bubble keeps the memo from send time, because the memo is encrypted to the recipient and can't
   be read back from the chain.
 - **After paying:** no confirmation sheet. Tapping a payment bubble (sent or received) opens its
@@ -319,7 +319,7 @@ spending address's Send (`SpendingAddressWithdrawView`) and KasSigner's send (`C
 | `KaspaAmountEntry` | The big amount, the KAS / currency switch and Max |
 | `SendFeeControls` | Network fee (tap for a custom one), the speed, and Coin Control |
 | `SendInfoPill` | A small one-line pill (available balance, fee) |
-| `HoldToSendButton` | Hold for 0.8 s to send. `requiresHold: false` makes it a tap, for KasSigner's Build step |
+| `SendActionButton` | Slide the knob to the right end to send. `requiresSlide: false` makes it a tap, for KasSigner's Build step |
 
 Change these pieces rather than one screen, so the screens stay matched.
 

@@ -1424,11 +1424,11 @@ private struct ColdSendFlowView: View {
                 }
 
                 // A tap, not a hold: this only builds the transaction for KasSigner to sign.
-                HoldToSendButton(
+                SendActionButton(
                     title: "Build Unsigned Transaction",
                     isBusy: isBuilding,
                     isEnabled: canBuild,
-                    requiresHold: false,
+                    requiresSlide: false,
                     action: buildTransaction
                 )
             }

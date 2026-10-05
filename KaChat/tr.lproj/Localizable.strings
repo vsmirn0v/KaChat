@@ -1191,7 +1191,6 @@
 "\"File\" in a chat's + menu opens this folder first." = "Bir sohbetin + menüsündeki \"Dosya\" önce bu klasörü açar.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "Bir sohbetin + menüsünde Kamera, Fotoğraf ve Sesli Mesaj, zincir üstü mü yoksa Nextcloud ile mi gönderileceğini sorar. Nextcloud ile dosya tam kalitede bu sunucunun %@ klasörüne yüklenir ve sohbette bir paylaşım bağlantısı yer alır (sesli mesajlar en fazla 5 dakika). Bağlantıyı içeren mesaj uçtan uca şifreli kalır, ancak dosyanın kendisi sunucunuzda şifresiz saklanır ve tahmin edilemeyen bağlantıya sahip herkes tarafından erişilebilir.";
 "to %@" = "%@ kişisine";
-"Hold to Send" = "Göndermek için basılı tut";
 "Add a memo (encrypted)" = "Not ekle (şifreli)";
 "Switch between Kaspa and your currency" = "Kaspa ile para biriminiz arasında geçiş yap";
 "Send Photo or Video via Nextcloud" = "Fotoğraf veya Videoyu Nextcloud ile Gönder";
@@ -1221,7 +1220,6 @@
 "Unpinned" = "Sabitleme kaldırıldı";
 "Hold to pin to the front" = "Başa sabitlemek için basılı tut";
 "Hold to unpin" = "Sabitlemeyi kaldırmak için basılı tut";
-"Hold to Consolidate" = "Birleştirmek için basılı tut";
 "Build Unsigned Transaction" = "İmzasız işlem oluştur";
 "Coin Control" = "Coin kontrolü";
 "Automatic" = "Otomatik";
@@ -1232,3 +1230,5 @@
 "Fast" = "Hızlı";
 "Priority" = "Öncelikli";
 "Resolved: %@" = "Çözümlendi: %@";
+"Slide to Send" = "Göndermek için kaydır";
+"Slide to Consolidate" = "Birleştirmek için kaydır";

@@ -223,7 +223,7 @@ struct ChatDetailView: View {
     @State private var highlightedMessageID: UUID?
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
-    /// The "Send KAS" sheet (amount, encrypted memo, hold to send). It replaced the composer's
+    /// The "Send KAS" sheet (amount, encrypted memo, slide to send). It replaced the composer's
     /// old payment mode; every way into a payment (the "+" sheet, "Pay in Kaspa" elsewhere in
     /// the app, the audio bar's Send KAS) opens it.
     @State private var showPaymentSheet = false
@@ -2902,7 +2902,7 @@ struct ChatDetailView: View {
     }
 
     /// "Send KAS": who it goes to, the exact amount (KAS or fiat), an encrypted memo, the fee
-    /// and available balance, and a hold-to-send button - holding rather than tapping, so a
+    /// and available balance, and a slide-to-send button - sliding rather than tapping, so a
     /// payment can't go out on a stray touch.
     private var paymentSheet: some View {
         VStack(spacing: 18) {
@@ -2940,8 +2940,8 @@ struct ChatDetailView: View {
                     .multilineTextAlignment(.center)
             }
 
-            HoldToSendButton(
-                title: "Hold to Send",
+            SendActionButton(
+                title: "Slide to Send",
                 isBusy: isSending,
                 isEnabled: paymentAmountSompi > 0 && !isSending,
                 action: submitPayment

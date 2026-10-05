@@ -1191,7 +1191,6 @@
 "\"File\" in a chat's + menu opens this folder first." = "\"File\" di menu + chat membuka folder ini terlebih dahulu.";
 "In a chat's + menu, Camera, Photo and Voice Message ask whether to send on chain or via Nextcloud. Via Nextcloud, the file uploads in full quality to this server's %@ folder and the chat carries a share link (voice messages up to 5 minutes). The message with the link stays end-to-end encrypted, but the file itself is stored unencrypted on your server and is reachable by anyone who has the unguessable link." = "Di menu + chat, Kamera, Foto, dan Pesan Suara menanyakan apakah dikirim on-chain atau via Nextcloud. Via Nextcloud, file diunggah dalam kualitas penuh ke folder %@ di server ini dan chat membawa tautan berbagi (pesan suara hingga 5 menit). Pesan berisi tautan tetap terenkripsi end-to-end, tetapi file itu sendiri disimpan tanpa enkripsi di server Anda dan dapat diakses siapa saja yang memiliki tautan yang tak bisa ditebak itu.";
 "to %@" = "ke %@";
-"Hold to Send" = "Tahan untuk Mengirim";
 "Add a memo (encrypted)" = "Tambahkan catatan (terenkripsi)";
 "Switch between Kaspa and your currency" = "Beralih antara Kaspa dan mata uang Anda";
 "Send Photo or Video via Nextcloud" = "Kirim Foto atau Video via Nextcloud";
@@ -1221,7 +1220,6 @@
 "Unpinned" = "Sematan dilepas";
 "Hold to pin to the front" = "Tahan untuk menyematkan di depan";
 "Hold to unpin" = "Tahan untuk melepas sematan";
-"Hold to Consolidate" = "Tahan untuk menggabungkan";
 "Build Unsigned Transaction" = "Buat transaksi tanpa tanda tangan";
 "Coin Control" = "Kontrol koin";
 "Automatic" = "Otomatis";
@@ -1232,3 +1230,5 @@
 "Fast" = "Cepat";
 "Priority" = "Prioritas";
 "Resolved: %@" = "Ditemukan: %@";
+"Slide to Send" = "Geser untuk mengirim";
+"Slide to Consolidate" = "Geser untuk menggabungkan";

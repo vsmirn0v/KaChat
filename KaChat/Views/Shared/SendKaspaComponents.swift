@@ -4,7 +4,7 @@ import UIKit
 // The pieces every Send Kaspa screen is built from, so they look and behave the same: the 1:1
 // chat's Send KAS sheet, Profile's Send Kaspa, a spending address's Send, and KasSigner's send.
 // Recipient on top (paste, scan a QR, names resolve), then the big amount (KAS or your currency,
-// Max), the fee and balance, the fee speed and coin control, and a hold-to-send button.
+// Max), the fee and balance, the fee speed and coin control, and a slide-to-send button.
 
 /// The frosted card the Send Kaspa pieces sit on.
 func sendKaspaGlass(cornerRadius: CGFloat) -> some View {
@@ -325,72 +325,132 @@ struct SendInfoPill<Content: View>: View {
 
 // MARK: - Send button
 
-/// The send button. It fires only after a press is held (0.8 s): the fill sweeps across while
-/// holding and resets if released early, so a payment can't go out on a stray touch. VoiceOver
-/// gets a plain activate action. With `requiresHold: false` it's an ordinary tap in the same look
-/// (KasSigner's "Build Unsigned Transaction", which moves nothing by itself).
-struct HoldToSendButton: View {
+/// The send button: slide the knob to the right end to send, so a payment can't go out on a
+/// stray touch. Letting go before the end springs it back; after a send that didn't go through
+/// (an error, the small-amount question) it resets by itself. VoiceOver gets a plain activate
+/// action. With `requiresSlide: false` it's an ordinary tap in the same look (KasSigner's "Build
+/// Unsigned Transaction", which moves nothing by itself).
+struct SendActionButton: View {
     let title: LocalizedStringKey
     let isBusy: Bool
     let isEnabled: Bool
-    var requiresHold = true
+    var requiresSlide = true
     let action: () -> Void
 
-    @State private var progress: CGFloat = 0
-    private let holdDuration: Double = 0.8
+    @State private var offset: CGFloat = 0
+    @State private var reachedEnd = false
+    private let height: CGFloat = 56
+    private let inset: CGFloat = 4
+
+    private var active: Bool { isEnabled && !isBusy }
 
     var body: some View {
-        let label = ZStack(alignment: .leading) {
-            Capsule()
-                .fill(Color.accentColor.opacity(isEnabled || isBusy ? 1 : 0.4))
-            GeometryReader { geometry in
-                Capsule()
-                    .fill(Color.white.opacity(0.28))
-                    .frame(width: geometry.size.width * progress)
-            }
-            HStack(spacing: 8) {
-                if isBusy {
-                    ProgressView().tint(.black)
-                } else {
-                    Text(title).font(.headline)
-                }
-            }
-            .foregroundColor(.black)
-            .frame(maxWidth: .infinity)
-        }
-        .frame(height: 56)
-        .clipShape(Capsule())
-        .contentShape(Capsule())
-
         Group {
-            if requiresHold {
-                label
-                    .onLongPressGesture(minimumDuration: holdDuration, maximumDistance: 40, perform: {
-                        guard isEnabled, !isBusy else { return }
-                        action()
-                    }, onPressingChanged: { pressing in
-                        guard isEnabled, !isBusy else { return }
-                        if pressing {
-                            Haptics.impact(.light)
-                            withAnimation(.linear(duration: holdDuration)) { progress = 1 }
-                        } else {
-                            withAnimation(.easeOut(duration: 0.2)) { progress = 0 }
-                        }
-                    })
+            if requiresSlide {
+                slider
             } else {
-                label
+                track(progress: 0)
+                    .overlay {
+                        label.frame(maxWidth: .infinity)
+                    }
                     .onTapGesture {
-                        guard isEnabled, !isBusy else { return }
+                        guard active else { return }
                         action()
                     }
             }
         }
+        .frame(height: height)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
-            guard isEnabled, !isBusy else { return }
+            guard active else { return }
             action()
         }
+        .onChange(of: isBusy) { busy in
+            if !busy { reset() }
+        }
+    }
+
+    private var slider: some View {
+        GeometryReader { geometry in
+            let knob = height - inset * 2
+            let maxOffset = max(1, geometry.size.width - knob - inset * 2)
+            let progress = min(1, offset / maxOffset)
+            ZStack(alignment: .leading) {
+                track(progress: progress, knob: knob)
+                label
+                    .opacity(isBusy ? 1 : Double(1 - progress))
+                    .frame(maxWidth: .infinity)
+                if !isBusy {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: knob, height: knob)
+                        .overlay(
+                            Image(systemName: "chevron.right.2")
+                                .font(.headline.weight(.bold))
+                                .foregroundColor(Color.accentColor)
+                        )
+                        .shadow(color: Color.black.opacity(0.15), radius: 4, x: 0, y: 2)
+                        .offset(x: inset + offset)
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    guard active else { return }
+                                    if offset == 0 && value.translation.width > 0 { Haptics.impact(.light) }
+                                    offset = min(max(0, value.translation.width), maxOffset)
+                                    if offset >= maxOffset && !reachedEnd {
+                                        reachedEnd = true
+                                        Haptics.impact(.medium)
+                                    } else if offset < maxOffset {
+                                        reachedEnd = false
+                                    }
+                                }
+                                .onEnded { _ in
+                                    guard active else { return }
+                                    if offset >= maxOffset * 0.95 {
+                                        offset = maxOffset
+                                        action()
+                                        // A send that didn't start (dust question, a validation
+                                        // error) leaves it not busy: put the knob back.
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                            if !isBusy { reset() }
+                                        }
+                                    } else {
+                                        reset()
+                                    }
+                                }
+                        )
+                }
+            }
+        }
+    }
+
+    private func track(progress: CGFloat, knob: CGFloat = 0) -> some View {
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(Color.accentColor.opacity(isEnabled || isBusy ? 1 : 0.4))
+            if knob > 0 {
+                Capsule()
+                    .fill(Color.white.opacity(0.25))
+                    .frame(width: inset * 2 + knob + offset)
+            }
+        }
+    }
+
+    private var label: some View {
+        HStack(spacing: 8) {
+            if isBusy {
+                ProgressView().tint(.black)
+            } else {
+                Text(title).font(.headline)
+            }
+        }
+        .foregroundColor(.black)
+    }
+
+    private func reset() {
+        reachedEnd = false
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { offset = 0 }
     }
 }

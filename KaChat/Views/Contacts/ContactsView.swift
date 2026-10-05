@@ -4812,8 +4812,8 @@ struct WithdrawKaspaView: View {
                             .multilineTextAlignment(.center)
                     }
 
-                    HoldToSendButton(
-                        title: isCompoundMode ? "Hold to Consolidate" : "Hold to Send",
+                    SendActionButton(
+                        title: isCompoundMode ? "Slide to Consolidate" : "Slide to Send",
                         isBusy: isSending,
                         isEnabled: canSend,
                         action: send
