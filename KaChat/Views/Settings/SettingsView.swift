@@ -773,15 +773,10 @@ struct ConnectionHubPage: View {
     var body: some View {
         Form {
             Section {
-                NavigationLink {
-                    ConnectionSettingsView()
-                } label: {
-                    Label("Connection Settings", systemImage: "network")
-                }
-
-                // Mainnet <-> testnet. Each network keeps its own connection settings (see
-                // `AppSettings.switchNetwork(to:)`), so Connection Settings above shows the
-                // testnet values while this is on, and the mainnet ones come back when it's off.
+                // Mainnet <-> testnet, first in the section (no footer). Each network keeps its own
+                // connection settings (see `AppSettings.switchNetwork(to:)`), so Connection
+                // Settings below shows the testnet values while this is on, and the mainnet ones
+                // come back when it's off.
                 Toggle(isOn: Binding(
                     get: { settingsViewModel.settings.networkType == .testnet },
                     set: { on in
@@ -804,10 +799,14 @@ struct ConnectionHubPage: View {
                     }
                     .font(.subheadline)
                 }
+
+                NavigationLink {
+                    ConnectionSettingsView()
+                } label: {
+                    Label("Connection Settings", systemImage: "network")
+                }
             } header: {
                 Text("Connection")
-            } footer: {
-                Text("Testnet is for testing only - testnet KAS has no value. On testnet your account uses its kaspatest: address, with its own balance and chats, and Connection Settings holds testnet values: the testnet explorer, automatic node discovery, and no KaChat indexers until testnet ones exist. Turning it off brings your mainnet settings back.")
             }
 
             Section {
