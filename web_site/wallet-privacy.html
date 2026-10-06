@@ -188,7 +188,8 @@
             <li><strong>CoinGecko</strong> (api.coingecko.com), with <strong>Gate.io</strong> (api.gateio.ws) as a fallback for long price history, and <strong>Yahoo Finance</strong> (query1.finance.yahoo.com) for the comparison charts (VOO, gold, silver): prices for the Portfolio. No address is sent.</li>
             <li><strong>Block explorer</strong> (explorer.kaspa.org or kaspa.stream): only when you open a "view in explorer" link.</li>
             <li><strong>Testnet</strong>, only if you turn it on in Settings &gt; Connection: the same kinds of requests go to the testnet-10 services instead - api-tn10.kaspa.org, the KNS testnet API, api-tn10.dotk.name, testnet nodes, and tn10.kaspa.stream for explorer links.</li>
-            <li><strong>Social platforms</strong>, on testnet only, for .kachat profiles: when your profile links a social account (X, YouTube, GitHub, Discord, Telegram, Twitch, Kick, Instagram, TikTok, Facebook or LinkedIn), the extension reads that account's public profile page or API (for X, through api.fxtwitter.com) to show its picture, banner or bio, and loads the image from the platform. Nothing about your wallet is sent; the platform sees a request for that public profile.</li>
+            <li><strong>KaChat's indexer</strong> (kachat.duckdns.org; on testnet tnkachat.duckdns.org): when the Profile screen opens, the extension asks it for the public KaChat profile of your chatting address (avatar, banner and bio links, Linktree, your .kachat name). The request carries that public address; nothing else about your wallet is sent, and the indexer keeps no record of who asked.</li>
+            <li><strong>Social platforms</strong>, only after you tap Allow in Edit KaChat Profile: when a profile links a social account (X, YouTube, GitHub, Discord, Telegram, Twitch, Kick, Instagram, TikTok, Facebook or LinkedIn), the extension reads that account's public profile page or API (for X, through api.fxtwitter.com) to show its picture, banner or bio, and loads the image from the platform. Nothing about your wallet is sent; the platform sees a request for that public profile. Until you allow it, nothing is read from those sites.</li>
           </ul>
           <p>These services are run by third parties and have their own privacy practices. Like any web request, they can see your IP address.</p>
         </div>
@@ -202,9 +203,11 @@
         <div class="block">
           <ul>
             <li><strong>storage</strong>: keeps the encrypted wallet and your settings in your browser.</li>
-            <li><strong>alarms</strong>: locks the wallet after the auto-lock time.</li>
-            <li><strong>Access to the Kaspa, name service and CoinGecko addresses</strong>: the network requests listed above.</li>
+            <li><strong>alarms</strong>: locks the wallet after the auto-lock time, and schedules the clipboard clear below.</li>
+            <li><strong>offscreen</strong> and <strong>clipboardWrite</strong>: 30 seconds after you copy your recovery phrase or a private key, the clipboard is cleared (Chrome and Edge; Firefox can't, so it asks you to clear it).</li>
+            <li><strong>Access to the Kaspa, name service, CoinGecko and KaChat indexer addresses</strong>: the network requests listed above.</li>
             <li><strong>Access to websites</strong>: provides the <code>window.kachat</code> connection that Kaspa websites use to ask for your approval. The extension does not read, collect or change website content.</li>
+            <li><strong>Optional access to the social platforms</strong> listed above: requested only when you tap Allow in Edit KaChat Profile.</li>
             <li><strong>Optional access to other https addresses</strong>: requested only if you set your own Kaspa REST API in Settings.</li>
           </ul>
         </div>
