@@ -1367,3 +1367,8 @@
 
 /* .kachat name lapsed: moved to Reclaimable */
 "It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "Tên này không còn là của bạn và đã chuyển sang mục “Có thể thu hồi” trong chợ. Hãy tự thu hồi để lấy lại tiền đặt cọc.";
+
+/* Create Account: name step and seed length step */
+"Create a name for your wallet" = "Tạo tên cho ví của bạn";
+"This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "Tên này chỉ được lưu trên thiết bị này để bạn phân biệt các ví. Không ai khác nhìn thấy nó.";
+"The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "Màn hình tiếp theo sẽ hiển thị seed phrase của bạn. Đây là cách duy nhất để khôi phục tài khoản: hãy ghi lại, lưu trữ an toàn và đảm bảo không ai nhìn thấy màn hình của bạn.";

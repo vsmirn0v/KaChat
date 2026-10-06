@@ -1367,3 +1367,8 @@
 
 /* .kachat name lapsed: moved to Reclaimable */
 "It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "הוא כבר לא שלך ועבר ל״ניתנים לדרישה מחדש״ בשוק. השב אותו בעצמך כדי לקבל את הפיקדון שלך בחזרה.";
+
+/* Create Account: name step and seed length step */
+"Create a name for your wallet" = "צור שם לארנק שלך";
+"This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "השם הזה נשמר רק במכשיר הזה, כדי להבדיל בין הארנקים שלך. אף אחד אחר לא יראה אותו לעולם.";
+"The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "המסך הבא מציג את ה-seed phrase שלך. זו הדרך היחידה לשחזר את חשבונך: רשום אותה, שמור אותה בצורה מאובטחת, וודא שאף אחד לא רואה את המסך שלך.";

@@ -1367,3 +1367,8 @@
 
 /* .kachat name lapsed: moved to Reclaimable */
 "It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "دیگر متعلق به شما نیست و به بخش «قابل بازپس‌گیری» در بازار منتقل شده است. خودتان آن را بازپس بگیرید تا وثیقه‌تان برگردد.";
+
+/* Create Account: name step and seed length step */
+"Create a name for your wallet" = "یک نام برای کیف پول خود بسازید";
+"This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "این نام فقط روی همین دستگاه ذخیره می‌شود تا کیف پول‌هایتان را از هم تشخیص دهید. هیچ‌کس دیگری هرگز آن را نمی‌بیند.";
+"The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "صفحه بعد عبارت بازیابی شما را نشان می‌دهد. این تنها راه بازیابی حسابتان است: آن را یادداشت کنید، به صورت امن نگهداری کنید و مطمئن شوید کسی صفحه شما را نمی‌بیند.";

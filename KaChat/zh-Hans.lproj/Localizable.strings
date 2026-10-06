@@ -1367,3 +1367,8 @@
 
 /* .kachat name lapsed: moved to Reclaimable */
 "It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "它已不再属于你，已移至市场的“可回收”标签。自己回收即可取回你的押金。";
+
+/* Create Account: name step and seed length step */
+"Create a name for your wallet" = "为你的钱包起个名字";
+"This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "此名称只保存在这台设备上，用于区分你的钱包。其他人永远看不到它。";
+"The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "下一个屏幕会显示你的 seed phrase。这是恢复账户的唯一方法：请写下来并安全保管，并确保没有人能看到你的屏幕。";

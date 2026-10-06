@@ -1367,3 +1367,8 @@
 
 /* .kachat name lapsed: moved to Reclaimable */
 "It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "Оно больше не ваше и перешло в раздел «Можно вернуть» на маркетплейсе. Верните его сами, чтобы получить залог обратно.";
+
+/* Create Account: name step and seed length step */
+"Create a name for your wallet" = "Придумайте имя для кошелька";
+"This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "Это имя хранится только на этом устройстве, чтобы различать ваши кошельки. Его никто больше не увидит.";
+"The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "На следующем экране будет показана ваша seed phrase. Это единственный способ восстановить аккаунт: запишите её, храните в безопасном месте и убедитесь, что никто не видит ваш экран.";

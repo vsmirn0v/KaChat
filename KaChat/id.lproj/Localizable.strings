@@ -1367,3 +1367,8 @@
 
 /* .kachat name lapsed: moved to Reclaimable */
 "It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "Nama ini bukan milik Anda lagi dan sudah pindah ke Dapat diklaim ulang di marketplace. Klaim ulang sendiri untuk mendapatkan kembali jaminan Anda.";
+
+/* Create Account: name step and seed length step */
+"Create a name for your wallet" = "Buat nama untuk dompet Anda";
+"This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "Nama ini hanya disimpan di perangkat ini, untuk membedakan dompet-dompet Anda. Tidak ada orang lain yang akan melihatnya.";
+"The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "Layar berikutnya menampilkan frasa pemulihan Anda. Ini satu-satunya cara memulihkan akun Anda: catat, simpan dengan aman, dan pastikan tidak ada yang bisa melihat layar Anda.";
