@@ -861,8 +861,11 @@ extension ChatService {
         return parseKasAmountFromPaymentContent(existing.content)
     }
 
+    /// The amount at the start of a stored payment line ("Received 1,234.5 KAS ..."). Anchored
+    /// to the start so the payer's free-text note after it can never be read as the amount, and
+    /// converted exactly (an out-of-range number gives nil, never a crash).
     func parseKasAmountFromPaymentContent(_ content: String) -> UInt64? {
-        let pattern = "(?:Received|Sent)\\s+([0-9][0-9,]*(?:\\.[0-9]{1,8})?)\\s+T?KAS"
+        let pattern = "^(?:Received|Sent)\\s+([0-9][0-9,]{0,15}(?:\\.[0-9]{1,8})?)\\s+T?KAS"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(content.startIndex..<content.endIndex, in: content)
         guard let match = regex.firstMatch(in: content, options: [], range: range),
@@ -870,9 +873,9 @@ extension ChatService {
               let amountRange = Range(match.range(at: 1), in: content) else {
             return nil
         }
+        // "," here is digit grouping, not a decimal comma
         let normalized = content[amountRange].replacingOccurrences(of: ",", with: "")
-        guard let kas = Double(normalized) else { return nil }
-        return UInt64((kas * 100_000_000).rounded())
+        return KaspaUnit.sompi(fromUserText: normalized)
     }
 
     func updateIncomingPaymentDeliveryStatus(
