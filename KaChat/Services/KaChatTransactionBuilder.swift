@@ -1388,15 +1388,16 @@ struct KasiaTransactionBuilder {
     private struct PaymentSelection {
         let utxos: [UTXO]
         let change: UInt64
+        /// The selector's own decision: `change` is a change output, priced with the
+        /// with-change fee. False means the remainder was folded into the (no-change) fee.
+        let emitChange: Bool
 
-        /// Whether `change` stands as its own output beside a `recipientAmount` output, by the
-        /// same storage-mass rule the selector used to produce it. False means the selector
-        /// already folded the remainder into the fee, and the builder must not emit it.
+        /// Whether the builder emits `change` as an output. Carried from the selector rather than
+        /// re-derived: re-testing the folded remainder (larger than the with-change change by
+        /// the fee difference) could pass the storage-mass test in a narrow band and emit a
+        /// change output under a fee priced for no change - a node rejection (IOS-018).
         func keepsChange(withRecipientAmount recipientAmount: UInt64) -> Bool {
-            KasiaTransactionBuilder.fitsStorageMass(
-                inputAmounts: utxos.map(\.amount),
-                outputAmounts: [recipientAmount, change]
-            )
+            emitChange
         }
     }
 
@@ -1543,7 +1544,7 @@ struct KasiaTransactionBuilder {
             // user's change to the miners as fee whenever it fell under the floor - money gone,
             // not a rounding error - for change the network would have accepted.
             if fitsStorageMass(inputAmounts: selected.map(\.amount), outputAmounts: [amount, change]) {
-                return PaymentSelection(utxos: selected, change: change)
+                return PaymentSelection(utxos: selected, change: change, emitChange: true)
             }
 
             // Try without change (treat dust as fee, + buffer, + priority tip) - only when the
@@ -1554,7 +1555,7 @@ struct KasiaTransactionBuilder {
             if total > amount && total - amount >= feeNoChange {
                 change = total - amount - feeNoChange
                 if change <= maxFoldedChangeSompi {
-                    return PaymentSelection(utxos: selected, change: change)
+                    return PaymentSelection(utxos: selected, change: change, emitChange: false)
                 }
                 blockedByStorageMass = true
             }
@@ -1610,7 +1611,7 @@ struct KasiaTransactionBuilder {
             let change = total - amount - feeWithChange
             // Same rule as the greedy selector: change stays when the shape fits under KIP-9.
             if fitsStorageMass(inputAmounts: usable.map(\.amount), outputAmounts: [amount, change]) {
-                return PaymentSelection(utxos: usable, change: change)
+                return PaymentSelection(utxos: usable, change: change, emitChange: true)
             }
         }
 
@@ -1622,7 +1623,7 @@ struct KasiaTransactionBuilder {
             guard leftover <= maxFoldedChangeSompi else {
                 throw KasiaError.networkError(smallSendMassMessage)
             }
-            return PaymentSelection(utxos: usable, change: leftover)
+            return PaymentSelection(utxos: usable, change: leftover, emitChange: false)
         }
 
         throw KasiaError.networkError("Insufficient funds for payment")
