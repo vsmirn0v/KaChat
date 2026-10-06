@@ -2510,7 +2510,17 @@ extension ChatService {
             let utxos = try await rpcManager.getUtxosByAddresses([sourceAddress])
             let confirmed = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
             // Coin control: only the chosen coins (still unspent) - the builder picks from these.
-            let spendable = resolveManualUtxos(manualUtxos, against: confirmed) ?? confirmed
+            // If every chosen coin is gone, refuse: falling back to all coins would spend ones
+            // the person deliberately left out (previews may fall back; the send may not).
+            let spendable: [UTXO]
+            if let manualUtxos, !manualUtxos.isEmpty {
+                guard let resolved = resolveManualUtxos(manualUtxos, against: confirmed) else {
+                    throw KasiaError.networkError("Selected UTXOs are no longer available - please reselect")
+                }
+                spendable = resolved
+            } else {
+                spendable = confirmed
+            }
             guard !spendable.isEmpty else {
                 throw KasiaError.networkError("No spendable UTXOs available")
             }
