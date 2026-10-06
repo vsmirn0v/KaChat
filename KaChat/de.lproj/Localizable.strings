@@ -1256,3 +1256,8 @@
 
 /* Profile editor: links that can't be checked don't block saving */
 "Some links couldn't be checked from this phone right now. They're saved as entered, and people's apps load them when they can." = "Einige Links konnten von diesem Telefon gerade nicht geprüft werden. Sie werden wie eingegeben gespeichert, und die Apps der anderen laden sie, sobald es geht.";
+
+/* KaPosts tip sheet (Send Kaspa layout) */
+"Tip" = "Trinkgeld";
+"Goes to a fresh private address they shared" = "Geht an eine neue private Adresse, die sie geteilt haben";
+"Goes to their public chatting address" = "Geht an ihre öffentliche Chat-Adresse";

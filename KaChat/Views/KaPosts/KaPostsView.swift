@@ -6118,10 +6118,14 @@ private struct KaPostTipSheet: View {
 
     @State private var contact: Contact?
     @State private var paysViaPool = false
-    /// True when the funding source is the primary spending address (privacy ON), false when
-    /// it's the chatting address (privacy OFF) - drives the Available footer label.
-    @State private var fundingIsSpending = false
+    /// The address the tip is paid from (`paymentFundingSourceAddress`): coin control lists its
+    /// coins.
+    @State private var fundingAddress: String?
     @State private var amountInput = ""
+    @State private var memo = ""
+    @State private var manualUtxos: [UTXO]?
+    @State private var showCoinControl = false
+    @State private var showDustWarning = false
     @State private var availableSompi: UInt64?
     @State private var normalFeeSompi: UInt64?
     @State private var isEstimatingFee = false
@@ -6139,6 +6143,9 @@ private struct KaPostTipSheet: View {
     @State private var customExtraFeeSompi: UInt64?
     @State private var isEditingFee = false
     @State private var customFeeText = ""
+
+    /// The same memo limit as a payment in a chat.
+    private static let maxMemoLength = 140
 
     private var amountSompi: UInt64? {
         guard let sompi = KaspaUnit.sompi(fromUserText: amountInput), sompi > 0 else { return nil }
@@ -6169,204 +6176,130 @@ private struct KaPostTipSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Text(displayName)
-                            .fontWeight(.semibold)
-                        Spacer()
-                        Text(address)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: 150)
-                    }
-                    // Which of the privacy scenarios this tip will actually hit (same signal as
-                    // the chat composer's fresh-address indicator).
-                    HStack(spacing: 6) {
-                        Image(systemName: paysViaPool ? "lock.fill" : "globe")
-                            .font(.caption)
-                            .foregroundColor(paysViaPool ? .green : .secondary)
-                        Text(paysViaPool
-                             ? "Goes to a fresh private address they shared"
-                             : "Goes to their public chatting address")
-                            .font(.caption)
-                            .foregroundColor(paysViaPool ? .green : .secondary)
-                    }
-                } header: {
-                    Text("Tipping")
-                } footer: {
-                    Text("Your Chats Payment Privacy setting decides the destination and funding, exactly like a payment inside their chat.")
+        // The same Send Kaspa sheet as a payment inside a chat (SendKaspaComponents): the big
+        // amount, an encrypted memo, where it goes, the balance, fee speed and coin control, and
+        // slide-to-send so a tip can't go out on a stray touch.
+        ScrollView {
+            VStack(spacing: 18) {
+                VStack(spacing: 4) {
+                    Text("Tip")
+                        .font(.headline)
+                    Text("to \(displayName)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .padding(.top, 24)
+
+                KaspaAmountEntry(
+                    fiatAmountState: fiatAmountState,
+                    onAmountChange: { amountInput = $0 },
+                    isEstimatingMax: isEstimatingMax,
+                    focusOnAppear: true,
+                    onMax: setMaxAmount
+                )
+
+                memoField
+
+                // Which of the privacy scenarios this tip will actually hit (same signal as the
+                // chat composer's fresh-address indicator).
+                HStack(spacing: 6) {
+                    Image(systemName: paysViaPool ? "lock.fill" : "globe")
+                    Text(paysViaPool
+                         ? "Goes to a fresh private address they shared"
+                         : "Goes to their public chatting address")
+                }
+                .font(.caption)
+                .foregroundColor(paysViaPool ? .green : .secondary)
+
+                SendInfoPill {
+                    Text(verbatim: availableText)
                 }
 
-                Section {
-                    HStack {
-                        Button {
-                            fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
-                        } label: {
-                            if fiatAmountState.isFiatMode {
-                                Text(currencySymbol(for: portfolioViewModel.currentCurrency))
-                                    .font(.title3.weight(.semibold))
-                                    .foregroundColor(.accentColor)
-                                    .frame(width: 22, height: 22)
-                            } else {
-                                Image("KaspaLogo")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 22, height: 22)
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        TextField(
-                            "0.00",
-                            text: Binding(
-                                get: { fiatAmountState.displayText },
-                                set: { amountInput = fiatAmountState.onDisplayTextChange($0, priceInCurrency: portfolioViewModel.currentPriceUsd) }
-                            )
-                        )
-                        .keyboardType(.decimalPad)
-                        .numericKeyboardDoneButton()
-
-                        if let conversionLabel = fiatAmountState.conversionLabelText(
-                            priceInCurrency: portfolioViewModel.currentPriceUsd,
-                            currency: portfolioViewModel.currentCurrency
-                        ) {
-                            Text(conversionLabel)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .onTapGesture {
-                                    fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
-                                }
-                        }
-
-                        if isEstimatingMax {
-                            ProgressView().scaleEffect(0.75)
-                        } else {
-                            Button("Max") { setMaxAmount() }
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .buttonStyle(.borderless)
-                        }
-                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : KaspaUnit.symbol)
-                            .foregroundColor(.secondary)
-                    }
-                } header: {
-                    Text("Amount")
-                } footer: {
-                    if let availableSompi {
-                        KaspaUnit.text("Available: %@ KAS from your %@", trimmedKas(availableSompi), fundingIsSpending ? "primary spending address" : "chatting address")
-                    }
-                }
-
-                Section {
-                    Picker("Fee", selection: $feeTier) {
-                        ForEach(WithdrawFeeTier.allCases) { tier in
-                            Text(tier.rawValue).tag(tier)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: feeTier) { _ in
-                        customExtraFeeSompi = nil
-                        isEditingFee = false
-                    }
-
-                    HStack {
-                        Text("Network Fee")
-                        Spacer()
-                        if isEditingFee {
-                            TextField("0.00", text: $customFeeText)
-                                .keyboardType(.decimalPad)
-                                .numericKeyboardDoneButton()
-                                .multilineTextAlignment(.trailing)
-                                .frame(maxWidth: 100)
-                                .onSubmit { commitCustomFee() }
-                            Button {
-                                commitCustomFee()
-                            } label: {
-                                Image(systemName: "checkmark.circle.fill")
-                            }
-                            .buttonStyle(.borderless)
-                        } else if isEstimatingFee {
-                            ProgressView().scaleEffect(0.75)
-                        } else if let totalFeeSompi {
-                            Button {
-                                startEditingFee()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Text(verbatim: "\(trimmedKas(totalFeeSompi)) \(KaspaUnit.symbol)")
-                                        .underline()
-                                    Image(systemName: "pencil")
-                                        .font(.caption2)
-                                }
-                                .foregroundColor(.accentColor)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Text("—")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                } header: {
-                    Text("Fee")
-                } footer: {
-                    Text("If the network is busy, Fast or Priority pays a higher fee to help your tip confirm sooner. Tap the fee amount to set a custom fee.")
-                }
+                SendFeeControls(
+                    feeTier: $feeTier,
+                    isEditingFee: $isEditingFee,
+                    customFeeText: $customFeeText,
+                    isEstimatingFee: isEstimatingFee,
+                    feeText: totalFeeSompi.map { "\(trimmedKas($0)) \(KaspaUnit.symbol)" },
+                    onStartEditing: startEditingFee,
+                    onCommit: commitCustomFee,
+                    coinControlSummary: coinControlSummary(manualUtxos),
+                    onCoinControl: { showCoinControl = true }
+                )
 
                 if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundColor(.red)
-                            .font(.caption)
-                    }
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                } else if let amountSompi, amountSompi < 10_000_001 {
+                    KaspaUnit.text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
+                        .font(.footnote)
+                        .foregroundColor(.orange)
+                        .multilineTextAlignment(.center)
                 }
+
+                SendActionButton(
+                    title: "Slide to Send",
+                    isBusy: isSending,
+                    isEnabled: canSend,
+                    action: submit
+                )
             }
-            .navigationTitle("Tip \(displayName)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if isSending {
-                        ProgressView()
-                    } else {
-                        Button("Send") { send() }
-                            .disabled(!canSend)
-                    }
-                }
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .task {
-                // Deliberately does NOT create a contact here: opening the tip sheet and
-                // cancelling must leave no trace in the Chats list. The contact (and its
-                // conversation) is created in send(), only once a tip is actually sent.
-                contact = ContactsManager.shared.getContact(byAddress: address)
-                paysViaPool = ChatService.shared.willPayViaFreshPoolAddress(contactAddress: address)
-                // Available = the FUNDING SOURCE's spendable balance, exactly what the send will
-                // see: the primary spending address when Payment Privacy is on, the chatting
-                // address when it's off (paymentFundingSourceAddress is the single authority).
-                if let source = try? ChatService.shared.paymentFundingSourceAddress() {
-                    fundingIsSpending = source != WalletManager.shared.currentWallet?.publicAddress
-                    let utxos = (try? await ChatService.shared.fetchUtxosWithFallback(for: source)) ?? []
-                    availableSompi = utxos.filter { !$0.isCoinbase }.reduce(0) { $0 + $1.amount }
-                }
-            }
-            .task(id: amountSompi ?? 0) {
-                guard let amountSompi else {
-                    normalFeeSompi = nil
-                    return
-                }
-                isEstimatingFee = true
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                guard !Task.isCancelled else { return }
-                normalFeeSompi = try? await ChatService.shared.estimatePaymentFee(to: estimationContact, amountSompi: amountSompi)
-                isEstimatingFee = false
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isSending)
+        .onChange(of: feeTier) { _ in
+            customExtraFeeSompi = nil
+            isEditingFee = false
+        }
+        .task {
+            // Deliberately does NOT create a contact here: opening the tip sheet and
+            // cancelling must leave no trace in the Chats list. The contact (and its
+            // conversation) is created in send(), only once a tip is actually sent.
+            contact = ContactsManager.shared.getContact(byAddress: address)
+            paysViaPool = ChatService.shared.willPayViaFreshPoolAddress(contactAddress: address)
+            // Available = the FUNDING SOURCE's spendable balance, exactly what the send will
+            // see: the primary spending address when Payment Privacy is on, the chatting
+            // address when it's off (paymentFundingSourceAddress is the single authority).
+            if let source = try? ChatService.shared.paymentFundingSourceAddress() {
+                fundingAddress = source
+                let utxos = (try? await ChatService.shared.fetchUtxosWithFallback(for: source)) ?? []
+                availableSompi = utxos.filter { !$0.isCoinbase }.checkedTotalAmount
             }
         }
-        .interactiveDismissDisabled(isSending)
+        .task(id: "\(amountSompi ?? 0)#\(manualUtxos?.count ?? -1)#\(memo)") {
+            guard let amountSompi else {
+                normalFeeSompi = nil
+                return
+            }
+            isEstimatingFee = true
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            normalFeeSompi = try? await ChatService.shared.estimatePaymentFee(
+                to: estimationContact, amountSompi: amountSompi, note: memo, manualUtxos: manualUtxos
+            )
+            isEstimatingFee = false
+        }
+        .sheet(isPresented: $showCoinControl) {
+            if let fundingAddress {
+                CoinControlView(fromAddress: fundingAddress, initialSelection: manualUtxos) { selection in
+                    manualUtxos = selection
+                }
+            }
+        }
+        .confirmationDialog("Small Amount", isPresented: $showDustWarning, titleVisibility: .visible) {
+            Button("Send Anyway") { send() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            KaspaUnit.text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
+        }
         .sheet(item: $sentTransaction) { sent in
             SentConfirmationSheet(transaction: sent) {
                 sentTransaction = nil
@@ -6375,6 +6308,40 @@ private struct KaPostTipSheet: View {
             .presentationDetents([.height(sent.sheetHeight)])
             .presentationDragIndicator(.visible)
         }
+    }
+
+    /// "available: 12.5 KAS" for the funding source (spending address with Payment Privacy on,
+    /// the chatting address otherwise).
+    private var availableText: String {
+        let template = KaspaUnit.label(AppLocalization.string("available: %@ KAS"))
+        return String(format: template, locale: AppLocalization.locale, availableSompi.map(trimmedKas) ?? "--")
+    }
+
+    private var memoField: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "lock.fill")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            TextField("Add a memo (encrypted)", text: $memo, axis: .vertical)
+                .lineLimit(1...3)
+                .onChange(of: memo) { newValue in
+                    if newValue.count > Self.maxMemoLength { memo = String(newValue.prefix(Self.maxMemoLength)) }
+                }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(sendKaspaGlass(cornerRadius: 22))
+    }
+
+    /// The slide finished: a tip under the network's dust limit asks first, as in a chat.
+    private func submit() {
+        guard let amountSompi, !isSending else { return }
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        if amountSompi < 10_000_001 {
+            showDustWarning = true
+            return
+        }
+        send()
     }
 
     /// Estimation-only stand-in when the poster isn't a contact yet: fee/max sizing needs a
@@ -6386,7 +6353,9 @@ private struct KaPostTipSheet: View {
     private func setMaxAmount() {
         isEstimatingMax = true
         Task {
-            let max = try? await ChatService.shared.estimateMaxPaymentAmount(to: estimationContact)
+            let max = try? await ChatService.shared.estimateMaxPaymentAmount(
+                to: estimationContact, note: memo, manualUtxos: manualUtxos, extraFeeSompi: extraFeeSompi
+            )
             await MainActor.run {
                 isEstimatingMax = false
                 guard let max, max > 0 else { return }
@@ -6432,10 +6401,13 @@ private struct KaPostTipSheet: View {
         isSending = true
         errorMessage = nil
         let tipExtraFee = extraFeeSompi
+        let tipMemo = memo.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tipUtxos = manualUtxos
         Task {
             do {
                 let txId = try await ChatService.shared.sendPayment(
-                    to: recipient, amountSompi: amountSompi, extraFeeSompi: tipExtraFee
+                    to: recipient, amountSompi: amountSompi, note: tipMemo, extraFeeSompi: tipExtraFee,
+                    manualUtxos: tipUtxos
                 )
                 await MainActor.run {
                     Haptics.success()

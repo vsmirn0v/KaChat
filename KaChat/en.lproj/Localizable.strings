@@ -1310,3 +1310,8 @@
 
 /* Profile editor: links that can't be checked don't block saving */
 "Some links couldn't be checked from this phone right now. They're saved as entered, and people's apps load them when they can." = "Some links couldn't be checked from this phone right now. They're saved as entered, and people's apps load them when they can.";
+
+/* KaPosts tip sheet (Send Kaspa layout) */
+"Tip" = "Tip";
+"Goes to a fresh private address they shared" = "Goes to a fresh private address they shared";
+"Goes to their public chatting address" = "Goes to their public chatting address";

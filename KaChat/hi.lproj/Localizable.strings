@@ -1309,3 +1309,8 @@
 
 /* Profile editor: links that can't be checked don't block saving */
 "Some links couldn't be checked from this phone right now. They're saved as entered, and people's apps load them when they can." = "अभी इस फ़ोन से कुछ लिंक जाँचे नहीं जा सके। वे जैसे लिखे गए वैसे ही सहेजे जाते हैं, और लोगों के ऐप उन्हें जब हो सके लोड करेंगे।";
+
+/* KaPosts tip sheet (Send Kaspa layout) */
+"Tip" = "टिप";
+"Goes to a fresh private address they shared" = "उनके साझा किए गए नए निजी पते पर जाता है";
+"Goes to their public chatting address" = "उनके सार्वजनिक चैटिंग पते पर जाता है";

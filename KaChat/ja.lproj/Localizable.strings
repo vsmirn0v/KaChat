@@ -1309,3 +1309,8 @@
 
 /* Profile editor: links that can't be checked don't block saving */
 "Some links couldn't be checked from this phone right now. They're saved as entered, and people's apps load them when they can." = "いくつかのリンクを今このスマートフォンから確認できませんでした。入力どおりに保存され、ほかの人のアプリが読み込めるときに読み込みます。";
+
+/* KaPosts tip sheet (Send Kaspa layout) */
+"Tip" = "チップ";
+"Goes to a fresh private address they shared" = "相手が共有した新しいプライベートアドレスに送られます";
+"Goes to their public chatting address" = "相手の公開チャットアドレスに送られます";

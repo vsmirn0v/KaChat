@@ -1309,3 +1309,8 @@
 
 /* Profile editor: links that can't be checked don't block saving */
 "Some links couldn't be checked from this phone right now. They're saved as entered, and people's apps load them when they can." = "暂时无法从这部手机检查部分链接。它们会按输入内容保存，其他人的应用会在可以时加载。";
+
+/* KaPosts tip sheet (Send Kaspa layout) */
+"Tip" = "打赏";
+"Goes to a fresh private address they shared" = "发送到对方分享的新私人地址";
+"Goes to their public chatting address" = "发送到对方的公开聊天地址";

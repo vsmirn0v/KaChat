@@ -1309,3 +1309,8 @@
 
 /* Profile editor: links that can't be checked don't block saving */
 "Some links couldn't be checked from this phone right now. They're saved as entered, and people's apps load them when they can." = "지금 이 휴대폰에서 일부 링크를 확인하지 못했어요. 입력한 그대로 저장되며, 다른 사람들의 앱이 가능할 때 불러와요.";
+
+/* KaPosts tip sheet (Send Kaspa layout) */
+"Tip" = "팁";
+"Goes to a fresh private address they shared" = "상대가 공유한 새 비공개 주소로 가요";
+"Goes to their public chatting address" = "상대의 공개 채팅 주소로 가요";
