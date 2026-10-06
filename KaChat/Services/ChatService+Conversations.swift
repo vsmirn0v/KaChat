@@ -3921,9 +3921,10 @@ extension ChatService {
             return (utxos, [])
         }
 
-        // Reserve the smallest UTXO for self-stash if possible
+        // Reserve the smallest UTXO for self-stash if possible; the handshake takes the largest
+        // of the rest first, so it needs as few inputs as possible.
         let sortedAsc = utxos.sorted { $0.amount < $1.amount }
-        let remaining = Array(sortedAsc.dropFirst())
+        let remaining = Array(sortedAsc.dropFirst().reversed())
 
         let target: UInt64 = KasiaTransactionBuilder.handshakeAmount + 50_000 // padding for fee
         var selected: [UTXO] = []

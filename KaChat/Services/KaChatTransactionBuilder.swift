@@ -887,7 +887,11 @@ struct KasiaTransactionBuilder {
            fitsStorageMass(inputAmounts: inputAmounts, outputAmounts: [handshakeAmount, totalInput - handshakeAmount - feeWithChange]) {
             changeValue = totalInput - handshakeAmount - feeWithChange
         } else if totalInput > handshakeAmount + feeNoChange {
-            // The remainder is too small to stand as its own output; it goes to the fee.
+            // The remainder can't stand as its own output. Only a dust-sized one may go to the
+            // fee, as on payments; a bigger one would be real money given to the miners.
+            guard totalInput - handshakeAmount - feeNoChange <= maxFoldedChangeSompi else {
+                throw KasiaError.networkError(smallSendMassMessage)
+            }
         } else if totalInput > feeNoChange,
                   fitsStorageMass(inputAmounts: inputAmounts, outputAmounts: [totalInput - feeNoChange]) {
             handshakeValue = totalInput - feeNoChange
@@ -1718,9 +1722,13 @@ struct KasiaTransactionBuilder {
 
     /// Select UTXOs to cover required amount
     private static func selectUtxos(_ utxos: [UTXO], requiredAmount: UInt64) throws -> ([UTXO], UInt64) {
-        let utxos = KaPostsScheduledStore.filterReserved(utxos)
-        // Use ALL available UTXOs (match external Kasia app's behavior)
-        // External app uses each UTXO as a separate input
+        // Every available UTXO as its own input (the external Kasia app's behaviour), largest
+        // first and at most `maxInputsPerTransaction`: past ~89 inputs the node rejects the
+        // transaction as over-mass with an opaque error (IOS-009).
+        let utxos = Array(KaPostsScheduledStore.filterReserved(utxos)
+            .filter { !$0.isCoinbase }
+            .sorted { $0.amount > $1.amount }
+            .prefix(maxInputsPerTransaction))
         var selected: [UTXO] = []
         var totalAmount: UInt64 = 0
 
