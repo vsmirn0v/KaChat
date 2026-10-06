@@ -282,7 +282,7 @@ struct KachatMarketView: View {
         VStack(alignment: .leading, spacing: 18) {
             sectionHeader("Reclaimable", detail: "Names whose owners let them lapse. Anyone may reclaim one: the bond goes back to its last owner, you keep the freed deposit as a bounty, and the name is free to claim.")
             KachatNameGrid {
-                ForEach(0..<2, id: \.self) { _ in tilePlaceholder(footer: AppLocalization.string("Reclaim")) }
+                ForEach(0..<2, id: \.self) { _ in tilePlaceholder(footer: "000 \(KaspaUnit.symbol)") }
             }
             Text("Reclaimable names appear here once .kachat names launch.")
                 .font(.footnote)

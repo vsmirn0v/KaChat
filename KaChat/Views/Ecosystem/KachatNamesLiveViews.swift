@@ -334,23 +334,25 @@ struct KachatNameTile<Footer: View>: View {
     let name: String
     @ViewBuilder var footer: Footer
 
+    /// Centered: the name, ".kachat" under it, then the footer (the price asked, and any button).
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        VStack(spacing: 10) {
+            Spacer(minLength: 0)
+            VStack(spacing: 2) {
                 Text(verbatim: name)
                     .font(.headline.weight(.bold))
                     .foregroundColor(.primary)
-                    .multilineTextAlignment(.leading)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(verbatim: ".kachat")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.accentColor)
             }
-            Spacer(minLength: 0)
             footer
+            Spacer(minLength: 0)
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 140, alignment: .center)
         .kachatGlass()
         .contentShape(Rectangle())
     }
@@ -917,6 +919,14 @@ struct KachatLiveReclaimablePage: View {
                 KachatNameGrid {
                     ForEach(model.lapsed) { n in
                         KachatNameTile(name: n.name) {
+                            // what claiming it costs once reclaimed: the price for its length
+                            if let price = KachatLive.price(n.name) {
+                                Text(verbatim: KaspaUnit.amount(price))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
                             Button("Reclaim") { reclaimTarget = n }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
