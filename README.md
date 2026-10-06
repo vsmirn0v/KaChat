@@ -277,38 +277,8 @@ Defaults are managed via `AppSettings`.
 
 </details>
 
-## Self-Hosted Cloud (Nextcloud) Setup
-
-KaChat can preview and stream **Nextcloud public share links** (photos and videos) directly
-inside a chat, and can use Nextcloud as a private destination for chat-history backup. Hosting
-your own Nextcloud gives you a personal media/backup server that you fully control.
-
-The complete one-command setup — Nextcloud + Portainer + Nginx Proxy Manager, with photo/video
-previews (including iPhone HEIC and video thumbnails) pre-configured — now lives in its own repo:
-
-**➡️ [KaChat-NextCloud](https://github.com/KaspaSilver/KaChat-NextCloud)**
-
-Quick start:
-
-**macOS & Linux** — open a terminal and run:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/KaspaSilver/KaChat-NextCloud/main/scripts/kachat-cloud-setup.sh | bash
-```
-
-**Windows** — open **PowerShell as Administrator** and run:
-
-```powershell
-irm https://raw.githubusercontent.com/KaspaSilver/KaChat-NextCloud/main/scripts/kachat-cloud-setup.ps1 | iex
-```
-
-See the [KaChat-NextCloud README](https://github.com/KaspaSilver/KaChat-NextCloud#readme) for
-logging in, running on your local network, exposing it publicly over HTTPS with a free DuckDNS
-domain, verifying previews, and everyday commands.
 
 ## Support
 
-Support KaChat development via KAS donation:
-
-`kachat-donate.kas`  
-`kaspa:qp4jkz5jmajtdgtf4k8r5hrgwzal3ge7j3z92zv62qux5dhvgcrsxwhh5r7z4`
+Support KaChat development via KAS donation:  
+`kaspa:qzy7da4589avjwmmnqfvkhp5p8p268gc7rvr9lg2xxpuhj75sy8kgdqmpd2fu`
