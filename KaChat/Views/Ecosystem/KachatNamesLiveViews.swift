@@ -286,6 +286,45 @@ struct KachatLiveNameRow: View {
     }
 }
 
+// MARK: - Reclaim to Own: register it again?
+
+/// The half sheet after a Reclaim to Own went out: register the freed name again, or not now.
+struct KachatOwnAgainSheet: View {
+    let name: String
+    let choose: (Bool) -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "at.badge.plus")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundColor(.accentColor)
+            Text(String(format: AppLocalization.string("Register %@ again?"), name))
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 10) {
+                Button { choose(true) } label: {
+                    Text("Register Again").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                Button { choose(false) } label: {
+                    Text("Not Now").frame(maxWidth: .infinity).padding(.vertical, 4)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
+        .padding(.bottom, 16)
+    }
+}
+
 // MARK: - Name tiles
 
 /// A square tile for one name in the marketplace grids (For sale, Reclaimable): the full name -
@@ -1468,6 +1507,7 @@ struct KachatLiveNameDetail: View {
     @State private var reclaimSpan: (lo: Data, hi: Data)?
     @State private var reclaimedTxId: String?
     @State private var askOwnAgain = false
+    @State private var wantsOwnAgain = false
     @State private var claimTarget: KachatClaimTarget?
 
     @State private var ownerCopied = false
@@ -1530,11 +1570,23 @@ struct KachatLiveNameDetail: View {
             // a Reclaim to Own that went out: offer to register the name again
             if reclaimedTxId != nil { askOwnAgain = true }
         }) { s in sheetView(s) }
-        .alert(Text(String(format: AppLocalization.string("Register %@ again?"), info.display)), isPresented: $askOwnAgain) {
-            Button("Register Again") { registerAgain() }
-            Button("Not Now", role: .cancel) { reclaimedTxId = nil; reclaimSpan = nil }
-        } message: {
-            Text("It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later.")
+        // "Register it again?" as a half sheet; the claim sheet opens once it has gone down
+        // (two sheets can't present at once).
+        .sheet(isPresented: $askOwnAgain, onDismiss: {
+            if wantsOwnAgain {
+                wantsOwnAgain = false
+                registerAgain()
+            } else {
+                reclaimedTxId = nil
+                reclaimSpan = nil
+            }
+        }) {
+            KachatOwnAgainSheet(name: info.display) { yes in
+                wantsOwnAgain = yes
+                askOwnAgain = false
+            }
+            .presentationDetents([.height(300)])
+            .presentationDragIndicator(.visible)
         }
         .sheet(item: $claimTarget) { target in KachatClaimSheet(target: target) }
         .sheet(isPresented: $showManage, onDismiss: {
