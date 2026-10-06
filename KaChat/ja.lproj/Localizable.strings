@@ -1346,3 +1346,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "出品または承諾されたオファーで購入された .kachat 名";
 "Offers made on .kachat names" = ".kachat 名へのオファー";
 "Listings, transfers, releases, reclaims and returned offers" = "出品、譲渡、解放、回収、返却されたオファー";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "回収して取り戻す";
+"Clear the lapsed name and get your bond back, then register it again." = "失効した名前を消してボンドを取り戻し、もう一度登録します。";
+"Register %@ again?" = "%@ を再登録しますか？";
+"Register Again" = "再登録";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "今は空いています。新しい名前と同じように保有期間を選んでください。先に非公開のコミットが送られ、約1分後に名前が登録されます。";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "名前が失効したため、もう更新できません。回収するとレジストリから消え、ボンドが戻り、解放されたレジストリの預かり金もネットワーク手数料を除いて受け取れます。その後、再登録できます。";
+"Bond back to you" = "あなたに戻るボンド";
+"Waiting for the old %@ to be cleared from the registry." = "古い %@ がレジストリから消えるのを待っています。";

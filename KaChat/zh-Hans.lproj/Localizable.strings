@@ -1346,3 +1346,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "通过挂牌或接受报价购买的 .kachat 名称";
 "Offers made on .kachat names" = "对 .kachat 名称的报价";
 "Listings, transfers, releases, reclaims and returned offers" = "挂牌、转让、释放、回收和退回的报价";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "回收并重新拥有";
+"Clear the lapsed name and get your bond back, then register it again." = "清除已失效的名称并取回保证金，然后重新注册。";
+"Register %@ again?" = "要重新注册 %@ 吗？";
+"Register Again" = "重新注册";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "它现在是空闲的。像注册任何新名称一样选择持有时长：先发送隐藏的承诺，约一分钟后完成注册。";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "你的名称已失效，无法再续期。回收会将其从注册表中清除：保证金退还给你，你还能拿到释放出的注册押金（扣除网络费）。之后你可以重新注册。";
+"Bond back to you" = "退还给你的保证金";
+"Waiting for the old %@ to be cleared from the registry." = "正在等待旧的 %@ 从注册表中清除。";

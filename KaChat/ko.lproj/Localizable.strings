@@ -1346,3 +1346,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "판매 목록이나 수락된 제안으로 구매한 .kachat 이름";
 "Offers made on .kachat names" = ".kachat 이름에 한 제안";
 "Listings, transfers, releases, reclaims and returned offers" = "판매 등록, 양도, 해제, 회수, 반환된 제안";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "회수해서 다시 소유";
+"Clear the lapsed name and get your bond back, then register it again." = "소멸된 이름을 정리하고 보증금을 돌려받은 뒤 다시 등록해요.";
+"Register %@ again?" = "%@을(를) 다시 등록할까요?";
+"Register Again" = "다시 등록";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "이제 비어 있어요. 새 이름처럼 보유 기간을 고르세요. 숨겨진 커밋이 먼저 전송되고 약 1분 뒤 이름이 등록돼요.";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "이름이 소멸되어 더 이상 갱신할 수 없어요. 회수하면 레지스트리에서 정리되어 보증금이 돌아오고, 네트워크 수수료를 뺀 레지스트리 예치금도 받아요. 그다음 다시 등록할 수 있어요.";
+"Bond back to you" = "돌려받는 보증금";
+"Waiting for the old %@ to be cleared from the registry." = "예전 %@이(가) 레지스트리에서 정리되기를 기다리는 중이에요.";

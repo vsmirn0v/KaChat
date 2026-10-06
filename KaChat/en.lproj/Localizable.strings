@@ -1347,3 +1347,13 @@
 ".kachat names bought from a listing or through an accepted offer" = ".kachat names bought from a listing or through an accepted offer";
 "Offers made on .kachat names" = "Offers made on .kachat names";
 "Listings, transfers, releases, reclaims and returned offers" = "Listings, transfers, releases, reclaims and returned offers";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "Reclaim to Own";
+"Clear the lapsed name and get your bond back, then register it again." = "Clear the lapsed name and get your bond back, then register it again.";
+"Register %@ again?" = "Register %@ again?";
+"Register Again" = "Register Again";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later.";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again.";
+"Bond back to you" = "Bond back to you";
+"Waiting for the old %@ to be cleared from the registry." = "Waiting for the old %@ to be cleared from the registry.";

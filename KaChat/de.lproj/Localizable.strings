@@ -1293,3 +1293,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "Aus einem Angebot gekaufte oder per angenommenem Gebot erworbene .kachat-Namen";
 "Offers made on .kachat names" = "Angebote für .kachat-Namen";
 "Listings, transfers, releases, reclaims and returned offers" = "Listungen, Übertragungen, Freigaben, Rückforderungen und zurückgegebene Angebote";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "Zurückfordern und behalten";
+"Clear the lapsed name and get your bond back, then register it again." = "Den verfallenen Namen räumen und die Kaution zurückbekommen, dann neu registrieren.";
+"Register %@ again?" = "%@ erneut registrieren?";
+"Register Again" = "Erneut registrieren";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "Er ist jetzt frei. Wähle wie bei jedem neuen Namen, wie lange du ihn hältst: zuerst geht der verdeckte Commit raus, etwa eine Minute später wird der Name registriert.";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "Dein Name ist verfallen und kann nicht mehr verlängert werden. Zurückfordern entfernt ihn aus dem Register: Deine Kaution kommt zurück, und du behältst auch die freigewordene Registereinlage abzüglich der Netzwerkgebühr. Danach kannst du ihn neu registrieren.";
+"Bond back to you" = "Kaution zurück an dich";
+"Waiting for the old %@ to be cleared from the registry." = "Warte, bis der alte %@ aus dem Register entfernt ist.";

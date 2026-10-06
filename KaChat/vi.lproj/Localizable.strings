@@ -1346,3 +1346,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "Tên .kachat được mua từ tin rao bán hoặc qua đề nghị được chấp nhận";
 "Offers made on .kachat names" = "Đề nghị cho tên .kachat";
 "Listings, transfers, releases, reclaims and returned offers" = "Rao bán, chuyển nhượng, giải phóng, thu hồi và đề nghị được trả lại";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "Thu hồi để sở hữu lại";
+"Clear the lapsed name and get your bond back, then register it again." = "Dọn tên đã mất hiệu lực và nhận lại tiền ký quỹ, rồi đăng ký lại.";
+"Register %@ again?" = "Đăng ký lại %@?";
+"Register Again" = "Đăng ký lại";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "Giờ tên đã trống. Chọn thời gian giữ như mọi tên mới: cam kết ẩn được gửi trước và tên được đăng ký khoảng một phút sau.";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "Tên của bạn đã mất hiệu lực nên không thể gia hạn nữa. Thu hồi sẽ xóa nó khỏi sổ đăng ký: tiền ký quỹ trở về với bạn, và bạn cũng giữ khoản đặt cọc sổ đăng ký được giải phóng, trừ phí mạng. Sau đó bạn có thể đăng ký lại.";
+"Bond back to you" = "Tiền ký quỹ trở về bạn";
+"Waiting for the old %@ to be cleared from the registry." = "Đang chờ %@ cũ được xóa khỏi sổ đăng ký.";

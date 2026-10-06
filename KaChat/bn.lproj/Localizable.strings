@@ -1346,3 +1346,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "তালিকা থেকে বা গৃহীত প্রস্তাবের মাধ্যমে কেনা .kachat নাম";
 "Offers made on .kachat names" = ".kachat নামে দেওয়া প্রস্তাব";
 "Listings, transfers, releases, reclaims and returned offers" = "তালিকাভুক্তি, স্থানান্তর, ছেড়ে দেওয়া, পুনরুদ্ধার ও ফেরত প্রস্তাব";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "মালিকানার জন্য পুনরুদ্ধার";
+"Clear the lapsed name and get your bond back, then register it again." = "বাতিল হওয়া নামটি সরিয়ে বন্ড ফেরত নিন, তারপর আবার নিবন্ধন করুন।";
+"Register %@ again?" = "%@ আবার নিবন্ধন করবেন?";
+"Register Again" = "আবার নিবন্ধন করুন";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "এটি এখন খালি। যেকোনো নতুন নামের মতো কতদিন রাখবেন বেছে নিন: আগে গোপন কমিট যায়, প্রায় এক মিনিট পরে নামটি নিবন্ধিত হয়।";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "আপনার নামটি বাতিল হয়েছে, তাই আর নবায়ন করা যাবে না। পুনরুদ্ধার এটিকে রেজিস্ট্রি থেকে সরায়: আপনার বন্ড আপনার কাছে ফিরে আসে, আর নেটওয়ার্ক ফি বাদে মুক্ত হওয়া রেজিস্ট্রি জমাও আপনি রাখেন। তারপর আবার নিবন্ধন করতে পারবেন।";
+"Bond back to you" = "বন্ড আপনার কাছে ফেরত";
+"Waiting for the old %@ to be cleared from the registry." = "রেজিস্ট্রি থেকে পুরোনো %@ সরানোর অপেক্ষা চলছে।";

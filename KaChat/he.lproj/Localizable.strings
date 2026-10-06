@@ -1346,3 +1346,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "שמות .kachat שנקנו מרישום או דרך הצעה שהתקבלה";
 "Offers made on .kachat names" = "הצעות שהוגשו על שמות .kachat";
 "Listings, transfers, releases, reclaims and returned offers" = "רישומים למכירה, העברות, שחרורים, דרישות חוזרות והצעות שהוחזרו";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "דרישה חוזרת לבעלות";
+"Clear the lapsed name and get your bond back, then register it again." = "פנו את השם שפקע וקבלו את הפיקדון בחזרה, ואז רשמו אותו מחדש.";
+"Register %@ again?" = "לרשום את %@ שוב?";
+"Register Again" = "לרשום שוב";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "הוא פנוי עכשיו. בחרו לכמה זמן להחזיק בו, כמו כל שם חדש: קודם נשלחת ההתחייבות המוסתרת, והשם נרשם כעבור כדקה.";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "השם שלך פקע ולכן אי אפשר לחדש אותו יותר. דרישה חוזרת מוחקת אותו מהמרשם: הפיקדון שלך חוזר אליך, ואת גם שומר/ת את פיקדון המרשם שהשתחרר, פחות עמלת הרשת. אחר כך אפשר לרשום אותו מחדש.";
+"Bond back to you" = "הפיקדון חוזר אליך";
+"Waiting for the old %@ to be cleared from the registry." = "ממתינים שה-%@ הישן יוסר מהמרשם.";

@@ -1346,3 +1346,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "نام‌های .kachat خریده‌شده از آگهی یا با پیشنهاد پذیرفته‌شده";
 "Offers made on .kachat names" = "پیشنهادهای داده‌شده برای نام‌های .kachat";
 "Listings, transfers, releases, reclaims and returned offers" = "آگهی‌ها، انتقال‌ها، رهاسازی‌ها، بازپس‌گیری‌ها و پیشنهادهای برگشتی";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "بازپس‌گیری برای مالکیت";
+"Clear the lapsed name and get your bond back, then register it again." = "نام از دست رفته را پاک کنید و ودیعه را پس بگیرید، سپس دوباره ثبتش کنید.";
+"Register %@ again?" = "%@ دوباره ثبت شود؟";
+"Register Again" = "ثبت دوباره";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "اکنون آزاد است. مانند هر نام تازه، مدت نگهداری را انتخاب کنید: ابتدا تعهد پنهان ارسال می‌شود و حدود یک دقیقه بعد نام ثبت می‌شود.";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "نام شما از دست رفته و دیگر قابل تمدید نیست. بازپس‌گیری آن را از رجیستری پاک می‌کند: ودیعه‌تان برمی‌گردد و سپرده آزادشده رجیستری را هم منهای کارمزد شبکه نگه می‌دارید. سپس می‌توانید دوباره ثبتش کنید.";
+"Bond back to you" = "ودیعه به شما برمی‌گردد";
+"Waiting for the old %@ to be cleared from the registry." = "در انتظار پاک شدن %@ قدیمی از رجیستری.";

@@ -1346,3 +1346,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "लिस्टिंग से या स्वीकार किए गए ऑफ़र से खरीदे गए .kachat नाम";
 "Offers made on .kachat names" = ".kachat नामों पर दिए गए ऑफ़र";
 "Listings, transfers, releases, reclaims and returned offers" = "लिस्टिंग, ट्रांसफ़र, रिलीज़, वापसी और लौटाए गए ऑफ़र";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "अपनाने के लिए वापस लें";
+"Clear the lapsed name and get your bond back, then register it again." = "समाप्त नाम हटाएँ और अपना बॉन्ड वापस पाएँ, फिर इसे दोबारा पंजीकृत करें।";
+"Register %@ again?" = "%@ फिर से पंजीकृत करें?";
+"Register Again" = "फिर से पंजीकृत करें";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "यह अब खाली है। किसी भी नए नाम की तरह चुनें कि कितने समय रखना है: पहले छिपा कमिट जाता है और लगभग एक मिनट बाद नाम पंजीकृत होता है।";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "आपका नाम समाप्त हो गया, इसलिए अब इसे नवीनीकृत नहीं किया जा सकता। वापस लेने से यह रजिस्ट्री से हटता है: आपका बॉन्ड आपको वापस मिलता है, और नेटवर्क शुल्क घटाकर मुक्त हुई रजिस्ट्री जमा भी आपकी रहती है। फिर आप इसे दोबारा पंजीकृत कर सकते हैं।";
+"Bond back to you" = "बॉन्ड आपको वापस";
+"Waiting for the old %@ to be cleared from the registry." = "रजिस्ट्री से पुराने %@ के हटने का इंतज़ार है।";

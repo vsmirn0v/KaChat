@@ -1346,3 +1346,13 @@
 ".kachat names bought from a listing or through an accepted offer" = "İlandan veya kabul edilen teklifle satın alınan .kachat adları";
 "Offers made on .kachat names" = ".kachat adlarına verilen teklifler";
 "Listings, transfers, releases, reclaims and returned offers" = "İlanlar, aktarımlar, bırakmalar, geri almalar ve iade edilen teklifler";
+
+/* .kachat: Reclaim to Own */
+"Reclaim to Own" = "Sahiplenmek İçin Geri Al";
+"Clear the lapsed name and get your bond back, then register it again." = "Düşmüş adı temizleyip teminatınızı geri alın, sonra yeniden kaydedin.";
+"Register %@ again?" = "%@ yeniden kaydedilsin mi?";
+"Register Again" = "Yeniden Kaydet";
+"It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later." = "Artık boşta. Her yeni ad gibi ne kadar tutacağınızı seçin: önce gizli taahhüt gönderilir, ad yaklaşık bir dakika sonra kaydedilir.";
+"Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "Adınızın süresi düştü, bu yüzden artık yenilenemez. Geri almak onu kayıttan temizler: teminatınız size döner ve ağ ücreti düşülmüş serbest kalan kayıt depozitosunu da alırsınız. Ardından yeniden kaydedebilirsiniz.";
+"Bond back to you" = "Size dönen teminat";
+"Waiting for the old %@ to be cleared from the registry." = "Eski %@ adının kayıttan temizlenmesi bekleniyor.";

@@ -282,7 +282,9 @@ final class KachatNamesRegistry: ObservableObject {
         switch source {
         case .indexer(let base):
             let j: KachatNames.IndexerAPI.ListingsJSON = try await Self.get(base, "/market/listings?sort=recent")
-            return j.listings.compactMap { $0.info(keyOf: Self.keyOf) }
+            // an expired name's old listing is not for sale, whatever the indexer kept
+            let grace = graceMs
+            return j.listings.compactMap { $0.info(keyOf: Self.keyOf) }.filter { $0.status(graceMs: grace) == .active }
         default:
             let grace = graceMs
             return (chainState?.names ?? []).map(KachatNames.RegistryState.info)

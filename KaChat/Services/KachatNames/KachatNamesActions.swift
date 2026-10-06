@@ -662,6 +662,10 @@ final class KachatNamesActions: ObservableObject {
         try KachatNames.Codec.validate(name)
         await registry.refresh()
         switch try await registry.lookup(name) {
+        case .registered(let n) where n.status(graceMs: registry.graceMs) == .lapsed:
+            // Lapsed: being reclaimed (Reclaim to Own, or by anyone). The commit can go out now;
+            // the registration waits until the old name is cleared from the registry.
+            break
         case .registered:
             throw ActionError.notRegisterable(String(format: AppLocalization.string("%@ is already registered."), "\(name).kachat"))
         case .free:
@@ -844,9 +848,11 @@ final class KachatNamesActions: ObservableObject {
         }
     }
 
+    /// This wallet holds `name` as a live registration (a lapsed old record of it doesn't count:
+    /// that is what a Reclaim to Own registers over).
     private func ownsName(_ name: String) async -> Bool {
         guard let me = myKey, case .registered(let n)? = try? await registry.lookup(name) else { return false }
-        return n.owner == me
+        return n.owner == me && n.status(graceMs: registry.graceMs) != .lapsed
     }
 
     private func register(_ p: KachatNames.PendingRegistration, commit: KachatNames.Utxo) async {
@@ -858,6 +864,10 @@ final class KachatNamesActions: ObservableObject {
             let m = try await registry.prepare()
             let gap: KachatNames.GapInfo
             switch try await registry.lookup(p.name) {
+            case .registered(let n) where n.status(graceMs: registry.graceMs) == .lapsed:
+                // the old, lapsed name is still there (its reclaim not seen yet): next tick
+                set(p) { $0.lastError = String(format: AppLocalization.string("Waiting for the old %@ to be cleared from the registry."), "\(p.name).kachat") }
+                return
             case .registered(let n):
                 if n.owner == s.me { finishRegistered(p) } else { set(p) { $0.stage = .taken; $0.lastError = nil } }
                 return
