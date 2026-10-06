@@ -1290,3 +1290,6 @@
 "This name has been expired too long to renew. It can only be reclaimed and registered again." = "Questo nome è scaduto da troppo tempo per essere rinnovato. Può solo essere reclamato e registrato di nuovo.";
 "Offers can only be made on active names." = "Le offerte sono possibili solo su nomi attivi.";
 "This name has expired. Offers can only be accepted while the name is active. Renew it first." = "Questo nome è scaduto. Le offerte si possono accettare solo mentre il nome è attivo. Rinnovalo prima.";
+
+/* Wallet: import / sign-in stop if the current account can't be backed up (IOS-016) */
+"The current account's keys couldn't be backed up on this device, so nothing was changed. Try again." = "Non è stato possibile salvare le chiavi dell’account attuale su questo dispositivo, quindi non è cambiato nulla. Riprova.";

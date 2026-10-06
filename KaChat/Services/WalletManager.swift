@@ -398,7 +398,8 @@ final class WalletManager: ObservableObject {
             createdAt: accountAddedDate(for: publicAddress)
         )
 
-        snapshotStoredWalletIfPossible()
+        // the account in the active slot must be safely filed before its keys are overwritten
+        try snapshotStoredWallet(beforeReplacingWith: publicAddress)
 
         // Save wallet
         try await saveWallet(wallet, seedPhrase: seedPhrase, privateKey: privateKeyData)
@@ -606,7 +607,8 @@ final class WalletManager: ObservableObject {
                 return isCurrentAccount(account)
             }
 
-            snapshotStoredWalletIfPossible()
+            // the account in the active slot must be safely filed before its keys are overwritten
+            try snapshotStoredWallet(beforeReplacingWith: account.publicAddress)
 
             // A snapshot is filed under the address it was taken with, which may be the other
             // network's encoding of this account (one taken on mainnet, signing in on testnet).
@@ -1027,14 +1029,29 @@ final class WalletManager: ObservableObject {
 
     private func snapshotStoredWalletIfPossible() {
         do {
-            guard let wallet = try keychainService.loadWallet(),
-                  let seedPhrase = try keychainService.loadSeedPhrase(),
-                  let privateKey = try keychainService.loadPrivateKey() else {
-                return
-            }
-            try keychainService.saveAccountSnapshot(wallet: wallet, seedPhrase: seedPhrase, privateKey: privateKey)
+            try snapshotStoredWallet(beforeReplacingWith: nil)
         } catch {
             AppLog.log("[WalletManager] Failed to snapshot current account: %@", error.localizedDescription)
+        }
+    }
+
+    /// Files the account in the active keychain slot as a snapshot and reads it back, before that
+    /// slot is overwritten with `newAddress`'s keys. Throws when the snapshot can't be written or
+    /// doesn't read back intact: the caller must then leave the active slot alone, or that
+    /// account's keys exist nowhere else. Nothing to protect (no stored keys, or the same
+    /// account coming back) is not an error.
+    private func snapshotStoredWallet(beforeReplacingWith newAddress: String?) throws {
+        guard let wallet = try keychainService.loadWallet(),
+              let seedPhrase = try keychainService.loadSeedPhrase(),
+              let privateKey = try keychainService.loadPrivateKey() else {
+            return
+        }
+        if let newAddress, Self.isSameAccount(wallet.publicAddress, newAddress) { return }
+        try keychainService.saveAccountSnapshot(wallet: wallet, seedPhrase: seedPhrase, privateKey: privateKey)
+        guard let back = try keychainService.loadAccountSnapshot(publicAddress: wallet.publicAddress),
+              back.privateKey == privateKey, back.seedPhrase.words == seedPhrase.words,
+              back.seedPhrase.passphrase == seedPhrase.passphrase else {
+            throw KasiaError.keychainError(AppLocalization.string("The current account's keys couldn't be backed up on this device, so nothing was changed. Try again."))
         }
     }
 
