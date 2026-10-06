@@ -291,14 +291,18 @@ final class PushNotificationManager: ObservableObject {
         guard let url = URL(string: "\(settings.pushIndexerURL)\(ringEndpoint)") else {
             throw PushError.invalidResponse
         }
+        // The service checks a ring in its legacy shape (PUSH_EXTENSIONS.md §5): no
+        // watched_group_ids line, and the caller's own wallet address as primary_address - a
+        // ring signed like register never verified, so a sleeping phone was never woken.
         let auth = try await buildPushAuth(
             method: "POST",
             path: ringEndpoint,
             deviceToken: token,
             watchedAddresses: [],
             watchedGroupIds: [],
-            primaryAddress: collectPrimaryAddress(),
-            aliases: []
+            primaryAddress: WalletManager.shared.currentWallet?.publicAddress,
+            aliases: [],
+            includeWatchedGroupIds: false
         )
         let request = PushRingRequest(
             deviceToken: token,
@@ -1642,7 +1646,10 @@ final class PushNotificationManager: ObservableObject {
         watchedAddresses: [String],
         watchedGroupIds: [String],
         primaryAddress: String?,
-        aliases: [String]
+        aliases: [String],
+        /// false only for a request the service verifies without group ids (the ring): its
+        /// preimage then has no watched_group_ids_hash line.
+        includeWatchedGroupIds: Bool = true
     ) async throws -> PushAuthRequest {
         guard let wallet = WalletManager.shared.currentWallet else {
             throw PushError.authFailed(reason: "No active wallet")
@@ -1686,7 +1693,8 @@ final class PushNotificationManager: ObservableObject {
             walletPubkey: walletPubkey,
             walletAddress: walletAddress,
             timestampMs: timestampMs,
-            expiresAtMs: challenge.expiresAtMs
+            expiresAtMs: challenge.expiresAtMs,
+            includeWatchedGroupIds: includeWatchedGroupIds
         )
 
         var signingMaterial = privateKey
@@ -1787,7 +1795,8 @@ final class PushNotificationManager: ObservableObject {
         walletPubkey: String,
         walletAddress: String,
         timestampMs: UInt64,
-        expiresAtMs: UInt64
+        expiresAtMs: UInt64,
+        includeWatchedGroupIds: Bool = true
     ) -> String {
         let watchedHash = sha256Hex(canonicalizeWatchedAddressesForAuth(watchedAddresses).joined(separator: "\n"))
         let watchedGroupIdsHash = sha256Hex(canonicalizeWatchedGroupIdsForAuth(watchedGroupIds).joined(separator: "\n"))
@@ -1800,8 +1809,8 @@ final class PushNotificationManager: ObservableObject {
             "method=\(method)",
             "path=\(path)",
             "device_token_hash=\(deviceTokenHash)",
-            "watched_addresses_hash=\(watchedHash)",
-            "watched_group_ids_hash=\(watchedGroupIdsHash)",
+            "watched_addresses_hash=\(watchedHash)"
+        ] + (includeWatchedGroupIds ? ["watched_group_ids_hash=\(watchedGroupIdsHash)"] : []) + [
             "primary_address=\(primaryAddress)",
             "aliases_hash=\(aliasesHash)",
             "wallet_pubkey=\(walletPubkey)",
