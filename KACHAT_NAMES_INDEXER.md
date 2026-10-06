@@ -344,7 +344,7 @@ If the name is invalid (fails the charset or length rules): `400 {"error": "inva
 | `GET /names/expiring?cursor=` | `lapsed` names awaiting reclaim, oldest first |
 | `GET /profiles/{address}` | `{"address", "profile": {...}\|null, "updatedAt", "txId"}` |
 | `GET /identity/{address}` | `{"address", "label": "alice"\|null, "names": ["alice","bob"], "profile": {...}\|null}`. `label` follows Part C. One call per profile card |
-| `POST /identity/batch` `{"addresses": [...]}` (≤ 200) | `{"identities": {"<address>": <identity>}}`. Used for chat lists |
+| `POST /identity/batch` `{"addresses": [...]}` (≤ 200) | `{"identities": {"<address>": <identity>}}`. Available; the app doesn't call it yet (it uses one `GET /identity/{address}` per card) |
 | `GET /names/manifest` | the manifest the module runs with |
 | `GET /names/status` | `{"network", "registryCovenantId", "genesisTxId", "indexedDaa", "synced": bool}` |
 

@@ -315,14 +315,10 @@ DELETE /v1/push/unregister
     "device_token": "abc123..."
 }
 Response: 200 OK
-
-GET /v1/push/status?device_token=abc123...
-Response: {
-    "registered": true,
-    "watched_addresses": ["kaspa:qz....", "kaspa:qp...."],
-    "last_seen": 1704067200
-}
 ```
+
+(There is no status endpoint: the push router serves challenge, register, update, unregister and
+ring only.)
 
 ---
 

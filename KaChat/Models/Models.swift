@@ -688,19 +688,10 @@ struct PaymentResponse: Codable {
     }
 }
 
-struct IndexerMetrics: Codable {
-    let blockHeight: UInt64?
-    let lastProcessedBlock: String?
-    let pendingTransactions: Int?
-    let uptime: UInt64?
-
-    enum CodingKeys: String, CodingKey {
-        case blockHeight = "block_height"
-        case lastProcessedBlock = "last_processed_block"
-        case pendingTransactions = "pending_transactions"
-        case uptime
-    }
-}
+/// `GET /metrics`, used only as a liveness probe (`ping`): any JSON object counts. Its fields
+/// (the indexer's `IndexerMetricsSnapshot`) aren't read, so none are declared - the old ones
+/// named nothing the server sends (XP-011).
+struct IndexerMetrics: Codable {}
 
 struct SelfStashResponse: Codable {
     let txId: String
