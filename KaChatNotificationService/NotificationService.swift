@@ -394,7 +394,22 @@ class NotificationService: UNNotificationServiceExtension {
         userInfo: [AnyHashable: Any],
         txId: String
     ) {
+        // Another network's group push (a device registered with both push services, the app
+        // now on the other network): silent, like a 1:1 one - no banner, no badge, no catch-up.
+        if isOtherNetwork(userInfo["sender"] as? String) {
+            suppressGroupNotification(content)
+            return
+        }
         handleGroupPushResolved(messageType: messageType, content: content, userInfo: userInfo, txId: txId)
+    }
+
+    /// Whether `address` names a different network than the wallet signed in here. Unknown
+    /// (no address, or no prefix) is not "other".
+    private func isOtherNetwork(_ address: String?) -> Bool {
+        guard let address, let walletAddress = getWalletAddress(),
+              let walletNetwork = Self.addressNetwork(walletAddress),
+              let otherNetwork = Self.addressNetwork(address) else { return false }
+        return walletNetwork != otherNetwork
     }
 
     /// The real body. Re-entered once, with `payload` filled in, when the push arrived without
@@ -469,6 +484,11 @@ class NotificationService: UNNotificationServiceExtension {
             // "a message" fallback.
             // An edit changes an earlier bubble in place - nothing to announce.
             if isEditEnvelope(match.plaintext) {
+                suppressGroupNotification(content)
+                return
+            }
+            // the decrypted sender is the other network's (the push carried no sender to check)
+            if isOtherNetwork(match.senderAddress) {
                 suppressGroupNotification(content)
                 return
             }
