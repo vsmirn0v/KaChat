@@ -1314,3 +1314,29 @@
 "Tip" = "Чаевые";
 "Goes to a fresh private address they shared" = "Уйдут на новый приватный адрес, которым он поделился";
 "Goes to their public chatting address" = "Уйдут на его публичный адрес для чатов";
+
+/* Profile bell: .kachat news and public chats */
+"Renew %@" = "Продлите %@";
+"Renewal is open: renew it before %@ to keep it." = "Продление открыто: продлите до %@, чтобы сохранить имя.";
+"%@ has expired" = "Срок %@ истёк";
+"Renew it before %@ or anyone can claim it." = "Продлите до %@, иначе его сможет забрать кто угодно.";
+"%@ has lapsed" = "%@ освободилось";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "Теперь его может забрать кто угодно. Верните его сами, чтобы получить залог.";
+"%@ sold" = "%@ продано";
+"%@ KAS was paid to you." = "Вам выплачено %@ KAS.";
+"Your listing was bought." = "Ваш лот купили.";
+"You accepted an offer for it." = "Вы приняли предложение за него.";
+"%@ was reclaimed" = "%@ возвращено в реестр";
+"It lapsed and someone reclaimed it. It's free to register again." = "Имя освободилось, и его вернул кто-то другой. Его можно зарегистрировать снова.";
+"New offer on %@" = "Новое предложение за %@";
+"%@ KAS offered for it." = "За него предложили %@ KAS.";
+"%@ is yours now." = "%@ теперь ваше.";
+"Offer on %@ declined" = "Предложение за %@ отклонено";
+"The owner declined it. The KAS is back with you." = "Владелец его отклонил. KAS вернулись к вам.";
+"Offer on %@ expired" = "Предложение за %@ истекло";
+"Nobody accepted it in time. The KAS is back with you." = "Никто не принял его вовремя. KAS вернулись к вам.";
+"Offer on %@ returned" = "Предложение за %@ возвращено";
+"It can no longer be accepted. The KAS is back with you." = "Его больше нельзя принять. KAS вернулись к вам.";
+"Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here." = "Здесь появляются Kaspa, пришедшие на ваши кошельки, публичные чаты с включёнными уведомлениями и новости о ваших именах .kachat.";
+"Renew it soon to keep it." = "Продлите его в ближайшее время, чтобы сохранить.";
+"Renew it soon or anyone can claim it." = "Продлите его в ближайшее время, иначе его сможет забрать кто угодно.";

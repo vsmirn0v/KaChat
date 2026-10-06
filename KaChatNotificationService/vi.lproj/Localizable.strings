@@ -342,4 +342,13 @@
 "%d days left to renew it." = "Còn %d ngày để gia hạn.";
 "1 day left to renew it." = "Còn 1 ngày để gia hạn.";
 "%@ has expired" = "%@ đã hết hạn";
-"Renew within 10 days or anyone can claim it." = "Gia hạn trong 10 ngày, nếu không ai cũng có thể lấy.";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "Hãy sớm gia hạn để giữ tên.";
+"Renew it soon or anyone can claim it." = "Hãy sớm gia hạn nếu không ai cũng có thể lấy.";
+"%@ has lapsed" = "%@ đã mất hiệu lực";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "Giờ ai cũng có thể lấy. Tự thu hồi để nhận lại tiền ký quỹ.";
+"Offer on %@ declined" = "Đề nghị cho %@ bị từ chối";
+"The owner declined it. The KAS is back with you." = "Chủ đã từ chối. KAS đã trở về với bạn.";
+"Offer on %@ expired" = "Đề nghị cho %@ đã hết hạn";
+"Nobody accepted it in time. The KAS is back with you." = "Không ai chấp nhận kịp. KAS đã trở về với bạn.";

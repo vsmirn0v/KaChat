@@ -342,4 +342,13 @@
 "%d days left to renew it." = "%d days left to renew it.";
 "1 day left to renew it." = "1 day left to renew it.";
 "%@ has expired" = "%@ has expired";
-"Renew within 10 days or anyone can claim it." = "Renew within 10 days or anyone can claim it.";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "Renew it soon to keep it.";
+"Renew it soon or anyone can claim it." = "Renew it soon or anyone can claim it.";
+"%@ has lapsed" = "%@ has lapsed";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "Anyone can claim it now. Reclaim it yourself to get your bond back.";
+"Offer on %@ declined" = "Offer on %@ declined";
+"The owner declined it. The KAS is back with you." = "The owner declined it. The KAS is back with you.";
+"Offer on %@ expired" = "Offer on %@ expired";
+"Nobody accepted it in time. The KAS is back with you." = "Nobody accepted it in time. The KAS is back with you.";

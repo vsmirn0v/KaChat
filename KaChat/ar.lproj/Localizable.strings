@@ -1314,3 +1314,29 @@
 "Tip" = "إكرامية";
 "Goes to a fresh private address they shared" = "تذهب إلى عنوان خاص جديد شاركه";
 "Goes to their public chatting address" = "تذهب إلى عنوان الدردشة العام الخاص به";
+
+/* Profile bell: .kachat news and public chats */
+"Renew %@" = "جدّد %@";
+"Renewal is open: renew it before %@ to keep it." = "التجديد متاح: جدّده قبل %@ للاحتفاظ به.";
+"%@ has expired" = "انتهت صلاحية %@";
+"Renew it before %@ or anyone can claim it." = "جدّده قبل %@ وإلا يمكن لأي شخص المطالبة به.";
+"%@ has lapsed" = "انقضى %@";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "يمكن لأي شخص المطالبة به الآن. استرده بنفسك لتستعيد التأمين.";
+"%@ sold" = "بيع %@";
+"%@ KAS was paid to you." = "دُفع لك %@ KAS.";
+"Your listing was bought." = "تم شراء إدراجك.";
+"You accepted an offer for it." = "قبلت عرضًا عليه.";
+"%@ was reclaimed" = "تم استرداد %@";
+"It lapsed and someone reclaimed it. It's free to register again." = "انقضى واسترده شخص آخر. يمكن تسجيله من جديد.";
+"New offer on %@" = "عرض جديد على %@";
+"%@ KAS offered for it." = "عُرض %@ KAS مقابله.";
+"%@ is yours now." = "%@ أصبح لك الآن.";
+"Offer on %@ declined" = "رُفض العرض على %@";
+"The owner declined it. The KAS is back with you." = "رفضه المالك. عادت KAS إليك.";
+"Offer on %@ expired" = "انتهى العرض على %@";
+"Nobody accepted it in time. The KAS is back with you." = "لم يقبله أحد في الوقت المحدد. عادت KAS إليك.";
+"Offer on %@ returned" = "أُعيد العرض على %@";
+"It can no longer be accepted. The KAS is back with you." = "لم يعد من الممكن قبوله. عادت KAS إليك.";
+"Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here." = "تظهر هنا KAS التي تصل إلى محافظك، وغرف الدردشة العامة التي تتلقى إشعاراتها، وأخبار أسماء .kachat الخاصة بك.";
+"Renew it soon to keep it." = "جدّده قريبًا للاحتفاظ به.";
+"Renew it soon or anyone can claim it." = "جدّده قريبًا وإلا يمكن لأي شخص المطالبة به.";

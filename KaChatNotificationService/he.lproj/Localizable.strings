@@ -342,4 +342,13 @@
 "%d days left to renew it." = "נותרו %d ימים לחידוש.";
 "1 day left to renew it." = "נותר יום אחד לחידוש.";
 "%@ has expired" = "%@ פג";
-"Renew within 10 days or anyone can claim it." = "חדש תוך 10 ימים, אחרת כל אחד יוכל לתבוע אותו.";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "חדשו אותו בקרוב כדי לשמור עליו.";
+"Renew it soon or anyone can claim it." = "חדשו אותו בקרוב, אחרת כל אחד יוכל לדרוש אותו.";
+"%@ has lapsed" = "%@ פקע";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "כעת כל אחד יכול לדרוש אותו. דרשו אותו בעצמכם כדי לקבל את הפיקדון בחזרה.";
+"Offer on %@ declined" = "ההצעה על %@ נדחתה";
+"The owner declined it. The KAS is back with you." = "הבעלים דחה אותה. ה-KAS חזרו אליך.";
+"Offer on %@ expired" = "ההצעה על %@ פגה";
+"Nobody accepted it in time. The KAS is back with you." = "אף אחד לא קיבל אותה בזמן. ה-KAS חזרו אליך.";

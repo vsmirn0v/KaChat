@@ -1314,3 +1314,29 @@
 "Tip" = "팁";
 "Goes to a fresh private address they shared" = "상대가 공유한 새 비공개 주소로 가요";
 "Goes to their public chatting address" = "상대의 공개 채팅 주소로 가요";
+
+/* Profile bell: .kachat news and public chats */
+"Renew %@" = "%@ 갱신";
+"Renewal is open: renew it before %@ to keep it." = "갱신 가능: 유지하려면 %@ 전에 갱신하세요.";
+"%@ has expired" = "%@ 만료됨";
+"Renew it before %@ or anyone can claim it." = "%@ 전에 갱신하지 않으면 누구나 가져갈 수 있어요.";
+"%@ has lapsed" = "%@ 소멸됨";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "이제 누구나 가져갈 수 있어요. 직접 회수하면 보증금을 돌려받아요.";
+"%@ sold" = "%@ 판매됨";
+"%@ KAS was paid to you." = "%@ KAS가 지급되었어요.";
+"Your listing was bought." = "등록한 이름이 판매되었어요.";
+"You accepted an offer for it." = "이 이름에 대한 제안을 수락했어요.";
+"%@ was reclaimed" = "%@ 회수됨";
+"It lapsed and someone reclaimed it. It's free to register again." = "소멸된 뒤 다른 사람이 회수했어요. 다시 등록할 수 있어요.";
+"New offer on %@" = "%@에 새 제안";
+"%@ KAS offered for it." = "%@ KAS가 제안되었어요.";
+"%@ is yours now." = "%@이(가) 이제 내 것이에요.";
+"Offer on %@ declined" = "%@에 대한 제안 거절됨";
+"The owner declined it. The KAS is back with you." = "소유자가 거절했어요. KAS가 돌아왔어요.";
+"Offer on %@ expired" = "%@에 대한 제안 만료됨";
+"Nobody accepted it in time. The KAS is back with you." = "제때 아무도 수락하지 않았어요. KAS가 돌아왔어요.";
+"Offer on %@ returned" = "%@에 대한 제안 반환됨";
+"It can no longer be accepted. The KAS is back with you." = "더 이상 수락할 수 없어요. KAS가 돌아왔어요.";
+"Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here." = "지갑에 도착한 Kaspa, 알림을 켠 공개 채팅방, .kachat 이름 소식이 여기에 표시돼요.";
+"Renew it soon to keep it." = "유지하려면 곧 갱신하세요.";
+"Renew it soon or anyone can claim it." = "곧 갱신하지 않으면 누구나 가져갈 수 있어요.";

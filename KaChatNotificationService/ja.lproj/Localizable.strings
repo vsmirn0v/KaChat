@@ -342,4 +342,13 @@
 "%d days left to renew it." = "更新まであと %d 日です。";
 "1 day left to renew it." = "更新まであと 1 日です。";
 "%@ has expired" = "%@ の期限が切れました";
-"Renew within 10 days or anyone can claim it." = "10 日以内に更新しないと、誰でも取得できるようになります。";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "保持するには早めに更新してください。";
+"Renew it soon or anyone can claim it." = "早めに更新しないと誰でも取得できるようになります。";
+"%@ has lapsed" = "%@ が失効しました";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "今は誰でも取得できます。自分で回収すればボンドが戻ります。";
+"Offer on %@ declined" = "%@ へのオファーが辞退されました";
+"The owner declined it. The KAS is back with you." = "所有者が辞退しました。KAS は返金されました。";
+"Offer on %@ expired" = "%@ へのオファーが期限切れ";
+"Nobody accepted it in time. The KAS is back with you." = "期限内に承諾されませんでした。KAS は返金されました。";

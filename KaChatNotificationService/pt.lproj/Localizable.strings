@@ -342,4 +342,13 @@
 "%d days left to renew it." = "Faltam %d dias para renová-lo.";
 "1 day left to renew it." = "Falta 1 dia para renová-lo.";
 "%@ has expired" = "%@ expirou";
-"Renew within 10 days or anyone can claim it." = "Renove em até 10 dias ou qualquer pessoa poderá pegá-lo.";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "Renove em breve para mantê-lo.";
+"Renew it soon or anyone can claim it." = "Renove em breve ou qualquer pessoa poderá reivindicá-lo.";
+"%@ has lapsed" = "%@ caducou";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "Agora qualquer pessoa pode reivindicá-lo. Recupere-o você mesmo para receber sua caução de volta.";
+"Offer on %@ declined" = "Oferta por %@ recusada";
+"The owner declined it. The KAS is back with you." = "O dono recusou. Os KAS voltaram para você.";
+"Offer on %@ expired" = "Oferta por %@ vencida";
+"Nobody accepted it in time. The KAS is back with you." = "Ninguém aceitou a tempo. Os KAS voltaram para você.";

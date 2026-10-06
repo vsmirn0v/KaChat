@@ -1314,3 +1314,29 @@
 "Tip" = "טיפ";
 "Goes to a fresh private address they shared" = "נשלח לכתובת פרטית חדשה ששיתפו";
 "Goes to their public chatting address" = "נשלח לכתובת הצ׳אט הציבורית שלהם";
+
+/* Profile bell: .kachat news and public chats */
+"Renew %@" = "חידוש %@";
+"Renewal is open: renew it before %@ to keep it." = "החידוש פתוח: חדשו לפני %@ כדי לשמור עליו.";
+"%@ has expired" = "%@ פג";
+"Renew it before %@ or anyone can claim it." = "חדשו לפני %@, אחרת כל אחד יוכל לדרוש אותו.";
+"%@ has lapsed" = "%@ פקע";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "כעת כל אחד יכול לדרוש אותו. דרשו אותו בעצמכם כדי לקבל את הפיקדון בחזרה.";
+"%@ sold" = "%@ נמכר";
+"%@ KAS was paid to you." = "שולמו לך %@ KAS.";
+"Your listing was bought." = "הרישום שלך נקנה.";
+"You accepted an offer for it." = "קיבלת הצעה עבורו.";
+"%@ was reclaimed" = "%@ נדרש בחזרה";
+"It lapsed and someone reclaimed it. It's free to register again." = "הוא פקע ומישהו דרש אותו. אפשר לרשום אותו מחדש.";
+"New offer on %@" = "הצעה חדשה על %@";
+"%@ KAS offered for it." = "הוצעו עבורו %@ KAS.";
+"%@ is yours now." = "%@ שלך עכשיו.";
+"Offer on %@ declined" = "ההצעה על %@ נדחתה";
+"The owner declined it. The KAS is back with you." = "הבעלים דחה אותה. ה-KAS חזרו אליך.";
+"Offer on %@ expired" = "ההצעה על %@ פגה";
+"Nobody accepted it in time. The KAS is back with you." = "אף אחד לא קיבל אותה בזמן. ה-KAS חזרו אליך.";
+"Offer on %@ returned" = "ההצעה על %@ הוחזרה";
+"It can no longer be accepted. The KAS is back with you." = "אי אפשר לקבל אותה יותר. ה-KAS חזרו אליך.";
+"Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here." = "כאן מופיעים Kaspa שמגיעים לארנקים שלך, חדרי צ׳אט ציבוריים שאת ההתראות שלהם הפעלת, וחדשות על שמות ה-.kachat שלך.";
+"Renew it soon to keep it." = "חדשו אותו בקרוב כדי לשמור עליו.";
+"Renew it soon or anyone can claim it." = "חדשו אותו בקרוב, אחרת כל אחד יוכל לדרוש אותו.";

@@ -765,14 +765,26 @@ class NotificationService: UNNotificationServiceExtension {
             content.body = L("Renewal is open: renew now to keep it.", "Push body: renewal window opened")
         case "name_expiring":
             content.title = String(format: L("%@ expires soon", "Push title: your .kachat name is about to expire"), name)
+            // days on mainnet's yearly clock; testnet's periods are minutes long (days = 0)
             if let days, days > 1 {
                 content.body = String(format: L("%d days left to renew it.", "Push body: days left before expiry"), days)
-            } else {
+            } else if days == 1 {
                 content.body = L("1 day left to renew it.", "Push body: one day left before expiry")
+            } else {
+                content.body = L("Renew it soon to keep it.", "Push body: expiry is close, less than a day")
             }
         case "name_grace":
             content.title = String(format: L("%@ has expired", "Push title: your .kachat name expired"), name)
-            content.body = L("Renew within 10 days or anyone can claim it.", "Push body: grace period started")
+            content.body = L("Renew it soon or anyone can claim it.", "Push body: grace period started")
+        case "name_lapsed":
+            content.title = String(format: L("%@ has lapsed", "Push title: your .kachat name's grace period ended"), name)
+            content.body = L("Anyone can claim it now. Reclaim it yourself to get your bond back.", "Push body: name lapsed")
+        case "name_offer_declined":
+            content.title = String(format: L("Offer on %@ declined", "Push title: the owner declined your offer"), name)
+            content.body = unitLabel(L("The owner declined it. The KAS is back with you.", "Push body: declined offer returned"))
+        case "name_offer_refunded":
+            content.title = String(format: L("Offer on %@ expired", "Push title: your offer expired and was refunded"), name)
+            content.body = unitLabel(L("Nobody accepted it in time. The KAS is back with you.", "Push body: expired offer returned"))
         default:
             break // an event this build doesn't know: keep the server's text
         }

@@ -1314,3 +1314,29 @@
 "Tip" = "Tip";
 "Goes to a fresh private address they shared" = "Dikirim ke alamat pribadi baru yang mereka bagikan";
 "Goes to their public chatting address" = "Dikirim ke alamat chat publik mereka";
+
+/* Profile bell: .kachat news and public chats */
+"Renew %@" = "Perpanjang %@";
+"Renewal is open: renew it before %@ to keep it." = "Perpanjangan dibuka: perpanjang sebelum %@ untuk mempertahankannya.";
+"%@ has expired" = "%@ sudah kedaluwarsa";
+"Renew it before %@ or anyone can claim it." = "Perpanjang sebelum %@ atau siapa pun bisa mengklaimnya.";
+"%@ has lapsed" = "%@ sudah gugur";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "Sekarang siapa pun bisa mengklaimnya. Klaim ulang sendiri untuk mendapatkan kembali jaminan Anda.";
+"%@ sold" = "%@ terjual";
+"%@ KAS was paid to you." = "%@ KAS dibayarkan kepada Anda.";
+"Your listing was bought." = "Listing Anda dibeli.";
+"You accepted an offer for it." = "Anda menerima penawaran untuknya.";
+"%@ was reclaimed" = "%@ diklaim ulang";
+"It lapsed and someone reclaimed it. It's free to register again." = "Nama ini gugur dan seseorang mengklaim ulang. Bisa didaftarkan lagi.";
+"New offer on %@" = "Penawaran baru untuk %@";
+"%@ KAS offered for it." = "%@ KAS ditawarkan untuknya.";
+"%@ is yours now." = "%@ sekarang milik Anda.";
+"Offer on %@ declined" = "Penawaran untuk %@ ditolak";
+"The owner declined it. The KAS is back with you." = "Pemilik menolaknya. KAS sudah kembali kepada Anda.";
+"Offer on %@ expired" = "Penawaran untuk %@ kedaluwarsa";
+"Nobody accepted it in time. The KAS is back with you." = "Tidak ada yang menerima tepat waktu. KAS sudah kembali kepada Anda.";
+"Offer on %@ returned" = "Penawaran untuk %@ dikembalikan";
+"It can no longer be accepted. The KAS is back with you." = "Penawaran tidak bisa diterima lagi. KAS sudah kembali kepada Anda.";
+"Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here." = "Kaspa yang masuk ke dompet Anda, ruang obrolan publik yang notifikasinya Anda terima, dan kabar nama .kachat Anda muncul di sini.";
+"Renew it soon to keep it." = "Perpanjang segera untuk mempertahankannya.";
+"Renew it soon or anyone can claim it." = "Perpanjang segera atau siapa pun bisa mengklaimnya.";

@@ -243,6 +243,9 @@ struct KaChatApp: App {
             // .kachat registrations in flight (testnet only; no-op on mainnet) resume after a
             // relaunch: commit -> wait -> register continues by itself.
             KachatNamesActions.shared.resume()
+            // .kachat news for the Profile bell (offers, sales, renewal, expiry): the refresh
+            // runs KachatNamesNotifier. Testnet only until names launch on mainnet.
+            Task { @MainActor in await KachatNamesRegistry.shared.refreshIfStale() }
             // Group traffic from the indexer while the app is open (block stream as fallback).
             GroupChatService.shared.startLivePolling()
 

@@ -1314,3 +1314,29 @@
 "Tip" = "Gorjeta";
 "Goes to a fresh private address they shared" = "Vai para um novo endereço privado que a pessoa compartilhou";
 "Goes to their public chatting address" = "Vai para o endereço público de chat da pessoa";
+
+/* Profile bell: .kachat news and public chats */
+"Renew %@" = "Renove %@";
+"Renewal is open: renew it before %@ to keep it." = "A renovação está aberta: renove antes de %@ para mantê-lo.";
+"%@ has expired" = "%@ venceu";
+"Renew it before %@ or anyone can claim it." = "Renove antes de %@ ou qualquer pessoa poderá reivindicá-lo.";
+"%@ has lapsed" = "%@ caducou";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "Agora qualquer pessoa pode reivindicá-lo. Recupere-o você mesmo para receber sua caução de volta.";
+"%@ sold" = "%@ vendido";
+"%@ KAS was paid to you." = "%@ KAS foram pagos a você.";
+"Your listing was bought." = "Seu anúncio foi comprado.";
+"You accepted an offer for it." = "Você aceitou uma oferta por ele.";
+"%@ was reclaimed" = "%@ foi recuperado";
+"It lapsed and someone reclaimed it. It's free to register again." = "Ele caducou e alguém o recuperou. Pode ser registrado de novo.";
+"New offer on %@" = "Nova oferta por %@";
+"%@ KAS offered for it." = "%@ KAS oferecidos por ele.";
+"%@ is yours now." = "%@ agora é seu.";
+"Offer on %@ declined" = "Oferta por %@ recusada";
+"The owner declined it. The KAS is back with you." = "O dono recusou. Os KAS voltaram para você.";
+"Offer on %@ expired" = "Oferta por %@ vencida";
+"Nobody accepted it in time. The KAS is back with you." = "Ninguém aceitou a tempo. Os KAS voltaram para você.";
+"Offer on %@ returned" = "Oferta por %@ devolvida";
+"It can no longer be accepted. The KAS is back with you." = "Ela não pode mais ser aceita. Os KAS voltaram para você.";
+"Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here." = "Aqui aparecem os Kaspa que chegam às suas carteiras, as salas de chat públicas de que você recebe avisos e as novidades dos seus nomes .kachat.";
+"Renew it soon to keep it." = "Renove em breve para mantê-lo.";
+"Renew it soon or anyone can claim it." = "Renove em breve ou qualquer pessoa poderá reivindicá-lo.";

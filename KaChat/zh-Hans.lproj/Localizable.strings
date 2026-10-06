@@ -1314,3 +1314,29 @@
 "Tip" = "打赏";
 "Goes to a fresh private address they shared" = "发送到对方分享的新私人地址";
 "Goes to their public chatting address" = "发送到对方的公开聊天地址";
+
+/* Profile bell: .kachat news and public chats */
+"Renew %@" = "续期 %@";
+"Renewal is open: renew it before %@ to keep it." = "续期已开放：在 %@ 前续期以保留它。";
+"%@ has expired" = "%@ 已过期";
+"Renew it before %@ or anyone can claim it." = "在 %@ 前续期，否则任何人都可以认领。";
+"%@ has lapsed" = "%@ 已失效";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "现在任何人都可以认领。自己回收即可取回保证金。";
+"%@ sold" = "%@ 已售出";
+"%@ KAS was paid to you." = "已向你支付 %@ KAS。";
+"Your listing was bought." = "你挂牌的名称已被购买。";
+"You accepted an offer for it." = "你接受了对它的报价。";
+"%@ was reclaimed" = "%@ 已被回收";
+"It lapsed and someone reclaimed it. It's free to register again." = "它已失效并被他人回收，可以重新注册。";
+"New offer on %@" = "%@ 收到新报价";
+"%@ KAS offered for it." = "有人为它报价 %@ KAS。";
+"%@ is yours now." = "%@ 现在归你了。";
+"Offer on %@ declined" = "对 %@ 的报价被拒绝";
+"The owner declined it. The KAS is back with you." = "所有者拒绝了报价。KAS 已退回给你。";
+"Offer on %@ expired" = "对 %@ 的报价已过期";
+"Nobody accepted it in time. The KAS is back with you." = "没有人及时接受。KAS 已退回给你。";
+"Offer on %@ returned" = "对 %@ 的报价已退回";
+"It can no longer be accepted. The KAS is back with you." = "它已无法被接受。KAS 已退回给你。";
+"Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here." = "到达你钱包的 Kaspa、你开启通知的公开聊天室，以及你的 .kachat 名称动态都会显示在这里。";
+"Renew it soon to keep it." = "请尽快续期以保留它。";
+"Renew it soon or anyone can claim it." = "请尽快续期，否则任何人都可以认领。";

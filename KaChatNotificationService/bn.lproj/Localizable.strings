@@ -342,4 +342,13 @@
 "%d days left to renew it." = "নবায়নের জন্য %d দিন বাকি।";
 "1 day left to renew it." = "নবায়নের জন্য ১ দিন বাকি।";
 "%@ has expired" = "%@-এর মেয়াদ শেষ";
-"Renew within 10 days or anyone can claim it." = "১০ দিনের মধ্যে নবায়ন করুন, নইলে যে কেউ দাবি করতে পারবে।";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "রাখতে শীঘ্রই নবায়ন করুন।";
+"Renew it soon or anyone can claim it." = "শীঘ্রই নবায়ন করুন, নইলে যে কেউ এটি দাবি করতে পারবে।";
+"%@ has lapsed" = "%@ বাতিল হয়েছে";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "এখন যে কেউ এটি দাবি করতে পারে। বন্ড ফেরত পেতে নিজেই পুনরুদ্ধার করুন।";
+"Offer on %@ declined" = "%@-এ প্রস্তাব প্রত্যাখ্যাত";
+"The owner declined it. The KAS is back with you." = "মালিক এটি প্রত্যাখ্যান করেছেন। KAS আপনার কাছে ফিরে এসেছে।";
+"Offer on %@ expired" = "%@-এ প্রস্তাবের মেয়াদ শেষ";
+"Nobody accepted it in time. The KAS is back with you." = "সময়মতো কেউ গ্রহণ করেনি। KAS আপনার কাছে ফিরে এসেছে।";

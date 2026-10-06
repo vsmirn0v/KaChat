@@ -342,4 +342,13 @@
 "%d days left to renew it." = "بقي %d أيام لتجديده.";
 "1 day left to renew it." = "بقي يوم واحد لتجديده.";
 "%@ has expired" = "انتهت صلاحية %@";
-"Renew within 10 days or anyone can claim it." = "جدّده خلال 10 أيام وإلا يمكن لأي شخص المطالبة به.";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "جدّده قريبًا للاحتفاظ به.";
+"Renew it soon or anyone can claim it." = "جدّده قريبًا وإلا يمكن لأي شخص المطالبة به.";
+"%@ has lapsed" = "انقضى %@";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "يمكن لأي شخص المطالبة به الآن. استرده بنفسك لتستعيد التأمين.";
+"Offer on %@ declined" = "رُفض العرض على %@";
+"The owner declined it. The KAS is back with you." = "رفضه المالك. عادت KAS إليك.";
+"Offer on %@ expired" = "انتهى العرض على %@";
+"Nobody accepted it in time. The KAS is back with you." = "لم يقبله أحد في الوقت المحدد. عادت KAS إليك.";

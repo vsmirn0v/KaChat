@@ -1,10 +1,14 @@
 import Foundation
 import SwiftUI
 
-/// The bell on the Profile screen: Kaspa arriving in one of your own wallets - the chatting
-/// wallet, a spending address, cold storage (fed by AddressActivityNotifier). Nothing else:
-/// KaPosts has its own bell, and group chats and public rooms carry their own unread counts in
-/// the Chats tab. Entries are account-scoped, persisted, deduped by id, and capped; opening the
+/// The bell on the Profile screen holds three things:
+/// - Kaspa arriving in one of your own wallets - the chatting wallet, a spending address, cold
+///   storage (fed by AddressActivityNotifier);
+/// - live messages in the public chat rooms you turned notifications on for;
+/// - your .kachat names: offers, sales, renewal and expiry, what happened to your offers
+///   (`KachatNamesNotifier`).
+/// Never KaPosts: KaPosts has its own bell. Group chats keep their own unread counts in the
+/// Chats tab. Entries are account-scoped, persisted, deduped by id, and capped; opening the
 /// list marks everything seen.
 @MainActor
 final class GlobalNotificationCenter: ObservableObject {
@@ -15,6 +19,8 @@ final class GlobalNotificationCenter: ObservableObject {
             case kaposts, group, wallet
             /// Stored entries carry the old name.
             case publicChat = "broadcast"
+            /// a .kachat name event; `targetId` is the name
+            case kachat
 
             var label: String {
                 switch self {
@@ -22,6 +28,7 @@ final class GlobalNotificationCenter: ObservableObject {
                 case .group: return "Group"
                 case .publicChat: return "Public Chat"
                 case .wallet: return "Wallet"
+                case .kachat: return ".kachat"
                 }
             }
 
@@ -31,8 +38,12 @@ final class GlobalNotificationCenter: ObservableObject {
                 case .group: return "person.3"
                 case .publicChat: return "dot.radiowaves.left.and.right"
                 case .wallet: return "arrow.down.circle"
+                case .kachat: return "at"
                 }
             }
+
+            /// What the Profile bell lists.
+            static let inBell: Set<Source> = [.wallet, .publicChat, .kachat]
         }
 
         let id: String
@@ -80,10 +91,10 @@ final class GlobalNotificationCenter: ObservableObject {
     func reload() {
         if let data = UserDefaults.standard.data(forKey: entriesKey),
            let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
-            // Wallet rows only. KaPosts rows live in KaPosts' own bell, group mentions and public
-            // rooms carry their own unread counts in the Chats tab; anything an older build saved
-            // for those is dropped here so the bell never double-counts.
-            let kept = decoded.filter { $0.source == .wallet }
+            // Wallet, public chat and .kachat rows only. KaPosts rows live in KaPosts' own bell
+            // and group mentions carry their own counts in the Chats tab; anything an older build
+            // saved for those is dropped here so the bell never double-counts.
+            let kept = decoded.filter { Entry.Source.inBell.contains($0.source) }
             entries = kept
             if kept.count != decoded.count { persist() }
         } else {
@@ -104,7 +115,7 @@ final class GlobalNotificationCenter: ObservableObject {
         // KaPosts activity is counted by KaPostsNotificationCenter and listed by the KaPosts
         // notifications screen. Refused here rather than merely left uncalled, so a future caller
         // cannot quietly reintroduce the double-reporting.
-        guard source != .kaposts else { return }
+        guard Entry.Source.inBell.contains(source) else { return }
         guard !id.isEmpty, !entries.contains(where: { $0.id == id }) else { return }
         entries.insert(Entry(id: id, source: source, title: title, body: body, timestamp: timestamp, targetId: targetId), at: 0)
         if entries.count > maxEntries { entries = Array(entries.prefix(maxEntries)) }
@@ -132,10 +143,21 @@ final class GlobalNotificationCenter: ObservableObject {
 
     // MARK: - Public Chats (called from PublicChatService on merged rows)
 
-    /// Public rooms live in the Chats tab now, with their own unread counts and long-press
-    /// controls, so their messages no longer go through the bell. Kept as a no-op for the
-    /// call site; rows an older build recorded are dropped on load (see `load`).
-    func recordPublicChatIfLive(channel: String, senderAddress: String, content: String, txId: String, blockTime: Int64) {}
+    /// A live message (after app launch, not ours) in a room the caller has checked the person
+    /// asked to be notified about (`PublicChatService`: notifications on, sender not hidden).
+    /// History re-served by later polls is deduped by txId.
+    func recordPublicChatIfLive(channel: String, senderAddress: String, content: String, txId: String, blockTime: Int64) {
+        guard blockTime >= Self.sessionStartMs,
+              senderAddress != WalletManager.shared.currentWallet?.publicAddress else { return }
+        record(
+            id: "broadcast-\(txId)",
+            source: .publicChat,
+            title: "\(displayName(for: senderAddress)) in #\(channel)",
+            body: String(content.prefix(90)),
+            timestamp: blockTime,
+            targetId: channel
+        )
+    }
 
     // MARK: - KaPosts poll
 
@@ -207,7 +229,7 @@ struct GlobalNotificationListView: View {
                             .foregroundColor(.secondary)
                         Text("No notifications yet")
                             .font(.headline)
-                        Text("Kaspa arriving in your wallets and cold storage shows up here.")
+                        Text("Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -310,6 +332,15 @@ struct GlobalNotificationListView: View {
             dismiss()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                 NotificationCenter.default.post(name: .openPortfolio, object: nil)
+            }
+        case .kachat:
+            // The name, the same way a tapped .kachat push opens it.
+            guard !target.isEmpty else { return }
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                KachatDeepLink.pendingName = KachatNames.Codec.normalize(target)
+                PendingTabRoute.pending = .kachatNames
+                NotificationCenter.default.post(name: .openKachatName, object: nil)
             }
         }
     }

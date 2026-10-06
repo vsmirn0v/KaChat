@@ -342,4 +342,13 @@
 "%d days left to renew it." = "갱신까지 %d일 남았습니다.";
 "1 day left to renew it." = "갱신까지 1일 남았습니다.";
 "%@ has expired" = "%@ 만료됨";
-"Renew within 10 days or anyone can claim it." = "10일 안에 갱신하지 않으면 누구나 가져갈 수 있습니다.";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "유지하려면 곧 갱신하세요.";
+"Renew it soon or anyone can claim it." = "곧 갱신하지 않으면 누구나 가져갈 수 있어요.";
+"%@ has lapsed" = "%@ 소멸됨";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "이제 누구나 가져갈 수 있어요. 직접 회수하면 보증금을 돌려받아요.";
+"Offer on %@ declined" = "%@에 대한 제안 거절됨";
+"The owner declined it. The KAS is back with you." = "소유자가 거절했어요. KAS가 돌아왔어요.";
+"Offer on %@ expired" = "%@에 대한 제안 만료됨";
+"Nobody accepted it in time. The KAS is back with you." = "제때 아무도 수락하지 않았어요. KAS가 돌아왔어요.";

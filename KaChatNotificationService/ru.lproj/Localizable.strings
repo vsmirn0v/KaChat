@@ -342,4 +342,13 @@
 "%d days left to renew it." = "Осталось %d дн. на продление.";
 "1 day left to renew it." = "Остался 1 день на продление.";
 "%@ has expired" = "Срок %@ истёк";
-"Renew within 10 days or anyone can claim it." = "Продлите в течение 10 дней, иначе его сможет занять любой.";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "Продлите его в ближайшее время, чтобы сохранить.";
+"Renew it soon or anyone can claim it." = "Продлите его в ближайшее время, иначе его сможет забрать кто угодно.";
+"%@ has lapsed" = "%@ освободилось";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "Теперь его может забрать кто угодно. Верните его сами, чтобы получить залог.";
+"Offer on %@ declined" = "Предложение за %@ отклонено";
+"The owner declined it. The KAS is back with you." = "Владелец его отклонил. KAS вернулись к вам.";
+"Offer on %@ expired" = "Предложение за %@ истекло";
+"Nobody accepted it in time. The KAS is back with you." = "Никто не принял его вовремя. KAS вернулись к вам.";

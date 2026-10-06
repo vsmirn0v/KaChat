@@ -427,6 +427,15 @@ final class KachatNamesActions: ObservableObject {
     func perform(_ op: Operation, maxPrice: UInt64? = nil) async throws -> String {
         let s = try signer(for: op)
         let txId = try await submit(op, s, maxPrice: maxPrice)
+        // An offer you withdrew or refunded yourself isn't news in the Profile bell; the ones
+        // this app returns on its own (expired, made to an earlier owner) are.
+        switch op {
+        case .withdraw(let o) where !withdrawingOffers.contains(o.id),
+             .refund(let o) where !returningOffers.contains(o.id):
+            KachatNamesNotifier.shared.selfClosedOffers.insert(o.id)
+        default:
+            break
+        }
         switch op {
         // A name that leaves this owner takes no offers with it: the ones made to this owner
         // can never be accepted any more, so they go straight back to their buyers.

@@ -342,4 +342,13 @@
 "%d days left to renew it." = "还有 %d 天可续期。";
 "1 day left to renew it." = "还有 1 天可续期。";
 "%@ has expired" = "%@ 已过期";
-"Renew within 10 days or anyone can claim it." = "请在 10 天内续期，否则任何人都可以领取。";
+
+/* .kachat pushes: period-neutral wording, lapsed, declined and expired offers */
+"Renew it soon to keep it." = "请尽快续期以保留它。";
+"Renew it soon or anyone can claim it." = "请尽快续期，否则任何人都可以认领。";
+"%@ has lapsed" = "%@ 已失效";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "现在任何人都可以认领。自己回收即可取回保证金。";
+"Offer on %@ declined" = "对 %@ 的报价被拒绝";
+"The owner declined it. The KAS is back with you." = "所有者拒绝了报价。KAS 已退回给你。";
+"Offer on %@ expired" = "对 %@ 的报价已过期";
+"Nobody accepted it in time. The KAS is back with you." = "没有人及时接受。KAS 已退回给你。";

@@ -127,6 +127,8 @@ final class KachatNamesRegistry: ObservableObject {
             lastError = nil
             refreshedAt = Date()
             revision += 1
+            // what changed for this wallet's names and offers, into the Profile bell
+            Task { await KachatNamesNotifier.shared.check() }
         } catch {
             let message = error.localizedDescription
             lastError = message
@@ -840,5 +842,150 @@ final class KachatSocialImageResolver: ObservableObject {
         guard let (data, response) = try? await session.data(for: request),
               let http = response as? HTTPURLResponse else { return nil }
         return (data.prefix(3_000_000), http.statusCode)
+    }
+}
+
+// MARK: - The Profile bell: what happened to your names and offers
+
+/// Turns registry changes into Profile-bell rows (`GlobalNotificationCenter`, source `.kachat`),
+/// so a missed push still leaves a trace: an offer on one of your names, a name sold or
+/// reclaimed, its renewal window opening, its expiry and lapse, and what became of your own
+/// offers (accepted, declined, expired and returned). It compares what the registry says now
+/// with what it saw on the last check (persisted per wallet), after every registry refresh.
+/// The first check of a wallet only records where things stand.
+@MainActor
+final class KachatNamesNotifier {
+    static let shared = KachatNamesNotifier()
+    private init() {}
+
+    private struct Snapshot: Codable {
+        struct Name: Codable {
+            var expiresAt: Int64
+            var renewNoted = false
+            var graceNoted = false
+            var lapsedNoted = false
+        }
+        /// the names this wallet owned at the last check
+        var names: [String: Name] = [:]
+        /// open offers on those names, by id
+        var offersOnMine: Set<String> = []
+        /// this wallet's own open offers: id -> name
+        var myOffers: [String: String] = [:]
+    }
+
+    private var checking = false
+    /// Offers this person closed themselves (Withdraw, Refund): not news when they disappear.
+    var selfClosedOffers: Set<String> = []
+
+    private func key(_ wallet: String) -> String { "kachatNamesNotifier.\(wallet)" }
+
+    func check() async {
+        guard KachatNamesService.isLaunched, !checking,
+              let me = KachatNamesActions.shared.myKey, let wallet = KachatNamesActions.shared.myAddress,
+              let p = KachatNamesService.shared.manifest?.params else { return }
+        checking = true
+        defer { checking = false }
+        let registry = KachatNamesRegistry.shared
+        guard let owned = try? await registry.names(owner: me, includeInactive: true),
+              let myOpenOffers = try? await registry.myOffers(buyer: me) else { return }
+        var offersOnMine: [KachatNames.OfferInfo] = []
+        for n in owned where n.status(graceMs: p.graceMs) == .active {
+            offersOnMine += ((try? await registry.offers(for: n.name)) ?? []).filter { $0.seller == me }
+        }
+        // a different wallet signed in meanwhile: this answer isn't its
+        guard KachatNamesActions.shared.myAddress == wallet else { return }
+
+        let old: Snapshot? = UserDefaults.standard.data(forKey: key(wallet)).flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) }
+        let quiet = old == nil // the first check only records where things stand
+        var new = Snapshot()
+        let now = KachatNames.nowMs()
+
+        func post(_ id: String, _ name: String, _ title: String, _ body: String) {
+            guard !quiet else { return }
+            GlobalNotificationCenter.shared.record(id: "kachat-\(id)", source: .kachat, title: title, body: body,
+                                                   timestamp: now, targetId: name)
+        }
+        func S(_ key: String, _ args: CVarArg...) -> String {
+            KaspaUnit.label(String(format: AppLocalization.string(key), locale: AppLocalization.locale, arguments: args))
+        }
+
+        // Your names: renewal open, expired (grace), lapsed - once per paid period.
+        for n in owned {
+            let display = "\(n.name).kachat"
+            var s = old?.names[n.name].flatMap { $0.expiresAt == n.expiresAt ? $0 : nil } ?? Snapshot.Name(expiresAt: n.expiresAt)
+            switch n.status(graceMs: p.graceMs, nowMs: now) {
+            case .active:
+                if n.renewOpen(p, nowMs: now), !s.renewNoted {
+                    post("renew-\(n.name)-\(n.expiresAt)", n.name, S("Renew %@", display),
+                         S("Renewal is open: renew it before %@ to keep it.", KachatNamesActions.dayString(n.expiresAt)))
+                    s.renewNoted = true
+                }
+            case .grace:
+                s.renewNoted = true
+                if !s.graceNoted {
+                    post("grace-\(n.name)-\(n.expiresAt)", n.name, S("%@ has expired", display),
+                         S("Renew it before %@ or anyone can claim it.", KachatNamesActions.dayString(n.expiresAt + p.graceMs)))
+                    s.graceNoted = true
+                }
+            case .lapsed:
+                s.renewNoted = true
+                s.graceNoted = true
+                if !s.lapsedNoted {
+                    post("lapsed-\(n.name)-\(n.expiresAt)", n.name, S("%@ has lapsed", display),
+                         AppLocalization.string("Anyone can claim it now. Reclaim it yourself to get your bond back."))
+                    s.lapsedNoted = true
+                }
+            }
+            new.names[n.name] = s
+        }
+
+        // Names that left this wallet: sold, bought through an offer, or reclaimed by someone.
+        // A transfer or release is your own doing and needs no notice.
+        for name in old.map({ Array($0.names.keys) }) ?? [] where new.names[name] == nil {
+            let history = (try? await registry.history(name: name)) ?? []
+            guard let last = history.first(where: { ["sale", "offer_accepted", "offer_accept", "transfer", "release", "reclaim"].contains($0.op) }) else { continue }
+            let display = "\(name).kachat"
+            switch last.op {
+            case "sale":
+                post("sold-\(last.txId)", name, S("%@ sold", display),
+                     last.price.map { S("%@ KAS was paid to you.", KaspaUnit.plain($0)) } ?? AppLocalization.string("Your listing was bought."))
+            case "offer_accepted", "offer_accept":
+                post("sold-\(last.txId)", name, S("%@ sold", display), AppLocalization.string("You accepted an offer for it."))
+            case "reclaim":
+                post("reclaimed-\(last.txId)", name, S("%@ was reclaimed", display),
+                     AppLocalization.string("It lapsed and someone reclaimed it. It's free to register again."))
+            default:
+                break
+            }
+        }
+
+        // Offers on your names.
+        for o in offersOnMine {
+            new.offersOnMine.insert(o.id)
+            guard old?.offersOnMine.contains(o.id) != true, let name = o.name else { continue }
+            post("offer-\(o.id)", name, S("New offer on %@", "\(name).kachat"), S("%@ KAS offered for it.", KaspaUnit.plain(o.amount)))
+        }
+
+        // Your offers: accepted, or back with you.
+        for o in myOpenOffers { new.myOffers[o.id] = o.name ?? "" }
+        for (id, name) in old?.myOffers ?? [:] where new.myOffers[id] == nil && !name.isEmpty {
+            if selfClosedOffers.contains(id) { continue }
+            let display = "\(name).kachat"
+            if owned.contains(where: { $0.name == name }) {
+                post("myoffer-\(id)", name, AppLocalization.string("Offer accepted"), S("%@ is yours now.", display))
+                continue
+            }
+            let history = (try? await registry.history(name: name)) ?? []
+            switch history.first(where: { ["offer_decline", "offer_refund", "offer_withdraw"].contains($0.op) })?.op {
+            case "offer_decline":
+                post("myoffer-\(id)", name, S("Offer on %@ declined", display), AppLocalization.string("The owner declined it. The KAS is back with you."))
+            case "offer_refund":
+                post("myoffer-\(id)", name, S("Offer on %@ expired", display), AppLocalization.string("Nobody accepted it in time. The KAS is back with you."))
+            default:
+                post("myoffer-\(id)", name, S("Offer on %@ returned", display), AppLocalization.string("It can no longer be accepted. The KAS is back with you."))
+            }
+        }
+
+        if let data = try? JSONEncoder().encode(new) { UserDefaults.standard.set(data, forKey: key(wallet)) }
     }
 }

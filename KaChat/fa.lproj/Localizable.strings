@@ -1314,3 +1314,29 @@
 "Tip" = "انعام";
 "Goes to a fresh private address they shared" = "به یک آدرس خصوصی تازه که به اشتراک گذاشته‌اند می‌رود";
 "Goes to their public chatting address" = "به آدرس عمومی گفتگوی آن‌ها می‌رود";
+
+/* Profile bell: .kachat news and public chats */
+"Renew %@" = "تمدید %@";
+"Renewal is open: renew it before %@ to keep it." = "تمدید باز است: پیش از %@ تمدیدش کنید تا بماند.";
+"%@ has expired" = "%@ منقضی شد";
+"Renew it before %@ or anyone can claim it." = "پیش از %@ تمدیدش کنید وگرنه هر کسی می‌تواند آن را بگیرد.";
+"%@ has lapsed" = "%@ از دست رفت";
+"Anyone can claim it now. Reclaim it yourself to get your bond back." = "اکنون هر کسی می‌تواند آن را بگیرد. خودتان بازپس بگیرید تا ودیعه‌تان برگردد.";
+"%@ sold" = "%@ فروخته شد";
+"%@ KAS was paid to you." = "%@ KAS به شما پرداخت شد.";
+"Your listing was bought." = "آگهی شما خریده شد.";
+"You accepted an offer for it." = "یک پیشنهاد برای آن را پذیرفتید.";
+"%@ was reclaimed" = "%@ بازپس گرفته شد";
+"It lapsed and someone reclaimed it. It's free to register again." = "از دست رفت و کسی آن را بازپس گرفت. دوباره قابل ثبت است.";
+"New offer on %@" = "پیشنهاد تازه برای %@";
+"%@ KAS offered for it." = "%@ KAS برای آن پیشنهاد شد.";
+"%@ is yours now." = "%@ اکنون مال شماست.";
+"Offer on %@ declined" = "پیشنهاد برای %@ رد شد";
+"The owner declined it. The KAS is back with you." = "مالک آن را رد کرد. KAS به شما برگشت.";
+"Offer on %@ expired" = "پیشنهاد برای %@ منقضی شد";
+"Nobody accepted it in time. The KAS is back with you." = "کسی به‌موقع آن را نپذیرفت. KAS به شما برگشت.";
+"Offer on %@ returned" = "پیشنهاد برای %@ برگشت";
+"It can no longer be accepted. The KAS is back with you." = "دیگر قابل پذیرش نیست. KAS به شما برگشت.";
+"Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here." = "Kaspa رسیده به کیف‌پول‌هایتان، اتاق‌های گفتگوی عمومی که اعلان‌شان را می‌گیرید و خبرهای نام‌های .kachat شما اینجا نمایش داده می‌شود.";
+"Renew it soon to keep it." = "به‌زودی تمدیدش کنید تا بماند.";
+"Renew it soon or anyone can claim it." = "به‌زودی تمدیدش کنید وگرنه هر کسی می‌تواند آن را بگیرد.";
