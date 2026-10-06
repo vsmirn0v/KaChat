@@ -757,10 +757,8 @@
 "List a Name for Sale" = "Rao bán tên";
 "Listings appear here once .kachat names launch." = "Tin rao sẽ xuất hiện ở đây khi tên .kachat ra mắt.";
 "No .kachat names yet" = "Chưa có tên .kachat";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Các tên bạn nhận hoặc mua sẽ hiện ở đây. Từ đây bạn có thể đặt làm tên trong trò chuyện, rao bán hoặc gửi cho người khác.";
 "Claim a Name" = "Nhận một tên";
 "Recent activity" = "Hoạt động gần đây";
-"Claims, listings and sales across the marketplace." = "Nhận tên, rao bán và giao dịch trên toàn chợ.";
 "Activity appears here once .kachat names launch." = "Hoạt động sẽ xuất hiện ở đây khi tên .kachat ra mắt.";
 "How it works" = "Cách hoạt động";
 "List" = "Rao bán";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "Đề nghị";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Các đề nghị bạn đã gửi và đề nghị cho tên của bạn. Chấp nhận một đề nghị hoặc rút đề nghị của bạn tại đây.";
 "No offers yet." = "Chưa có đề nghị nào.";
 "Offer" = "Đề nghị";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Tự đặt giá. KAS của bạn chờ trên chuỗi cho đến khi người bán chấp nhận, bạn rút đề nghị hoặc đề nghị hết hạn - và bạn có thể nhắn tin cho người bán trước.";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "Các đề nghị bạn đã đưa. Rút bất cứ lúc nào; sau thời điểm hoàn, ai cũng có thể trả lại cho bạn.";
 "No open offers." = "Không có đề nghị đang mở.";
 "Offers from others appear once a names indexer is connected." = "Đề nghị từ người khác sẽ hiện khi có kết nối trình lập chỉ mục tên.";
-"Claims, renewals, listings, sales and transfers across the registry." = "Đăng ký, gia hạn, rao bán, bán và chuyển nhượng trên toàn sổ đăng ký.";
 "Nothing yet." = "Chưa có gì.";
 "Withdraw Offer" = "Rút đề nghị";
 "Withdraw" = "Rút";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "Đang mở gia hạn";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Kéo dài thêm năm vào kỳ đã trả hiện tại, mỗi kỳ tối đa 2 năm. Giá trả cho thợ đào.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Bộ chỉ mục tên không gửi kỳ đã trả của tên này. Kéo xuống để làm mới rồi thử lại.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Kéo dài, gia hạn, rao bán, chuyển hoặc nhả tên, và chọn tên KaChat hiển thị cho bạn.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Tên là của bạn trong số năm đã trả, tối đa trước 2 năm. Tên 1 năm có thể kéo dài thành 2 năm; từ 10 ngày trước khi hết hạn bạn có thể gia hạn.";
 "Setting up" = "Đang thiết lập";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "Sổ đăng ký .kachat trên Testnet đang được nâng cấp. Tên sẽ mở lại ở đây khi sổ đăng ký mới hoạt động.";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "Kaspa đến ví của bạn và tin tức về tên .kachat của bạn hiển thị ở đây.";
 "Renew it soon to keep it." = "Hãy sớm gia hạn để giữ tên.";
 "Renew it soon or anyone can claim it." = "Hãy sớm gia hạn nếu không ai cũng có thể lấy.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = "Các tên có thể thu hồi sẽ hiện ở đây khi tên .kachat ra mắt.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Mọi lần đăng ký, gia hạn, rao bán, bán, đề nghị, chuyển nhượng và thu hồi trong sổ đăng ký.";

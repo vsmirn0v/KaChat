@@ -44,13 +44,15 @@ enum KachatTabIcon {
 /// the tabs read the registry (`KachatNamesRegistry`), and registrations in flight show their
 /// progress.
 struct KachatMarketView: View {
+    /// Names for sale, names anyone may reclaim, and everything that happens in the registry.
+    /// Your own names (and the offers you made) live in Profile > Your Domains.
     private enum Page: String, CaseIterable {
-        case market, myNames, activity
+        case market, reclaimable, activity
 
         var title: String {
             switch self {
             case .market: return "Marketplace"
-            case .myNames: return "My Names"
+            case .reclaimable: return "Reclaimable"
             case .activity: return "Activity"
             }
         }
@@ -85,13 +87,13 @@ struct KachatMarketView: View {
                     if live.isLive || !KachatNamesService.isLaunched {
                         switch page {
                         case .market: KachatLiveMarketPage(model: live)
-                        case .myNames: KachatLiveMyNamesPage(model: live)
+                        case .reclaimable: KachatLiveReclaimablePage(model: live)
                         case .activity: KachatLiveActivityPage(model: live)
                         }
                     } else {
                         switch page {
                         case .market: marketPage
-                        case .myNames: myNamesPage
+                        case .reclaimable: reclaimablePage
                         case .activity: activityPage
                         }
                     }
@@ -342,49 +344,30 @@ struct KachatMarketView: View {
 
     // MARK: - My Names
 
-    private var myNamesPage: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "at.circle")
-                .font(.system(size: 44, weight: .semibold))
-                .foregroundColor(.accentColor)
-            Text("No .kachat names yet")
-                .font(.headline)
-            Text("Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone.")
-                .font(.subheadline)
+    private var reclaimablePage: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            sectionHeader("Reclaimable", detail: "Names whose owners let them lapse. Anyone may reclaim one: the bond goes back to its last owner, you keep the freed deposit as a bounty, and the name is free to claim.")
+            VStack(spacing: 0) {
+                ForEach(0..<3, id: \.self) { index in
+                    listingPlaceholderRow
+                    if index < 2 { Divider().padding(.leading, 16) }
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+            .padding(.horizontal, 16)
+            Text("Reclaimable names appear here once .kachat names launch.")
+                .font(.footnote)
                 .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Button {} label: {
-                Text("Claim a Name")
-                    .font(.subheadline.weight(.bold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(true)
-            .padding(.horizontal, 32)
-            .padding(.top, 4)
-
-            VStack(alignment: .leading, spacing: 12) {
-                sectionHeader("Offers", detail: "Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here.")
-                Text("No offers yet.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
-                    .padding(.horizontal, 16)
-            }
-            .padding(.top, 20)
+                .frame(maxWidth: .infinity)
         }
-        .padding(.top, 24)
+        .padding(.top, 4)
     }
 
     // MARK: - Activity
 
     private var activityPage: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Recent activity", detail: "Claims, listings and sales across the marketplace.")
+            sectionHeader("Recent activity", detail: "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry.")
             VStack(spacing: 0) {
                 ForEach(0..<4, id: \.self) { index in
                     HStack(spacing: 12) {

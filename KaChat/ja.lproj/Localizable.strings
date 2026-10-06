@@ -757,10 +757,8 @@
 "List a Name for Sale" = "名前を出品";
 "Listings appear here once .kachat names launch." = ".kachat 名が始まると、ここに出品が表示されます。";
 "No .kachat names yet" = ".kachat 名はまだありません";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "取得・購入した名前がここに表示されます。ここからチャットでの名前に設定したり、出品したり、誰かに送ったりできます。";
 "Claim a Name" = "名前を取得";
 "Recent activity" = "最近のアクティビティ";
-"Claims, listings and sales across the marketplace." = "マーケット全体の取得、出品、売買。";
 "Activity appears here once .kachat names launch." = ".kachat 名が始まると、ここにアクティビティが表示されます。";
 "How it works" = "仕組み";
 "List" = "出品";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "オファー";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "あなたが出したオファーと、あなたの名前へのオファー。ここで承諾したり、自分のオファーを取り下げたりできます。";
 "No offers yet." = "オファーはまだありません。";
 "Offer" = "オファー";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "希望の価格を提示できます。KAS は売り手が承諾するか、取り下げるか、期限が切れるまでオンチェーンで待機します。事前に売り手にメッセージも送れます。";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "あなたが出したオファーです。いつでも取り下げられ、返金時刻を過ぎれば誰でもあなたに返せます。";
 "No open offers." = "進行中のオファーはありません。";
 "Offers from others appear once a names indexer is connected." = "他の人からのオファーは、名前インデクサーに接続すると表示されます。";
-"Claims, renewals, listings, sales and transfers across the registry." = "レジストリ全体の取得・更新・出品・売却・譲渡。";
 "Nothing yet." = "まだ何もありません。";
 "Withdraw Offer" = "オファーを取り下げ";
 "Withdraw" = "取り下げ";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "更新受付中";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "延長すると現在の支払い済み期間に年数が加わります。期間は最長 2 年です。価格はマイナーに渡ります。";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "名前インデクサーがこの名前の支払い済み期間を返しませんでした。引っ張って更新し、もう一度お試しください。";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "延長、更新、出品、譲渡、解放ができ、KaChat に表示する名前も選べます。";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "名前は支払った年数の間あなたのものです（最長 2 年先まで）。1 年の名前は 2 年に延長でき、期限の 10 日前から更新できます。";
 "Setting up" = "準備中";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "テストネットの .kachat レジストリをアップグレードしています。新しいレジストリが稼働すると、ここで名前が再び利用できるようになります。";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "ウォレットに届いた Kaspa と .kachat 名のお知らせがここに表示されます。";
 "Renew it soon to keep it." = "保持するには早めに更新してください。";
 "Renew it soon or anyone can claim it." = "早めに更新しないと誰でも取得できるようになります。";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = ".kachat 名の開始後、回収できる名前がここに表示されます。";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "レジストリでのすべての登録、更新、出品、販売、オファー、譲渡、回収。";

@@ -757,10 +757,8 @@
 "List a Name for Sale" = "Colocar um nome à venda";
 "Listings appear here once .kachat names launch." = "Os anúncios aparecem aqui quando os nomes .kachat forem lançados.";
 "No .kachat names yet" = "Nenhum nome .kachat ainda";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Os nomes que você reivindicar ou comprar aparecem aqui. Daqui você vai usá-lo como seu nome nos chats, colocá-lo à venda ou enviá-lo a alguém.";
 "Claim a Name" = "Reivindicar um nome";
 "Recent activity" = "Atividade recente";
-"Claims, listings and sales across the marketplace." = "Reivindicações, anúncios e vendas em todo o mercado.";
 "Activity appears here once .kachat names launch." = "A atividade aparece aqui quando os nomes .kachat forem lançados.";
 "How it works" = "Como funciona";
 "List" = "Anunciar";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "Ofertas";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Ofertas que você fez e ofertas pelos seus nomes. Aceite uma ou retire a sua por aqui.";
 "No offers yet." = "Nenhuma oferta ainda.";
 "Offer" = "Oferta";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Proponha seu preço. Seus KAS ficam na blockchain até o vendedor aceitar, você retirar a oferta ou ela expirar - e você pode mandar mensagem ao vendedor antes.";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "Ofertas que você fez. Retire quando quiser; depois do prazo de reembolso, qualquer pessoa pode devolvê-la a você.";
 "No open offers." = "Nenhuma oferta aberta.";
 "Offers from others appear once a names indexer is connected." = "As ofertas de outras pessoas aparecem quando um indexador de nomes estiver conectado.";
-"Claims, renewals, listings, sales and transfers across the registry." = "Registros, renovações, anúncios, vendas e transferências em todo o registro.";
 "Nothing yet." = "Nada ainda.";
 "Withdraw Offer" = "Retirar oferta";
 "Withdraw" = "Retirar";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "Renovação aberta";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Estender adiciona anos ao período pago atual, que cobre no máximo 2 anos. O preço vai para os mineradores.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "O indexador de nomes não enviou o período pago deste nome. Puxe para atualizar e tente de novo.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Estenda, renove, anuncie, transfira ou libere seus nomes, e escolha o que o KaChat mostra para você.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "O nome é seu pelos anos pagos, no máximo 2 adiantados. Um nome de 1 ano pode ser estendido para 2 anos; a partir de 10 dias antes de expirar, você pode renová-lo.";
 "Setting up" = "Configurando";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "O registro .kachat na Testnet está sendo atualizado. Os nomes voltam a abrir aqui assim que o novo registro estiver no ar.";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "Aqui aparecem os Kaspa que chegam às suas carteiras e as novidades dos seus nomes .kachat.";
 "Renew it soon to keep it." = "Renove em breve para mantê-lo.";
 "Renew it soon or anyone can claim it." = "Renove em breve ou qualquer pessoa poderá reivindicá-lo.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = "Os nomes recuperáveis aparecem aqui quando os nomes .kachat forem lançados.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Cada registro, renovação, anúncio, venda, oferta, transferência e recuperação do registro.";

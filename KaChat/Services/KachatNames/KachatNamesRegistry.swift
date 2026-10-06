@@ -345,11 +345,16 @@ final class KachatNamesRegistry: ObservableObject {
         }
     }
 
-    /// Recent registry activity, newest first.
+    /// Recent registry activity, newest first: every registration, renewal, extension, listing,
+    /// sale, offer, transfer, release and reclaim. An indexer serves it at `GET /names/activity`;
+    /// one without that endpoint yet answers only market events (`/market/activity`).
     func activity() async throws -> [KachatNames.Event] {
         try await prepare()
         switch source {
         case .indexer(let base):
+            if let all: KachatNames.IndexerAPI.EventsJSON = try? await Self.get(base, "/names/activity") {
+                return all.events.map(\.event).filter { !$0.op.hasPrefix("price") }
+            }
             let j: KachatNames.IndexerAPI.EventsJSON = try await Self.get(base, "/market/activity")
             return j.events.map(\.event)
         default:

@@ -757,10 +757,8 @@
 "List a Name for Sale" = "اعرض اسمًا للبيع";
 "Listings appear here once .kachat names launch." = "ستظهر العروض هنا عند إطلاق أسماء .kachat.";
 "No .kachat names yet" = "لا توجد أسماء .kachat بعد";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "تظهر هنا الأسماء التي تحصل عليها أو تشتريها. من هنا ستجعل أحدها اسمك في المحادثات أو تعرضه للبيع أو ترسله لشخص ما.";
 "Claim a Name" = "احصل على اسم";
 "Recent activity" = "النشاط الأخير";
-"Claims, listings and sales across the marketplace." = "الحصول على الأسماء والعروض والمبيعات في السوق كله.";
 "Activity appears here once .kachat names launch." = "سيظهر النشاط هنا عند إطلاق أسماء .kachat.";
 "How it works" = "كيف يعمل";
 "List" = "اعرض للبيع";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "العروض";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "العروض التي قدمتها والعروض على أسمائك. اقبل عرضًا أو اسحب عرضك من هنا.";
 "No offers yet." = "لا توجد عروض بعد.";
 "Offer" = "عرض";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "حدّد سعرك. تنتظر KAS الخاصة بك على السلسلة حتى يقبل البائع أو تسحب العرض أو تنتهي صلاحيته - ويمكنك مراسلة البائع أولًا.";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "العروض التي قدمتها. اسحب أيًا منها متى شئت؛ وبعد انقضاء وقت الاسترداد يمكن لأي شخص إعادته إليك.";
 "No open offers." = "لا توجد عروض مفتوحة.";
 "Offers from others appear once a names indexer is connected." = "تظهر عروض الآخرين بعد ربط مفهرس للأسماء.";
-"Claims, renewals, listings, sales and transfers across the registry." = "عمليات التسجيل والتجديد والعرض والبيع والنقل في السجل كله.";
 "Nothing yet." = "لا شيء بعد.";
 "Withdraw Offer" = "سحب العرض";
 "Withdraw" = "سحب";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "التجديد متاح";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "يضيف التمديد سنوات إلى الفترة المدفوعة الحالية، التي لا تتجاوز سنتين. يذهب السعر إلى المعدِّنين.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "لم يرسل مفهرس الأسماء الفترة المدفوعة لهذا الاسم. اسحب للتحديث وحاول مرة أخرى.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "مدّدها أو جدّدها أو اعرضها للبيع أو انقلها أو تخلَّ عنها، واختر الاسم الذي يعرضه KaChat لك.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "الاسم لك طوال السنوات التي دفعتها، وسنتين مقدمًا كحد أقصى. يمكن تمديد اسم لسنة واحدة إلى سنتين؛ ومن 10 أيام قبل انتهائه يمكنك تجديده.";
 "Setting up" = "جارٍ الإعداد";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "تتم ترقية سجل .kachat على الشبكة التجريبية. ستُفتح الأسماء هنا مجددًا بمجرد تشغيل السجل الجديد.";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "تظهر هنا KAS التي تصل إلى محافظك وأخبار أسماء .kachat الخاصة بك.";
 "Renew it soon to keep it." = "جدّده قريبًا للاحتفاظ به.";
 "Renew it soon or anyone can claim it." = "جدّده قريبًا وإلا يمكن لأي شخص المطالبة به.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = "تظهر هنا الأسماء القابلة للاسترداد عند إطلاق أسماء .kachat.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "كل تسجيل وتجديد وإدراج وبيع وعرض ونقل واسترداد في السجل.";

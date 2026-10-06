@@ -757,10 +757,8 @@
 "List a Name for Sale" = "이름 판매 등록";
 "Listings appear here once .kachat names launch." = ".kachat 이름이 출시되면 여기에 판매 목록이 표시됩니다.";
 "No .kachat names yet" = "아직 .kachat 이름이 없습니다";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "받거나 구매한 이름이 여기에 표시됩니다. 여기서 채팅 이름으로 설정하거나, 판매 등록하거나, 다른 사람에게 보낼 수 있습니다.";
 "Claim a Name" = "이름 받기";
 "Recent activity" = "최근 활동";
-"Claims, listings and sales across the marketplace." = "마켓 전체의 등록, 판매 목록, 거래.";
 "Activity appears here once .kachat names launch." = ".kachat 이름이 출시되면 여기에 활동이 표시됩니다.";
 "How it works" = "작동 방식";
 "List" = "판매";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "제안";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "내가 한 제안과 내 이름에 들어온 제안입니다. 여기서 제안을 수락하거나 내 제안을 철회할 수 있습니다.";
 "No offers yet." = "아직 제안이 없습니다.";
 "Offer" = "제안";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "원하는 가격을 제시하세요. KAS는 판매자가 수락하거나, 제안을 철회하거나, 만료될 때까지 체인에서 대기합니다. 먼저 판매자에게 메시지를 보낼 수도 있습니다.";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "내가 한 제안이에요. 언제든 철회할 수 있고, 환불 시간이 지나면 누구나 나에게 돌려줄 수 있어요.";
 "No open offers." = "진행 중인 제안이 없어요.";
 "Offers from others appear once a names indexer is connected." = "다른 사람의 제안은 이름 인덱서가 연결되면 보여요.";
-"Claims, renewals, listings, sales and transfers across the registry." = "레지스트리 전체의 등록, 갱신, 판매 등록, 판매, 이전.";
 "Nothing yet." = "아직 없어요.";
 "Withdraw Offer" = "제안 철회";
 "Withdraw" = "철회";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "갱신 가능";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "연장하면 현재 결제된 기간에 연수가 더해져요. 한 기간은 최대 2년이에요. 가격은 채굴자에게 가요.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "이름 인덱서가 이 이름의 결제 기간을 보내지 않았어요. 아래로 당겨 새로 고친 뒤 다시 시도하세요.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "연장, 갱신, 판매 등록, 전송, 해제를 하고 KaChat이 보여 줄 이름을 고르세요.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "이름은 결제한 연수 동안 내 것이에요(최대 2년 앞까지). 1년 이름은 2년으로 연장할 수 있고, 만료 10일 전부터 갱신할 수 있어요.";
 "Setting up" = "설정 중";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "테스트넷의 .kachat 레지스트리를 업그레이드하고 있어요. 새 레지스트리가 가동되면 여기서 이름이 다시 열려요.";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "지갑에 도착한 Kaspa와 .kachat 이름 소식이 여기에 표시돼요.";
 "Renew it soon to keep it." = "유지하려면 곧 갱신하세요.";
 "Renew it soon or anyone can claim it." = "곧 갱신하지 않으면 누구나 가져갈 수 있어요.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = ".kachat 이름이 출시되면 회수 가능한 이름이 여기에 표시돼요.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "레지스트리의 모든 등록, 갱신, 판매 등록, 판매, 제안, 양도, 회수.";

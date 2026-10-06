@@ -704,10 +704,8 @@
 "List a Name for Sale" = "Namen zum Verkauf anbieten";
 "Listings appear here once .kachat names launch." = "Angebote erscheinen hier, sobald .kachat-Namen starten.";
 "No .kachat names yet" = "Noch keine .kachat-Namen";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Namen, die du sicherst oder kaufst, erscheinen hier. Von hier aus legst du einen als deinen Namen in Chats fest, bietest ihn zum Verkauf an oder schickst ihn jemandem.";
 "Claim a Name" = "Namen sichern";
 "Recent activity" = "Letzte Aktivität";
-"Claims, listings and sales across the marketplace." = "Sicherungen, Angebote und Verkäufe auf dem ganzen Marktplatz.";
 "Activity appears here once .kachat names launch." = "Aktivität erscheint hier, sobald .kachat-Namen starten.";
 "How it works" = "So funktioniert's";
 "List" = "Anbieten";
@@ -783,7 +781,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "Angebote";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Angebote, die du gemacht hast, und Angebote für deine Namen. Nimm hier eines an oder zieh dein eigenes zurück.";
 "No offers yet." = "Noch keine Angebote.";
 "Offer" = "Angebot";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Nenne deinen eigenen Preis. Deine KAS warten on-chain, bis der Verkäufer annimmt, du das Angebot zurückziehst oder es abläuft - und du kannst dem Verkäufer vorher schreiben.";
@@ -944,7 +941,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "Deine Angebote. Zieh eines jederzeit zurück; nach seiner Erstattungszeit kann es dir jeder zurückgeben.";
 "No open offers." = "Keine offenen Angebote.";
 "Offers from others appear once a names indexer is connected." = "Angebote anderer erscheinen, sobald ein Namens-Indexer verbunden ist.";
-"Claims, renewals, listings, sales and transfers across the registry." = "Registrierungen, Verlängerungen, Angebote, Verkäufe und Übertragungen in der gesamten Registry.";
 "Nothing yet." = "Noch nichts.";
 "Withdraw Offer" = "Angebot zurückziehen";
 "Withdraw" = "Zurückziehen";
@@ -1098,7 +1094,6 @@
 "Renewal open" = "Verlängerung offen";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Erweitern fügt dem aktuellen bezahlten Zeitraum Jahre hinzu; er umfasst höchstens 2 Jahre. Der Preis geht an die Miner.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Der Namens-Indexer hat den bezahlten Zeitraum dieses Namens nicht geschickt. Zum Aktualisieren nach unten ziehen und erneut versuchen.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Erweitere, verlängere, verkaufe, übertrage oder gib sie frei, und wähle den, den KaChat für dich zeigt.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Der Name gehört dir für die bezahlten Jahre, höchstens 2 im Voraus. Ein Name für 1 Jahr lässt sich auf 2 Jahre erweitern; ab 10 Tagen vor Ablauf kannst du ihn verlängern.";
 "Setting up" = "Wird eingerichtet";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "Die .kachat-Registry im Testnet wird aktualisiert. Namen sind hier wieder verfügbar, sobald die neue Registry live ist.";
@@ -1287,3 +1282,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "Hier erscheinen Kaspa, die in deinen Wallets ankommen, und Neues zu deinen .kachat-Namen.";
 "Renew it soon to keep it." = "Verlängere ihn bald, um ihn zu behalten.";
 "Renew it soon or anyone can claim it." = "Verlängere ihn bald, sonst kann ihn jeder beanspruchen.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = "Zurückforderbare Namen erscheinen hier, sobald .kachat-Namen starten.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Jede Registrierung, Verlängerung, Listung, jeder Verkauf, jedes Angebot, jede Übertragung und Rückforderung im Register.";

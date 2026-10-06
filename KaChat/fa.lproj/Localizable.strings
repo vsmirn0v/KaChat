@@ -757,10 +757,8 @@
 "List a Name for Sale" = "گذاشتن نام برای فروش";
 "Listings appear here once .kachat names launch." = "آگهی‌ها پس از راه‌اندازی نام‌های .kachat اینجا نمایش داده می‌شوند.";
 "No .kachat names yet" = "هنوز نام .kachat ندارید";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "نام‌هایی که می‌گیرید یا می‌خرید اینجا نمایش داده می‌شوند. از اینجا می‌توانید یکی را نام خود در گفتگوها کنید، برای فروش بگذارید یا برای کسی بفرستید.";
 "Claim a Name" = "گرفتن نام";
 "Recent activity" = "فعالیت اخیر";
-"Claims, listings and sales across the marketplace." = "گرفتن نام، آگهی‌ها و فروش‌ها در کل بازار.";
 "Activity appears here once .kachat names launch." = "فعالیت پس از راه‌اندازی نام‌های .kachat اینجا نمایش داده می‌شود.";
 "How it works" = "چگونه کار می‌کند";
 "List" = "فروش";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "پیشنهادها";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "پیشنهادهایی که داده‌اید و پیشنهادها برای نام‌های شما. از اینجا یکی را بپذیرید یا پیشنهاد خود را پس بگیرید.";
 "No offers yet." = "هنوز پیشنهادی نیست.";
 "Offer" = "پیشنهاد";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "قیمت خودتان را بدهید. KAS شما روی زنجیره منتظر می‌ماند تا فروشنده بپذیرد، پیشنهاد را پس بگیرید یا منقضی شود - و می‌توانید اول به فروشنده پیام بدهید.";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "پیشنهادهایی که داده‌اید. هر وقت خواستید پس بگیرید؛ پس از زمان بازپرداخت هر کسی می‌تواند آن را به شما برگرداند.";
 "No open offers." = "پیشنهاد بازی نیست.";
 "Offers from others appear once a names indexer is connected." = "پیشنهادهای دیگران پس از اتصال یک ایندکسر نام نمایش داده می‌شوند.";
-"Claims, renewals, listings, sales and transfers across the registry." = "ثبت‌ها، تمدیدها، فهرست‌ها، فروش‌ها و انتقال‌ها در کل رجیستری.";
 "Nothing yet." = "هنوز چیزی نیست.";
 "Withdraw Offer" = "پس گرفتن پیشنهاد";
 "Withdraw" = "پس گرفتن";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "تمدید باز است";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "افزایش مدت، سال‌هایی به دوره پرداخت‌شده فعلی اضافه می‌کند که حداکثر ۲ سال است. قیمت به ماینرها می‌رسد.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "ایندکسر نام‌ها دوره پرداخت‌شده این نام را نفرستاد. برای تازه‌سازی به پایین بکشید و دوباره امتحان کنید.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "مدتشان را افزایش دهید، تمدید کنید، برای فروش بگذارید، منتقل یا رها کنید، و نامی را که KaChat برای شما نشان می‌دهد انتخاب کنید.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "نام برای سال‌هایی که پرداخته‌اید مال شماست، حداکثر ۲ سال جلوتر. مدت نام ۱ ساله را می‌توان تا ۲ سال افزایش داد؛ از ۱۰ روز پیش از انقضا می‌توانید آن را تمدید کنید.";
 "Setting up" = "در حال راه‌اندازی";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "رجیستری .kachat در تست‌نت در حال ارتقاست. نام‌ها به محض فعال شدن رجیستری جدید دوباره اینجا باز می‌شوند.";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "Kaspa رسیده به کیف‌پول‌هایتان و خبرهای نام‌های .kachat شما اینجا نمایش داده می‌شود.";
 "Renew it soon to keep it." = "به‌زودی تمدیدش کنید تا بماند.";
 "Renew it soon or anyone can claim it." = "به‌زودی تمدیدش کنید وگرنه هر کسی می‌تواند آن را بگیرد.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = "نام‌های قابل بازپس‌گیری پس از راه‌اندازی نام‌های .kachat اینجا نمایش داده می‌شوند.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "هر ثبت، تمدید، آگهی، فروش، پیشنهاد، انتقال و بازپس‌گیری در رجیستری.";

@@ -757,10 +757,8 @@
 "List a Name for Sale" = "Jual Nama";
 "Listings appear here once .kachat names launch." = "Daftar jualan muncul di sini setelah nama .kachat diluncurkan.";
 "No .kachat names yet" = "Belum ada nama .kachat";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Nama yang kamu klaim atau beli muncul di sini. Dari sini kamu bisa menjadikannya namamu di obrolan, menjualnya, atau mengirimnya ke seseorang.";
 "Claim a Name" = "Klaim Nama";
 "Recent activity" = "Aktivitas terbaru";
-"Claims, listings and sales across the marketplace." = "Klaim, jualan, dan penjualan di seluruh pasar.";
 "Activity appears here once .kachat names launch." = "Aktivitas muncul di sini setelah nama .kachat diluncurkan.";
 "How it works" = "Cara kerjanya";
 "List" = "Jual";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "Penawaran";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Penawaran yang kamu buat dan penawaran untuk namamu. Terima salah satunya atau tarik penawaranmu di sini.";
 "No offers yet." = "Belum ada penawaran.";
 "Offer" = "Penawaran";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Tentukan hargamu sendiri. KAS-mu menunggu di chain sampai penjual menerima, kamu menarik penawaran, atau penawaran kedaluwarsa - dan kamu bisa mengirim pesan ke penjual dulu.";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "Penawaran yang Anda buat. Tarik kapan saja; setelah melewati waktu pengembalian, siapa pun bisa mengembalikannya kepada Anda.";
 "No open offers." = "Tidak ada penawaran terbuka.";
 "Offers from others appear once a names indexer is connected." = "Penawaran dari orang lain muncul setelah indexer nama terhubung.";
-"Claims, renewals, listings, sales and transfers across the registry." = "Klaim, perpanjangan, penjualan, dan pemindahan di seluruh registri.";
 "Nothing yet." = "Belum ada.";
 "Withdraw Offer" = "Tarik Penawaran";
 "Withdraw" = "Tarik";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "Perpanjangan dibuka";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Menambah masa memberi tahun tambahan pada periode berbayar saat ini, yang paling lama 2 tahun. Harga diberikan ke penambang.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Pengindeks nama tidak mengirim periode berbayar nama ini. Tarik untuk menyegarkan dan coba lagi.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Tambah masa, perpanjang, jual, transfer, atau lepas nama Anda, dan pilih yang ditampilkan KaChat untuk Anda.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Nama ini milik Anda selama tahun yang dibayar, paling lama 2 tahun ke depan. Nama 1 tahun bisa ditambah menjadi 2 tahun; mulai 10 hari sebelum kedaluwarsa Anda bisa memperpanjangnya.";
 "Setting up" = "Sedang disiapkan";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "Registri .kachat di Testnet sedang ditingkatkan. Nama dibuka lagi di sini setelah registri baru aktif.";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "Kaspa yang masuk ke dompet Anda dan kabar nama .kachat Anda muncul di sini.";
 "Renew it soon to keep it." = "Perpanjang segera untuk mempertahankannya.";
 "Renew it soon or anyone can claim it." = "Perpanjang segera atau siapa pun bisa mengklaimnya.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = "Nama yang bisa diklaim ulang muncul di sini setelah nama .kachat diluncurkan.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Setiap klaim, perpanjangan, listing, penjualan, penawaran, transfer, dan klaim ulang di registri.";

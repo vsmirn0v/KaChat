@@ -758,10 +758,8 @@
 "List a Name for Sale" = "List a Name for Sale";
 "Listings appear here once .kachat names launch." = "Listings appear here once .kachat names launch.";
 "No .kachat names yet" = "No .kachat names yet";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone.";
 "Claim a Name" = "Claim a Name";
 "Recent activity" = "Recent activity";
-"Claims, listings and sales across the marketplace." = "Claims, listings and sales across the marketplace.";
 "Activity appears here once .kachat names launch." = "Activity appears here once .kachat names launch.";
 "How it works" = "How it works";
 "List" = "List";
@@ -837,7 +835,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "Offers";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here.";
 "No offers yet." = "No offers yet.";
 "Offer" = "Offer";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first.";
@@ -998,7 +995,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you.";
 "No open offers." = "No open offers.";
 "Offers from others appear once a names indexer is connected." = "Offers from others appear once a names indexer is connected.";
-"Claims, renewals, listings, sales and transfers across the registry." = "Claims, renewals, listings, sales and transfers across the registry.";
 "Nothing yet." = "Nothing yet.";
 "Withdraw Offer" = "Withdraw Offer";
 "Withdraw" = "Withdraw";
@@ -1152,7 +1148,6 @@
 "Renewal open" = "Renewal open";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "The names indexer didn't send this name's paid period. Pull to refresh and try again.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it.";
 "Setting up" = "Setting up";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live.";
@@ -1341,3 +1336,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "Kaspa arriving in your wallets and news about your .kachat names show up here.";
 "Renew it soon to keep it." = "Renew it soon to keep it.";
 "Renew it soon or anyone can claim it." = "Renew it soon or anyone can claim it.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = "Reclaimable names appear here once .kachat names launch.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry.";

@@ -729,7 +729,6 @@ struct KachatRegistrationCard: View {
 
 struct KachatLiveMarketPage: View {
     @ObservedObject var model: KachatHubModel
-    @State private var reclaimTarget: KachatNames.NameInfo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -737,9 +736,28 @@ struct KachatLiveMarketPage: View {
             if model.listings.isEmpty {
                 KachatLiveEmpty(text: model.loaded ? "No names are listed right now." : nil)
             } else {
-                list(model.listings)
+                VStack(spacing: 0) {
+                    ForEach(Array(model.listings.enumerated()), id: \.element.id) { index, n in
+                        NavigationLink { KachatListingDetailView(info: n) } label: { KachatLiveNameRow(info: n) }
+                            .buttonStyle(.plain)
+                        if index < model.listings.count - 1 { Divider().padding(.leading, 62) }
+                    }
+                }
+                .kachatGlass()
+                .padding(.horizontal, 16)
             }
+        }
+        .padding(.top, 4)
+    }
+}
 
+/// Names that expired and stayed unrenewed through the grace period: anyone may reclaim one.
+struct KachatLiveReclaimablePage: View {
+    @ObservedObject var model: KachatHubModel
+    @State private var reclaimTarget: KachatNames.NameInfo?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
             KachatLiveSectionHeader(title: "Reclaimable", detail: "Names whose owners let them lapse. Anyone may reclaim one: the bond goes back to its last owner, you keep the freed deposit as a bounty, and the name is free to claim.")
             if model.lapsed.isEmpty {
                 KachatLiveEmpty(text: model.loaded ? "Nothing to reclaim." : nil)
@@ -763,74 +781,27 @@ struct KachatLiveMarketPage: View {
         .padding(.top, 4)
         .sheet(item: $reclaimTarget) { n in KachatReclaimSheet(info: n) }
     }
-
-    private func list(_ names: [KachatNames.NameInfo]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(Array(names.enumerated()), id: \.element.id) { index, n in
-                NavigationLink { KachatListingDetailView(info: n) } label: { KachatLiveNameRow(info: n) }
-                    .buttonStyle(.plain)
-                if index < names.count - 1 { Divider().padding(.leading, 62) }
-            }
-        }
-        .kachatGlass()
-        .padding(.horizontal, 16)
-    }
 }
 
-struct KachatLiveMyNamesPage: View {
-    @ObservedObject var model: KachatHubModel
+/// The offers this wallet made, with Withdraw (and Refund once expired). Shown in Profile >
+/// Your Domains > .kachat, under your names.
+struct KachatMyOffersSection: View {
+    let offers: [KachatNames.OfferInfo]
     @ObservedObject private var registry = KachatNamesRegistry.shared
     @State private var offerAction: KachatOfferAction?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            KachatLiveSectionHeader(title: "My Names", detail: "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you.")
-            if model.mine.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "at.circle")
-                        .font(.system(size: 40, weight: .semibold))
-                        .foregroundColor(.accentColor)
-                    Text("No .kachat names yet")
-                        .font(.headline)
-                    Text("Search for a name above and claim it.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(model.mine.enumerated()), id: \.element.id) { index, n in
-                        NavigationLink { KachatListingDetailView(info: n) } label: { KachatLiveNameRow(info: n, showRenewal: true) }
-                            .buttonStyle(.plain)
-                        if index < model.mine.count - 1 { Divider().padding(.leading, 62) }
-                    }
-                }
-                .kachatGlass()
-                .padding(.horizontal, 16)
-            }
-
+        VStack(alignment: .leading, spacing: 10) {
             KachatLiveSectionHeader(title: "My Offers", detail: "Offers you made. Withdraw one any time; once it expires it comes back to you on its own.")
-            if model.myOffers.isEmpty {
-                KachatLiveEmpty(text: model.loaded ? "No open offers." : nil)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(model.myOffers.enumerated()), id: \.element.id) { index, o in
-                        KachatOfferRow(offer: o, isBuyer: true, isOwner: false) { offerAction = $0 }
-                        if index < model.myOffers.count - 1 { Divider().padding(.leading, 50) }
-                    }
+            VStack(spacing: 0) {
+                ForEach(Array(offers.enumerated()), id: \.element.id) { index, o in
+                    KachatOfferRow(offer: o, isBuyer: true, isOwner: false) { offerAction = $0 }
+                    if index < offers.count - 1 { Divider().padding(.leading, 50) }
                 }
-                .kachatGlass()
-                .padding(.horizontal, 16)
             }
-            if registry.source == .chain {
-                Text("Offers from others appear once a names indexer is connected.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 20)
-            }
+            .kachatGlass()
+            .padding(.horizontal, 16)
         }
-        .padding(.top, 4)
         .sheet(item: $offerAction) { action in action.sheet }
     }
 }
@@ -840,7 +811,7 @@ struct KachatLiveActivityPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            KachatLiveSectionHeader(title: "Recent activity", detail: "Claims, renewals, listings, sales and transfers across the registry.")
+            KachatLiveSectionHeader(title: "Recent activity", detail: "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry.")
             if model.activity.isEmpty {
                 KachatLiveEmpty(text: model.loaded ? "Nothing yet." : nil)
             } else {
@@ -2233,6 +2204,8 @@ struct KachatLiveDomainsTab: View {
     @ObservedObject private var registry = KachatNamesRegistry.shared
     @ObservedObject private var service = KachatNamesService.shared
     @State private var names: [KachatNames.NameInfo] = []
+    /// the offers this wallet made (moved here from the marketplace's former My Names tab)
+    @State private var myOffers: [KachatNames.OfferInfo] = []
     @State private var loaded = false
     /// The .kachat marketplace, opened by Inscribe as a sheet over Your Domains: a new name
     /// lands back here as soon as it is swiped away, and it works whether or not .kachat is in
@@ -2259,24 +2232,31 @@ struct KachatLiveDomainsTab: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 40)
-                } else if names.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(systemName: "at.circle")
-                            .font(.system(size: 44, weight: .semibold))
-                            .foregroundColor(.accentColor)
-                        Text("No .kachat names yet")
-                            .font(.headline)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
                 } else {
-                    ForEach(names) { n in
-                        NavigationLink {
-                            KachatListingDetailView(info: n)
-                        } label: {
-                            DomainNameCardView(title: n.display, badge: Self.badge(for: n, graceMs: registry.graceMs))
+                    if names.isEmpty {
+                        VStack(spacing: 10) {
+                            Image(systemName: "at.circle")
+                                .font(.system(size: 44, weight: .semibold))
+                                .foregroundColor(.accentColor)
+                            Text("No .kachat names yet")
+                                .font(.headline)
                         }
-                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                    } else {
+                        ForEach(names) { n in
+                            NavigationLink {
+                                KachatListingDetailView(info: n)
+                            } label: {
+                                DomainNameCardView(title: n.display, badge: Self.badge(for: n, graceMs: registry.graceMs))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    if !myOffers.isEmpty {
+                        KachatMyOffersSection(offers: myOffers)
+                            .padding(.horizontal, -16)
+                            .padding(.top, 8)
                     }
                 }
             }
@@ -2332,6 +2312,13 @@ struct KachatLiveDomainsTab: View {
         guard let key = KachatNamesRegistry.keyOf(walletAddress) else { loaded = true; return }
         if registry.refreshedAt == nil { await registry.refresh() }
         names = (try? await registry.names(owner: key, includeInactive: true)) ?? []
+        myOffers = (try? await registry.myOffers(buyer: key)) ?? []
+        if !myOffers.isEmpty {
+            // expired offers, and ones made to an earlier owner, come back on their own
+            await KachatNamesActions.shared.refreshVirtualDaa()
+            await KachatNamesActions.shared.returnExpiredOffers(myOffers)
+            await KachatNamesActions.shared.withdrawDeclinedOffers(myOffers)
+        }
         loaded = true
     }
 }

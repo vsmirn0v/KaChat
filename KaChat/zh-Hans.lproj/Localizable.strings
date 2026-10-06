@@ -757,10 +757,8 @@
 "List a Name for Sale" = "出售名称";
 "Listings appear here once .kachat names launch." = ".kachat 名称上线后，挂单会显示在这里。";
 "No .kachat names yet" = "还没有 .kachat 名称";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "你领取或购买的名称会显示在这里。在这里你可以把它设为聊天中的名字、挂出出售或发送给别人。";
 "Claim a Name" = "领取名称";
 "Recent activity" = "最近动态";
-"Claims, listings and sales across the marketplace." = "整个市场的领取、挂单和成交。";
 "Activity appears here once .kachat names launch." = ".kachat 名称上线后，动态会显示在这里。";
 "How it works" = "运作方式";
 "List" = "挂单";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "出价";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "你发出的出价，以及别人对你名称的出价。可在这里接受出价或撤回你的出价。";
 "No offers yet." = "还没有出价。";
 "Offer" = "出价";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "自己定价。你的 KAS 会在链上等待，直到卖家接受、你撤回或出价过期——你也可以先给卖家发消息。";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "你提出的报价。随时可以撤回；过了退款时间后，任何人都可以退还给你。";
 "No open offers." = "没有进行中的报价。";
 "Offers from others appear once a names indexer is connected." = "连接名称索引器后，才会显示他人的报价。";
-"Claims, renewals, listings, sales and transfers across the registry." = "整个注册表中的注册、续期、挂牌、出售和转让。";
 "Nothing yet." = "暂无内容。";
 "Withdraw Offer" = "撤回报价";
 "Withdraw" = "撤回";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "可续期";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "延长会为当前已付期间增加年数，每个期间最多 2 年。价格归矿工。";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "名称索引器没有返回此名称的已付期间。下拉刷新后重试。";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "延长、续期、挂售、转让或释放名称，并选择 KaChat 为你显示的那一个。";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "名称在你付费的年数内归你所有，最多提前 2 年。1 年期的名称可以延长到 2 年；到期前 10 天起可以续期。";
 "Setting up" = "正在设置";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "测试网上的 .kachat 注册表正在升级。新注册表上线后，名称会在这里重新开放。";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "到达你钱包的 Kaspa 和你的 .kachat 名称动态都会显示在这里。";
 "Renew it soon to keep it." = "请尽快续期以保留它。";
 "Renew it soon or anyone can claim it." = "请尽快续期，否则任何人都可以认领。";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = ".kachat 名称上线后，可回收的名称会显示在这里。";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "注册表中的每一次注册、续期、挂牌、出售、报价、转让和回收。";

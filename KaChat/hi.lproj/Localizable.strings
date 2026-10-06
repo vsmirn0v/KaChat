@@ -757,10 +757,8 @@
 "List a Name for Sale" = "नाम बिक्री पर रखें";
 "Listings appear here once .kachat names launch." = ".kachat नाम शुरू होने पर लिस्टिंग यहाँ दिखेंगी।";
 "No .kachat names yet" = "अभी कोई .kachat नाम नहीं";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "आपके लिए या खरीदे गए नाम यहाँ दिखते हैं। यहाँ से आप किसी को चैट में अपना नाम बना सकेंगे, बिक्री पर रख सकेंगे या किसी को भेज सकेंगे।";
 "Claim a Name" = "नाम लें";
 "Recent activity" = "हाल की गतिविधि";
-"Claims, listings and sales across the marketplace." = "पूरे मार्केटप्लेस में नाम लेना, लिस्टिंग और बिक्री।";
 "Activity appears here once .kachat names launch." = ".kachat नाम शुरू होने पर गतिविधि यहाँ दिखेगी।";
 "How it works" = "यह कैसे काम करता है";
 "List" = "बेचें";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "ऑफ़र";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "आपके दिए ऑफ़र और आपके नामों पर आए ऑफ़र। यहीं से कोई ऑफ़र स्वीकारें या अपना वापस लें।";
 "No offers yet." = "अभी कोई ऑफ़र नहीं।";
 "Offer" = "ऑफ़र";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "अपनी कीमत तय करें। आपके KAS चेन पर तब तक रुके रहते हैं जब तक विक्रेता स्वीकार न करे, आप ऑफ़र वापस न लें या वह समाप्त न हो - और आप पहले विक्रेता को मैसेज कर सकते हैं।";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "आपके दिए ऑफ़र। कभी भी वापस लें; रिफ़ंड का समय बीतने पर कोई भी उसे आपको लौटा सकता है।";
 "No open offers." = "कोई खुला ऑफ़र नहीं।";
 "Offers from others appear once a names indexer is connected." = "दूसरों के ऑफ़र नाम इंडेक्सर जुड़ने के बाद दिखेंगे।";
-"Claims, renewals, listings, sales and transfers across the registry." = "पूरी रजिस्ट्री में नाम लेना, नवीनीकरण, बिक्री पर रखना, बिक्री और ट्रांसफ़र।";
 "Nothing yet." = "अभी कुछ नहीं।";
 "Withdraw Offer" = "ऑफ़र वापस लें";
 "Withdraw" = "वापस लें";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "नवीनीकरण खुला";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "बढ़ाने से मौजूदा भुगतान की गई अवधि में साल जुड़ते हैं, जो अधिकतम 2 साल की होती है। कीमत माइनरों को जाती है।";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "नाम इंडेक्सर ने इस नाम की भुगतान की गई अवधि नहीं भेजी। रीफ़्रेश करने के लिए नीचे खींचें और फिर कोशिश करें।";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "उन्हें बढ़ाएं, नवीनीकृत करें, बिक्री के लिए सूचीबद्ध करें, ट्रांसफ़र करें या छोड़ें, और चुनें कि KaChat आपके लिए कौन सा दिखाए।";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "जितने साल का भुगतान किया, नाम उतने साल आपका है, अधिकतम 2 साल आगे तक। 1 साल का नाम 2 साल तक बढ़ाया जा सकता है; समाप्ति से 10 दिन पहले से आप इसका नवीनीकरण कर सकते हैं।";
 "Setting up" = "सेट अप हो रहा है";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "टेस्टनेट पर .kachat रजिस्ट्री अपग्रेड हो रही है। नई रजिस्ट्री लाइव होते ही नाम यहां फिर खुलेंगे।";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "आपके वॉलेट में आने वाला Kaspa और आपके .kachat नामों की खबरें यहाँ दिखती हैं।";
 "Renew it soon to keep it." = "इसे रखने के लिए जल्द नवीनीकृत करें।";
 "Renew it soon or anyone can claim it." = "जल्द नवीनीकृत करें वरना कोई भी इसे ले सकता है।";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = ".kachat नाम लॉन्च होने पर वापस लिए जा सकने वाले नाम यहाँ दिखेंगे।";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "रजिस्ट्री का हर पंजीकरण, नवीनीकरण, लिस्टिंग, बिक्री, ऑफ़र, ट्रांसफ़र और वापसी।";

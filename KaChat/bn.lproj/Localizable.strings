@@ -757,10 +757,8 @@
 "List a Name for Sale" = "নাম বিক্রির জন্য রাখুন";
 "Listings appear here once .kachat names launch." = ".kachat নাম চালু হলে তালিকা এখানে দেখা যাবে।";
 "No .kachat names yet" = "এখনো কোনো .kachat নাম নেই";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "আপনার নেওয়া বা কেনা নাম এখানে দেখা যায়। এখান থেকে একটিকে চ্যাটে আপনার নাম করতে, বিক্রির জন্য রাখতে বা কাউকে পাঠাতে পারবেন।";
 "Claim a Name" = "নাম নিন";
 "Recent activity" = "সাম্প্রতিক কার্যকলাপ";
-"Claims, listings and sales across the marketplace." = "পুরো মার্কেটপ্লেসে নাম নেওয়া, তালিকা ও বিক্রি।";
 "Activity appears here once .kachat names launch." = ".kachat নাম চালু হলে কার্যকলাপ এখানে দেখা যাবে।";
 "How it works" = "কীভাবে কাজ করে";
 "List" = "বিক্রি করুন";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "অফার";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "আপনার দেওয়া অফার এবং আপনার নামে আসা অফার। এখান থেকেই একটি গ্রহণ করুন বা আপনারটি তুলে নিন।";
 "No offers yet." = "এখনো কোনো অফার নেই।";
 "Offer" = "অফার";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "নিজের দাম বলুন। বিক্রেতা গ্রহণ না করা, আপনি অফার তুলে না নেওয়া বা মেয়াদ শেষ না হওয়া পর্যন্ত আপনার KAS চেইনে অপেক্ষা করে - আর আগে বিক্রেতাকে মেসেজও করতে পারেন।";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "আপনার দেওয়া প্রস্তাব। যেকোনো সময় প্রত্যাহার করুন; ফেরতের সময় পেরোলে যে কেউ তা আপনাকে ফেরত দিতে পারে।";
 "No open offers." = "কোনো খোলা প্রস্তাব নেই।";
 "Offers from others appear once a names indexer is connected." = "নেম ইনডেক্সার যুক্ত হলে অন্যদের প্রস্তাব দেখা যাবে।";
-"Claims, renewals, listings, sales and transfers across the registry." = "পুরো রেজিস্ট্রিতে নেওয়া, নবায়ন, তালিকা, বিক্রি ও হস্তান্তর।";
 "Nothing yet." = "এখনও কিছু নেই।";
 "Withdraw Offer" = "প্রস্তাব প্রত্যাহার";
 "Withdraw" = "প্রত্যাহার";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "নবায়ন খোলা";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "বাড়ালে বর্তমান পরিশোধিত মেয়াদকালে বছর যোগ হয়, যা সর্বোচ্চ ২ বছর ধরে। দাম যায় মাইনারদের কাছে।";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "নাম ইনডেক্সার এই নামের পরিশোধিত মেয়াদকাল পাঠায়নি। রিফ্রেশ করতে নিচে টানুন এবং আবার চেষ্টা করুন।";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "সেগুলো বাড়ান, নবায়ন করুন, বিক্রির জন্য তালিকাভুক্ত করুন, হস্তান্তর করুন বা ছেড়ে দিন, এবং KaChat আপনার জন্য কোনটি দেখাবে তা বেছে নিন।";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "যত বছরের জন্য পরিশোধ করেছেন, নামটি তত বছর আপনার, সর্বোচ্চ ২ বছর আগাম। ১ বছরের নাম ২ বছর পর্যন্ত বাড়ানো যায়; মেয়াদ শেষের ১০ দিন আগে থেকে নবায়ন করতে পারবেন।";
 "Setting up" = "সেট আপ হচ্ছে";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "টেস্টনেটে .kachat রেজিস্ট্রি আপগ্রেড হচ্ছে। নতুন রেজিস্ট্রি চালু হলে নামগুলো এখানে আবার খুলবে।";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "আপনার ওয়ালেটে আসা Kaspa আর আপনার .kachat নামের খবর এখানে দেখা যায়।";
 "Renew it soon to keep it." = "রাখতে শীঘ্রই নবায়ন করুন।";
 "Renew it soon or anyone can claim it." = "শীঘ্রই নবায়ন করুন, নইলে যে কেউ এটি দাবি করতে পারবে।";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = ".kachat নাম চালু হলে পুনরুদ্ধারযোগ্য নামগুলো এখানে দেখা যাবে।";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "রেজিস্ট্রির প্রতিটি দাবি, নবায়ন, তালিকাভুক্তি, বিক্রি, প্রস্তাব, স্থানান্তর আর পুনরুদ্ধার।";

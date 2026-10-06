@@ -757,10 +757,8 @@
 "List a Name for Sale" = "Bir adı satışa çıkar";
 "Listings appear here once .kachat names launch." = "İlanlar .kachat adları başladığında burada görünür.";
 "No .kachat names yet" = "Henüz .kachat adın yok";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Aldığın veya satın aldığın adlar burada görünür. Buradan birini sohbetlerde adın yapabilir, satışa çıkarabilir ya da birine gönderebilirsin.";
 "Claim a Name" = "Ad al";
 "Recent activity" = "Son etkinlik";
-"Claims, listings and sales across the marketplace." = "Pazar yerindeki alımlar, ilanlar ve satışlar.";
 "Activity appears here once .kachat names launch." = "Etkinlik .kachat adları başladığında burada görünür.";
 "How it works" = "Nasıl çalışır";
 "List" = "Satışa çıkar";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "Teklifler";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Yaptığın teklifler ve adlarına gelen teklifler. Buradan birini kabul edebilir ya da kendi teklifini geri çekebilirsin.";
 "No offers yet." = "Henüz teklif yok.";
 "Offer" = "Teklif";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Kendi fiyatını belirle. KAS'ın satıcı kabul edene, teklifi geri çekene ya da süresi dolana kadar zincirde bekler - önce satıcıya mesaj da atabilirsin.";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "Verdiğiniz teklifler. İstediğiniz zaman geri çekin; iade zamanı geçince herkes size geri gönderebilir.";
 "No open offers." = "Açık teklif yok.";
 "Offers from others appear once a names indexer is connected." = "Başkalarının teklifleri bir ad dizinleyicisi bağlandığında görünür.";
-"Claims, renewals, listings, sales and transfers across the registry." = "Kayıt genelinde alımlar, yenilemeler, satışa koymalar, satışlar ve devirler.";
 "Nothing yet." = "Henüz bir şey yok.";
 "Withdraw Offer" = "Teklifi Geri Çek";
 "Withdraw" = "Geri çek";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "Yenileme açık";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Uzatma, en fazla 2 yıl kapsayan mevcut ödenmiş döneme yıl ekler. Fiyat madencilere gider.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Ad dizinleyicisi bu adın ödenmiş dönemini göndermedi. Yenilemek için aşağı çekip tekrar deneyin.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Onları uzatın, yenileyin, satışa çıkarın, aktarın veya bırakın ve KaChat'in sizin için gösterdiğini seçin.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Ad, ödediğiniz yıllar boyunca sizindir, en fazla 2 yıl ileriye. 1 yıllık bir ad 2 yıla uzatılabilir; bitişinden 10 gün önceden itibaren yenileyebilirsiniz.";
 "Setting up" = "Hazırlanıyor";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "Testnet'teki .kachat kaydı güncelleniyor. Yeni kayıt yayına girince adlar burada yeniden açılır.";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "Cüzdanlarınıza gelen Kaspa ve .kachat adlarınızla ilgili haberler burada görünür.";
 "Renew it soon to keep it." = "Korumak için yakında yenileyin.";
 "Renew it soon or anyone can claim it." = "Yakında yenileyin, yoksa herkes alabilir.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = ".kachat adları başlayınca geri alınabilir adlar burada görünecek.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Kayıttaki her talep, yenileme, ilan, satış, teklif, aktarım ve geri alma.";

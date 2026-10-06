@@ -757,10 +757,8 @@
 "List a Name for Sale" = "Выставить имя на продажу";
 "Listings appear here once .kachat names launch." = "Объявления появятся здесь после запуска имён .kachat.";
 "No .kachat names yet" = "Пока нет имён .kachat";
-"Names you claim or buy show here. From here you'll set one as your name in chats, list it for sale, or send it to someone." = "Здесь будут имена, которые вы получите или купите. Отсюда вы сможете сделать имя своим в чатах, выставить на продажу или отправить кому-то.";
 "Claim a Name" = "Получить имя";
 "Recent activity" = "Недавняя активность";
-"Claims, listings and sales across the marketplace." = "Получения, объявления и продажи по всему маркетплейсу.";
 "Activity appears here once .kachat names launch." = "Активность появится здесь после запуска имён .kachat.";
 "How it works" = "Как это работает";
 "List" = "Продать";
@@ -836,7 +834,6 @@
 
 /* 5.2: .kachat listing, buy and offer */
 "Offers" = "Предложения";
-"Offers you've made, and offers on names you own. Accept one, or withdraw your own, from here." = "Ваши предложения и предложения на ваши имена. Здесь можно принять предложение или отозвать своё.";
 "No offers yet." = "Пока нет предложений.";
 "Offer" = "Предложение";
 "Name your own price. Your KAS waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first." = "Назовите свою цену. Ваши KAS ждут в блокчейне, пока продавец не примет предложение, вы его не отзовёте или оно не истечёт, а продавцу можно сначала написать.";
@@ -997,7 +994,6 @@
 "Offers you made. Withdraw one any time; once it passes its refund time anyone can return it to you." = "Ваши предложения. Отзовите любое в любой момент; после срока возврата кто угодно может вернуть его вам.";
 "No open offers." = "Нет открытых предложений.";
 "Offers from others appear once a names indexer is connected." = "Предложения других появятся после подключения индексатора имён.";
-"Claims, renewals, listings, sales and transfers across the registry." = "Регистрации, продления, выставления, продажи и передачи во всём реестре.";
 "Nothing yet." = "Пока ничего.";
 "Withdraw Offer" = "Отозвать предложение";
 "Withdraw" = "Отозвать";
@@ -1151,7 +1147,6 @@
 "Renewal open" = "Продление открыто";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Дополнение добавляет годы к текущему оплаченному периоду, который вмещает не больше 2 лет. Цена уходит майнерам.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Индексатор имён не прислал оплаченный период этого имени. Потяните вниз, чтобы обновить, и попробуйте снова.";
-"Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Дополняйте, продлевайте, выставляйте на продажу, передавайте или освобождайте их и выберите то, которое KaChat показывает для вас.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Имя ваше на оплаченные годы, не больше 2 вперёд. Имя на 1 год можно дополнить до 2 лет; за 10 дней до окончания срока его можно продлить.";
 "Setting up" = "Настраивается";
 "The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live." = "Реестр .kachat в Testnet обновляется. Имена снова откроются здесь, как только заработает новый реестр.";
@@ -1340,3 +1335,7 @@
 "Kaspa arriving in your wallets and news about your .kachat names show up here." = "Здесь появляются Kaspa, пришедшие на ваши кошельки, и новости о ваших именах .kachat.";
 "Renew it soon to keep it." = "Продлите его в ближайшее время, чтобы сохранить.";
 "Renew it soon or anyone can claim it." = "Продлите его в ближайшее время, иначе его сможет забрать кто угодно.";
+
+/* .kachat hub tabs: Marketplace, Reclaimable, Activity */
+"Reclaimable names appear here once .kachat names launch." = "Имена, которые можно вернуть, появятся здесь после запуска имён .kachat.";
+"Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Все регистрации, продления, выставления, продажи, предложения, передачи и возвраты в реестре.";
