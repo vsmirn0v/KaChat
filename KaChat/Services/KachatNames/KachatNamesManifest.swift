@@ -87,9 +87,12 @@ extension KachatNames {
 
         /// Template hashes of the pinned build - registry v3 (silverc v1.0.0 @ 3ed9733). The price
         /// template bakes no covenant id, so it is the same everywhere. The gap and the name bake
-        /// the price covenant id, so their hashes exist only once the price genesis does: the
-        /// deployment adds them here with the bundled manifest. Until they are pinned only a
-        /// bundled manifest is trusted (`verify(source:)`), never one an indexer serves.
+        /// the price covenant id, so their hashes exist only once the price genesis does, and the
+        /// offer bakes the registry id, so its hash exists once the registry genesis does: the
+        /// deployment adds all three here with the bundled manifest. Until every template is
+        /// pinned only a bundled manifest is trusted (`verify(source:)`), never one an indexer
+        /// serves - an unpinned offer template could hold buyers' funds in a script the indexer
+        /// controls (IOS-059).
         static let pinnedTemplateHashes: [String: String] = [
             "KachatPrice": "d225c3a302b91866a8a7cb09d513b3375715794adf4f1e05eec872b32cb781d3"
         ]
@@ -273,7 +276,7 @@ extension KachatNames {
                 }
                 if let pinned = Self.pinnedTemplateHashes[t.contract] {
                     guard hex(t.templateHash) == pinned else { throw Failure("manifest: \(t.contract) is not the pinned build") }
-                } else if source == .indexer, t.contract != "KachatOffer" {
+                } else if source == .indexer {
                     throw Failure("manifest: \(t.contract) is not pinned in this app; only a bundled manifest is trusted")
                 }
                 for e in Self.entries[t.contract] ?? [] where t.dispatchTags[e] == nil {
