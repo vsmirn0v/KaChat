@@ -533,8 +533,11 @@ struct ProfileView: View {
             return
         }
         await kachatRegistry.refreshIfStale(maxAge: 300)
-        guard let names = try? await kachatRegistry.names(owner: key, includeInactive: true) else { return }
+        // the same names Your Domains lists: a lapsed one isn't yours any more
+        guard let names = try? await kachatRegistry.heldNames(owner: key) else { return }
         kachatOwnedCount = names.count
+        // and one that lapses while Profile is open comes off the count right then
+        await kachatRegistry.dropLapsed(from: names) { kachatOwnedCount = $0.count }
     }
 
     /// Settings, as a card in the list rather than a glyph in the chrome - it belongs with the

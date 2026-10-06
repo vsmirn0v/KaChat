@@ -241,9 +241,8 @@ final class KachatNamesRegistry: ObservableObject {
         }
     }
 
-    /// The names an owner holds, oldest first; `includeInactive` adds grace and lapsed ones.
-    /// Which of `addresses` own at least one .kachat name (active, in grace or lapsed - the same
-    /// set Your Domains lists). Drives the "Contains domain" tag on Manage Addresses and KasSigner.
+    /// Which of `addresses` hold at least one .kachat name (active or in grace - the same set
+    /// Your Domains lists, `heldNames`). Drives the "Contains domain" tag on Manage Addresses and KasSigner.
     /// Empty off testnet; an address whose lookup fails just isn't tagged.
     func ownersOfNames(among addresses: [String]) async -> Set<String> {
         guard KachatNamesService.isLaunched, !addresses.isEmpty else { return [] }
@@ -251,13 +250,37 @@ final class KachatNamesRegistry: ObservableObject {
         var owners = Set<String>()
         for address in addresses {
             guard let key = Self.keyOf(address),
-                  let owned = try? await names(owner: key, includeInactive: true),
+                  let owned = try? await heldNames(owner: key),
                   !owned.isEmpty else { continue }
             owners.insert(address)
         }
         return owners
     }
 
+    /// The names an owner still holds, oldest first: active ones and expired ones in grace (still
+    /// renewable). A lapsed name is no longer theirs - it's in the marketplace's Reclaimable tab.
+    /// Your Domains, its count on Profile and the "Contains domain" tag all show this set.
+    func heldNames(owner: Data) async throws -> [KachatNames.NameInfo] {
+        let grace = graceMs
+        return try await names(owner: owner, includeInactive: true).filter { $0.status(graceMs: grace) != .lapsed }
+    }
+
+    /// Keeps a `heldNames` answer true as time passes: waits until the next of `names` lapses,
+    /// then hands back the ones still held, until none is left to lapse (or the task is
+    /// cancelled). A lapse is just the clock running out, so no registry change announces it.
+    func dropLapsed(from names: [KachatNames.NameInfo], update: ([KachatNames.NameInfo]) -> Void) async {
+        var held = names
+        while let next = held.map({ $0.expiresAt + graceMs }).filter({ $0 > KachatNames.nowMs() }).min() {
+            let wait = UInt64(max(0, next - KachatNames.nowMs()) + 500) * 1_000_000
+            try? await Task.sleep(nanoseconds: wait)
+            if Task.isCancelled { return }
+            let grace = graceMs
+            held = held.filter { $0.status(graceMs: grace) != .lapsed }
+            update(held)
+        }
+    }
+
+    /// The names an owner holds, oldest first; `includeInactive` adds grace and lapsed ones.
     func names(owner: Data, includeInactive: Bool) async throws -> [KachatNames.NameInfo] {
         try await prepare()
         let all: [KachatNames.NameInfo]

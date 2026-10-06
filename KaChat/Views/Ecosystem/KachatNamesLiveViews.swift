@@ -2555,7 +2555,11 @@ struct KachatLiveDomainsTab: View {
             .padding()
         }
         .refreshable { await registry.refresh() }
-        .task(id: registry.revision) { await load() }
+        .task(id: registry.revision) {
+            await load()
+            // a name that lapses while this is open leaves right then
+            await registry.dropLapsed(from: names) { names = $0 }
+        }
         .safeAreaInset(edge: .bottom) {
             if loaded && !service.registryUpgrading {
                 inscribeButton
@@ -2605,8 +2609,7 @@ struct KachatLiveDomainsTab: View {
         if registry.refreshedAt == nil { await registry.refresh() }
         // A lapsed name is no longer yours: it moves to the marketplace's Reclaimable tab (and the
         // bell says so, `KachatNamesNotifier`). Expired names in grace stay, to be renewed.
-        names = ((try? await registry.names(owner: key, includeInactive: true)) ?? [])
-            .filter { $0.status(graceMs: registry.graceMs) != .lapsed }
+        names = (try? await registry.heldNames(owner: key)) ?? []
         myOffers = (try? await registry.myOffers(buyer: key)) ?? []
         if !myOffers.isEmpty {
             // expired offers, and ones made to an earlier owner, come back on their own
