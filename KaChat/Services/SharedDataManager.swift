@@ -1,4 +1,5 @@
 import Foundation
+import WidgetKit
 
 /// Manages shared data between main app and notification extension via App Group
 /// Both targets must have the same App Group entitlement configured
@@ -621,6 +622,19 @@ final class SharedDataManager {
         sharedDefaults?.removeObject(forKey: Keys.unreadCount)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationSoundEnabled)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationVibrationEnabled)
+        // Per-wallet data the extensions and the widget keep (IOS-053): message requests, push
+        // bookkeeping and debug, group notification modes, and the portfolio widget's snapshot,
+        // which kept showing a deleted wallet's holdings on the Home Screen.
+        for key in [Keys.chatRequestAddresses, Keys.chatBlockedAddresses, Keys.chatRequestsWallet,
+                    "chat_request_notified", "chat_request_notified_v2",
+                    "chat_push_handled_txids", "group_push_handled_txids",
+                    "last_push_payload", "last_push_sender", "last_push_tx_id", "last_push_type",
+                    "last_push_decrypt_status",
+                    Keys.groupSilentNotifications, Keys.groupMentionsOnlyNotifications, Keys.kaPostsNotificationKinds,
+                    "kachat_portfolio_widget_store"] {
+            sharedDefaults?.removeObject(forKey: key)
+        }
+        WidgetCenter.shared.reloadAllTimelines()
         if let sharedContainerURL {
             let outboundShareDirectory = sharedContainerURL
                 .appendingPathComponent(SharedOutboundShare.ImageAttachment.rootDirectoryName, isDirectory: true)

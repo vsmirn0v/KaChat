@@ -640,7 +640,10 @@ class NotificationService: UNNotificationServiceExtension {
               parsed.blindedGroupId == targetBlindedId else { return nil }
 
         for group in getSharedGroups() {
-            guard let bag = loadGroupBag(groupId: group.groupId),
+            // only a group the sender is in: loading a bag is a Keychain read plus a Secure
+            // Enclave unwrap, inside the extension's time budget
+            guard group.members.contains(where: { Data(hexString: $0.xOnlyPubKeyHex) == parsed.senderPubKey }),
+                  let bag = loadGroupBag(groupId: group.groupId),
                   let blindingKey = Data(hexString: bag.blindingKey),
                   let groupIdData = Data(hexString: group.groupId) else { continue }
 
@@ -821,10 +824,16 @@ class NotificationService: UNNotificationServiceExtension {
         if Set(defaults.stringArray(forKey: "chat_request_addresses") ?? []).contains(address) { return .silent }
         // Someone the app already knows and hasn't listed as a request: an ordinary chat.
         if getSharedContact(address: sender) != nil { return nil }
-        var notified = Set(defaults.stringArray(forKey: "chat_request_notified") ?? [])
-        if notified.contains(address) { return .silent }
-        notified.insert(address)
-        defaults.set(Array(notified), forKey: "chat_request_notified")
+        // Whom this extension has rung once, per wallet (another account restored on this phone
+        // still gets its own first banner), oldest dropped past 500 (IOS-053).
+        let notifiedKey = "chat_request_notified_v2"
+        let entry = "\(wallet.lowercased())|\(address)"
+        var notified = defaults.stringArray(forKey: notifiedKey) ?? []
+        if notified.contains(entry) { return .silent }
+        notified.append(entry)
+        if notified.count > 500 { notified.removeFirst(notified.count - 500) }
+        defaults.set(notified, forKey: notifiedKey)
+        defaults.removeObject(forKey: "chat_request_notified")
         return .newRequest
     }
 
