@@ -3824,7 +3824,10 @@ extension ChatService {
         let me = WalletManager.shared.currentWallet?.publicAddress.lowercased()
         guard address.lowercased() != me, !isPrivateChat(address),
               !chatRequestState().inboxTagged.contains(address.lowercased()) else { return nil }
-        let heardFrom = conversations.first { $0.contact.address == address }?
+        // addresses compare case-insensitively everywhere else in this check: an address typed
+        // or scanned in upper case is still the established conversation
+        let lowered = address.lowercased()
+        let heardFrom = conversations.first { $0.contact.address.lowercased() == lowered }?
             .messages.contains { !$0.isOutgoing } ?? false
         guard !heardFrom, await inboxSupported() else { return nil }
         return InboxTag.compute(for: address)
