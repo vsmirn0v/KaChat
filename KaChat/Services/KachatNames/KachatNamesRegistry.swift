@@ -151,7 +151,8 @@ final class KachatNamesRegistry: ObservableObject {
 
     private func walk(_ m: KachatNames.Manifest) async throws {
         var state = chainState ?? .atGenesis(m)
-        let registryId = KachatNames.hex(m.registryCovenantId)
+        // the registry's gaps and names, and the price record's shards (registry v3)
+        let covenantIds: Set<String> = [KachatNames.hex(m.registryCovenantId), KachatNames.hex(m.priceCovenantId)]
         let report = try await state.walk(
             manifest: m,
             address: { KachatNamesService.p2shAddress(script: $0) },
@@ -162,8 +163,8 @@ final class KachatNamesRegistry: ObservableObject {
                     let chunk = Array(addresses[start..<min(start + 50, addresses.count)])
                     for u in try await NodePoolService.shared.getUtxosByAddresses(chunk) {
                         // A node reports the covenant id; the REST fallback cannot (nil). A UTXO
-                        // carrying another id is not the registry's.
-                        if let c = u.covenantId, !c.isEmpty, c.lowercased() != registryId { continue }
+                        // carrying another id is neither the registry's nor a price shard.
+                        if let c = u.covenantId, !c.isEmpty, !covenantIds.contains(c.lowercased()) { continue }
                         out.insert("\(u.outpoint.transactionId.lowercased()):\(u.outpoint.index)")
                     }
                     start += 50
