@@ -101,6 +101,20 @@ extension KachatNames {
         static let pinnedTemplateHashes: [String: String] = [
             "KachatPrice": "d225c3a302b91866a8a7cb09d513b3375715794adf4f1e05eec872b32cb781d3"
         ]
+
+        /// The gap, name and offer builds each deployed registry was launched with, by registry
+        /// covenant id. A manifest for one of these registries must carry exactly these; any
+        /// other registry (a dry run, the test vectors) has no pins, so only a bundled manifest
+        /// of it is trusted.
+        static let deployedTemplateHashes: [String: [String: String]] = [
+            // testnet-10 registry v3, 2026-10-06: price genesis 246d4cb6..e78b (price covenant
+            // 4d7685c0..3338), registry genesis fa8b21d2..5940
+            "90f56bd1babeda8e901639eaffacd9dba211c32d3f4f2587916f419140ee6d24": [
+                "KachatGap": "3c2c0f4f076da46f401ee19ea232580207c1c2bcd5cbdb626ead0b7f7693a157",
+                "KachatName": "973dba9aaa58ba8f59ac28a4dc45001209fae7708a89ffbcf49c1bc1ba5adfc4",
+                "KachatOffer": "8d6f8cdd287b2776b4c763691f28ffc08cdbe1552d2d7b7acdce8400268d1be5"
+            ]
+        ]
         static let stateLengths: [String: Int] = ["KachatPrice": 87, "KachatGap": 66, "KachatName": 126, "KachatOffer": 108]
         static let entries: [String: [String]] = [
             "KachatPrice": ["use", "update", "follow"],
@@ -275,11 +289,12 @@ extension KachatNames {
             guard network == Self.supportedNetwork else {
                 throw Failure("manifest is for \(network); only \(Self.supportedNetwork) is enabled (mainnet waits for an audit)")
             }
+            let pins = Self.pinnedTemplateHashes.merging(Self.deployedTemplateHashes[hex(registryCovenantId)] ?? [:]) { pinned, _ in pinned }
             for t in [price, gap, name, offer] {
                 guard Codec.templateHash(prefix: t.prefix, suffix: t.suffix) == t.templateHash else {
                     throw Failure("manifest: \(t.contract) template hash does not match its prefix and suffix")
                 }
-                if let pinned = Self.pinnedTemplateHashes[t.contract] {
+                if let pinned = pins[t.contract] {
                     guard hex(t.templateHash) == pinned else { throw Failure("manifest: \(t.contract) is not the pinned build") }
                 } else if source == .indexer {
                     throw Failure("manifest: \(t.contract) is not pinned in this app; only a bundled manifest is trusted")

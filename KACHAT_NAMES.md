@@ -417,7 +417,7 @@ screens run on the live registry. Mainnet is unchanged: mockups, "Coming soon", 
 
 | File | What |
 |---|---|
-| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled. Still registry v2 (`82f4315c…0f89`), which the app refuses as outdated, so testnet shows "setting up" until the v3 genesis manifest is bundled |
+| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled: registry v3 since 2026-10-06 (price genesis `246d4cb6…e78b`, price covenant `4d7685c0…3338`; registry genesis `fa8b21d2…5940`, registry `90f56bd1…6d24`) |
 | `KaChat/Services/KachatNames/KachatNamesRegistryState.swift` | pure: status (B5), label rule, profile record, REST tx parser, indexer shapes, the walker state and its decoder (`apply`, a port of the CLI's `Registry::apply`), the walk loop |
 | `KaChat/Services/KachatNames/KachatNamesRegistry.swift` | `@MainActor` reads: lookup, by owner, listings, lapsed, offers, history, activity, exit gaps, identity; source = names indexer or chain walker; cache in Application Support |
 | `KaChat/Services/KachatNames/KachatNamesActions.swift` | `@MainActor` actions (extend, renew, transfer, list, buy, offer, withdraw, refund, accept, release, reclaim, profile), quotes, the resumable registration driver, cancel commit |
