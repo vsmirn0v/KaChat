@@ -1,14 +1,13 @@
 import Foundation
 import SwiftUI
 
-/// The bell on the Profile screen holds three things:
+/// The bell on the Profile screen holds two things:
 /// - Kaspa arriving in one of your own wallets - the chatting wallet, a spending address, cold
 ///   storage (fed by AddressActivityNotifier);
-/// - live messages in the public chat rooms you turned notifications on for;
 /// - your .kachat names: offers, sales, renewal and expiry, what happened to your offers
 ///   (`KachatNamesNotifier`).
-/// Never KaPosts: KaPosts has its own bell. Group chats keep their own unread counts in the
-/// Chats tab. Entries are account-scoped, persisted, deduped by id, and capped; opening the
+/// Never KaPosts (it has its own bell), and not group chats or public rooms (they keep their
+/// own unread counts in the Chats tab). Entries are account-scoped, persisted, deduped by id, and capped; opening the
 /// list marks everything seen.
 @MainActor
 final class GlobalNotificationCenter: ObservableObject {
@@ -43,7 +42,7 @@ final class GlobalNotificationCenter: ObservableObject {
             }
 
             /// What the Profile bell lists.
-            static let inBell: Set<Source> = [.wallet, .publicChat, .kachat]
+            static let inBell: Set<Source> = [.wallet, .kachat]
         }
 
         let id: String
@@ -91,8 +90,8 @@ final class GlobalNotificationCenter: ObservableObject {
     func reload() {
         if let data = UserDefaults.standard.data(forKey: entriesKey),
            let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
-            // Wallet, public chat and .kachat rows only. KaPosts rows live in KaPosts' own bell
-            // and group mentions carry their own counts in the Chats tab; anything an older build
+            // Wallet and .kachat rows only. KaPosts rows live in KaPosts' own bell, group mentions
+            // and public rooms carry their own counts in the Chats tab; anything an older build
             // saved for those is dropped here so the bell never double-counts.
             let kept = decoded.filter { Entry.Source.inBell.contains($0.source) }
             entries = kept
@@ -143,21 +142,10 @@ final class GlobalNotificationCenter: ObservableObject {
 
     // MARK: - Public Chats (called from PublicChatService on merged rows)
 
-    /// A live message (after app launch, not ours) in a room the caller has checked the person
-    /// asked to be notified about (`PublicChatService`: notifications on, sender not hidden).
-    /// History re-served by later polls is deduped by txId.
-    func recordPublicChatIfLive(channel: String, senderAddress: String, content: String, txId: String, blockTime: Int64) {
-        guard blockTime >= Self.sessionStartMs,
-              senderAddress != WalletManager.shared.currentWallet?.publicAddress else { return }
-        record(
-            id: "broadcast-\(txId)",
-            source: .publicChat,
-            title: "\(displayName(for: senderAddress)) in #\(channel)",
-            body: String(content.prefix(90)),
-            timestamp: blockTime,
-            targetId: channel
-        )
-    }
+    /// Public rooms live in the Chats tab, with their own unread counts and long-press
+    /// controls, so their messages don't go through the bell (the owner's call, 2026-10-06).
+    /// Kept as a no-op for the call site; rows an older build recorded are dropped on load.
+    func recordPublicChatIfLive(channel: String, senderAddress: String, content: String, txId: String, blockTime: Int64) {}
 
     // MARK: - KaPosts poll
 
@@ -229,7 +217,7 @@ struct GlobalNotificationListView: View {
                             .foregroundColor(.secondary)
                         Text("No notifications yet")
                             .font(.headline)
-                        Text("Kaspa arriving in your wallets, public chat rooms you get notified about, and news about your .kachat names show up here.")
+                        Text("Kaspa arriving in your wallets and news about your .kachat names show up here.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)

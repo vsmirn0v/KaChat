@@ -782,13 +782,7 @@ final class PublicChatService: ObservableObject {
         // envelope (`MessageReplyCodec` and friends) and would otherwise show as raw JSON
         // in the bell list. Same call the scan-driven local banner already makes below in
         // `notifyIfEnabled`.
-        // Only rooms the person turned notifications on for, never a hidden sender, never in
-        // Simple Mode (which removes Public Chats) - the same rules as the room's banners.
-        let notifies = !Self.serviceChannels.contains(channel)
-            && channels.first(where: { $0.channelName == channel })?.notifyEnabled == true
-            && !AppSettings.load().childModeEnabled
-        let hidden = notifies ? store.hiddenSenderAddresses(forChannel: channel) : []
-        for row in rows where notifies && !hidden.contains(row.senderAddress) {
+        for row in rows {
             GlobalNotificationCenter.shared.recordPublicChatIfLive(
                 channel: channel, senderAddress: row.senderAddress,
                 content: MessageReplyCodec.previewText(for: row.content),
