@@ -146,7 +146,9 @@ final class ColdStorageSendEngine {
 
         for utxo in sorted {
             selected.append(utxo)
-            totalSelected += utxo.amount
+            let (nextTotal, overflow) = totalSelected.addingReportingOverflow(utxo.amount)
+            if overflow { return nil }
+            totalSelected = nextTotal
 
             let mass = calculateMass(numInputs: selected.count, outputScriptLens: outputScriptLens, payloadSize: 0)
             estimatedFee = calculateFee(mass: mass, rateSompiPerGram: feeRateSompiPerGram)
@@ -183,7 +185,7 @@ final class ColdStorageSendEngine {
         changeScriptLen: Int
     ) -> Selection? {
         guard !utxos.isEmpty else { return nil }
-        let totalSelected = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        guard let totalSelected = utxos.checkedTotalAmount else { return nil }
         let mass = calculateMass(numInputs: utxos.count, outputScriptLens: [recipientScriptLen, changeScriptLen], payloadSize: 0)
         let estimatedFee = calculateFee(mass: mass, rateSompiPerGram: feeRateSompiPerGram)
 
@@ -308,7 +310,7 @@ final class ColdStorageSendEngine {
 
         // the fee actually paid: everything the inputs hold that no output carries (a folded
         // remainder included), so the confirmation screen shows the real amount
-        let inputTotal = selection.utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        let inputTotal = try selection.utxos.totalAmount()
         let outputTotal = outputs.reduce(UInt64(0)) { $0 + $1.value }
         let paidFee = inputTotal >= outputTotal ? inputTotal - outputTotal : selection.feeSompi
         return UnsignedColdTx(transaction: transaction, inputUtxos: selection.utxos, feeSompi: paidFee, changeSompi: changeSompi)
@@ -374,7 +376,7 @@ final class ColdStorageSendEngine {
             utxosToUse = Array(spendable.sorted { $0.amount > $1.amount }.prefix(KsptCodec.maxInputs))
         }
 
-        let totalBalance = utxosToUse.reduce(UInt64(0)) { $0 + $1.amount }
+        let totalBalance = try utxosToUse.totalAmount()
         let feeRate: UInt64
         if let feeRateOverride {
             feeRate = feeRateOverride

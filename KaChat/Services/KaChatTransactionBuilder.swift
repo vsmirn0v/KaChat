@@ -702,7 +702,9 @@ struct KasiaTransactionBuilder {
         utxos.filter { utxo in
             guard utxo.isCoinbase else { return true }
             guard let vds = virtualDaaScore else { return false }
-            return utxo.blockDaaScore + coinbaseMaturity < vds
+            // overflow (a nonsense DAA score from a node) counts as not yet mature
+            let (matureAt, overflow) = utxo.blockDaaScore.addingReportingOverflow(coinbaseMaturity)
+            return !overflow && matureAt < vds
         }
     }
 

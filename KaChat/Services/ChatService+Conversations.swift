@@ -1643,7 +1643,7 @@ extension ChatService {
             updateWalletBalanceIfNeeded(address: wallet.publicAddress, utxos: utxos)
             let availableUtxos = prepareMessageUtxos(confirmed: utxos)
             guard !availableUtxos.isEmpty else {
-                let totalBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+                let totalBalanceSompi = try utxos.totalAmount()
                 if totalBalanceSompi == 0 {
                     AppLog.log("[ChatService] No confirmed UTXOs available - wallet balance is zero for %@",
                           String(activePendingTxId.prefix(12)))
@@ -2765,7 +2765,7 @@ extension ChatService {
         }
         let resolvedManualUtxos = resolveManualUtxos(manualUtxos, against: spendable)
 
-        let totalBalance = (resolvedManualUtxos ?? spendable).reduce(0) { $0 + $1.amount }
+        let totalBalance = try (resolvedManualUtxos ?? spendable).totalAmount()
 
         let fee = KasiaTransactionBuilder.estimateSendAllFee(
             utxos: spendable,
@@ -2902,7 +2902,9 @@ extension ChatService {
         utxos.filter { utxo in
             guard utxo.isCoinbase else { return true }
             guard let vds = virtualDaaScore else { return true }
-            return utxo.blockDaaScore + coinbaseMaturity < vds
+            // overflow (a nonsense DAA score from a node) counts as not yet mature
+            let (matureAt, overflow) = utxo.blockDaaScore.addingReportingOverflow(coinbaseMaturity)
+            return !overflow && matureAt < vds
         }
     }
 
@@ -3009,7 +3011,7 @@ extension ChatService {
         }
         let resolvedManualUtxos = resolveManualUtxos(manualUtxos, against: spendable)
 
-        let totalBalance = (resolvedManualUtxos ?? spendable).reduce(UInt64(0)) { $0 + $1.amount }
+        let totalBalance = try (resolvedManualUtxos ?? spendable).totalAmount()
 
         let fee = KasiaTransactionBuilder.estimateSendAllFee(
             utxos: spendable,
@@ -3353,7 +3355,7 @@ extension ChatService {
             throw KasiaError.networkError("No spendable UTXOs")
         }
 
-        let totalBalance = spendable.reduce(0) { $0 + $1.amount }
+        let totalBalance = try spendable.totalAmount()
 
         guard let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: contact.address),
               let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: sourceAddress) else {

@@ -29,6 +29,29 @@ struct NodeInfo {
 
 // MARK: - UTXO
 
+/// Sums of node-supplied amounts. A malicious or broken node (the pool connects to public
+/// peers) can report a value near UInt64.max, and a plain `+` traps; these never do (IOS-020).
+extension Sequence where Element == UTXO {
+    /// The total amount, nil if it overflows.
+    var checkedTotalAmount: UInt64? {
+        var total: UInt64 = 0
+        for utxo in self {
+            let (next, overflow) = total.addingReportingOverflow(utxo.amount)
+            if overflow { return nil }
+            total = next
+        }
+        return total
+    }
+
+    /// The total amount; throws on overflow.
+    func totalAmount() throws -> UInt64 {
+        guard let total = checkedTotalAmount else {
+            throw KasiaError.networkError("Invalid UTXO data: amount overflow")
+        }
+        return total
+    }
+}
+
 struct UTXO {
     let address: String
     let outpoint: Outpoint
