@@ -1280,3 +1280,8 @@
 "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "প্রস্তাবটি ক্রেতার কাছে ফিরে যায়। এর নেটওয়ার্ক ফি প্রস্তাব থেকেই কাটা হয়, তাই প্রত্যাখ্যান করতে আপনার কোনো খরচ নেই।";
 "Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "মালিক গ্রহণ বা প্রত্যাখ্যান না করা, আপনি প্রস্তাব প্রত্যাহার না করা বা মেয়াদ শেষ না হওয়া পর্যন্ত আপনার KAS চেইনে আটকে থাকে - তারপর যে কেউ এটি আপনাকে ফেরত পাঠাতে পারে।";
 "This name is listed for less than your offer. Consider buying it instead." = "এই নামটি আপনার প্রস্তাবের চেয়ে কম দামে বিক্রির জন্য তালিকাভুক্ত। বরং এটি কিনে নেওয়ার কথা ভাবুন।";
+
+/* .kachat: never pay more than the confirmed price (IOS-054) */
+"The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "আপনি নিশ্চিত করার পর মূল্য বদলে %@ হয়েছে। কিছুই পাঠানো হয়নি। নতুন মূল্য দেখে আবার নিশ্চিত করুন।";
+"The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "আপনি নিশ্চিত করার পর মূল্য বদলে %@ হয়েছে, তাই কিছুই পাঠানো হয়নি। চালিয়ে যেতে নতুন মূল্য নিশ্চিত করুন, অথবা কমিট বাতিল করুন।";
+"Confirm New Price" = "নতুন মূল্য নিশ্চিত করুন";

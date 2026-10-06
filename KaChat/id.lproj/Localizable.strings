@@ -1280,3 +1280,8 @@
 "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "Penawaran kembali ke pembeli. Biaya jaringannya diambil dari penawaran, jadi menolak tidak memakan biaya apa pun bagi Anda.";
 "Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS Anda tetap terkunci di chain sampai pemilik menerima atau menolak, Anda menarik penawaran, atau penawaran kedaluwarsa - lalu siapa pun bisa mengembalikannya kepada Anda.";
 "This name is listed for less than your offer. Consider buying it instead." = "Nama ini dijual lebih murah dari penawaran Anda. Pertimbangkan untuk membelinya saja.";
+
+/* .kachat: never pay more than the confirmed price (IOS-054) */
+"The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "Harga berubah menjadi %@ sejak Anda mengonfirmasi. Tidak ada yang dikirim. Periksa harga baru dan konfirmasi lagi.";
+"The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "Harga berubah menjadi %@ sejak Anda mengonfirmasi, jadi tidak ada yang dikirim. Konfirmasi harga baru untuk melanjutkan, atau batalkan commit.";
+"Confirm New Price" = "Konfirmasi Harga Baru";

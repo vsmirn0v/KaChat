@@ -1280,3 +1280,8 @@
 "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "报价会退还给买家。网络费从报价中扣除，所以拒绝不会让你花费任何费用。";
 "Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "你的 KAS 会锁定在链上，直到所有者接受或拒绝、你撤回报价或报价到期——之后任何人都可以把它退还给你。";
 "This name is listed for less than your offer. Consider buying it instead." = "此名称的挂牌价低于你的报价。不如直接购买。";
+
+/* .kachat: never pay more than the confirmed price (IOS-054) */
+"The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "自你确认后价格已变为 %@。未发送任何内容。请查看新价格并再次确认。";
+"The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "自你确认后价格已变为 %@，因此未发送任何内容。确认新价格以继续，或取消承诺。";
+"Confirm New Price" = "确认新价格";

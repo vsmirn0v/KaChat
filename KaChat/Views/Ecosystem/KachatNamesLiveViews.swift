@@ -662,6 +662,8 @@ struct KachatRegistrationCard: View {
         case .registered: Text("Registered. It's yours.")
         case .taken: KaspaUnit.text("Someone registered this name first. Cancel the commit to get its 0.2 KAS back.")
         case .failed: Text("The registration stopped.")
+        case .priceChanged:
+            Text("The price changed to \(KaspaUnit.amount(registration.priceChangedTo ?? 0)) since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit.")
         case .cancelling: Text("Cancelling the commit...")
         case .cancelled: Text("Cancelled.")
         }
@@ -683,6 +685,14 @@ struct KachatRegistrationCard: View {
             Button("Cancel Commit", role: .destructive) { confirmCancel = true }
                 .buttonStyle(.bordered)
                 .disabled(working)
+        case .priceChanged:
+            HStack {
+                Button("Confirm New Price") { authorizeNewPrice() }
+                    .buttonStyle(.borderedProminent)
+                Button("Cancel Commit", role: .destructive) { confirmCancel = true }
+                    .buttonStyle(.bordered)
+                    .disabled(working)
+            }
         case .failed:
             HStack {
                 Button("Try Again") { actions.retry(registration) }
@@ -693,6 +703,13 @@ struct KachatRegistrationCard: View {
             }
         default:
             EmptyView()
+        }
+    }
+
+    /// Paying a higher price is a new approval: it goes through the device lock like any send.
+    private func authorizeNewPrice() {
+        DeviceAuth.authenticate(reason: KachatLive.authReason) {
+            Task { @MainActor in actions.acceptNewPrice(registration) }
         }
     }
 
@@ -1218,13 +1235,20 @@ struct KachatTxSheet<Inputs: View>: View {
         sending = true
         sendError = nil
         do {
-            let id = try await KachatNamesActions.shared.perform(operation)
+            // never pays more than the price shown (the price record can change at any time)
+            let id = try await KachatNamesActions.shared.perform(operation, maxPrice: plan?.priceFee)
             txId = id
             Haptics.success()
             onDone(id)
             done = KachatTxDone(txId: id, title: doneTitle)
         } catch {
             sendError = error.localizedDescription
+            // the price moved: show the new plan so the person can confirm it
+            if case KachatNamesActions.ActionError.priceChanged? = error as? KachatNamesActions.ActionError {
+                sending = false
+                await rebuild()
+                return
+            }
         }
         sending = false
     }
@@ -1380,10 +1404,12 @@ struct KachatClaimSheet: View {
     }
 
     private func start() async {
+        // the price shown is the most the registration will ever pay
+        guard let q = quote, q.years == years else { return }
         starting = true
         startError = nil
         do {
-            try await KachatNamesActions.shared.startRegistration(name: target.name, years: years)
+            try await KachatNamesActions.shared.startRegistration(name: target.name, years: years, maxPrice: q.price)
             Haptics.success()
             onStarted()
             dismiss()

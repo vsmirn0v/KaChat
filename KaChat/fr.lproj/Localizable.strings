@@ -1281,3 +1281,8 @@
 "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "L’offre retourne à l’acheteur. Ses frais de réseau sont prélevés sur l’offre, refuser ne vous coûte donc rien.";
 "Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "Vos KAS restent bloqués sur la chaîne jusqu’à ce que le propriétaire accepte ou refuse, que vous retiriez l’offre ou qu’elle expire - n’importe qui peut alors vous les renvoyer.";
 "This name is listed for less than your offer. Consider buying it instead." = "Ce nom est en vente pour moins que votre offre. Pensez plutôt à l’acheter.";
+
+/* .kachat: never pay more than the confirmed price (IOS-054) */
+"The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "Le prix est passé à %@ depuis votre confirmation. Rien n’a été envoyé. Vérifiez le nouveau prix et confirmez à nouveau.";
+"The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "Le prix est passé à %@ depuis votre confirmation, donc rien n’a été envoyé. Confirmez le nouveau prix pour continuer, ou annulez l’engagement.";
+"Confirm New Price" = "Confirmer le nouveau prix";

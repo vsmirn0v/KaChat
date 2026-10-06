@@ -1280,3 +1280,8 @@
 "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "يعود العرض إلى المشتري. تُقتطع رسوم الشبكة من العرض، فلا يكلّفك الرفض شيئًا.";
 "Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "تبقى KAS الخاصة بك مقفلة على السلسلة حتى يقبل المالك أو يرفض، أو تسحب العرض، أو تنتهي مدته - وعندها يمكن لأي شخص إعادتها إليك.";
 "This name is listed for less than your offer. Consider buying it instead." = "هذا الاسم معروض للبيع بأقل من عرضك. فكّر في شرائه بدلًا من ذلك.";
+
+/* .kachat: never pay more than the confirmed price (IOS-054) */
+"The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "تغيّر السعر إلى %@ منذ أن أكدت. لم يُرسل شيء. راجع السعر الجديد وأكد مرة أخرى.";
+"The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "تغيّر السعر إلى %@ منذ أن أكدت، لذا لم يُرسل شيء. أكد السعر الجديد للمتابعة، أو ألغِ الالتزام.";
+"Confirm New Price" = "تأكيد السعر الجديد";

@@ -1280,3 +1280,8 @@
 "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "Đề nghị được trả lại cho người mua. Phí mạng được trừ vào đề nghị, nên từ chối không tốn gì của bạn.";
 "Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS của bạn bị khóa trên chuỗi cho đến khi chủ chấp nhận hoặc từ chối, bạn rút đề nghị, hoặc đề nghị hết hạn - sau đó ai cũng có thể trả lại cho bạn.";
 "This name is listed for less than your offer. Consider buying it instead." = "Tên này đang được bán với giá thấp hơn đề nghị của bạn. Hãy cân nhắc mua luôn.";
+
+/* .kachat: never pay more than the confirmed price (IOS-054) */
+"The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "Giá đã đổi thành %@ kể từ khi bạn xác nhận. Chưa có gì được gửi. Hãy xem giá mới và xác nhận lại.";
+"The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "Giá đã đổi thành %@ kể từ khi bạn xác nhận, nên chưa có gì được gửi. Xác nhận giá mới để tiếp tục, hoặc hủy commit.";
+"Confirm New Price" = "Xác nhận giá mới";

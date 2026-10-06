@@ -1280,3 +1280,8 @@
 "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "제안은 구매자에게 돌아가요. 네트워크 수수료는 제안 금액에서 빠지므로 거절해도 비용이 들지 않아요.";
 "Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "내 KAS는 소유자가 수락하거나 거절하거나, 내가 제안을 철회하거나, 만료될 때까지 체인에 잠겨 있어요. 그 뒤에는 누구나 나에게 돌려줄 수 있어요.";
 "This name is listed for less than your offer. Consider buying it instead." = "이 이름은 내 제안보다 낮은 가격에 판매 중이에요. 대신 바로 구매하는 것을 고려해 보세요.";
+
+/* .kachat: never pay more than the confirmed price (IOS-054) */
+"The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "확인한 뒤 가격이 %@(으)로 바뀌었어요. 아무것도 전송되지 않았어요. 새 가격을 확인하고 다시 확인하세요.";
+"The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "확인한 뒤 가격이 %@(으)로 바뀌어서 아무것도 전송되지 않았어요. 계속하려면 새 가격을 확인하거나 커밋을 취소하세요.";
+"Confirm New Price" = "새 가격 확인";

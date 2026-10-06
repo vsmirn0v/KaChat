@@ -15,6 +15,9 @@ extension KachatNames {
             case registered
             /// someone registered the name first; the commit can be cancelled
             case taken
+            /// the price record now asks more than the person confirmed (`priceChangedTo`): nothing
+            /// is sent until they confirm the new price
+            case priceChanged
             case failed
             case cancelling
             case cancelled
@@ -37,6 +40,11 @@ extension KachatNames {
         var createdAt: Int64
         var updatedAt: Int64
         var lastError: String?
+        /// The price the person confirmed for the whole registration (sompi). The registration
+        /// never pays more; nil only for a registration started before the cap existed.
+        var maxPrice: UInt64?
+        /// What the price record asked when the registration stopped at `.priceChanged`.
+        var priceChangedTo: UInt64?
 
         /// Still shown on the hub.
         var isOpen: Bool { stage != .cancelled }
@@ -80,6 +88,8 @@ final class KachatNamesActions: ObservableObject {
         case periodFull(renewalOpensMs: Int64)
         /// the record has no periodStart (an indexer without the field), so its state is unknown
         case periodUnknown
+        /// the price record asks more than the price the person confirmed
+        case priceChanged(UInt64)
 
         var errorDescription: String? {
             switch self {
@@ -95,6 +105,9 @@ final class KachatNamesActions: ObservableObject {
                               KachatNamesActions.dayString(opens))
             case .periodUnknown:
                 return AppLocalization.string("The names indexer didn't send this name's paid period. Pull to refresh and try again.")
+            case .priceChanged(let price):
+                return String(format: AppLocalization.string("The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again."),
+                              KaspaUnit.amount(price))
             }
         }
     }
@@ -394,10 +407,12 @@ final class KachatNamesActions: ObservableObject {
 
     /// Builds, signs and submits `op`; returns the txid. The registry refreshes once the
     /// transaction is accepted.
+    /// `maxPrice` is the price the person saw and confirmed (a plan's `priceFee`): a register,
+    /// extend or renew never pays more. Prices can change at any time in the price record.
     @discardableResult
-    func perform(_ op: Operation) async throws -> String {
+    func perform(_ op: Operation, maxPrice: UInt64? = nil) async throws -> String {
         let s = try signer(for: op)
-        let txId = try await submit(op, s)
+        let txId = try await submit(op, s, maxPrice: maxPrice)
         switch op {
         // A name that leaves this owner takes no offers with it: the ones made to this owner
         // can never be accepted any more, so they go straight back to their buyers.
@@ -415,10 +430,11 @@ final class KachatNamesActions: ObservableObject {
     /// Signs and submits `op`. A register, extend or renew that lost its price shard to someone
     /// else's transaction (the node rejects it as already spent; nothing was sent) is rebuilt
     /// on another shard, up to twice.
-    private func submit(_ op: Operation, _ s: Signer) async throws -> String {
+    private func submit(_ op: Operation, _ s: Signer, maxPrice: UInt64?) async throws -> String {
         var avoid: Set<Int64> = []
         for attempt in 0..<3 {
             let (plan, env) = try await build(op, s, avoidShards: avoid)
+            if let maxPrice, plan.priceFee > maxPrice { throw ActionError.priceChanged(plan.priceFee) }
             do {
                 let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
                 if case .offer = op, let o = plan.newOffer {
@@ -617,7 +633,7 @@ final class KachatNamesActions: ObservableObject {
     /// Starts registering `name`: a fresh salt (Keychain), the salted commit (submitted), then the
     /// driver registers once the commit is `tCommit` deep. Returns the commit txid.
     @discardableResult
-    func startRegistration(name raw: String, years: Int64) async throws -> String {
+    func startRegistration(name raw: String, years: Int64, maxPrice: UInt64) async throws -> String {
         let s = try signer()
         let name = KachatNames.Codec.normalize(raw)
         try KachatNames.Codec.validate(name)
@@ -638,7 +654,7 @@ final class KachatNamesActions: ObservableObject {
         var record = KachatNames.PendingRegistration(
             id: id, name: name, years: years, owner: KachatNames.hex(s.me), commitTxId: plan.unsignedTx.idHex,
             commitScript: KachatNames.hex(script), commitDaa: nil, registerTxId: nil, cancelTxId: nil,
-            stage: .committing, createdAt: now, updatedAt: now, lastError: nil
+            stage: .committing, createdAt: now, updatedAt: now, lastError: nil, maxPrice: maxPrice
         )
         loadPending(for: s.address)
         upsert(record)
@@ -683,6 +699,21 @@ final class KachatNamesActions: ObservableObject {
     /// Try a failed registration again.
     func retry(_ p: KachatNames.PendingRegistration) {
         var q = p
+        q.stage = .waiting
+        q.lastError = nil
+        q.priceChangedTo = nil
+        q.updatedAt = KachatNames.nowMs()
+        upsert(q)
+        startDriver()
+    }
+
+    /// Continue a registration stopped at `.priceChanged`, now capped at the new price the
+    /// person just confirmed. It still stops again if the price goes up further.
+    func acceptNewPrice(_ p: KachatNames.PendingRegistration) {
+        guard p.stage == .priceChanged, let price = p.priceChangedTo else { return }
+        var q = p
+        q.maxPrice = price
+        q.priceChangedTo = nil
         q.stage = .waiting
         q.lastError = nil
         q.updatedAt = KachatNames.nowMs()
@@ -785,7 +816,7 @@ final class KachatNamesActions: ObservableObject {
             } else if sinceUpdate > 120_000, await liveCommit(p) == nil {
                 finishCancelled(p)
             }
-        case .registered, .taken, .failed, .cancelled:
+        case .registered, .taken, .failed, .cancelled, .priceChanged:
             break
         }
     }
@@ -812,13 +843,19 @@ final class KachatNamesActions: ObservableObject {
                 gap = g
             }
             let (b, env, wallet) = try await context(s)
+            // a random live shard each try: one someone else just spent fails this try, and the
+            // next tick picks again
+            let shard = try await liveShard(m)
+            // Never pay more than the person confirmed: prices can change while the commit ages.
+            let price = shard.fields.price(forLength: p.name.utf8.count) * UInt64(max(p.years, 1))
+            if let cap = p.maxPrice, price > cap {
+                set(p) { $0.stage = .priceChanged; $0.priceChangedTo = price; $0.lastError = nil }
+                return
+            }
             let plan = try b.register(
                 env: env, wallet: wallet, gap: try await liveGap(gap, m),
                 commit: KachatNames.CommitRecord(name: p.name, owner: s.me, salt: salt, value: commit.entry.amount, utxo: commit),
-                // a random live shard each try: one someone else just spent fails this try, and
-                // the next tick picks again
-                shard: try await liveShard(m),
-                years: p.years, now: KachatNames.Builder.registerNow(env: env)
+                shard: shard, years: p.years, now: KachatNames.Builder.registerNow(env: env)
             )
             let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
             set(p) { $0.stage = .registering; $0.registerTxId = txId; $0.lastError = nil }

@@ -1280,3 +1280,8 @@
 "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing." = "Teklif alıcıya geri döner. Ağ ücreti tekliften karşılanır, yani reddetmek size hiçbir şeye mal olmaz.";
 "Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you." = "KAS'ınız sahibi kabul edene veya reddedene, teklifi geri çekene veya süresi dolana kadar zincirde kilitli kalır - sonra herkes size geri gönderebilir.";
 "This name is listed for less than your offer. Consider buying it instead." = "Bu ad teklifinizden daha düşük bir fiyata listelenmiş. Bunun yerine satın almayı düşünün.";
+
+/* .kachat: never pay more than the confirmed price (IOS-054) */
+"The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "Onayladığınızdan beri fiyat %@ oldu. Hiçbir şey gönderilmedi. Yeni fiyatı kontrol edip tekrar onaylayın.";
+"The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "Onayladığınızdan beri fiyat %@ oldu, bu yüzden hiçbir şey gönderilmedi. Devam etmek için yeni fiyatı onaylayın veya taahhüdü iptal edin.";
+"Confirm New Price" = "Yeni Fiyatı Onayla";
