@@ -75,9 +75,7 @@ struct KaPostsSettingsView: View {
 
     private func commitDefaultTip() {
         guard instantTipEnabled else { return }
-        let normalized = defaultTipText.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)
-        guard let kas = Double(normalized), kas > 0 else { return }
-        let sompi = UInt64((kas * 100_000_000).rounded())
+        guard let sompi = KaspaUnit.sompi(fromUserText: defaultTipText), sompi > 0 else { return }
         guard sompi != settingsViewModel.settings.kaPostsDefaultTipSompi else { return }
         settingsViewModel.settings.kaPostsDefaultTipSompi = sompi
         settingsViewModel.saveSettings()

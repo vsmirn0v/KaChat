@@ -3070,8 +3070,7 @@ struct ChatDetailView: View {
     /// A typed total fee below the base is raised to it (a transaction can't go out under it).
     private func commitPaymentCustomFee() {
         defer { isEditingPaymentFee = false }
-        guard let base = paymentFeeSompi, let kas = Double(paymentCustomFeeText), kas >= 0 else { return }
-        let total = UInt64((kas * 100_000_000).rounded())
+        guard let base = paymentFeeSompi, let total = KaspaUnit.sompi(fromUserText: paymentCustomFeeText) else { return }
         paymentCustomExtraFeeSompi = total > base ? total - base : 0
     }
 
@@ -3080,7 +3079,6 @@ struct ChatDetailView: View {
         KaspaAmountEntry(
             fiatAmountState: fiatAmountState,
             onAmountChange: { amountText = $0 },
-            sanitize: sanitizedAmount,
             focusOnAppear: true,
             onMax: {
                 Task {
@@ -3252,31 +3250,6 @@ struct ChatDetailView: View {
         }
 
         inputMode = mode
-    }
-
-    private func sanitizedAmount(_ value: String) -> String {
-        let allowed = "0123456789.,"
-        let filtered = value.filter { allowed.contains($0) }
-        var result = ""
-        var ch_tmp:Character = " "
-        var dotSeen = false
-        var numAfterDot = 0
-        for ch in filtered {
-            if ch == "," {
-                ch_tmp = "."
-            } else {
-                ch_tmp = ch
-            }
-            if dotSeen && ch_tmp.isNumber {
-                numAfterDot += 1
-            }
-            if ch_tmp == "." || numAfterDot > 8  {
-                if dotSeen { continue }
-                dotSeen = true
-            }
-            result.append(ch_tmp)
-        }
-        return result
     }
 
     private func handleSend() {
@@ -3958,8 +3931,8 @@ struct ChatDetailView: View {
     }
 
     private func commitFeeOverride() {
-        guard let kas = Double(feeEditorText), kas >= 0 else { return }
-        feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
+        guard let sompi = KaspaUnit.sompi(fromUserText: feeEditorText) else { return }
+        feeOverrideSompi = sompi
         scheduleFeeEstimate(for: messageText, force: true)
     }
 
@@ -4768,10 +4741,7 @@ struct ChatDetailView: View {
     }
 
     private func parseAmountSompi(_ text: String) -> UInt64 {
-        let normalized = text.replacingOccurrences(of: ",", with: ".")
-        guard let decimal = Decimal(string: normalized) else { return 0 }
-        let scaled = decimal * Decimal(100_000_000)
-        return NSDecimalNumber(decimal: scaled).uint64Value
+        KaspaUnit.sompi(fromUserText: text) ?? 0
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

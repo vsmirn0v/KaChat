@@ -128,8 +128,9 @@ struct KaspaAmountEntry: View {
     @ObservedObject private var portfolio = PortfolioViewModel.shared
     /// Receives the amount in KAS (as text) after each edit - what the screen stores.
     let onAmountChange: (String) -> Void
-    /// Cleans what was typed before it's used (the chat sheet drops stray characters).
-    var sanitize: (String) -> String = { $0 }
+    /// Cleans what was typed before it's used: by default digits and one decimal point, with
+    /// "," read as "." for comma-decimal keyboards, at most 8 decimals.
+    var sanitize: (String) -> String = KaspaUnit.sanitizeAmountInput
     var isEstimatingMax = false
     var maxEnabled = true
     /// Puts the cursor in the amount when the screen appears (the amount is the first thing to type).

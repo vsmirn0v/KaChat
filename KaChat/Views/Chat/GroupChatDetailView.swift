@@ -1087,8 +1087,8 @@ struct GroupChatDetailView: View {
     }
 
     private func commitFeeOverride() {
-        guard let kas = Double(feeEditorText), kas >= 0 else { return }
-        feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
+        guard let sompi = KaspaUnit.sompi(fromUserText: feeEditorText) else { return }
+        feeOverrideSompi = sompi
         scheduleTextFeeEstimate(for: draft, force: true)
     }
 

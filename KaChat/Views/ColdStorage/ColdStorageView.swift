@@ -1218,8 +1218,8 @@ private struct ColdSendFlowView: View {
     @State private var previewTask: Task<Void, Never>?
 
     private var amountSompi: UInt64? {
-        guard let kas = Double(amountText), kas > 0 else { return nil }
-        return UInt64((kas * 100_000_000).rounded())
+        guard let sompi = KaspaUnit.sompi(fromUserText: amountText), sompi > 0 else { return nil }
+        return sompi
     }
 
     private var canBuild: Bool {
@@ -1454,8 +1454,7 @@ private struct ColdSendFlowView: View {
     /// flow's identical `commitCustomFee()`.
     private func commitCustomFee() {
         defer { isEditingFee = false }
-        guard let kas = Double(feeEditorText), kas >= 0 else { return }
-        let totalSompi = UInt64((kas * 100_000_000).rounded())
+        guard let totalSompi = KaspaUnit.sompi(fromUserText: feeEditorText) else { return }
         customExtraFeeSompi = totalSompi > defaultFeeSompi ? totalSompi - defaultFeeSompi : 0
     }
 

@@ -1713,6 +1713,64 @@ enum KaspaUnit {
     }
 }
 
+extension KaspaUnit {
+    /// Most sompi any typed amount can mean: a little above Kaspa's 28.7 billion KAS supply.
+    static let maxTypedSompi: UInt64 = 29_000_000_000 * 100_000_000
+
+    /// A KAS amount the person typed, in sompi: "1.5", "1,5" (comma-decimal keyboards), ".5",
+    /// at most 8 decimals, no grouping, signs or exponents. Exact integer math (no Double), and
+    /// nil above `maxTypedSompi`, so no input can trap the conversion. 0 is a valid result.
+    static func sompi(fromUserText text: String) -> UInt64? {
+        let t = String(text.trimmingCharacters(in: .whitespacesAndNewlines).map(asciiAmountCharacter))
+        let parts = t.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let wholePart = parts.first else { return nil }
+        let fracPart = parts.count > 1 ? parts[1] : ""
+        guard !(wholePart.isEmpty && fracPart.isEmpty),
+              wholePart.allSatisfy({ $0.isASCII && $0.isNumber }), fracPart.allSatisfy({ $0.isASCII && $0.isNumber }),
+              fracPart.count <= 8 else { return nil }
+        let wholeDigits = wholePart.drop { $0 == "0" }
+        // 29e9 KAS has 11 digits; anything longer is over the cap anyway (and can't overflow below)
+        guard wholeDigits.count <= 11 else { return nil }
+        let whole = UInt64(wholeDigits.isEmpty ? "0" : String(wholeDigits)) ?? 0
+        let frac = UInt64(fracPart + String(repeating: "0", count: 8 - fracPart.count)) ?? 0
+        let total = whole * 100_000_000 + frac
+        return total <= maxTypedSompi ? total : nil
+    }
+
+    /// Arabic-Indic and Persian digits (what those keyboards type) as ASCII digits, and the
+    /// comma and Arabic decimal separators as ".".
+    private static func asciiAmountCharacter(_ c: Character) -> Character {
+        if c == "," || c == "\u{066B}" { return "." }
+        guard let v = c.unicodeScalars.first?.value, c.unicodeScalars.count == 1 else { return c }
+        if (0x0660...0x0669).contains(v) { return Character(UnicodeScalar(v - 0x0660 + 0x30)!) }
+        if (0x06F0...0x06F9).contains(v) { return Character(UnicodeScalar(v - 0x06F0 + 0x30)!) }
+        return c
+    }
+
+    /// Cleans an amount field as it's typed: digits and one decimal point ("," becomes "."), at
+    /// most 8 decimals. The default for every amount entry.
+    static func sanitizeAmountInput(_ value: String) -> String {
+        var result = ""
+        var dotSeen = false
+        var decimals = 0
+        for raw in value {
+            let ch = asciiAmountCharacter(raw)
+            if ch == "." {
+                if dotSeen { continue }
+                dotSeen = true
+                result.append(ch)
+            } else if ch.isASCII && ch.isNumber {
+                if dotSeen {
+                    if decimals == 8 { continue }
+                    decimals += 1
+                }
+                result.append(ch)
+            }
+        }
+        return result
+    }
+}
+
 /// App-wide appearance override. "System" (the default) just follows the device's own Light/Dark
 /// Mode setting like any well-behaved app — Light/Dark force one specific appearance regardless
 /// of what the device is currently set to.

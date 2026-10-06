@@ -3768,8 +3768,8 @@ struct KNSDomainSendView: View {
 
     private func commitCustomFee() {
         defer { isEditingFee = false }
-        guard let kas = Double(customFeeText), kas >= 0 else { return }
-        customFeeSompi = UInt64((kas * 100_000_000).rounded())
+        guard let sompi = KaspaUnit.sompi(fromUserText: customFeeText) else { return }
+        customFeeSompi = sompi
     }
 
     private func send() {
@@ -4749,8 +4749,8 @@ struct WithdrawKaspaView: View {
     }
 
     private var amountSompi: UInt64? {
-        guard let kas = Double(amountInput), kas > 0 else { return nil }
-        return UInt64((kas * 100_000_000).rounded())
+        guard let sompi = KaspaUnit.sompi(fromUserText: amountInput), sompi > 0 else { return nil }
+        return sompi
     }
 
     /// True once we have a usable recipient — either a resolved KNS domain or a directly
@@ -5012,8 +5012,7 @@ struct WithdrawKaspaView: View {
     /// an error for a value the user almost certainly meant as "as low as possible."
     private func commitCustomFee() {
         defer { isEditingFee = false }
-        guard let normalFeeSompi, let kas = Double(customFeeText), kas >= 0 else { return }
-        let totalSompi = UInt64((kas * 100_000_000).rounded())
+        guard let normalFeeSompi, let totalSompi = KaspaUnit.sompi(fromUserText: customFeeText) else { return }
         customExtraFeeSompi = totalSompi > normalFeeSompi ? totalSompi - normalFeeSompi : 0
     }
 

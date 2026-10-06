@@ -6141,8 +6141,8 @@ private struct KaPostTipSheet: View {
     @State private var customFeeText = ""
 
     private var amountSompi: UInt64? {
-        guard let kas = Double(amountInput), kas > 0 else { return nil }
-        return UInt64((kas * 100_000_000).rounded())
+        guard let sompi = KaspaUnit.sompi(fromUserText: amountInput), sompi > 0 else { return nil }
+        return sompi
     }
 
     private var canSend: Bool {
@@ -6410,8 +6410,7 @@ private struct KaPostTipSheet: View {
     /// clamped up to that minimum, matching WithdrawKaspaView.
     private func commitCustomFee() {
         defer { isEditingFee = false }
-        guard let normalFeeSompi, let kas = Double(customFeeText), kas >= 0 else { return }
-        let totalSompi = UInt64((kas * 100_000_000).rounded())
+        guard let normalFeeSompi, let totalSompi = KaspaUnit.sompi(fromUserText: customFeeText) else { return }
         customExtraFeeSompi = totalSompi > normalFeeSompi ? totalSompi - normalFeeSompi : 0
     }
 
