@@ -37,6 +37,9 @@ struct KaChatApp: App {
     private let activeResyncDebounce: TimeInterval = 15
 
     init() {
+        // A Testnet/Mainnet switch chosen in Settings takes effect here, before any service
+        // reads the settings, so the whole app starts on one network (IOS-002).
+        PendingNetworkSwitch.applyAtLaunch()
         // Warm up audio session and crypto on background thread to avoid first-interaction lag
         Task.detached(priority: .utility) {
             await Self.warmUp()

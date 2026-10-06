@@ -773,12 +773,12 @@ struct ConnectionHubPage: View {
     var body: some View {
         Form {
             Section {
-                // Mainnet <-> testnet, first in the section (no footer). Each network keeps its own
-                // connection settings (see `AppSettings.switchNetwork(to:)`), so Connection
-                // Settings below shows the testnet values while this is on, and the mainnet ones
-                // come back when it's off.
+                // Mainnet <-> testnet, first in the section (no footer). The choice applies at the
+                // next launch, all at once (`PendingNetworkSwitch`); each network keeps its own
+                // connection settings (`AppSettings.switchNetwork(to:)`), so after the restart
+                // Connection Settings below shows that network's values.
                 Toggle(isOn: Binding(
-                    get: { settingsViewModel.settings.networkType == .testnet },
+                    get: { settingsViewModel.selectedNetworkType == .testnet },
                     set: { on in
                         settingsViewModel.switchNetwork(to: on ? .testnet : .mainnet)
                         Haptics.success()
@@ -788,9 +788,9 @@ struct ConnectionHubPage: View {
                 }
                 .tint(.orange)
 
-                if settingsViewModel.settings.networkType != settingsViewModel.launchNetworkType {
+                if settingsViewModel.selectedNetworkType != settingsViewModel.launchNetworkType {
                     Label {
-                        Text(settingsViewModel.settings.networkType == .testnet
+                        Text(settingsViewModel.selectedNetworkType == .testnet
                              ? LocalizedStringKey("Close KaChat completely and open it again to finish switching to Testnet.")
                              : LocalizedStringKey("Close KaChat completely and open it again to finish switching back to Mainnet."))
                     } icon: {

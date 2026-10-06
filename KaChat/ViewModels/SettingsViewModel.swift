@@ -6,6 +6,33 @@ import Combine
 /// Kaspa block in the group/public chat scanners at ~10 blocks/sec, per day-separator render, per
 /// API request). Invalidated whenever settings change (`.settingsDidChange` is posted by every
 /// write path: `AppSettings.save` and `SettingsViewModel.saveSettings`).
+/// The Testnet toggle's choice, waiting for the next launch. The wallet address, the node pool and
+/// every service are set up for one network at launch, so switching `networkType` live left the
+/// app half on each: indexer, push and .kachat moved at once while the wallet and node stayed,
+/// and incoming messages were dropped as "the other network" (IOS-002). The toggle only records
+/// the choice here; `applyAtLaunch()` switches everything together when the app next starts.
+enum PendingNetworkSwitch {
+    private static let key = "kachat_pending_network_type"
+
+    static var target: NetworkType? {
+        get { UserDefaults.standard.string(forKey: key).flatMap(NetworkType.init(rawValue:)) }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+    }
+
+    /// Call first thing at app launch, before anything reads the settings.
+    static func applyAtLaunch() {
+        guard let target else { return }
+        self.target = nil
+        var settings = AppSettings.load()
+        guard target != settings.networkType else { return }
+        settings.switchNetwork(to: target)
+        AppSettings.save(settings)
+    }
+}
+
 private final class AppSettingsCache: @unchecked Sendable {
     static let shared = AppSettingsCache()
     private let lock = NSLock()
@@ -309,12 +336,16 @@ final class SettingsViewModel: ObservableObject {
         saveSettings()
     }
 
-    /// Settings > Connection Settings > Testnet. Keeps each network's connection settings
-    /// (see `AppSettings.switchNetwork(to:)`) and saves.
+    /// Settings > Connection > Testnet. Only records the choice: the switch, with each network's
+    /// own connection settings (`AppSettings.switchNetwork(to:)`), happens at the next launch
+    /// (`PendingNetworkSwitch`). Choosing the network the app runs on cancels a pending switch.
     func switchNetwork(to network: NetworkType) {
-        settings.switchNetwork(to: network)
-        saveSettings()
+        objectWillChange.send()
+        PendingNetworkSwitch.target = network == launchNetworkType ? nil : network
     }
+
+    /// The network the Testnet toggle shows: the pending choice, else the one running.
+    var selectedNetworkType: NetworkType { PendingNetworkSwitch.target ?? settings.networkType }
 
     // MARK: - Convenience Methods
     var networkType: NetworkType {
