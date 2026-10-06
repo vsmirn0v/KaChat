@@ -103,7 +103,8 @@ extension ChatService {
     }
 
     /// Decrypt contextual message from raw TX payload on background thread
-    /// Raw TX payload format: "ciph_msg:1:comm:ALIAS:BASE64_ENCRYPTED" (as returned by REST API)
+    /// Raw TX payload format: "kchat:1:comm:ALIAS:BASE64_ENCRYPTED" (as returned by REST API;
+    /// the legacy "ciph_msg:1:comm:" root is read too, never written)
     func decryptContextualMessageFromRawPayload(_ payload: String?, privateKey: Data) async -> String? {
         guard let payload = payload else { return nil }
         return await Task.detached(priority: .userInitiated) {

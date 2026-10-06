@@ -410,7 +410,7 @@ enum GroupCipher {
         let signature: Data
     }
 
-    /// ciph_msg:1:gcomm:{blinded_group_id}:{epoch}:{sender_id}:{sender_pub}:{msg_id}:{ciphertext}:{signature}
+    /// kchat:1:gcomm:{blinded_group_id}:{epoch}:{sender_id}:{sender_pub}:{msg_id}:{ciphertext}:{signature}
     static func buildGroupMessagePayload(
         blindedGroupId: Data,
         epoch: UInt64,

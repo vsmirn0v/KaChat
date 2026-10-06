@@ -18,8 +18,8 @@ import UserNotifications
 ///
 /// Two on-chain payload types, both self-stash (sender spends their own UTXOs, output returns
 /// to their own address), both discovered via the same block-scan:
-///  - `ciph_msg:1:gcomm:...` - a group message (see GroupCipher, protocol spec).
-///  - `ciph_msg:1:gctl:...` - a control message (`gctl_root`/`gctl_epoch`), ECIES-encrypted
+///  - `kchat:1:gcomm:...` - a group message (see GroupCipher, protocol spec).
+///  - `kchat:1:gctl:...` - a control message (`gctl_root`/`gctl_epoch`), ECIES-encrypted
 ///    (via KasiaCipher, the same crypto 1:1 contextual messages use) to one specific recipient.
 ///    The spec describes this as riding "the existing 1:1 encrypted COMM channel" - here that
 ///    means reusing the same ECIES scheme and self-stash shape, not literally routing through
@@ -2071,7 +2071,7 @@ final class GroupChatService: ObservableObject {
 
     /// `recipientPublicKey` here is the recipient's x-only pubkey (`KaspaAddress.publicKey(from:)`
     /// returns x-only, not the full compressed key ECIES itself needs internally - `KasiaCipher`
-    /// derives that). Wire format is recipient-addressed (`ciph_msg:1:gctl:{recipient_xonly}:
+    /// derives that). Wire format is recipient-addressed (`kchat:1:gctl:{recipient_xonly}:
     /// {encrypted}`), not the legacy unaddressed shape - see docs/GROUP_CHAT_API.md. This lets a
     /// brand-new member discover a "you were added" control via `GET /group-control/by-recipient`
     /// before it knows the admin's address at all, and lets push route it to their device even
@@ -2498,12 +2498,12 @@ final class GroupChatService: ObservableObject {
         }
     }
 
-    /// Recipient-addressed gctl (`ciph_msg:1:gctl:{recipient_xonly_pubkey}:{encrypted}`) is only
+    /// Recipient-addressed gctl (`kchat:1:gctl:{recipient_xonly_pubkey}:{encrypted}`) is only
     /// relevant to the live block-scan path here - the indexer already strips this routing prefix
     /// from `message_payload` in REST catch-up responses (see docs/GROUP_CHAT_API.md), so catch-up
     /// never needs this. Detects and strips an addressed-format recipient prefix, if present, so
     /// the rest of the parse/decrypt path (shared with legacy gctl) always sees the uniform
-    /// `ciph_msg:1:gctl:{encrypted}` shape. No recipient-address filtering happens here - same as
+    /// `kchat:1:gctl:{encrypted}` shape. No recipient-address filtering happens here - same as
     /// legacy gctl already relied on, a mismatched recipient's ECIES decrypt just fails silently.
     private nonisolated static func normalizeControlPayload(_ payloadString: String) -> String {
         // Dual-read: accept either root, then ALWAYS re-root to the canonical `kchat:` gctl
@@ -3127,7 +3127,7 @@ final class GroupChatService: ObservableObject {
     }
 
     /// Reverses the indexer's double-hex-encoding of `message_payload` (it hex-encodes the raw
-    /// on-chain sealed hex text as stored) back into the original `ciph_msg:1:<type>:<hex>`
+    /// on-chain sealed hex text as stored) back into the original `kchat:1:<type>:<hex>` (or legacy `ciph_msg:1:`)
     /// on-chain payload string, so it can feed straight into the same parse/decrypt path the
     /// live block-scan uses.
     private static func reconstructPayloadString(prefix: String, messagePayloadHex: String) -> String? {

@@ -246,7 +246,8 @@ struct KasiaTransactionBuilder {
         return estimateFee(payload: payload, inputCount: inputCount, outputs: [output]) + 3
     }
 
-    /// Build the plaintext public chat payload: ciph_msg:1:bcast:<channel>:<content>
+    /// Build the plaintext public chat payload: kchat:1:bcast:<channel>:<content> (the legacy
+    /// `ciph_msg:1:` root is read, never written)
     static func buildPublicChatPayload(channel: String, content: String) -> Data {
         Data("kchat:1:bcast:\(channel):\(content)".utf8)
     }
@@ -402,7 +403,7 @@ struct KasiaTransactionBuilder {
         AppLog.log("[TxBuilder]   amount: %llu sompi", amount)
         #endif
 
-        // Build payment payload (encrypted hex under ciph_msg:1:pay:)
+        // Build payment payload (encrypted hex under kchat:1:pay:)
         let paymentPayload = try buildPaymentPayload(message: note, amount: amount, recipientPublicKey: recipientPublicKey)
         #if DEBUG
         AppLog.log("[TxBuilder]   payload size: %d bytes", paymentPayload.count)
@@ -1307,7 +1308,8 @@ struct KasiaTransactionBuilder {
     }
 
     /// Build Kasia protocol payload for transaction payload field
-    /// Format: ciph_msg:1:<type>:<alias>:<base64_encrypted_payload>
+    /// Format: kchat:1:<type>:<alias>:<base64_encrypted_payload> (legacy `ciph_msg:1:` is read,
+    /// never written)
     /// This goes in the transaction's native payload field, NOT as an OP_RETURN script
     private static func buildKasiaPayload(
         type: KasiaMessageType,
@@ -1703,7 +1705,7 @@ struct KasiaTransactionBuilder {
         throw KasiaError.networkError("Insufficient spendable funds for compaction")
     }
 
-    /// Build payment payload (encrypted payment JSON, hex inside ciph_msg:1:pay:)
+    /// Build payment payload (encrypted payment JSON, hex inside kchat:1:pay:)
     static func buildPaymentPayload(message: String, amount: UInt64, recipientPublicKey: Data) throws -> Data {
         let payload = PaymentPayload(
             type: "payment",
