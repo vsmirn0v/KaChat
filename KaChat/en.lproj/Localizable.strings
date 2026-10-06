@@ -1152,7 +1152,6 @@
 "New period" = "New period";
 "Renewal open" = "Renewal open";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners.";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "The names indexer didn't send this name's paid period. Pull to refresh and try again.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it.";
@@ -1286,3 +1285,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again.";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit.";
 "Confirm New Price" = "Confirm New Price";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners.";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "This name has been expired too long to renew. It can only be reclaimed and registered again.";
+"Offers can only be made on active names." = "Offers can only be made on active names.";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "This name has expired. Offers can only be accepted while the name is active. Renew it first.";

@@ -1151,7 +1151,6 @@
 "New period" = "新しい期間";
 "Renewal open" = "更新受付中";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "延長すると現在の支払い済み期間に年数が加わります。期間は最長 2 年です。価格はマイナーに渡ります。";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "更新すると現在の有効期限から次の期間が始まるので、期限を過ぎていても時間が失われたり増えたりしません。価格はマイナーに渡ります。";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "名前インデクサーがこの名前の支払い済み期間を返しませんでした。引っ張って更新し、もう一度お試しください。";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "延長、更新、出品、譲渡、解放ができ、KaChat に表示する名前も選べます。";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "名前は支払った年数の間あなたのものです（最長 2 年先まで）。1 年の名前は 2 年に延長でき、期限の 10 日前から更新できます。";
@@ -1285,3 +1284,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "確認後に価格が %@ に変わりました。何も送信されていません。新しい価格を確認して、もう一度確定してください。";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "確認後に価格が %@ に変わったため、何も送信されていません。続けるには新しい価格を確定するか、コミットをキャンセルしてください。";
 "Confirm New Price" = "新しい価格を確定";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "更新は次の期間を今日からではなく現在の期限から開始します。そのため、しばらく前に期限切れになった名前は期間が短くなります。代金はマイナーに支払われます。";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "この名前は期限切れから時間が経ちすぎているため更新できません。回収して再登録するしかありません。";
+"Offers can only be made on active names." = "オファーはアクティブな名前にのみ行えます。";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "この名前は期限切れです。オファーは名前がアクティブな間しか承諾できません。先に更新してください。";

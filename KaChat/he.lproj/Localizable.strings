@@ -1151,7 +1151,6 @@
 "New period" = "תקופה חדשה";
 "Renewal open" = "החידוש פתוח";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "הארכה מוסיפה שנים לתקופה המשולמת הנוכחית, שמחזיקה לכל היותר שנתיים. המחיר הולך לכורים.";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "חידוש מתחיל את התקופה הבאה בתאריך התפוגה הנוכחי, כך ששום זמן לא אובד ולא מתווסף, גם אם התאריך כבר עבר. המחיר הולך לכורים.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "האינדקסר של השמות לא שלח את התקופה המשולמת של השם הזה. משכו לרענון ונסו שוב.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "האריכו, חדשו, הציעו למכירה, העבירו או שחררו אותם, ובחרו את השם ש-KaChat מציג עבורכם.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "השם שלכם לשנים ששילמתם, לכל היותר שנתיים מראש. שם לשנה אחת אפשר להאריך לשנתיים; מ-10 ימים לפני התפוגה אפשר לחדש אותו.";
@@ -1285,3 +1284,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "המחיר השתנה ל-%@ מאז שאישרת. דבר לא נשלח. בדקו את המחיר החדש ואשרו שוב.";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "המחיר השתנה ל-%@ מאז שאישרת, ולכן דבר לא נשלח. אשרו את המחיר החדש כדי להמשיך, או בטלו את ההתחייבות.";
 "Confirm New Price" = "אישור המחיר החדש";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "חידוש מתחיל את התקופה הבאה במועד התפוגה הנוכחי, לא מהיום, ולכן שם שפג לפני זמן מה מקבל פחות זמן. המחיר עובר לכורים.";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "השם הזה פג לפני יותר מדי זמן מכדי לחדש אותו. אפשר רק לדרוש אותו בחזרה ולרשום אותו מחדש.";
+"Offers can only be made on active names." = "אפשר להציע הצעות רק על שמות פעילים.";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "השם הזה פג. אפשר לקבל הצעות רק כל עוד השם פעיל. חדשו אותו קודם.";

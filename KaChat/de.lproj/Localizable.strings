@@ -1098,7 +1098,6 @@
 "New period" = "Neuer Zeitraum";
 "Renewal open" = "Verlängerung offen";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Erweitern fügt dem aktuellen bezahlten Zeitraum Jahre hinzu; er umfasst höchstens 2 Jahre. Der Preis geht an die Miner.";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "Eine Verlängerung beginnt den nächsten Zeitraum am aktuellen Ablaufdatum, so geht keine Zeit verloren oder dazu, auch wenn es schon vorbei ist. Der Preis geht an die Miner.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Der Namens-Indexer hat den bezahlten Zeitraum dieses Namens nicht geschickt. Zum Aktualisieren nach unten ziehen und erneut versuchen.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Erweitere, verlängere, verkaufe, übertrage oder gib sie frei, und wähle den, den KaChat für dich zeigt.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Der Name gehört dir für die bezahlten Jahre, höchstens 2 im Voraus. Ein Name für 1 Jahr lässt sich auf 2 Jahre erweitern; ab 10 Tagen vor Ablauf kannst du ihn verlängern.";
@@ -1232,3 +1231,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "Der Preis hat sich seit deiner Bestätigung auf %@ geändert. Es wurde nichts gesendet. Prüfe den neuen Preis und bestätige erneut.";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "Der Preis hat sich seit deiner Bestätigung auf %@ geändert, daher wurde nichts gesendet. Bestätige den neuen Preis, um fortzufahren, oder storniere den Commit.";
 "Confirm New Price" = "Neuen Preis bestätigen";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "Eine Verlängerung beginnt den nächsten Zeitraum am aktuellen Ablauf, nicht ab heute. Ein Name, der vor einer Weile abgelaufen ist, bekommt also weniger Zeit. Der Preis geht an die Miner.";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "Dieser Name ist zu lange abgelaufen, um ihn zu verlängern. Er kann nur zurückgefordert und neu registriert werden.";
+"Offers can only be made on active names." = "Angebote sind nur für aktive Namen möglich.";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "Dieser Name ist abgelaufen. Angebote können nur angenommen werden, solange der Name aktiv ist. Verlängere ihn zuerst.";

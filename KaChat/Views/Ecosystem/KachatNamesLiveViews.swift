@@ -999,8 +999,13 @@ struct KachatOfferRow: View {
 
     private var refundable: Bool { actions.virtualDaa.map { offer.refundable(atDaa: $0) } ?? false }
     private var returning: Bool { actions.returningOffers.contains(offer.id) }
-    /// The owner can take it: still inside its time (an expired one is on its way back).
-    private var acceptable: Bool { isOwner && !refundable && !declined }
+    /// The owner can take it: still inside its time (an expired one is on its way back), and the
+    /// name itself still active - an expired name would reach the buyer only to be reclaimed.
+    private var acceptable: Bool { isOwner && !refundable && !declined && nameActive }
+    @MainActor private var nameActive: Bool {
+        guard let name else { return false }
+        return name.status(graceMs: KachatNamesRegistry.shared.graceMs) == .active
+    }
     /// Declined and being pulled back by this app (the buyer's).
     private var withdrawing: Bool { actions.withdrawingOffers.contains(offer.id) }
 
@@ -1595,7 +1600,10 @@ struct KachatLiveNameDetail: View {
                         if info.isListed && status == .active {
                             actionButton("Buy Now", "cart", prominent: true) { sheet = .buy }
                         }
-                        actionButton("Make an Offer", "hand.raised") { sheet = .offer }
+                        // an expired name can be reclaimed by anyone soon: no offers on it
+                        if status == .active {
+                            actionButton("Make an Offer", "hand.raised") { sheet = .offer }
+                        }
                     }
                 }
             }
@@ -2072,7 +2080,7 @@ struct KachatRenewSheet: View {
         KachatTxSheet(
             title: "Renew", confirmTitle: "Renew",
             authReason: KachatLive.authReason, doneTitle: "Renewed",
-            footer: "A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners.",
+            footer: "A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners.",
             rows: [
                 .init(title: "Name", value: info.display),
                 .init(title: KachatLive.pricePerPeriodTitle, value: KaspaUnit.amount(perYear)),

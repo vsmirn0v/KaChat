@@ -1151,7 +1151,6 @@
 "New period" = "নতুন মেয়াদকাল";
 "Renewal open" = "নবায়ন খোলা";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "বাড়ালে বর্তমান পরিশোধিত মেয়াদকালে বছর যোগ হয়, যা সর্বোচ্চ ২ বছর ধরে। দাম যায় মাইনারদের কাছে।";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "নবায়ন বর্তমান মেয়াদ শেষের দিন থেকে পরের মেয়াদকাল শুরু করে, তাই সময় হারায় না বা বাড়ে না, মেয়াদ পার হয়ে গেলেও। দাম যায় মাইনারদের কাছে।";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "নাম ইনডেক্সার এই নামের পরিশোধিত মেয়াদকাল পাঠায়নি। রিফ্রেশ করতে নিচে টানুন এবং আবার চেষ্টা করুন।";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "সেগুলো বাড়ান, নবায়ন করুন, বিক্রির জন্য তালিকাভুক্ত করুন, হস্তান্তর করুন বা ছেড়ে দিন, এবং KaChat আপনার জন্য কোনটি দেখাবে তা বেছে নিন।";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "যত বছরের জন্য পরিশোধ করেছেন, নামটি তত বছর আপনার, সর্বোচ্চ ২ বছর আগাম। ১ বছরের নাম ২ বছর পর্যন্ত বাড়ানো যায়; মেয়াদ শেষের ১০ দিন আগে থেকে নবায়ন করতে পারবেন।";
@@ -1285,3 +1284,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "আপনি নিশ্চিত করার পর মূল্য বদলে %@ হয়েছে। কিছুই পাঠানো হয়নি। নতুন মূল্য দেখে আবার নিশ্চিত করুন।";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "আপনি নিশ্চিত করার পর মূল্য বদলে %@ হয়েছে, তাই কিছুই পাঠানো হয়নি। চালিয়ে যেতে নতুন মূল্য নিশ্চিত করুন, অথবা কমিট বাতিল করুন।";
 "Confirm New Price" = "নতুন মূল্য নিশ্চিত করুন";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "নবায়ন পরের মেয়াদ বর্তমান মেয়াদ শেষের তারিখ থেকে শুরু করে, আজ থেকে নয়, তাই কিছুদিন আগে মেয়াদ শেষ হওয়া নাম কম সময় পায়। মূল্য মাইনারদের কাছে যায়।";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "এই নামের মেয়াদ অনেক আগে শেষ হয়েছে, তাই নবায়ন করা যাবে না। এটি কেবল পুনরুদ্ধার করে আবার নিবন্ধন করা যায়।";
+"Offers can only be made on active names." = "শুধু সক্রিয় নামেই প্রস্তাব দেওয়া যায়।";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "এই নামের মেয়াদ শেষ হয়েছে। নাম সক্রিয় থাকাকালীনই প্রস্তাব গ্রহণ করা যায়। আগে এটি নবায়ন করুন।";

@@ -1151,7 +1151,6 @@
 "New period" = "Yeni dönem";
 "Renewal open" = "Yenileme açık";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Uzatma, en fazla 2 yıl kapsayan mevcut ödenmiş döneme yıl ekler. Fiyat madencilere gider.";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "Yenileme, sonraki dönemi mevcut bitiş tarihinde başlatır; tarih geçmiş olsa bile zaman kaybedilmez veya kazanılmaz. Fiyat madencilere gider.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Ad dizinleyicisi bu adın ödenmiş dönemini göndermedi. Yenilemek için aşağı çekip tekrar deneyin.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Onları uzatın, yenileyin, satışa çıkarın, aktarın veya bırakın ve KaChat'in sizin için gösterdiğini seçin.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Ad, ödediğiniz yıllar boyunca sizindir, en fazla 2 yıl ileriye. 1 yıllık bir ad 2 yıla uzatılabilir; bitişinden 10 gün önceden itibaren yenileyebilirsiniz.";
@@ -1285,3 +1284,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "Onayladığınızdan beri fiyat %@ oldu. Hiçbir şey gönderilmedi. Yeni fiyatı kontrol edip tekrar onaylayın.";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "Onayladığınızdan beri fiyat %@ oldu, bu yüzden hiçbir şey gönderilmedi. Devam etmek için yeni fiyatı onaylayın veya taahhüdü iptal edin.";
 "Confirm New Price" = "Yeni Fiyatı Onayla";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "Yenileme bir sonraki dönemi bugünden değil, mevcut bitiş tarihinden başlatır; bu yüzden bir süre önce süresi dolan bir ad daha az süre alır. Ücret madencilere gider.";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "Bu adın süresi yenilenemeyecek kadar uzun zaman önce doldu. Yalnızca geri alınıp yeniden kaydedilebilir.";
+"Offers can only be made on active names." = "Yalnızca etkin adlara teklif verilebilir.";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "Bu adın süresi doldu. Teklifler yalnızca ad etkinken kabul edilebilir. Önce yenileyin.";

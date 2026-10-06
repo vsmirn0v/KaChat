@@ -1151,7 +1151,6 @@
 "New period" = "Новый период";
 "Renewal open" = "Продление открыто";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Дополнение добавляет годы к текущему оплаченному периоду, который вмещает не больше 2 лет. Цена уходит майнерам.";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "Продление начинает следующий период с текущей даты окончания, так что время не теряется и не добавляется, даже если срок уже прошёл. Цена уходит майнерам.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Индексатор имён не прислал оплаченный период этого имени. Потяните вниз, чтобы обновить, и попробуйте снова.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Дополняйте, продлевайте, выставляйте на продажу, передавайте или освобождайте их и выберите то, которое KaChat показывает для вас.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Имя ваше на оплаченные годы, не больше 2 вперёд. Имя на 1 год можно дополнить до 2 лет; за 10 дней до окончания срока его можно продлить.";
@@ -1285,3 +1284,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "Цена изменилась на %@ после вашего подтверждения. Ничего не отправлено. Проверьте новую цену и подтвердите снова.";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "Цена изменилась на %@ после вашего подтверждения, поэтому ничего не отправлено. Подтвердите новую цену, чтобы продолжить, или отмените коммит.";
 "Confirm New Price" = "Подтвердить новую цену";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "Продление начинает следующий период с текущей даты истечения, а не с сегодняшнего дня, поэтому имя, истёкшее некоторое время назад, получает меньше времени. Плата уходит майнерам.";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "Это имя истекло слишком давно, чтобы его продлить. Его можно только вернуть и зарегистрировать заново.";
+"Offers can only be made on active names." = "Предложения можно делать только на активные имена.";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "Срок этого имени истёк. Предложения можно принимать, только пока имя активно. Сначала продлите его.";

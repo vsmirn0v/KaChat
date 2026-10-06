@@ -1151,7 +1151,6 @@
 "New period" = "새 기간";
 "Renewal open" = "갱신 가능";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "연장하면 현재 결제된 기간에 연수가 더해져요. 한 기간은 최대 2년이에요. 가격은 채굴자에게 가요.";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "갱신하면 현재 만료일부터 다음 기간이 시작되므로, 만료일이 지났더라도 시간을 잃거나 더 얻지 않아요. 가격은 채굴자에게 가요.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "이름 인덱서가 이 이름의 결제 기간을 보내지 않았어요. 아래로 당겨 새로 고친 뒤 다시 시도하세요.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "연장, 갱신, 판매 등록, 전송, 해제를 하고 KaChat이 보여 줄 이름을 고르세요.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "이름은 결제한 연수 동안 내 것이에요(최대 2년 앞까지). 1년 이름은 2년으로 연장할 수 있고, 만료 10일 전부터 갱신할 수 있어요.";
@@ -1285,3 +1284,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "확인한 뒤 가격이 %@(으)로 바뀌었어요. 아무것도 전송되지 않았어요. 새 가격을 확인하고 다시 확인하세요.";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "확인한 뒤 가격이 %@(으)로 바뀌어서 아무것도 전송되지 않았어요. 계속하려면 새 가격을 확인하거나 커밋을 취소하세요.";
 "Confirm New Price" = "새 가격 확인";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "갱신은 다음 기간을 오늘이 아니라 현재 만료일부터 시작해요. 그래서 만료된 지 좀 된 이름은 기간이 짧아져요. 가격은 채굴자에게 가요.";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "이 이름은 만료된 지 너무 오래되어 갱신할 수 없어요. 회수한 뒤 다시 등록하는 수밖에 없어요.";
+"Offers can only be made on active names." = "제안은 활성 이름에만 할 수 있어요.";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "이 이름은 만료되었어요. 제안은 이름이 활성 상태일 때만 수락할 수 있어요. 먼저 갱신하세요.";

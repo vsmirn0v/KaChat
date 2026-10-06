@@ -1151,7 +1151,6 @@
 "New period" = "فترة جديدة";
 "Renewal open" = "التجديد متاح";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "يضيف التمديد سنوات إلى الفترة المدفوعة الحالية، التي لا تتجاوز سنتين. يذهب السعر إلى المعدِّنين.";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "يبدأ التجديد الفترة التالية عند تاريخ الانتهاء الحالي، فلا يضيع وقت ولا يُضاف، حتى بعد مروره. يذهب السعر إلى المعدِّنين.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "لم يرسل مفهرس الأسماء الفترة المدفوعة لهذا الاسم. اسحب للتحديث وحاول مرة أخرى.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "مدّدها أو جدّدها أو اعرضها للبيع أو انقلها أو تخلَّ عنها، واختر الاسم الذي يعرضه KaChat لك.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "الاسم لك طوال السنوات التي دفعتها، وسنتين مقدمًا كحد أقصى. يمكن تمديد اسم لسنة واحدة إلى سنتين؛ ومن 10 أيام قبل انتهائه يمكنك تجديده.";
@@ -1285,3 +1284,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "تغيّر السعر إلى %@ منذ أن أكدت. لم يُرسل شيء. راجع السعر الجديد وأكد مرة أخرى.";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "تغيّر السعر إلى %@ منذ أن أكدت، لذا لم يُرسل شيء. أكد السعر الجديد للمتابعة، أو ألغِ الالتزام.";
 "Confirm New Price" = "تأكيد السعر الجديد";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "يبدأ التجديد الفترة التالية من تاريخ الانتهاء الحالي، وليس من اليوم، لذا يحصل الاسم المنتهي منذ مدة على وقت أقل. يذهب السعر إلى المعدّنين.";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "انتهت صلاحية هذا الاسم منذ مدة طويلة جدًا لتجديده. يمكن فقط استرداده وتسجيله من جديد.";
+"Offers can only be made on active names." = "لا يمكن تقديم العروض إلا على الأسماء النشطة.";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "انتهت صلاحية هذا الاسم. لا يمكن قبول العروض إلا أثناء نشاط الاسم. جدّده أولًا.";

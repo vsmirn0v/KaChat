@@ -353,6 +353,11 @@ final class KachatNamesActions: ObservableObject {
             guard KachatNames.Builder.renewWindowOpen(env: env, params: m.params, expiresAt: n.expiresAt) else {
                 throw ActionError.renewalNotOpen(opensMs: n.renewOpens(m.params))
             }
+            // A renewal counts from the old expiry, not from today: one that would still end in
+            // the past is paid for nothing, and anyone could reclaim the name right after.
+            guard n.expiresAt + years * m.params.periodMs > env.wallMs else {
+                throw KachatNames.Failure(AppLocalization.string("This name has been expired too long to renew. It can only be reclaimed and registered again."))
+            }
             plan = try b.renew(env: env, wallet: wallet, name: try await liveName(n, m), shard: try await liveShard(m, avoid: avoidShards), years: years)
         case .transfer(let n, let to):
             try Self.validateKey(to, AppLocalization.string("The new owner"))
@@ -367,6 +372,10 @@ final class KachatNamesActions: ObservableObject {
             plan = try b.buy(env: env, wallet: wallet, name: try await liveName(n, m))
         case .offer(let target, let amount, let refundAfter):
             try Self.validateKey(env.me, AppLocalization.string("Your key"))
+            // an expired name can be reclaimed by anyone soon: the buyer would pay for nothing
+            guard target.status(graceMs: m.params.graceMs) == .active else {
+                throw KachatNames.Failure(AppLocalization.string("Offers can only be made on active names."))
+            }
             guard target.owner != env.me else {
                 throw KachatNames.Failure(AppLocalization.string("You can't make an offer on your own name."))
             }
@@ -384,6 +393,11 @@ final class KachatNamesActions: ObservableObject {
             // The contract would still take an expired offer; the app doesn't - it goes back.
             if o.refundable(atDaa: env.blockDaa) {
                 throw KachatNames.Failure(AppLocalization.string("This offer has expired. It's going back to the buyer."))
+            }
+            // The contract would hand over an expired name too; the buyer would get a name anyone
+            // can reclaim. Only an active name is accepted.
+            guard n.status(graceMs: m.params.graceMs) == .active else {
+                throw KachatNames.Failure(AppLocalization.string("This name has expired. Offers can only be accepted while the name is active. Renew it first."))
             }
             // Made to an earlier owner: the contract refuses it, and it goes back to the buyer.
             if o.isDeclined(currentOwner: n.owner) {

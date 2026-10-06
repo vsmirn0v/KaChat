@@ -1151,7 +1151,6 @@
 "New period" = "新期间";
 "Renewal open" = "可续期";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "延长会为当前已付期间增加年数，每个期间最多 2 年。价格归矿工。";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "续期从当前到期时间开始下一个期间，因此不会损失或多出时间，即使已过期也是如此。价格归矿工。";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "名称索引器没有返回此名称的已付期间。下拉刷新后重试。";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "延长、续期、挂售、转让或释放名称，并选择 KaChat 为你显示的那一个。";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "名称在你付费的年数内归你所有，最多提前 2 年。1 年期的名称可以延长到 2 年；到期前 10 天起可以续期。";
@@ -1285,3 +1284,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "自你确认后价格已变为 %@。未发送任何内容。请查看新价格并再次确认。";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "自你确认后价格已变为 %@，因此未发送任何内容。确认新价格以继续，或取消承诺。";
 "Confirm New Price" = "确认新价格";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "续期会从当前到期时间开始下一个期限，而不是从今天开始，因此已过期一段时间的名称获得的时间会更少。费用归矿工。";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "此名称过期太久，无法续期。只能回收后重新注册。";
+"Offers can only be made on active names." = "只能对有效的名称报价。";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "此名称已过期。只有在名称有效时才能接受报价。请先续期。";

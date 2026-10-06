@@ -1151,7 +1151,6 @@
 "New period" = "Periode baru";
 "Renewal open" = "Perpanjangan dibuka";
 "Extending adds years to the current paid period, which holds at most 2 years. The price goes to the miners." = "Menambah masa memberi tahun tambahan pada periode berbayar saat ini, yang paling lama 2 tahun. Harga diberikan ke penambang.";
-"A renewal starts the next period at the current expiry, so no time is lost or gained, even after it passed. The price goes to the miners." = "Perpanjangan memulai periode berikutnya pada tanggal kedaluwarsa saat ini, jadi tidak ada waktu yang hilang atau bertambah, meski sudah lewat. Harga diberikan ke penambang.";
 "The names indexer didn't send this name's paid period. Pull to refresh and try again." = "Pengindeks nama tidak mengirim periode berbayar nama ini. Tarik untuk menyegarkan dan coba lagi.";
 "Extend, renew, list, transfer or release them, and pick the one KaChat shows for you." = "Tambah masa, perpanjang, jual, transfer, atau lepas nama Anda, dan pilih yang ditampilkan KaChat untuk Anda.";
 "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it." = "Nama ini milik Anda selama tahun yang dibayar, paling lama 2 tahun ke depan. Nama 1 tahun bisa ditambah menjadi 2 tahun; mulai 10 hari sebelum kedaluwarsa Anda bisa memperpanjangnya.";
@@ -1285,3 +1284,9 @@
 "The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again." = "Harga berubah menjadi %@ sejak Anda mengonfirmasi. Tidak ada yang dikirim. Periksa harga baru dan konfirmasi lagi.";
 "The price changed to %@ since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit." = "Harga berubah menjadi %@ sejak Anda mengonfirmasi, jadi tidak ada yang dikirim. Konfirmasi harga baru untuk melanjutkan, atau batalkan commit.";
 "Confirm New Price" = "Konfirmasi Harga Baru";
+
+/* .kachat: no offers on expired names, no renewals that stay expired (IOS-055, IOS-056) */
+"A renewal starts the next period at the current expiry, not from today, so a name that expired a while ago gets less time. The price goes to the miners." = "Perpanjangan memulai periode berikutnya pada tanggal kedaluwarsa saat ini, bukan dari hari ini, jadi nama yang sudah lama kedaluwarsa mendapat waktu lebih sedikit. Harganya diberikan ke penambang.";
+"This name has been expired too long to renew. It can only be reclaimed and registered again." = "Nama ini sudah terlalu lama kedaluwarsa untuk diperpanjang. Nama ini hanya bisa diklaim ulang lalu didaftarkan lagi.";
+"Offers can only be made on active names." = "Penawaran hanya bisa diajukan untuk nama yang aktif.";
+"This name has expired. Offers can only be accepted while the name is active. Renew it first." = "Nama ini sudah kedaluwarsa. Penawaran hanya bisa diterima selama nama masih aktif. Perpanjang dulu.";
