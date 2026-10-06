@@ -679,8 +679,9 @@ final class KachatSocialImageResolver: ObservableObject {
     }
 
     /// Hard limit for one lookup, every request and fallback included: a preview never spins
-    /// longer than this.
-    private static let deadline: UInt64 = 10_000_000_000
+    /// longer than this. Each step has its own shorter timeout (`fetch(timeout:)`), so a slow
+    /// first source can't use up the time the next one needs.
+    private static let deadline: UInt64 = 20_000_000_000
 
     /// Looks the profile up now (the editor's preview), sharing a lookup in flight.
     @discardableResult
@@ -749,12 +750,17 @@ final class KachatSocialImageResolver: ObservableObject {
                                              bio: S.discordDescription(fromInviteJSON: data))
         case .x:
             // FxTwitter first: one small JSON answer with avatar, banner and bio. X's own page
-            // (served to link-preview crawlers) is the fallback.
-            if let url = URL(string: "https://api.fxtwitter.com/\(source.handle)"),
-               let (data, status) = await fetch(url, agent: browserAgent),
-               status == 200 || status == 404,
-               let p = S.fxTwitterProfile(fromJSON: data) {
-                return p
+            // (served to link-preview crawlers) is the fallback, and unavatar.io the last resort
+            // for the avatar alone. Each step's outcome is logged: a phone network can be
+            // challenged or rate-limited where a desktop is not.
+            if let url = URL(string: "https://api.fxtwitter.com/\(source.handle)") {
+                let answer = await fetch(url, agent: browserAgent, timeout: 5)
+                if let (data, status) = answer, status == 200 || status == 404,
+                   let p = S.fxTwitterProfile(fromJSON: data) {
+                    return p
+                }
+                AppLog.log("[KachatSocial] x %@: FxTwitter %@", source.handle,
+                           answer.map { "HTTP \($0.1)" } ?? "no answer")
             }
         case .github:
             guard let url = URL(string: "https://api.github.com/users/\(source.handle)"),
@@ -766,10 +772,23 @@ final class KachatSocialImageResolver: ObservableObject {
         default:
             break
         }
-        guard let url = URL(string: source.link), let (data, status) = await fetch(url, agent: crawlerAgent) else { return nil }
+        guard let url = URL(string: source.link), let (data, status) = await fetch(url, agent: crawlerAgent) else {
+            AppLog.log("[KachatSocial] %@ %@: page no answer", source.platform.rawValue, source.handle)
+            return await xAvatarOnly(source)
+        }
         if status == 404 || status == 410 { return KachatNames.SocialProfile() }
-        guard status == 200 else { return nil }
+        guard status == 200 else {
+            AppLog.log("[KachatSocial] %@ %@: page HTTP %d", source.platform.rawValue, source.handle, status)
+            return await xAvatarOnly(source)
+        }
         let html = String(decoding: data, as: UTF8.self)
+        // A page with no profile tags at all is not a profile without an avatar: it's a login
+        // wall, a challenge or a script shell. That is "couldn't look it up", never cached as
+        // an empty answer that would read as "this account has no avatar".
+        guard S.openGraphImage(in: html) != nil || S.openGraphDescription(in: html) != nil else {
+            AppLog.log("[KachatSocial] %@ %@: page has no profile tags (%d bytes)", source.platform.rawValue, source.handle, data.count)
+            return await xAvatarOnly(source)
+        }
         var result = KachatNames.SocialProfile()
         if let image = S.openGraphImage(in: html) {
             result.avatar = source.platform == .x ? S.xAvatar(fromOpenGraph: image) : image
@@ -788,6 +807,21 @@ final class KachatSocialImageResolver: ObservableObject {
         return result
     }
 
+    /// X only, when FxTwitter and X's page both failed: the avatar from unavatar.io, which answers
+    /// with the image itself (404 when the account has none). nil = still unreachable.
+    private nonisolated static func xAvatarOnly(_ source: KachatNames.SocialSource) async -> KachatNames.SocialProfile? {
+        guard source.platform == .x,
+              let url = URL(string: "https://unavatar.io/x/\(source.handle)?fallback=false"),
+              let (data, status) = await fetch(url, agent: browserAgent, timeout: 5) else { return nil }
+        guard status == 200, data.count > 0 else {
+            AppLog.log("[KachatSocial] x %@: unavatar HTTP %d", source.handle, status)
+            return nil
+        }
+        var p = KachatNames.SocialProfile()
+        p.avatar = url.absoluteString
+        return p
+    }
+
     /// Ephemeral (nothing written to the shared cookie store or cache), and no request outlives 8 s.
     private nonisolated static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -797,9 +831,9 @@ final class KachatSocialImageResolver: ObservableObject {
         return URLSession(configuration: config)
     }()
 
-    private nonisolated static func fetch(_ url: URL, agent: String, cookie: String? = nil) async -> (Data, Int)? {
+    private nonisolated static func fetch(_ url: URL, agent: String, cookie: String? = nil, timeout: TimeInterval = 6) async -> (Data, Int)? {
         var request = URLRequest(url: url)
-        request.timeoutInterval = 8
+        request.timeoutInterval = timeout
         request.setValue(agent, forHTTPHeaderField: "User-Agent")
         request.setValue("en-US,en;q=0.8", forHTTPHeaderField: "Accept-Language")
         if let cookie { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
