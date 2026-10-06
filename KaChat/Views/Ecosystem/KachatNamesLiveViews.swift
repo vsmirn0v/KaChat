@@ -3135,34 +3135,109 @@ struct KachatNameRoute: Hashable, Identifiable {
     var id: String { name }
 }
 
-/// The name a notification pointed at: its live detail once looked up.
+/// The name a notification pointed at: its live detail once looked up, or - when it was
+/// released or reclaimed since - the name as free to claim.
 struct KachatNameRouteView: View {
     let name: String
-    @State private var info: KachatNames.NameInfo?
-    @State private var missing = false
+
+    private enum Found {
+        case registered(KachatNames.NameInfo)
+        case free(KachatNames.GapInfo?)
+        case failed
+    }
+
+    @State private var found: Found?
+    @State private var claimTarget: KachatClaimTarget?
 
     var body: some View {
         Group {
-            if let info {
+            switch found {
+            case .registered(let info):
                 KachatLiveNameDetail(info: info)
-            } else if missing {
-                VStack(spacing: 10) {
+            case .free(let gap):
+                freeName(gap)
+            case .failed:
+                VStack(spacing: 12) {
                     Text(verbatim: "\(name).kachat").font(.headline)
-                    Text("This name isn't registered right now.")
+                    Text("Couldn't look that name up.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                    Button("Try Again") { Task { await load() } }
+                        .buttonStyle(.bordered)
                 }
                 .padding(32)
-            } else {
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case nil:
                 ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task {
-            if case .registered(let found)? = try? await KachatNamesRegistry.shared.lookup(name) {
-                info = found
-            } else {
-                missing = true
+        .background(Color(.systemGroupedBackground))
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .sheet(item: $claimTarget) { KachatClaimSheet(target: $0) }
+    }
+
+    private func freeName(_ gap: KachatNames.GapInfo?) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 12) {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.accentColor)
+                        .frame(height: 110)
+                        .overlay(
+                            Text(verbatim: "\(name).kachat")
+                                .font(.title2.weight(.heavy))
+                                .foregroundColor(.black)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
+                                .padding(.horizontal, 16)
+                        )
+                    HStack {
+                        Text("Free to claim").font(.subheadline).foregroundColor(.secondary)
+                        Spacer()
+                        Text("Available")
+                            .font(.caption.weight(.bold))
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.green.opacity(0.15)))
+                    }
+                    if let price = KachatLive.price(name) {
+                        Group {
+                            if KachatLive.yearlyPeriods {
+                                Text("Available · \(KaspaUnit.amount(price)) a year")
+                            } else {
+                                Text("Available · \(KaspaUnit.amount(price)) per \(KachatLive.periods(1))")
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+                }
+                .padding(14)
+                .kachatGlass()
+                Button {
+                    if let gap { claimTarget = KachatClaimTarget(name: name, gap: gap) }
+                } label: {
+                    Label("Claim", systemImage: "at").font(.subheadline.weight(.bold)).frame(maxWidth: .infinity).padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(gap == nil)
             }
+            .padding()
+        }
+    }
+
+    private func load() async {
+        found = nil
+        do {
+            switch try await KachatNamesRegistry.shared.lookup(name) {
+            case .registered(let info): found = .registered(info)
+            case .free(_, let gap): found = .free(gap)
+            }
+        } catch {
+            found = .failed
         }
     }
 }

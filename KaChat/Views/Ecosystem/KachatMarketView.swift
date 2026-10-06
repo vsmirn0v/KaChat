@@ -107,7 +107,11 @@ struct KachatMarketView: View {
             }
             .modifier(KachatNameRouteDestination(route: $nameRoute))
             .onAppear { takePendingName() }
-            .onReceive(NotificationCenter.default.publisher(for: .openKachatName)) { _ in takePendingName() }
+            // after the tab switch to this screen has landed: a push onto a stack that isn't on
+            // screen yet came up blank
+            .onReceive(NotificationCenter.default.publisher(for: .openKachatName)) { _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { takePendingName() }
+            }
             .background(Color(.systemGroupedBackground))
             .navigationTitle(".kachat")
             .navigationBarTitleDisplayMode(.inline)
@@ -128,10 +132,19 @@ struct KachatMarketView: View {
     }
 
     /// Opens the name a tapped notification pointed at (testnet only, where names are live).
+    /// One name screen at a time: the same name again leaves the open one as it is, and another
+    /// name replaces it (closed first, then opened) instead of piling up on the stack.
     private func takePendingName() {
         guard let name = KachatDeepLink.pendingName, KachatLive.isEnabled else { return }
         KachatDeepLink.pendingName = nil
-        nameRoute = KachatNameRoute(name: name)
+        let route = KachatNameRoute(name: name)
+        guard let open = nameRoute else {
+            nameRoute = route
+            return
+        }
+        guard open != route else { return }
+        nameRoute = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { nameRoute = route }
     }
 
     // MARK: - Hero and search
