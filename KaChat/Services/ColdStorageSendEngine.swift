@@ -38,6 +38,7 @@ final class ColdStorageSendEngine {
         case inputMismatch(Int)
         case inputNotSigned(Int)
         case badSignatureLength(Int)
+        case unsupportedSighash(Int)
 
         var errorDescription: String? {
             switch self {
@@ -61,6 +62,8 @@ final class ColdStorageSendEngine {
                 return "Input \(i) wasn't signed"
             case .badSignatureLength(let n):
                 return "Unexpected signature length (\(n) bytes, expected 64)"
+            case .unsupportedSighash(let i):
+                return "Input \(i) was signed with a signature type that doesn't cover the whole transaction, so it won't be broadcast"
             }
         }
     }
@@ -503,13 +506,17 @@ final class ColdStorageSendEngine {
                 throw ColdSendError.inputNotSigned(index)
             }
             guard sigBytes.count == 64 else { throw ColdSendError.badSignatureLength(sigBytes.count) }
+            // Only SIGHASH_ALL: a NONE / ANYONECANPAY signature doesn't commit to the outputs, so
+            // anyone seeing it in the mempool could redirect the funds (IOS-019).
+            let sighashType = decodedInput.sighashType ?? 0x01
+            guard sighashType == 0x01 else { throw ColdSendError.unsupportedSighash(index) }
 
             // Standard P2PK signature script: push-64 opcode + 64-byte Schnorr signature +
             // 1-byte sighash type.
             var sigScript = Data()
             sigScript.append(0x41)
             sigScript.append(sigBytes)
-            sigScript.append(decodedInput.sighashType ?? 0x01)
+            sigScript.append(sighashType)
 
             signedInputs.append(KaspaRpcTransactionInput(
                 previousOutpoint: input.previousOutpoint,
