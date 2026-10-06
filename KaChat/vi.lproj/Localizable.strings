@@ -743,17 +743,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Quét tự động tìm và kết nối với các node tốt nhất. Chọn một node cụ thể chỉ kết nối với node đó, không chuyển sang node khác. Không ảnh hưởng đến trình lập chỉ mục, tên miền hay trình khám phá ở các tab khác. Thêm địa chỉ của bạn vào Sổ địa chỉ IP bên dưới để chọn ở đây.";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "Tên của bạn trên KaChat";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Nhận một tên .kachat, hoặc mua bán tên trực tiếp giữa mọi người. Tên và khoản thanh toán được thực hiện cùng lúc trên Kaspa - không ai giữ thứ gì ở giữa.";
 "Find a name" = "Tìm tên";
 "Registration isn't open yet." = "Chưa mở đăng ký.";
 "Claim" = "Nhận";
 "Marketplace" = "Chợ";
 "My Names" = "Tên của tôi";
 "Activity" = "Hoạt động";
-"Featured" = "Nổi bật";
-"Names their owners have put up for sale." = "Các tên mà chủ sở hữu đã rao bán.";
-"Recently listed" = "Mới rao bán";
 "List a Name for Sale" = "Rao bán tên";
 "Listings appear here once .kachat names launch." = "Tin rao sẽ xuất hiện ở đây khi tên .kachat ra mắt.";
 "No .kachat names yet" = "Chưa có tên .kachat";

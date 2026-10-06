@@ -743,17 +743,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "La scansione automatica trova i migliori nodi disponibili e vi si connette. Scegliere un nodo specifico si connette solo a quello, senza ripiegare su altri. Non influisce su indicizzatori, domini o explorer delle altre schede. Aggiungi i tuoi indirizzi alla rubrica IP qui sotto per sceglierli qui.";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "Il tuo nome su KaChat";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Rivendica un nome .kachat, oppure compra e vendi nomi da persona a persona. Nome e pagamento si regolano insieme su Kaspa: nessuno detiene nessuno dei due nel frattempo.";
 "Find a name" = "Cerca un nome";
 "Registration isn't open yet." = "La registrazione non è ancora aperta.";
 "Claim" = "Rivendica";
 "Marketplace" = "Mercato";
 "My Names" = "I miei nomi";
 "Activity" = "Attività";
-"Featured" = "In evidenza";
-"Names their owners have put up for sale." = "Nomi che i proprietari hanno messo in vendita.";
-"Recently listed" = "Messi in vendita di recente";
 "List a Name for Sale" = "Metti in vendita un nome";
 "Listings appear here once .kachat names launch." = "Gli annunci appariranno qui al lancio dei nomi .kachat.";
 "No .kachat names yet" = "Ancora nessun nome .kachat";

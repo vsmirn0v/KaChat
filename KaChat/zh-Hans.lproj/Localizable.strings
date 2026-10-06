@@ -743,17 +743,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "自动扫描会找到并连接最佳可用节点。选择特定节点只会连接该节点，不会切换到其他节点。不影响其他标签页中的索引器、域名或浏览器。将你的地址添加到下方的 IP 地址簿后即可在此选择。";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "你在 KaChat 上的名字";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "领取一个 .kachat 名称，或与他人点对点买卖名称。名称和付款在 Kaspa 上同时结算——中间没有任何人持有其中任何一方。";
 "Find a name" = "查找名称";
 "Registration isn't open yet." = "注册尚未开放。";
 "Claim" = "领取";
 "Marketplace" = "市场";
 "My Names" = "我的名称";
 "Activity" = "动态";
-"Featured" = "精选";
-"Names their owners have put up for sale." = "所有者正在出售的名称。";
-"Recently listed" = "最新上架";
 "List a Name for Sale" = "出售名称";
 "Listings appear here once .kachat names launch." = ".kachat 名称上线后，挂单会显示在这里。";
 "No .kachat names yet" = "还没有 .kachat 名称";

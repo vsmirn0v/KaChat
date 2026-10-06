@@ -744,17 +744,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here.";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "Your name on KaChat";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between.";
 "Find a name" = "Find a name";
 "Registration isn't open yet." = "Registration isn't open yet.";
 "Claim" = "Claim";
 "Marketplace" = "Marketplace";
 "My Names" = "My Names";
 "Activity" = "Activity";
-"Featured" = "Featured";
-"Names their owners have put up for sale." = "Names their owners have put up for sale.";
-"Recently listed" = "Recently listed";
 "List a Name for Sale" = "List a Name for Sale";
 "Listings appear here once .kachat names launch." = "Listings appear here once .kachat names launch.";
 "No .kachat names yet" = "No .kachat names yet";

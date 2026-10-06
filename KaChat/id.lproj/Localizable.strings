@@ -743,17 +743,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Pemindaian Otomatis menemukan dan terhubung ke node terbaik yang tersedia. Memilih node tertentu hanya terhubung ke node itu, tanpa beralih ke yang lain. Tidak memengaruhi pengindeks, domain, atau penjelajah di tab lain. Tambahkan alamatmu ke Buku Alamat IP di bawah untuk memilihnya di sini.";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "Namamu di KaChat";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Klaim nama .kachat, atau jual beli nama langsung antarpengguna. Nama dan pembayaran diselesaikan bersamaan di Kaspa - tidak ada yang memegang keduanya di tengah-tengah.";
 "Find a name" = "Cari nama";
 "Registration isn't open yet." = "Pendaftaran belum dibuka.";
 "Claim" = "Klaim";
 "Marketplace" = "Pasar";
 "My Names" = "Namaku";
 "Activity" = "Aktivitas";
-"Featured" = "Unggulan";
-"Names their owners have put up for sale." = "Nama yang dijual oleh pemiliknya.";
-"Recently listed" = "Baru dijual";
 "List a Name for Sale" = "Jual Nama";
 "Listings appear here once .kachat names launch." = "Daftar jualan muncul di sini setelah nama .kachat diluncurkan.";
 "No .kachat names yet" = "Belum ada nama .kachat";

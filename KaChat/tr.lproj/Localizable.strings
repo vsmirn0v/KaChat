@@ -743,17 +743,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Otomatik Tarama en iyi düğümleri bulur ve bağlanır. Belirli bir düğüm seçmek yalnızca ona bağlanır, başkalarına geçmez. Diğer sekmelerdeki dizinleyicileri, alan adlarını veya gezgini etkilemez. Burada seçmek için kendi adreslerini aşağıdaki IP Adres Defteri'ne ekle.";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "KaChat'teki adın";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Bir .kachat adı al ya da adları doğrudan kişiler arasında alıp sat. Ad ve ödeme Kaspa'da birlikte gerçekleşir - arada hiç kimse ikisini de tutmaz.";
 "Find a name" = "Ad bul";
 "Registration isn't open yet." = "Kayıt henüz açık değil.";
 "Claim" = "Al";
 "Marketplace" = "Pazar yeri";
 "My Names" = "Adlarım";
 "Activity" = "Etkinlik";
-"Featured" = "Öne çıkanlar";
-"Names their owners have put up for sale." = "Sahiplerinin satışa çıkardığı adlar.";
-"Recently listed" = "Yeni satışa çıkanlar";
 "List a Name for Sale" = "Bir adı satışa çıkar";
 "Listings appear here once .kachat names launch." = "İlanlar .kachat adları başladığında burada görünür.";
 "No .kachat names yet" = "Henüz .kachat adın yok";

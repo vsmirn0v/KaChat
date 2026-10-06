@@ -286,6 +286,49 @@ struct KachatLiveNameRow: View {
     }
 }
 
+// MARK: - Name tiles
+
+/// A square tile for one name in the marketplace grids (For sale, Reclaimable): the full name -
+/// it wraps onto more lines, never truncates, and the tile grows to fit - with ".kachat" under
+/// it, and the price (or a Reclaim button) at the bottom.
+struct KachatNameTile<Footer: View>: View {
+    let name: String
+    @ViewBuilder var footer: Footer
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: name)
+                    .font(.headline.weight(.bold))
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: ".kachat")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.accentColor)
+            }
+            Spacer(minLength: 0)
+            footer
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
+        .kachatGlass()
+        .contentShape(Rectangle())
+    }
+}
+
+/// Two tiles per row.
+struct KachatNameGrid<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            content
+        }
+        .padding(.horizontal, 16)
+    }
+}
+
 // MARK: - Hub model
 
 @MainActor
@@ -736,15 +779,20 @@ struct KachatLiveMarketPage: View {
             if model.listings.isEmpty {
                 KachatLiveEmpty(text: model.loaded ? "No names are listed right now." : nil)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(model.listings.enumerated()), id: \.element.id) { index, n in
-                        NavigationLink { KachatListingDetailView(info: n) } label: { KachatLiveNameRow(info: n) }
-                            .buttonStyle(.plain)
-                        if index < model.listings.count - 1 { Divider().padding(.leading, 62) }
+                KachatNameGrid {
+                    ForEach(model.listings) { n in
+                        NavigationLink { KachatListingDetailView(info: n) } label: {
+                            KachatNameTile(name: n.name) {
+                                Text(verbatim: KaspaUnit.amount(n.price))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .kachatGlass()
-                .padding(.horizontal, 16)
             }
         }
         .padding(.top, 4)
@@ -755,6 +803,8 @@ struct KachatLiveMarketPage: View {
 struct KachatLiveReclaimablePage: View {
     @ObservedObject var model: KachatHubModel
     @State private var reclaimTarget: KachatNames.NameInfo?
+    /// The tile tapped (outside its Reclaim button): its detail opens.
+    @State private var openName: KachatNames.NameInfo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -762,24 +812,25 @@ struct KachatLiveReclaimablePage: View {
             if model.lapsed.isEmpty {
                 KachatLiveEmpty(text: model.loaded ? "Nothing to reclaim." : nil)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(model.lapsed.enumerated()), id: \.element.id) { index, n in
-                        HStack(spacing: 8) {
-                            NavigationLink { KachatListingDetailView(info: n) } label: { KachatLiveNameRow(info: n, showPrice: false) }
-                                .buttonStyle(.plain)
+                // a tap gesture, not a NavigationLink, so the Reclaim button inside keeps its tap
+                KachatNameGrid {
+                    ForEach(model.lapsed) { n in
+                        KachatNameTile(name: n.name) {
                             Button("Reclaim") { reclaimTarget = n }
                                 .buttonStyle(.bordered)
-                                .padding(.trailing, 12)
+                                .controlSize(.small)
                         }
-                        if index < model.lapsed.count - 1 { Divider().padding(.leading, 62) }
+                        .onTapGesture { openName = n }
+                        .accessibilityAddTraits(.isButton)
                     }
                 }
-                .kachatGlass()
-                .padding(.horizontal, 16)
             }
         }
         .padding(.top, 4)
         .sheet(item: $reclaimTarget) { n in KachatReclaimSheet(info: n) }
+        .navigationDestination(isPresented: Binding(get: { openName != nil }, set: { if !$0 { openName = nil } })) {
+            if let openName { KachatListingDetailView(info: openName) }
+        }
     }
 }
 

@@ -143,14 +143,7 @@ struct KachatMarketView: View {
 
     private var hero: some View {
         VStack(spacing: 8) {
-            KachatTabIcon.view(side: 64)
-            Text("Your name on KaChat")
-                .font(.title2.weight(.bold))
-            Text("Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+            KachatTabIcon.view(side: 56)
             if live.isLive {
                 KachatTestnetBadge()
             } else if KachatLive.isEnabled, live.upgrading {
@@ -175,7 +168,7 @@ struct KachatMarketView: View {
                 }
             }
         }
-        .padding(.top, 20)
+        .padding(.top, 8)
     }
 
     private var settingUpPill: some View {
@@ -240,27 +233,13 @@ struct KachatMarketView: View {
 
     private var marketPage: some View {
         VStack(alignment: .leading, spacing: 18) {
-            sectionHeader("Featured", detail: "Names their owners have put up for sale.")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(0..<4, id: \.self) { _ in
-                        NavigationLink { KachatListingDetailView() } label: { featuredPlaceholder }
-                            .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-
-            sectionHeader("Recently listed", detail: nil)
-            VStack(spacing: 0) {
-                ForEach(0..<5, id: \.self) { index in
-                    NavigationLink { KachatListingDetailView() } label: { listingPlaceholderRow.contentShape(Rectangle()) }
+            sectionHeader("For sale", detail: "Names their owners have listed. Buying pays the owner and moves the name to you in one transaction.")
+            KachatNameGrid {
+                ForEach(0..<4, id: \.self) { _ in
+                    NavigationLink { KachatListingDetailView() } label: { tilePlaceholder(footer: "000 \(KaspaUnit.symbol)") }
                         .buttonStyle(.plain)
-                    if index < 4 { Divider().padding(.leading, 16) }
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
-            .padding(.horizontal, 16)
 
             Button {} label: {
                 Label("List a Name for Sale", systemImage: "tag")
@@ -293,68 +272,23 @@ struct KachatMarketView: View {
         .padding(.horizontal, 16)
     }
 
-    /// A featured card's shape, redacted: no invented name or price.
-    private var featuredPlaceholder: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.accentColor)
-                .frame(width: 170, height: 90)
-                .overlay(
-                    Text("name.kachat")
-                        .font(.headline.weight(.bold))
-                        .foregroundColor(.black)
-                        .redacted(reason: .placeholder)
-                )
-            Text(verbatim: "000 \(KaspaUnit.symbol)")
+    /// A name tile's shape, redacted: no invented name or price.
+    private func tilePlaceholder(footer: String) -> some View {
+        KachatNameTile(name: "somename") {
+            Text(verbatim: footer)
                 .font(.subheadline.weight(.semibold))
-                .redacted(reason: .placeholder)
-            Text("Buy")
-                .font(.caption.weight(.bold))
-                .foregroundColor(.accentColor)
-                .redacted(reason: .placeholder)
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+        .redacted(reason: .placeholder)
     }
 
-    private var listingPlaceholderRow: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.25))
-                .frame(width: 36, height: 36)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("somename.kachat")
-                    .font(.subheadline.weight(.semibold))
-                Text("listed 1h ago")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .redacted(reason: .placeholder)
-            Spacer()
-            Text(verbatim: "000 \(KaspaUnit.symbol)")
-                .font(.subheadline.weight(.semibold))
-                .redacted(reason: .placeholder)
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundColor(Color(.tertiaryLabel))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
-    // MARK: - My Names
+    // MARK: - Reclaimable
 
     private var reclaimablePage: some View {
         VStack(alignment: .leading, spacing: 18) {
             sectionHeader("Reclaimable", detail: "Names whose owners let them lapse. Anyone may reclaim one: the bond goes back to its last owner, you keep the freed deposit as a bounty, and the name is free to claim.")
-            VStack(spacing: 0) {
-                ForEach(0..<3, id: \.self) { index in
-                    listingPlaceholderRow
-                    if index < 2 { Divider().padding(.leading, 16) }
-                }
+            KachatNameGrid {
+                ForEach(0..<2, id: \.self) { _ in tilePlaceholder(footer: AppLocalization.string("Reclaim")) }
             }
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
-            .padding(.horizontal, 16)
             Text("Reclaimable names appear here once .kachat names launch.")
                 .font(.footnote)
                 .foregroundColor(.secondary)

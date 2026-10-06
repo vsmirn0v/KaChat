@@ -743,17 +743,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Автопоиск находит лучшие доступные узлы и подключается к ним. Выбор конкретного узла подключает только к нему, без перехода на другие. Не влияет на индексаторы, домены и обозреватель на других вкладках. Добавьте свои адреса в адресную книгу IP ниже, чтобы выбрать их здесь.";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "Ваше имя в KaChat";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Получите имя .kachat или покупайте и продавайте имена напрямую друг другу. Имя и оплата проходят вместе в Kaspa — никто не держит ни то, ни другое посередине.";
 "Find a name" = "Найти имя";
 "Registration isn't open yet." = "Регистрация ещё не открыта.";
 "Claim" = "Получить";
 "Marketplace" = "Маркетплейс";
 "My Names" = "Мои имена";
 "Activity" = "Активность";
-"Featured" = "Избранное";
-"Names their owners have put up for sale." = "Имена, которые владельцы выставили на продажу.";
-"Recently listed" = "Недавно выставленные";
 "List a Name for Sale" = "Выставить имя на продажу";
 "Listings appear here once .kachat names launch." = "Объявления появятся здесь после запуска имён .kachat.";
 "No .kachat names yet" = "Пока нет имён .kachat";

@@ -743,17 +743,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "自動スキャンは利用可能な最適なノードを見つけて接続します。特定のノードを選ぶとそのノードのみに接続し、他には切り替えません。他のタブのインデクサ、ドメイン、エクスプローラには影響しません。ここで選ぶには、下の IP アドレス帳に独自のアドレスを追加してください。";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "KaChat でのあなたの名前";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = ".kachat 名を取得したり、ユーザー同士で直接売買したりできます。名前と支払いは Kaspa 上で同時に決済され、その間に誰かがどちらかを預かることはありません。";
 "Find a name" = "名前を検索";
 "Registration isn't open yet." = "登録はまだ始まっていません。";
 "Claim" = "取得";
 "Marketplace" = "マーケット";
 "My Names" = "自分の名前";
 "Activity" = "アクティビティ";
-"Featured" = "注目";
-"Names their owners have put up for sale." = "所有者が売りに出している名前。";
-"Recently listed" = "最近の出品";
 "List a Name for Sale" = "名前を出品";
 "Listings appear here once .kachat names launch." = ".kachat 名が始まると、ここに出品が表示されます。";
 "No .kachat names yet" = ".kachat 名はまだありません";

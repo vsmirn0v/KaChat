@@ -690,17 +690,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "Automatische Suche findet die besten verfügbaren Nodes und verbindet sich mit ihnen. Ein bestimmter Node verbindet nur mit diesem, ohne Ausweichen auf andere. Betrifft nicht die Indexer, Domains oder den Explorer in den anderen Tabs. Füge unten im IP-Adressbuch eigene Adressen hinzu, um sie hier auszuwählen.";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "Dein Name auf KaChat";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "Sichere dir einen .kachat-Namen oder kaufe und verkaufe sie direkt untereinander. Name und Zahlung werden gemeinsam auf Kaspa abgewickelt - niemand hält dazwischen etwas davon.";
 "Find a name" = "Namen suchen";
 "Registration isn't open yet." = "Die Registrierung ist noch nicht offen.";
 "Claim" = "Sichern";
 "Marketplace" = "Marktplatz";
 "My Names" = "Meine Namen";
 "Activity" = "Aktivität";
-"Featured" = "Empfohlen";
-"Names their owners have put up for sale." = "Namen, die ihre Besitzer zum Verkauf angeboten haben.";
-"Recently listed" = "Kürzlich eingestellt";
 "List a Name for Sale" = "Namen zum Verkauf anbieten";
 "Listings appear here once .kachat names launch." = "Angebote erscheinen hier, sobald .kachat-Namen starten.";
 "No .kachat names yet" = "Noch keine .kachat-Namen";

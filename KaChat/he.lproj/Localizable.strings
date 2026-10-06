@@ -743,17 +743,12 @@
 "Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the indexers, domains or explorer on the other tabs. Add custom addresses to the IP Address Book below to select them here." = "סריקה אוטומטית מוצאת את הצמתים הטובים ביותר ומתחברת אליהם. בחירת צומת מסוים מתחברת רק אליו, בלי מעבר לאחרים. לא משפיע על האינדקסרים, הדומיינים או הסייר בלשוניות האחרות. הוסיפו כתובות משלכם לפנקס כתובות ה-IP למטה כדי לבחור אותן כאן.";
 
 /* 5.2: Kaspa Hub > .kachat marketplace */
-"Your name on KaChat" = "השם שלך ב-KaChat";
-"Claim a .kachat name, or buy and sell them peer to peer. The name and the payment settle together on Kaspa - nobody holds either in between." = "קבלו שם .kachat, או קנו ומכרו שמות ישירות בין אנשים. השם והתשלום מוסדרים יחד על Kaspa - אף אחד לא מחזיק באף אחד מהם באמצע.";
 "Find a name" = "חיפוש שם";
 "Registration isn't open yet." = "ההרשמה עדיין לא נפתחה.";
 "Claim" = "קבלה";
 "Marketplace" = "שוק";
 "My Names" = "השמות שלי";
 "Activity" = "פעילות";
-"Featured" = "מומלצים";
-"Names their owners have put up for sale." = "שמות שבעליהם הציעו למכירה.";
-"Recently listed" = "הוצעו לאחרונה";
 "List a Name for Sale" = "הצעת שם למכירה";
 "Listings appear here once .kachat names launch." = "מודעות יופיעו כאן כשייצאו שמות .kachat.";
 "No .kachat names yet" = "עדיין אין שמות .kachat";
