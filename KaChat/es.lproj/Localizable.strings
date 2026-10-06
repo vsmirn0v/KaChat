@@ -1306,3 +1306,6 @@
 
 /* .kachat: expires-soon follows the period clock (IOS-060) */
 "Less than %@ is left before this name expires. You'd have to renew it soon." = "Queda menos de %@ para que este nombre venza. Tendrías que renovarlo pronto.";
+
+/* Profile editor: links that can't be checked don't block saving */
+"Some links couldn't be checked from this phone right now. They're saved as entered, and people's apps load them when they can." = "Algunos enlaces no se pudieron comprobar desde este teléfono ahora mismo. Se guardan tal como se escribieron y las apps de los demás los cargarán cuando puedan.";

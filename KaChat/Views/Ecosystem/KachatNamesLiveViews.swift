@@ -2519,14 +2519,21 @@ struct KachatLiveProfileEditor: View {
         return p.sanitized()
     }
 
-    /// A field is saved only once its lookup found what it shows - what you reviewed.
+    /// A filled-in field whose lookup hasn't found what it shows (still looking, unreachable, or
+    /// nothing there). It doesn't block saving - a social site being slow or unreachable from
+    /// this phone must never stop a profile (or a primary name) from saving; the link is saved
+    /// as entered and every viewer's app looks it up itself. The editor just says so.
     private func notReviewed(_ input: KachatSourceInput, _ lookup: KachatSocialLookup) -> Bool {
         !input.isEmpty && lookup != .found
     }
 
+    private var hasUncheckedLinks: Bool {
+        notReviewed(avatarIn, avatarLookup) || notReviewed(bannerIn, bannerLookup) || notReviewed(bioIn, bioLookup)
+    }
+
+    /// Only a malformed handle or Linktree username stops a save.
     private var blocked: Bool {
         avatarIn.isBad(.avatar) || bannerIn.isBad(.banner) || bioIn.isBad(.bio) || badLinktree
-            || notReviewed(avatarIn, avatarLookup) || notReviewed(bannerIn, bannerLookup) || notReviewed(bioIn, bioLookup)
     }
 
     /// The Linktree field holds just the username (`linktr.ee/` is shown in front of it).
@@ -2646,7 +2653,12 @@ struct KachatLiveProfileEditor: View {
                     // Saves on every network: a profile is a self-send, with no registry behind it.
                     .disabled(!loaded || blocked || !KachatNamesService.profilesEnabled)
                 } footer: {
-                    Text("Saving writes your profile to the chain from your address to itself, for a network fee. Profiles are public.")
+                    VStack(alignment: .leading, spacing: 6) {
+                        if hasUncheckedLinks {
+                            Text("Some links couldn't be checked from this phone right now. They're saved as entered, and people's apps load them when they can.")
+                        }
+                        Text("Saving writes your profile to the chain from your address to itself, for a network fee. Profiles are public.")
+                    }
                 }
             }
             .sheet(isPresented: $showSave) {
