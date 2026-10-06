@@ -1359,3 +1359,8 @@
 
 /* .kachat: a released or reclaimed name */
 "Free to claim" = "Có thể đăng ký";
+
+/* .kachat registration progress half sheet */
+"Claiming %@" = "Đang nhận %@";
+"Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back." = "Hãy giữ KaChat mở: tên được đăng ký khoảng một phút sau khi cam kết ẩn được xác nhận. Nếu bạn rời đi, quá trình sẽ tiếp tục từ chỗ dừng khi bạn quay lại.";
+"Finish the name you're claiming first." = "Hãy hoàn tất tên bạn đang nhận trước.";

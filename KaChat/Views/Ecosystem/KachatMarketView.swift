@@ -62,7 +62,6 @@ struct KachatMarketView: View {
     @State private var searchText = ""
     @State private var showHowItWorks = false
     @StateObject private var live = KachatHubModel()
-    @ObservedObject private var actions = KachatNamesActions.shared
     @State private var claimTarget: KachatClaimTarget?
     /// A name opened from a notification (`KachatDeepLink`).
     @State private var nameRoute: KachatNameRoute?
@@ -73,11 +72,7 @@ struct KachatMarketView: View {
                 VStack(spacing: 18) {
                     hero
                     searchCard
-                    if live.isLive {
-                        ForEach(actions.pending.filter(\.isOpen)) { registration in
-                            KachatRegistrationCard(registration: registration)
-                        }
-                    }
+                    // A registration in flight shows as its own half sheet (KachatRegistrationPresenter).
                     UnderlineTabBar(
                         tabs: Page.allCases.map { (tab: $0, title: $0.title) },
                         selection: $page

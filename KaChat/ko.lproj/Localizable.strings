@@ -1359,3 +1359,8 @@
 
 /* .kachat: a released or reclaimed name */
 "Free to claim" = "등록 가능";
+
+/* .kachat registration progress half sheet */
+"Claiming %@" = "%@ 받는 중";
+"Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back." = "KaChat을 열어 두세요. 숨겨진 커밋이 확인되고 약 1분 후에 이름이 등록됩니다. 앱을 나가도 돌아오면 이어서 진행됩니다.";
+"Finish the name you're claiming first." = "먼저 받고 있는 이름을 완료하세요.";

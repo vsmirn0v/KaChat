@@ -1306,3 +1306,8 @@
 
 /* .kachat: a released or reclaimed name */
 "Free to claim" = "Frei zum Registrieren";
+
+/* .kachat registration progress half sheet */
+"Claiming %@" = "%@ wird beansprucht";
+"Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back." = "Lass KaChat geöffnet: Der Name wird etwa eine Minute nach der Bestätigung des verdeckten Commits registriert. Wenn du die App verlässt, geht es bei deiner Rückkehr dort weiter.";
+"Finish the name you're claiming first." = "Schließe zuerst den Namen ab, den du gerade beanspruchst.";

@@ -63,6 +63,12 @@ final class KachatNamesActions: ObservableObject {
     static let shared = KachatNamesActions()
 
     @Published private(set) var pending: [KachatNames.PendingRegistration] = []
+    /// Claim sheets currently showing a registration's progress themselves; while one does, the
+    /// app-level progress sheet (`KachatRegistrationPresenter`) stays down.
+    @Published var inlineProgressCount = 0
+
+    /// The registration whose progress sheet is up: the open one (one at a time).
+    var openRegistration: KachatNames.PendingRegistration? { pending.first { $0.isOpen } }
     /// The virtual DAA score the driver last saw (registration progress).
     @Published private(set) var virtualDaa: UInt64?
     /// Expired offers this app is sending back to their buyers (see `returnExpiredOffers`).
@@ -660,6 +666,11 @@ final class KachatNamesActions: ObservableObject {
         let s = try signer()
         let name = KachatNames.Codec.normalize(raw)
         try KachatNames.Codec.validate(name)
+        // One registration at a time: the progress sheet stays up until it's done.
+        loadPending(for: s.address)
+        if pending.contains(where: { $0.isOpen && $0.stage != .registered }) {
+            throw ActionError.notRegisterable(AppLocalization.string("Finish the name you're claiming first."))
+        }
         await registry.refresh()
         switch try await registry.lookup(name) {
         case .registered(let n) where n.status(graceMs: registry.graceMs) == .lapsed:

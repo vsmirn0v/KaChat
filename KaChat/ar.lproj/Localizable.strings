@@ -1359,3 +1359,8 @@
 
 /* .kachat: a released or reclaimed name */
 "Free to claim" = "متاح للمطالبة";
+
+/* .kachat registration progress half sheet */
+"Claiming %@" = "جارٍ المطالبة بـ %@";
+"Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back." = "أبقِ KaChat مفتوحًا: يُسجَّل الاسم بعد نحو دقيقة من تأكيد الالتزام المخفي. إذا غادرت، فسيكمل من حيث توقف عند عودتك.";
+"Finish the name you're claiming first." = "أكمل أولًا الاسم الذي تطالب به.";

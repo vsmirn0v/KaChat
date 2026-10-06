@@ -110,6 +110,8 @@ struct MainTabView: View {
             }
         }
         .tint(.accentColor)
+        // a .kachat registration in flight: its progress half sheet, back up after a relaunch
+        .modifier(KachatRegistrationPresenter())
         .toast(message: nextcloudService.syncStatusToast)
         .onAppear {
             // A hold with no guide to release it would strand the account: the branches below

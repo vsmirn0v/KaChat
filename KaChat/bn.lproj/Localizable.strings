@@ -1359,3 +1359,8 @@
 
 /* .kachat: a released or reclaimed name */
 "Free to claim" = "দাবি করার জন্য খালি";
+
+/* .kachat registration progress half sheet */
+"Claiming %@" = "%@ দাবি করা হচ্ছে";
+"Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back." = "KaChat খোলা রাখুন: গোপন প্রতিশ্রুতি নিশ্চিত হওয়ার প্রায় এক মিনিট পরে নামটি নিবন্ধিত হয়। আপনি চলে গেলে, ফিরে এলে যেখানে থেমেছিল সেখান থেকে চলবে।";
+"Finish the name you're claiming first." = "আগে যে নামটি দাবি করছেন সেটি শেষ করুন।";
