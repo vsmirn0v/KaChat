@@ -266,7 +266,12 @@ struct SendKaChatPaymentIntent: AppIntent {
         // Every Siri / Shortcuts payment is confirmed first: an automation, an imported shortcut
         // or a misheard amount must never send KAS on its own (IOS-021). Declining cancels.
         let question = String(format: AppLocalization.string("Send %@ to %@?"), KaspaUnit.amount(amountSompi), target.alias)
-        try await requestConfirmation(result: .result(dialog: IntentDialog(stringLiteral: question)))
+        if #available(iOS 18.0, *) {
+            try await requestConfirmation(actionName: .send, dialog: IntentDialog(stringLiteral: question))
+        } else {
+            // iOS 16-17 only have the result-based form (deprecated from iOS 18)
+            try await requestConfirmation(result: .result(dialog: IntentDialog(stringLiteral: question)))
+        }
 
         try await ChatService.shared.sendPayment(to: target, amountSompi: amountSompi, note: paymentNote)
         return .result(dialog: "Payment sent to \(target.alias)")

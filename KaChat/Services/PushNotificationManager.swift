@@ -1805,21 +1805,27 @@ final class PushNotificationManager: ObservableObject {
         let aliasesHash = sha256Hex(canonicalizeAliasesForAuth(aliases).joined(separator: "\n"))
         let deviceTokenHash = sha256Hex(deviceToken)
 
-        return [
+        var lines: [String] = [
             "domain=\(pushAuthDomain)",
             "nonce=\(nonce.trimmingCharacters(in: .whitespacesAndNewlines))",
             "method=\(method)",
             "path=\(path)",
             "device_token_hash=\(deviceTokenHash)",
             "watched_addresses_hash=\(watchedHash)"
-        ] + (includeWatchedGroupIds ? ["watched_group_ids_hash=\(watchedGroupIdsHash)"] : []) + [
+        ]
+        // the ring is verified without group ids, so its preimage has no such line (XP-010)
+        if includeWatchedGroupIds {
+            lines.append("watched_group_ids_hash=\(watchedGroupIdsHash)")
+        }
+        lines += [
             "primary_address=\(primaryAddress)",
             "aliases_hash=\(aliasesHash)",
             "wallet_pubkey=\(walletPubkey)",
             "wallet_address=\(walletAddress)",
             "timestamp_ms=\(timestampMs)",
             "expires_at_ms=\(expiresAtMs)"
-        ].joined(separator: "\n")
+        ]
+        return lines.joined(separator: "\n")
     }
 
     private struct DeviceKeyMaterial {
