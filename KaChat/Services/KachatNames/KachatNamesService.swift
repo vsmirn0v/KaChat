@@ -85,8 +85,10 @@ final class KachatNamesService: ObservableObject {
         return (error as? KachatNames.Failure)?.isOutdatedRegistry == true
     }
 
-    func requireTestnet() throws {
-        guard Self.isEnabled else { throw ServiceError.testnetOnly }
+    /// The gate on every registry read and write: the network the app runs on has a live
+    /// registry (`isLaunched`, testnet-10 for now). `isEnabled` only turns the UI on.
+    func requireLaunched() throws {
+        guard Self.isLaunched else { throw ServiceError.testnetOnly }
     }
 
     // MARK: - Manifest
@@ -94,7 +96,7 @@ final class KachatNamesService: ObservableObject {
     /// The verified registry manifest: `kachat-names-testnet-10.json` from the app bundle when it
     /// ships one, else the indexer's `GET /names/manifest`. Cached once verified.
     func loadManifest(allowDryRun: Bool = false) async throws -> KachatNames.Manifest {
-        try requireTestnet()
+        try requireLaunched()
         if let m = manifest, allowDryRun || !m.isDryRun {
             return m
         }
@@ -169,7 +171,7 @@ final class KachatNamesService: ObservableObject {
     /// Where the next transaction is judged: the virtual's DAA score and past median time from a
     /// testnet-10 node, the wall clock, the signer's key.
     func environment(privateKey: Data, feerate: Double = KachatNames.minFeerate) async throws -> KachatNames.Env {
-        try requireTestnet()
+        try requireLaunched()
         let dag = try await NodePoolService.shared.currentDagPoint()
         guard dag.networkName.hasSuffix("testnet-10") else {
             throw ServiceError.wrongNodeNetwork(dag.networkName)
@@ -220,7 +222,7 @@ final class KachatNamesService: ObservableObject {
     /// its covenant id. A registry record from the indexer is trusted only once this confirms it:
     /// the P2SH address commits to the whole state, and the covenant id to the registry lineage.
     func liveUtxo(script: Data, outpoint: KachatNames.Outpoint) async throws -> KachatNames.Utxo {
-        try requireTestnet()
+        try requireLaunched()
         guard let address = Self.p2shAddress(script: script) else { throw ServiceError.notOnChain("a non-P2SH script") }
         let utxos = try await NodePoolService.shared.getUtxosByAddresses([address])
         let txidHex = KachatNames.hex(outpoint.txid)
@@ -328,7 +330,7 @@ final class KachatNamesService: ObservableObject {
     /// price (35-8,000 TKAS) as fee on purpose - there is no high-fee guard on this path.
     @discardableResult
     func submit(_ tx: KachatNames.Tx) async throws -> String {
-        try requireTestnet()
+        try requireLaunched()
         let expected = tx.idHex
         let (txId, endpoint) = try await NodePoolService.shared.submitRpcTransaction(Self.rpcTransaction(tx))
         AppLog.log("[KachatNames] submitted %@ via %@", txId, endpoint)
@@ -342,7 +344,7 @@ final class KachatNamesService: ObservableObject {
     /// Sign with the wallet key and submit.
     @discardableResult
     func signAndSubmit(_ plan: KachatNames.Plan, privateKey: Data, env: KachatNames.Env) async throws -> String {
-        try requireTestnet()
+        try requireLaunched()
         let tx = try Self.sign(plan, privateKey: privateKey, me: env.me)
         return try await submit(tx)
     }

@@ -48,7 +48,7 @@ extension KachatNames {
 /// The `.kachat` actions: every operation the screens offer, built with the pure builders over
 /// UTXOs re-read from a node, signed with the wallet key and submitted (`KachatNamesService`),
 /// plus the registration driver (commit, wait, register - resumable). Testnet-10 only: each entry
-/// goes through `KachatNamesService.requireTestnet()`. Every action returns its txid and refreshes
+/// goes through `KachatNamesService.requireLaunched()`. Every action returns its txid and refreshes
 /// the registry once the transaction is accepted.
 @MainActor
 final class KachatNamesActions: ObservableObject {
@@ -119,7 +119,7 @@ final class KachatNamesActions: ObservableObject {
 
     /// The current wallet's testnet address, key and x-only key (they must agree).
     func signer() throws -> Signer {
-        try service.requireTestnet()
+        try service.requireLaunched()
         guard let address = WalletManager.shared.currentWallet?.publicAddress.lowercased(), address.hasPrefix("kaspatest:"),
               let key = WalletManager.shared.getPrivateKey() else { throw ActionError.noWallet }
         let me = try KachatNamesService.xonlyKey(privateKey: key)
@@ -183,7 +183,10 @@ final class KachatNamesActions: ObservableObject {
         default: heldBy = nil
         }
         if let owner = heldBy, case .spending(let index, let address)? = ownAddress(of: owner) {
-            try service.requireTestnet()
+            try service.requireLaunched()
+            guard address.lowercased().hasPrefix("kaspatest:"), NetworkType.isOnActiveNetwork(address) else {
+                throw KachatNamesService.ServiceError.wrongAddressNetwork
+            }
             guard let key = WalletManager.shared.spendingPrivateKey(at: index) else { throw ActionError.noWallet }
             let me = try KachatNamesService.xonlyKey(privateKey: key)
             guard me == owner else { throw ActionError.keyMismatch }
