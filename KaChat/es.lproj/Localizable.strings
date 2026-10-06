@@ -1301,3 +1301,6 @@
 /* Addresses of the other network are refused (IOS-003) */
 "This is a Testnet address. KaChat is on Mainnet." = "Esta es una dirección de Testnet. KaChat está en Mainnet.";
 "This is a Mainnet address. KaChat is on Testnet." = "Esta es una dirección de Mainnet. KaChat está en Testnet.";
+
+/* Siri / Shortcuts payments are confirmed (IOS-021) */
+"Send %@ to %@?" = "¿Enviar %1$@ a %2$@?";

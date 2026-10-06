@@ -64,13 +64,14 @@ private enum KaChatShortcutHelpers {
             throw KasiaError.networkError("Use up to 8 decimal places")
         }
 
-        guard let amount = Decimal(string: trimmed), amount > 0 else {
+        // the app's exact parser: digits only, nil above the supply (never a wrapped value)
+        guard let sompi = KaspaUnit.sompi(fromUserText: trimmed) else {
+            throw KasiaError.networkError("Invalid amount format")
+        }
+        guard sompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
         }
-
-        let scaled = amount * Decimal(100_000_000)
-        let rounded = NSDecimalNumber(decimal: scaled).rounding(accordingToBehavior: nil)
-        return rounded.uint64Value
+        return sompi
     }
 
     static func audioMimeType(for fileName: String) -> String? {
@@ -261,6 +262,11 @@ struct SendKaChatPaymentIntent: AppIntent {
 
         let target = try KaChatShortcutHelpers.resolveContact(from: contact)
         let paymentNote = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        // Every Siri / Shortcuts payment is confirmed first: an automation, an imported shortcut
+        // or a misheard amount must never send KAS on its own (IOS-021). Declining cancels.
+        let question = String(format: AppLocalization.string("Send %@ to %@?"), KaspaUnit.amount(amountSompi), target.alias)
+        try await requestConfirmation(result: .result(dialog: IntentDialog(stringLiteral: question)))
 
         try await ChatService.shared.sendPayment(to: target, amountSompi: amountSompi, note: paymentNote)
         return .result(dialog: "Payment sent to \(target.alias)")

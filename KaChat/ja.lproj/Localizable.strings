@@ -1301,3 +1301,6 @@
 /* Addresses of the other network are refused (IOS-003) */
 "This is a Testnet address. KaChat is on Mainnet." = "これは Testnet のアドレスです。KaChat は Mainnet で動作中です。";
 "This is a Mainnet address. KaChat is on Testnet." = "これは Mainnet のアドレスです。KaChat は Testnet で動作中です。";
+
+/* Siri / Shortcuts payments are confirmed (IOS-021) */
+"Send %@ to %@?" = "%2$@ に %1$@ を送りますか？";
