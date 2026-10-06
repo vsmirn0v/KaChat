@@ -475,8 +475,9 @@ final class WalletManager: ObservableObject {
     /// - Parameter removeRemoteBackup: also delete the encrypted archive on the user's
     ///   Nextcloud. Off unless the user picked the option that names it.
     func deleteWallet(preserveOutgoingMessages: Bool = false, removeRemoteBackup: Bool = false) async throws {
+        // the wallet being deleted: the active one, or the one stuck on the recovery screen
+        let walletAddressToDelete = (currentWallet ?? walletNeedingKeyRecovery)?.publicAddress
         walletNeedingKeyRecovery = nil
-        let walletAddressToDelete = currentWallet?.publicAddress
 
         // Unregister from push notifications before clearing wallet
         await PushNotificationManager.shared.unregister()
@@ -506,7 +507,24 @@ final class WalletManager: ObservableObject {
             KaPostsDraftStore.shared.deleteDrafts(forWalletAddress: walletAddressToDelete)
         }
 
-        try keychainService.clearAll()
+        // The Secure Enclave key wraps every saved account's snapshot (and the device id, the
+        // Simple Mode password record and .kachat commit salts): it goes only with the last
+        // account. Otherwise only this account's keys and snapshot are removed.
+        let otherAccountsRemain = savedAccounts.contains { saved in
+            walletAddressToDelete.map { !Self.isSameAccount(saved.publicAddress, $0) } ?? true
+        }
+        if otherAccountsRemain {
+            for address in walletAddressToDelete.map(Self.accountAddressVariants) ?? [] {
+                try? keychainService.deleteAccountSnapshot(publicAddress: address)
+            }
+            try keychainService.clearCurrentAccountData()
+            if let walletAddressToDelete {
+                savedAccounts.removeAll { Self.isSameAccount($0.publicAddress, walletAddressToDelete) }
+                persistSavedAccountsToStorage()
+            }
+        } else {
+            try keychainService.clearAll()
+        }
         currentWallet = nil
         updateSavedAccounts(from: nil)
         isLoggedOut = false
