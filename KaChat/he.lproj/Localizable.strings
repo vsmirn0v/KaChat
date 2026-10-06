@@ -1372,3 +1372,6 @@
 "Create a name for your wallet" = "צור שם לארנק שלך";
 "This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "השם הזה נשמר רק במכשיר הזה, כדי להבדיל בין הארנקים שלך. אף אחד אחר לא יראה אותו לעולם.";
 "The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "המסך הבא מציג את ה-seed phrase שלך. זו הדרך היחידה לשחזר את חשבונך: רשום אותה, שמור אותה בצורה מאובטחת, וודא שאף אחד לא רואה את המסך שלך.";
+
+/* Create Account: seed length step title */
+"Choose seed phrase length" = "בחר את אורך ה-seed phrase";

@@ -1373,3 +1373,6 @@
 "Create a name for your wallet" = "Créez un nom pour votre portefeuille";
 "This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "Ce nom est enregistré uniquement sur cet appareil, pour distinguer vos portefeuilles. Personne d'autre ne le verra jamais.";
 "The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "L'écran suivant affiche votre seed phrase. C'est le seul moyen de récupérer votre compte : notez-la, conservez-la en sécurité et assurez-vous que personne ne voit votre écran.";
+
+/* Create Account: seed length step title */
+"Choose seed phrase length" = "Choisissez la longueur de la seed phrase";

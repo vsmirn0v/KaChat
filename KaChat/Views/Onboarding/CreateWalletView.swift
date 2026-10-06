@@ -64,14 +64,13 @@ private struct CreateWalletLengthStep: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Seed Phrase Length")
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Choose seed phrase length")
                         .font(.title2.weight(.bold))
-                    Picker("Seed Phrase Length", selection: $wordCount) {
-                        Text("12 words").tag(Optional(12))
-                        Text("24 words").tag(Optional(24))
-                    }
-                    .pickerStyle(.segmented)
+                    // Two full-width buttons in the Generate Account style; the chosen one is
+                    // filled, the other outlined. Nothing is chosen until the user taps one.
+                    lengthButton(12, title: "12 words")
+                    lengthButton(24, title: "24 words")
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -105,6 +104,28 @@ private struct CreateWalletLengthStep: View {
                 CreateWalletSeedStep(alias: alias, seedPhrase: generatedSeedPhrase)
             }
         }
+    }
+
+    private func lengthButton(_ count: Int, title: LocalizedStringKey) -> some View {
+        let chosen = wordCount == count
+        return Button {
+            wordCount = count
+        } label: {
+            HStack {
+                Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
+                Text(title)
+            }
+            .font(.body.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(chosen ? Color.accentColor : Color.clear)
+            .foregroundColor(chosen ? .white : .accentColor)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 1.5))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .disabled(isCreating)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
     private func generate() {

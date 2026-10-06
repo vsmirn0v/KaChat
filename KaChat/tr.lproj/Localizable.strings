@@ -1372,3 +1372,6 @@
 "Create a name for your wallet" = "Cüzdanınız için bir ad oluşturun";
 "This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "Bu ad yalnızca bu cihazda saklanır ve cüzdanlarınızı ayırt etmenizi sağlar. Başka hiç kimse onu görmez.";
 "The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "Sonraki ekran seed phrase'inizi gösterir. Hesabınızı kurtarmanın tek yolu budur: yazın, güvenli bir yerde saklayın ve ekranınızı kimsenin görmediğinden emin olun.";
+
+/* Create Account: seed length step title */
+"Choose seed phrase length" = "Seed phrase uzunluğunu seçin";

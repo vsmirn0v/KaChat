@@ -1372,3 +1372,6 @@
 "Create a name for your wallet" = "Crea un nombre para tu billetera";
 "This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "Este nombre solo se guarda en este dispositivo, para distinguir tus billeteras. Nadie más lo verá nunca.";
 "The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "La siguiente pantalla muestra tu seed phrase. Es la única forma de recuperar tu cuenta: anótala, guárdala de forma segura y asegúrate de que nadie pueda ver tu pantalla.";
+
+/* Create Account: seed length step title */
+"Choose seed phrase length" = "Elige la longitud de la seed phrase";

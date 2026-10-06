@@ -1372,3 +1372,6 @@
 "Create a name for your wallet" = "ウォレットの名前を作成";
 "This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "この名前はこの端末にのみ保存され、ウォレットを見分けるために使われます。他の人に見られることはありません。";
 "The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "次の画面に seed phrase が表示されます。これがアカウントを復元する唯一の方法です。書き留めて安全に保管し、画面を誰にも見られないようにしてください。";
+
+/* Create Account: seed length step title */
+"Choose seed phrase length" = "seed phrase の長さを選択";

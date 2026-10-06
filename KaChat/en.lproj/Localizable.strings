@@ -1373,3 +1373,6 @@
 "Create a name for your wallet" = "Create a name for your wallet";
 "This name is only stored on this device, to tell your wallets apart. No one else will ever see it." = "This name is only stored on this device, to tell your wallets apart. No one else will ever see it.";
 "The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen." = "The next screen shows your seed phrase. It is the only way to recover your account: write it down and store it securely, and make sure no one can see your screen.";
+
+/* Create Account: seed length step title */
+"Choose seed phrase length" = "Choose seed phrase length";
