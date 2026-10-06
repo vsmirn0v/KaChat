@@ -1303,3 +1303,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "Dein Name ist verfallen und kann nicht mehr verlängert werden. Zurückfordern entfernt ihn aus dem Register: Deine Kaution kommt zurück, und du behältst auch die freigewordene Registereinlage abzüglich der Netzwerkgebühr. Danach kannst du ihn neu registrieren.";
 "Bond back to you" = "Kaution zurück an dich";
 "Waiting for the old %@ to be cleared from the registry." = "Warte, bis der alte %@ aus dem Register entfernt ist.";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "Frei zum Registrieren";

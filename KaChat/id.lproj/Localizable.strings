@@ -1356,3 +1356,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "Nama Anda sudah gugur, jadi tidak bisa diperpanjang lagi. Klaim ulang menghapusnya dari registri: jaminan kembali kepada Anda, dan Anda juga menyimpan deposit registri yang dibebaskan, dikurangi biaya jaringan. Setelah itu Anda bisa mendaftarkannya lagi.";
 "Bond back to you" = "Jaminan kembali ke Anda";
 "Waiting for the old %@ to be cleared from the registry." = "Menunggu %@ lama dihapus dari registri.";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "Bebas untuk diklaim";

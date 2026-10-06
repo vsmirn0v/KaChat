@@ -1356,3 +1356,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "你的名称已失效，无法再续期。回收会将其从注册表中清除：保证金退还给你，你还能拿到释放出的注册押金（扣除网络费）。之后你可以重新注册。";
 "Bond back to you" = "退还给你的保证金";
 "Waiting for the old %@ to be cleared from the registry." = "正在等待旧的 %@ 从注册表中清除。";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "可认领";

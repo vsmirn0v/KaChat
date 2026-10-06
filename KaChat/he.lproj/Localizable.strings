@@ -1356,3 +1356,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "השם שלך פקע ולכן אי אפשר לחדש אותו יותר. דרישה חוזרת מוחקת אותו מהמרשם: הפיקדון שלך חוזר אליך, ואת גם שומר/ת את פיקדון המרשם שהשתחרר, פחות עמלת הרשת. אחר כך אפשר לרשום אותו מחדש.";
 "Bond back to you" = "הפיקדון חוזר אליך";
 "Waiting for the old %@ to be cleared from the registry." = "ממתינים שה-%@ הישן יוסר מהמרשם.";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "פנוי לתביעה";

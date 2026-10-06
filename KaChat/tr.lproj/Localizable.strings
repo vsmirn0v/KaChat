@@ -1356,3 +1356,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "Adınızın süresi düştü, bu yüzden artık yenilenemez. Geri almak onu kayıttan temizler: teminatınız size döner ve ağ ücreti düşülmüş serbest kalan kayıt depozitosunu da alırsınız. Ardından yeniden kaydedebilirsiniz.";
 "Bond back to you" = "Size dönen teminat";
 "Waiting for the old %@ to be cleared from the registry." = "Eski %@ adının kayıttan temizlenmesi bekleniyor.";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "Talep edilebilir";

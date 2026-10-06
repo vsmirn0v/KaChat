@@ -1356,3 +1356,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "Tên của bạn đã mất hiệu lực nên không thể gia hạn nữa. Thu hồi sẽ xóa nó khỏi sổ đăng ký: tiền ký quỹ trở về với bạn, và bạn cũng giữ khoản đặt cọc sổ đăng ký được giải phóng, trừ phí mạng. Sau đó bạn có thể đăng ký lại.";
 "Bond back to you" = "Tiền ký quỹ trở về bạn";
 "Waiting for the old %@ to be cleared from the registry." = "Đang chờ %@ cũ được xóa khỏi sổ đăng ký.";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "Có thể đăng ký";

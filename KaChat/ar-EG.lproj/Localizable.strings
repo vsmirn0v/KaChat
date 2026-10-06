@@ -1356,3 +1356,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "انقضى اسمك، لذا لم يعد بالإمكان تجديده. الاسترداد يزيله من السجل: يعود إليك تأمينك، وتحتفظ أيضًا بإيداع السجل المُحرَّر ناقص رسوم الشبكة. بعدها يمكنك تسجيله من جديد.";
 "Bond back to you" = "التأمين يعود إليك";
 "Waiting for the old %@ to be cleared from the registry." = "بانتظار إزالة %@ القديم من السجل.";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "متاح للمطالبة";

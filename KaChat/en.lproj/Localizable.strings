@@ -1357,3 +1357,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again.";
 "Bond back to you" = "Bond back to you";
 "Waiting for the old %@ to be cleared from the registry." = "Waiting for the old %@ to be cleared from the registry.";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "Free to claim";

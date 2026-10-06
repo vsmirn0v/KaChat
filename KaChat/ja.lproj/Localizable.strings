@@ -1356,3 +1356,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "名前が失効したため、もう更新できません。回収するとレジストリから消え、ボンドが戻り、解放されたレジストリの預かり金もネットワーク手数料を除いて受け取れます。その後、再登録できます。";
 "Bond back to you" = "あなたに戻るボンド";
 "Waiting for the old %@ to be cleared from the registry." = "古い %@ がレジストリから消えるのを待っています。";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "取得可能";

@@ -1356,3 +1356,6 @@
 "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again." = "আপনার নামটি বাতিল হয়েছে, তাই আর নবায়ন করা যাবে না। পুনরুদ্ধার এটিকে রেজিস্ট্রি থেকে সরায়: আপনার বন্ড আপনার কাছে ফিরে আসে, আর নেটওয়ার্ক ফি বাদে মুক্ত হওয়া রেজিস্ট্রি জমাও আপনি রাখেন। তারপর আবার নিবন্ধন করতে পারবেন।";
 "Bond back to you" = "বন্ড আপনার কাছে ফেরত";
 "Waiting for the old %@ to be cleared from the registry." = "রেজিস্ট্রি থেকে পুরোনো %@ সরানোর অপেক্ষা চলছে।";
+
+/* .kachat: a released or reclaimed name */
+"Free to claim" = "দাবি করার জন্য খালি";

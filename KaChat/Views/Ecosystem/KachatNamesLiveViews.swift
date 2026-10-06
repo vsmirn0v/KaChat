@@ -1522,6 +1522,8 @@ struct KachatLiveNameDetail: View {
     @State private var offers: [KachatNames.OfferInfo] = []
     @State private var history: [KachatNames.Event] = []
     @State private var gone = false
+    /// The free gap the name now sits in, once it's gone (released or reclaimed): Claim uses it.
+    @State private var freeGap: KachatNames.GapInfo?
     @State private var confirmPrimary = false
     /// Which of this wallet's addresses holds the name (chatting, a spending address, a KasSigner
     /// address), or nil for someone else's. Resolved on load: it derives addresses.
@@ -1548,6 +1550,12 @@ struct KachatLiveNameDetail: View {
             VStack(alignment: .leading, spacing: 18) {
                 nameCard
                 if gone {
+                    if let freeGap, KachatLive.isEnabled {
+                        actionButton("Claim", "at.badge.plus", prominent: true) {
+                            claimTarget = KachatClaimTarget(name: info.name, gap: freeGap)
+                        }
+                        .padding(.horizontal, 16)
+                    }
                     Text("This name was released or reclaimed. It's free to claim again.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
@@ -1622,6 +1630,30 @@ struct KachatLiveNameDetail: View {
                         .minimumScaleFactor(0.5)
                         .padding(.horizontal, 16)
                 )
+            if gone {
+                // Released or reclaimed: the old record (its expiry, period, listing) is history.
+                HStack {
+                    Text("Free to claim").font(.subheadline).foregroundColor(.secondary)
+                    Spacer()
+                    Text("Available")
+                        .font(.caption.weight(.bold))
+                        .foregroundColor(.green)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.green.opacity(0.15)))
+                }
+            } else {
+                recordDetails
+            }
+        }
+        .padding(14)
+        .kachatGlass(cornerRadius: 18)
+        .padding(.horizontal, 16)
+    }
+
+    /// The live record under the name: price, status, expiry, paid period, and what expiry means.
+    @ViewBuilder
+    private var recordDetails: some View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     // A listing only stands while the name is active: an expired or lapsed name's
@@ -1666,10 +1698,6 @@ struct KachatLiveNameDetail: View {
             case .active:
                 EmptyView()
             }
-        }
-        .padding(14)
-        .kachatGlass(cornerRadius: 18)
-        .padding(.horizontal, 16)
     }
 
     @ViewBuilder
@@ -2023,8 +2051,10 @@ struct KachatLiveNameDetail: View {
             case .registered(let n):
                 info = n
                 gone = false
-            case .free:
+                freeGap = nil
+            case .free(_, let gap):
                 gone = true
+                freeGap = gap
             }
         } catch {}
         heldBy = actions.ownAddress(of: info.owner)
