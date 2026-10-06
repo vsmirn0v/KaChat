@@ -876,7 +876,7 @@ struct KachatLiveMarketPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            KachatLiveSectionHeader(title: "For sale", detail: "Names their owners have listed. Buying pays the owner and moves the name to you in one transaction.")
+            KachatLiveSectionHeader(title: "For sale", detail: nil)
             if model.listings.isEmpty {
                 KachatLiveEmpty(text: model.loaded ? "No names are listed right now." : nil)
             } else {

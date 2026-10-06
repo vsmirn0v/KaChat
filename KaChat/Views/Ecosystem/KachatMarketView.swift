@@ -228,7 +228,7 @@ struct KachatMarketView: View {
 
     private var marketPage: some View {
         VStack(alignment: .leading, spacing: 18) {
-            sectionHeader("For sale", detail: "Names their owners have listed. Buying pays the owner and moves the name to you in one transaction.")
+            sectionHeader("For sale", detail: nil)
             KachatNameGrid {
                 ForEach(0..<4, id: \.self) { _ in
                     NavigationLink { KachatListingDetailView() } label: { tilePlaceholder(footer: "000 \(KaspaUnit.symbol)") }
