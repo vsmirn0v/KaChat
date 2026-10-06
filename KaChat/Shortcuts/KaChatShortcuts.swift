@@ -269,8 +269,11 @@ struct SendKaChatPaymentIntent: AppIntent {
         if #available(iOS 18.0, *) {
             try await requestConfirmation(actionName: .send, dialog: IntentDialog(stringLiteral: question))
         } else {
-            // iOS 16-17 only have the result-based form (deprecated from iOS 18)
-            try await requestConfirmation(result: .result(dialog: IntentDialog(stringLiteral: question)))
+            // iOS 16-17: confirm the amount parameter with the same question (the intent-level
+            // result-based form is deprecated)
+            guard try await $amountKAS.requestConfirmation(for: amountKAS, dialog: IntentDialog(stringLiteral: question)) else {
+                throw KasiaError.networkError(AppLocalization.string("Cancelled."))
+            }
         }
 
         try await ChatService.shared.sendPayment(to: target, amountSompi: amountSompi, note: paymentNote)
