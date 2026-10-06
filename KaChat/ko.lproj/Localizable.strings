@@ -1339,3 +1339,15 @@
 /* .kachat hub tabs: Marketplace, Reclaimable, Activity */
 "Reclaimable names appear here once .kachat names launch." = ".kachat 이름이 출시되면 회수 가능한 이름이 여기에 표시돼요.";
 "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "레지스트리의 모든 등록, 갱신, 판매 등록, 판매, 제안, 양도, 회수.";
+
+/* KaChat Stats: .kachat names */
+"Names Registered" = "등록된 이름";
+"Name Renewals" = "이름 갱신";
+"Name Sales" = "이름 판매";
+"Name Offers" = "이름 제안";
+"Name Activity" = "이름 활동";
+".kachat names claimed" = "등록된 .kachat 이름";
+".kachat names extended or renewed" = "연장하거나 갱신한 .kachat 이름";
+".kachat names bought from a listing or through an accepted offer" = "판매 목록이나 수락된 제안으로 구매한 .kachat 이름";
+"Offers made on .kachat names" = ".kachat 이름에 한 제안";
+"Listings, transfers, releases, reclaims and returned offers" = "판매 등록, 양도, 해제, 회수, 반환된 제안";

@@ -1339,3 +1339,15 @@
 /* .kachat hub tabs: Marketplace, Reclaimable, Activity */
 "Reclaimable names appear here once .kachat names launch." = "Các tên có thể thu hồi sẽ hiện ở đây khi tên .kachat ra mắt.";
 "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Mọi lần đăng ký, gia hạn, rao bán, bán, đề nghị, chuyển nhượng và thu hồi trong sổ đăng ký.";
+
+/* KaChat Stats: .kachat names */
+"Names Registered" = "Tên đã đăng ký";
+"Name Renewals" = "Gia hạn tên";
+"Name Sales" = "Bán tên";
+"Name Offers" = "Đề nghị mua tên";
+"Name Activity" = "Hoạt động tên";
+".kachat names claimed" = "Tên .kachat đã đăng ký";
+".kachat names extended or renewed" = "Tên .kachat được kéo dài hoặc gia hạn";
+".kachat names bought from a listing or through an accepted offer" = "Tên .kachat được mua từ tin rao bán hoặc qua đề nghị được chấp nhận";
+"Offers made on .kachat names" = "Đề nghị cho tên .kachat";
+"Listings, transfers, releases, reclaims and returned offers" = "Rao bán, chuyển nhượng, giải phóng, thu hồi và đề nghị được trả lại";

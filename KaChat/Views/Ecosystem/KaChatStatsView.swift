@@ -8,6 +8,9 @@ enum KaChatStatCategory: String, CaseIterable, Identifiable {
     case groupMessages, groupUpdates, publicChats
     case kaposts, kapostActions
     case chessMoves, chessGames
+    /// .kachat names (registry transactions). An indexer reports them only where names are
+    /// live, so on a network without the registry yet (mainnet before launch) they stay hidden.
+    case kachatRegistrations, kachatRenewals, kachatSales, kachatOffers, kachatActivity
     case selfStash
 
     var id: String { rawValue }
@@ -24,6 +27,11 @@ enum KaChatStatCategory: String, CaseIterable, Identifiable {
         case .kapostActions: return "KaPost Activity"
         case .chessMoves: return "Chess Moves"
         case .chessGames: return "Chess Games"
+        case .kachatRegistrations: return "Names Registered"
+        case .kachatRenewals: return "Name Renewals"
+        case .kachatSales: return "Name Sales"
+        case .kachatOffers: return "Name Offers"
+        case .kachatActivity: return "Name Activity"
         case .selfStash: return "Saved Records"
         }
     }
@@ -40,6 +48,11 @@ enum KaChatStatCategory: String, CaseIterable, Identifiable {
         case .kapostActions: return "Votes, follows, edits and deletes"
         case .chessMoves: return "Moves played in Chess Online"
         case .chessGames: return "Games started in Chess Online"
+        case .kachatRegistrations: return ".kachat names claimed"
+        case .kachatRenewals: return ".kachat names extended or renewed"
+        case .kachatSales: return ".kachat names bought from a listing or through an accepted offer"
+        case .kachatOffers: return "Offers made on .kachat names"
+        case .kachatActivity: return "Listings, transfers, releases, reclaims and returned offers"
         case .selfStash: return "Chat keys and contact notes saved to your own account"
         }
     }
@@ -56,6 +69,11 @@ enum KaChatStatCategory: String, CaseIterable, Identifiable {
         case .kapostActions: return "hand.thumbsup.fill"
         case .chessMoves: return "checkerboard.rectangle"
         case .chessGames: return "trophy.fill"
+        case .kachatRegistrations: return "at.badge.plus"
+        case .kachatRenewals: return "arrow.clockwise.circle.fill"
+        case .kachatSales: return "cart.fill"
+        case .kachatOffers: return "hand.raised.fill"
+        case .kachatActivity: return "tag.fill"
         case .selfStash: return "tray.full.fill"
         }
     }
@@ -72,6 +90,11 @@ enum KaChatStatCategory: String, CaseIterable, Identifiable {
         case .kapostActions: return .purple
         case .chessMoves: return .brown
         case .chessGames: return .yellow
+        case .kachatRegistrations: return .mint
+        case .kachatRenewals: return Color(red: 0.0, green: 0.55, blue: 0.5)
+        case .kachatSales: return .red
+        case .kachatOffers: return Color(red: 0.85, green: 0.55, blue: 0.1)
+        case .kachatActivity: return Color(red: 0.45, green: 0.45, blue: 0.75)
         case .selfStash: return .gray
         }
     }

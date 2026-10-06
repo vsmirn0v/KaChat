@@ -1340,3 +1340,15 @@
 /* .kachat hub tabs: Marketplace, Reclaimable, Activity */
 "Reclaimable names appear here once .kachat names launch." = "Reclaimable names appear here once .kachat names launch.";
 "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry.";
+
+/* KaChat Stats: .kachat names */
+"Names Registered" = "Names Registered";
+"Name Renewals" = "Name Renewals";
+"Name Sales" = "Name Sales";
+"Name Offers" = "Name Offers";
+"Name Activity" = "Name Activity";
+".kachat names claimed" = ".kachat names claimed";
+".kachat names extended or renewed" = ".kachat names extended or renewed";
+".kachat names bought from a listing or through an accepted offer" = ".kachat names bought from a listing or through an accepted offer";
+"Offers made on .kachat names" = "Offers made on .kachat names";
+"Listings, transfers, releases, reclaims and returned offers" = "Listings, transfers, releases, reclaims and returned offers";

@@ -1339,3 +1339,15 @@
 /* .kachat hub tabs: Marketplace, Reclaimable, Activity */
 "Reclaimable names appear here once .kachat names launch." = "I nomi reclamabili compariranno qui al lancio dei nomi .kachat.";
 "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Ogni registrazione, rinnovo, annuncio, vendita, offerta, trasferimento e recupero nel registro.";
+
+/* KaChat Stats: .kachat names */
+"Names Registered" = "Nomi registrati";
+"Name Renewals" = "Rinnovi di nomi";
+"Name Sales" = "Vendite di nomi";
+"Name Offers" = "Offerte sui nomi";
+"Name Activity" = "Attività dei nomi";
+".kachat names claimed" = "Nomi .kachat registrati";
+".kachat names extended or renewed" = "Nomi .kachat estesi o rinnovati";
+".kachat names bought from a listing or through an accepted offer" = "Nomi .kachat acquistati da un annuncio o con un’offerta accettata";
+"Offers made on .kachat names" = "Offerte fatte sui nomi .kachat";
+"Listings, transfers, releases, reclaims and returned offers" = "Annunci, trasferimenti, rilasci, recuperi e offerte restituite";

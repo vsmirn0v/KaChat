@@ -58,9 +58,19 @@ Count **accepted transactions** by payload. Written payloads use the `kchat:1:` 
 | `kapostActions` | KaPost Activity | `kchat:1:` `vote`, `follow`, `unquote`, `edit`, `delete`, `pollvote` |
 | `chessMoves` | Chess Moves | `kchat:1:bcast:chess-arena:` whose JSON has `"a":"move"` |
 | `chessGames` | Chess Games | games started, as the `/chess/leaderboard` reducer sees them (a 1v1 room's second join, a tournament's eighth) |
+| `kachatRegistrations` | Names Registered | `.kachat` registry: `register` (one per name claimed; the commit before it isn't counted) |
+| `kachatRenewals` | Name Renewals | registry `extend` and `renew` |
+| `kachatSales` | Name Sales | registry `sale` (a listing bought) and `offer_accepted` |
+| `kachatOffers` | Name Offers | offers created (`kchat:1:offer:` marker matched to an offer output) |
+| `kachatActivity` | Name Activity | registry `list`, `delist`, `transfer`, `release`, `reclaim`, and offers declined, withdrawn or refunded |
 | `selfStash` | Saved Records | `kchat:1:self_stash:` |
 
 Notes:
+
+- **.kachat names** (`kachat*`): count the names follower's events (`names_history`, the same
+  ops `/names/{name}/history` serves), one per transaction, never the price record's. Report
+  them **only on a network whose registry is live** (testnet-10 now, mainnet once names launch
+  there); a stack without the names module leaves the keys out and the app hides the rows.
 
 - **Only the `kchat:1:` root.** The legacy roots (`ciph_msg:1:`, `k:1:`) are shared with the
   Kasia and K apps, so counting them would count other apps' traffic as KaChat's. The cost is

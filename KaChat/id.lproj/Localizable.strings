@@ -1339,3 +1339,15 @@
 /* .kachat hub tabs: Marketplace, Reclaimable, Activity */
 "Reclaimable names appear here once .kachat names launch." = "Nama yang bisa diklaim ulang muncul di sini setelah nama .kachat diluncurkan.";
 "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Setiap klaim, perpanjangan, listing, penjualan, penawaran, transfer, dan klaim ulang di registri.";
+
+/* KaChat Stats: .kachat names */
+"Names Registered" = "Nama Terdaftar";
+"Name Renewals" = "Perpanjangan Nama";
+"Name Sales" = "Penjualan Nama";
+"Name Offers" = "Penawaran Nama";
+"Name Activity" = "Aktivitas Nama";
+".kachat names claimed" = "Nama .kachat yang diklaim";
+".kachat names extended or renewed" = "Nama .kachat yang ditambah atau diperpanjang";
+".kachat names bought from a listing or through an accepted offer" = "Nama .kachat yang dibeli dari listing atau lewat penawaran yang diterima";
+"Offers made on .kachat names" = "Penawaran untuk nama .kachat";
+"Listings, transfers, releases, reclaims and returned offers" = "Listing, transfer, pelepasan, klaim ulang, dan penawaran yang dikembalikan";

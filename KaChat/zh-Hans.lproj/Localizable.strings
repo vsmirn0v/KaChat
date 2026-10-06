@@ -1339,3 +1339,15 @@
 /* .kachat hub tabs: Marketplace, Reclaimable, Activity */
 "Reclaimable names appear here once .kachat names launch." = ".kachat 名称上线后，可回收的名称会显示在这里。";
 "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "注册表中的每一次注册、续期、挂牌、出售、报价、转让和回收。";
+
+/* KaChat Stats: .kachat names */
+"Names Registered" = "已注册名称";
+"Name Renewals" = "名称续期";
+"Name Sales" = "名称出售";
+"Name Offers" = "名称报价";
+"Name Activity" = "名称动态";
+".kachat names claimed" = "已认领的 .kachat 名称";
+".kachat names extended or renewed" = "已延长或续期的 .kachat 名称";
+".kachat names bought from a listing or through an accepted offer" = "通过挂牌或接受报价购买的 .kachat 名称";
+"Offers made on .kachat names" = "对 .kachat 名称的报价";
+"Listings, transfers, releases, reclaims and returned offers" = "挂牌、转让、释放、回收和退回的报价";

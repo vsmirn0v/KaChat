@@ -1339,3 +1339,15 @@
 /* .kachat hub tabs: Marketplace, Reclaimable, Activity */
 "Reclaimable names appear here once .kachat names launch." = ".kachat adları başlayınca geri alınabilir adlar burada görünecek.";
 "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "Kayıttaki her talep, yenileme, ilan, satış, teklif, aktarım ve geri alma.";
+
+/* KaChat Stats: .kachat names */
+"Names Registered" = "Kaydedilen Adlar";
+"Name Renewals" = "Ad Yenilemeleri";
+"Name Sales" = "Ad Satışları";
+"Name Offers" = "Ad Teklifleri";
+"Name Activity" = "Ad Etkinliği";
+".kachat names claimed" = "Talep edilen .kachat adları";
+".kachat names extended or renewed" = "Uzatılan veya yenilenen .kachat adları";
+".kachat names bought from a listing or through an accepted offer" = "İlandan veya kabul edilen teklifle satın alınan .kachat adları";
+"Offers made on .kachat names" = ".kachat adlarına verilen teklifler";
+"Listings, transfers, releases, reclaims and returned offers" = "İlanlar, aktarımlar, bırakmalar, geri almalar ve iade edilen teklifler";

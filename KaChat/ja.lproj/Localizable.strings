@@ -1339,3 +1339,15 @@
 /* .kachat hub tabs: Marketplace, Reclaimable, Activity */
 "Reclaimable names appear here once .kachat names launch." = ".kachat 名の開始後、回収できる名前がここに表示されます。";
 "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry." = "レジストリでのすべての登録、更新、出品、販売、オファー、譲渡、回収。";
+
+/* KaChat Stats: .kachat names */
+"Names Registered" = "登録された名前";
+"Name Renewals" = "名前の更新";
+"Name Sales" = "名前の販売";
+"Name Offers" = "名前へのオファー";
+"Name Activity" = "名前のアクティビティ";
+".kachat names claimed" = "取得された .kachat 名";
+".kachat names extended or renewed" = "延長・更新された .kachat 名";
+".kachat names bought from a listing or through an accepted offer" = "出品または承諾されたオファーで購入された .kachat 名";
+"Offers made on .kachat names" = ".kachat 名へのオファー";
+"Listings, transfers, releases, reclaims and returned offers" = "出品、譲渡、解放、回収、返却されたオファー";
