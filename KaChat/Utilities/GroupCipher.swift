@@ -464,9 +464,15 @@ enum GroupCipher {
         return Data(bytes: &le, count: 8)
     }
 
+    /// Key material (group seed, device id). If SecRandomCopyBytes ever fails, the bytes come
+    /// from the system CSPRNG instead - never the zero-filled buffer, which would give a group an
+    /// all-zero seed anyone could decrypt with.
     private static func randomBytes(_ count: Int) -> Data {
         var bytes = [UInt8](repeating: 0, count: count)
-        _ = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
+        if SecRandomCopyBytes(kSecRandomDefault, count, &bytes) != errSecSuccess {
+            var generator = SystemRandomNumberGenerator()
+            bytes = (0..<count).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
+        }
         return Data(bytes)
     }
 
