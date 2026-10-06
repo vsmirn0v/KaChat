@@ -27,6 +27,8 @@ struct KaPostsSearchView: View {
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var knsService = KNSService.shared
+    /// `.kachat` names (`KachatLive.identityName`) land on their own.
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
     @ObservedObject private var moderationStore = KaPostsModerationStore.shared
 
     @State private var query = ""
@@ -305,11 +307,13 @@ struct KaPostsSearchView: View {
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
             return KaPostsView.displayKasName(assigned)
         }
-        if let domain = knsService.profileCache[address]?.domainName,
+        // Who they are: their .kachat name (a .kas domain isn't identity since 5.2).
+        if let name = KachatLive.identityName(address) { return name }
+        if !KachatNamesService.isEnabled, let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.displayKasName(domain)
         }
-        if let domain = knsService.identityInfo(for: address)?.primaryDomain,
+        if !KachatNamesService.isEnabled, let domain = knsService.identityInfo(for: address)?.primaryDomain,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.displayKasName(domain)
         }

@@ -94,6 +94,27 @@ enum KachatLive {
         return duration(count * (params?.periodMs ?? KachatNames.yearMs))
     }
 
+    /// Who an address is when you haven't named it yourself: its `.kachat` name ("alice.kachat"),
+    /// the same rule as `ContactsManager.displayName`. nil without one (mainnet, until names
+    /// launch). Views that call this observe `KachatNamesRegistry` so the name lands on its own.
+    @MainActor static func identityName(_ address: String) -> String? {
+        guard !address.isEmpty else { return nil }
+        return KachatNamesRegistry.shared.cachedIdentity(for: address)?.label.map { "\($0).kachat" }
+    }
+
+    /// An address's `.kachat` profile banner and bio, each looked up from its social link on this
+    /// device (every network: profiles aren't registry data). Callers observe
+    /// `KachatNamesRegistry` and `KachatSocialImageResolver`.
+    @MainActor static func profileBanner(_ address: String) -> String? {
+        let link = KachatNamesRegistry.shared.cachedIdentity(for: address)?.profile?.banner
+        return KachatSocialImageResolver.shared.profile(for: link)?.banner
+    }
+
+    @MainActor static func profileBio(_ address: String) -> String? {
+        let link = KachatNamesRegistry.shared.cachedIdentity(for: address)?.profile?.bio
+        return KachatSocialImageResolver.shared.profile(for: link)?.bio
+    }
+
     /// The price per period for `name`, from the price record (registry v3; every shard holds the
     /// same prices): the last prices read, else the genesis prices.
     @MainActor static func price(_ name: String) -> UInt64? {

@@ -169,13 +169,13 @@ struct MessageBubbleView: View {
     }
 
     private var avatarView: some View {
-        // contactAddress lets KNSAvatarView fall back to the sender's Contacts-app photo when
-        // they have no KNS avatar (shown for incoming messages only).
+        // contactAddress: the sender's .kachat avatar (yours on your own messages), with their
+        // Contacts-app photo as the fallback.
         KNSAvatarView(
             avatarURLString: avatarURLString,
             fallbackText: avatarDisplayName,
             size: 32,
-            contactAddress: message.isOutgoing ? nil : message.senderAddress
+            contactAddress: message.senderAddress
         )
     }
 

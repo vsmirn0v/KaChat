@@ -2819,7 +2819,8 @@ private struct GroupMessageBubbleRow: View {
                 avatarURLString: message.isOutgoing ? myAvatarURLString : avatarURLString,
                 fallbackText: senderName,
                 size: 32,
-                contactAddress: message.isOutgoing ? nil : message.senderAddress
+                // your own messages show your own (.kachat) avatar too
+                contactAddress: message.isOutgoing ? (message.senderAddress ?? WalletManager.shared.currentWallet?.publicAddress) : message.senderAddress
             )
         }
         .buttonStyle(.plain)

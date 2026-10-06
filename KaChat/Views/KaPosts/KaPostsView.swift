@@ -153,6 +153,9 @@ private struct KaPostsUnavailableView: View {
 }
 
 struct KaPostsView: View {
+    /// `.kachat` names, banners and bios (`KachatLive.identityName` and friends) land on their own.
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
+    @ObservedObject private var kachatSocialImages = KachatSocialImageResolver.shared
     private enum FeedTab: CaseIterable {
         case following
         case feed
@@ -1786,7 +1789,9 @@ struct KaPostsView: View {
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
             return Self.displayKasName(assigned)
         }
-        if let domain = knsService.profileCache[address]?.domainName,
+        // Who they are: their .kachat name (a .kas domain isn't identity since 5.2).
+        if let name = KachatLive.identityName(address) { return name }
+        if !KachatNamesService.isEnabled, let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return Self.displayKasName(domain)
         }
@@ -3668,7 +3673,9 @@ struct KaPostsView: View {
                     // the value the same way every other banner in the app does, and caches it.
                     // The whole banner at the full width (its own proportions, no crop); the
                     // gradient only when there is no banner.
-                    if KNSProfileLinkBuilder.websiteURL(from: myInfo?.profile?.bannerUrl) != nil {
+                    if let banner = KachatLive.profileBanner(myAddress) {
+                        KNSBannerImageView(bannerURLString: banner, height: 140, cornerRadius: 0, fitsWidth: true)
+                    } else if !KachatNamesService.isEnabled, KNSProfileLinkBuilder.websiteURL(from: myInfo?.profile?.bannerUrl) != nil {
                         KNSBannerImageView(
                             bannerURLString: myInfo?.profile?.bannerUrl,
                             height: 140,
@@ -3685,7 +3692,8 @@ struct KaPostsView: View {
                     KNSAvatarView(
                         avatarURLString: myInfo?.avatarURL,
                         fallbackText: posterDisplayName(myAddress),
-                        size: 76
+                        size: 76,
+                        contactAddress: myAddress
                     )
                     .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 3))
                     .padding(.leading, 16)
@@ -3725,7 +3733,7 @@ struct KaPostsView: View {
                         }
                         // Same as another user's profile, which has always shown this - your own
                         // was the one place your bio did not appear.
-                        if let bio = myInfo?.profile?.bio,
+                        if let bio = KachatLive.profileBio(myAddress) ?? (KachatNamesService.isEnabled ? nil : myInfo?.profile?.bio),
                            !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             ExpandableBioText(bio: bio)
                                 .padding(.top, 2)
@@ -3871,7 +3879,9 @@ struct KaPostsView: View {
                     // banner for why a bare AsyncImage never loaded a KNS bannerUrl.
                     // The whole banner at the full width (its own proportions, no crop); the
                     // gradient only when there is no banner.
-                    if KNSProfileLinkBuilder.websiteURL(from: info?.profile?.bannerUrl) != nil {
+                    if let banner = KachatLive.profileBanner(address) {
+                        KNSBannerImageView(bannerURLString: banner, height: 140, cornerRadius: 0, fitsWidth: true)
+                    } else if !KachatNamesService.isEnabled, KNSProfileLinkBuilder.websiteURL(from: info?.profile?.bannerUrl) != nil {
                         KNSBannerImageView(
                             bannerURLString: info?.profile?.bannerUrl,
                             height: 140,
@@ -3953,7 +3963,7 @@ struct KaPostsView: View {
                             }
                             .buttonStyle(.plain)
                         }
-                        if let bio = info?.profile?.bio,
+                        if let bio = KachatLive.profileBio(address) ?? (KachatNamesService.isEnabled ? nil : info?.profile?.bio),
                            !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             ExpandableBioText(bio: bio)
                                 .padding(.top, 2)
@@ -5032,6 +5042,9 @@ private struct KaPostPollCard: View {
 // MARK: - Post cell
 
 private struct KaPostCellView: View {
+    /// `.kachat` names, banners and bios (`KachatLive.identityName` and friends) land on their own.
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
+    @ObservedObject private var kachatSocialImages = KachatSocialImageResolver.shared
     let post: KaPostsView.DraftPost
     let displayName: String
     let avatarURLString: String?
@@ -5859,7 +5872,9 @@ private struct KaPostCellView: View {
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
             return KaPostsView.displayKasName(assigned)
         }
-        if let domain = KNSService.shared.profileCache[address]?.domainName,
+        // Who they are: their .kachat name (a .kas domain isn't identity since 5.2).
+        if let name = KachatLive.identityName(address) { return name }
+        if !KachatNamesService.isEnabled, let domain = KNSService.shared.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.displayKasName(domain)
         }
@@ -7612,6 +7627,9 @@ final class KaPostsModerationStore: ObservableObject {
 /// the requester's own notification stream, so actor lists populate for YOUR posts; other
 /// authors' posts show counts with an explanatory empty state until K grows list endpoints.
 struct KaPostEngagementView: View {
+    /// `.kachat` names, banners and bios (`KachatLive.identityName` and friends) land on their own.
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
+    @ObservedObject private var kachatSocialImages = KachatSocialImageResolver.shared
     let post: KaPostsView.DraftPost
 
     @Environment(\.dismiss) private var dismiss
@@ -7776,7 +7794,9 @@ struct KaPostEngagementView: View {
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
             return KaPostsView.displayKasName(assigned)
         }
-        if let domain = knsService.profileCache[address]?.domainName,
+        // Who they are: their .kachat name (a .kas domain isn't identity since 5.2).
+        if let name = KachatLive.identityName(address) { return name }
+        if !KachatNamesService.isEnabled, let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.displayKasName(domain)
         }
@@ -7919,6 +7939,9 @@ struct KaPostEngagementView: View {
 /// KaPosts profile. Server (K indexer) is the source for followers; Following merges the
 /// server list with the local follow store so pre-wiring follows still show.
 struct KaPostsFollowListView: View {
+    /// `.kachat` names, banners and bios (`KachatLive.identityName` and friends) land on their own.
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
+    @ObservedObject private var kachatSocialImages = KachatSocialImageResolver.shared
     enum Kind {
         case following
         case followers
@@ -8061,7 +8084,9 @@ struct KaPostsFollowListView: View {
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
             return KaPostsView.displayKasName(assigned)
         }
-        if let domain = knsService.profileCache[address]?.domainName,
+        // Who they are: their .kachat name (a .kas domain isn't identity since 5.2).
+        if let name = KachatLive.identityName(address) { return name }
+        if !KachatNamesService.isEnabled, let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.displayKasName(domain)
         }
@@ -8157,6 +8182,9 @@ struct KaPostsFollowListView: View {
 /// replies, quotes/reposts, X-style. Identity is KNS-resolved from the actor's pubkey like
 /// everywhere else; muted/blocked actors are filtered out.
 struct KaPostsNotificationsView: View {
+    /// `.kachat` names, banners and bios (`KachatLive.identityName` and friends) land on their own.
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
+    @ObservedObject private var kachatSocialImages = KachatSocialImageResolver.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
@@ -8395,7 +8423,9 @@ struct KaPostsNotificationsView: View {
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
             return KaPostsView.displayKasName(assigned)
         }
-        if let domain = knsService.profileCache[address]?.domainName,
+        // Who they are: their .kachat name (a .kas domain isn't identity since 5.2).
+        if let name = KachatLive.identityName(address) { return name }
+        if !KachatNamesService.isEnabled, let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.displayKasName(domain)
         }

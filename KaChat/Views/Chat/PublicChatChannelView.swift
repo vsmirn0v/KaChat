@@ -1775,7 +1775,8 @@ private struct PublicChatMessageRow: View, Equatable {
                 avatarURLString: avatarURLString,
                 fallbackText: displayName,
                 size: 32,
-                contactAddress: isOwnMessage ? nil : message.senderAddress
+                // the sender's .kachat avatar - yours on your own messages too
+                contactAddress: message.senderAddress
             )
         }
         .buttonStyle(.plain)
