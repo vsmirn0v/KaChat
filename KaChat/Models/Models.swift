@@ -1706,6 +1706,45 @@ enum NetworkType: String, Codable, CaseIterable {
     }
 }
 
+extension KaspaAddress {
+    /// A recipient the app can use: a valid address of the network the app runs on. A `kaspa:`
+    /// address on testnet (or `kaspatest:` on mainnet) is the same key on the other chain, so
+    /// paying it sends coins to the wrong network (IOS-003).
+    static func isValidOnActiveNetwork(_ address: String) -> Bool {
+        isValid(address) && NetworkType(address: address) == AppSettings.load().networkType
+    }
+
+    /// Why a valid address can't be used here: it's the other network's. nil for an address of
+    /// the running network or one that isn't valid at all.
+    static func otherNetworkReason(_ address: String) -> String? {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValid(trimmed), let network = NetworkType(address: trimmed),
+              network != AppSettings.load().networkType else { return nil }
+        return AppLocalization.string(network == .testnet
+            ? "This is a Testnet address. KaChat is on Mainnet."
+            : "This is a Mainnet address. KaChat is on Testnet.")
+    }
+
+    /// The line under an address field: "Valid address", the other-network reason, or "Invalid
+    /// address format".
+    static func validityText(_ address: String, isValid: Bool) -> String {
+        if isValid { return AppLocalization.string("Valid address") }
+        return otherNetworkReason(address) ?? AppLocalization.string("Invalid address format")
+    }
+
+    /// The same key's address on the network the app runs on, for an address with or without its
+    /// prefix (profile links drop it). nil if it isn't a valid address on either network.
+    static func onActiveNetwork(_ raw: String) -> String? {
+        let lower = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let candidates = lower.contains(":") ? [lower] : ["kaspa:" + lower, "kaspatest:" + lower]
+        guard let valid = candidates.first(where: isValid), let parsed = KaspaAddress(address: valid) else { return nil }
+        let hrp = AppSettings.load().networkType == .testnet ? "kaspatest" : "kaspa"
+        guard parsed.hrp != hrp else { return valid }
+        let converted = KaspaAddress(hrp: hrp, type: parsed.type, payload: parsed.payload).address
+        return converted.isEmpty ? nil : converted
+    }
+}
+
 /// The unit every amount is shown in: KAS on mainnet, TKAS on testnet, so a testnet amount can
 /// never be read as real KAS. Market data (the KAS price, exchange tickers) stays "KAS".
 enum KaspaUnit {

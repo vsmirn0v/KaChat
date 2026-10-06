@@ -1297,3 +1297,7 @@
 /* Seed phrase screen: the passphrase is part of the backup (IOS-017) */
 "This wallet also uses a passphrase. You need it together with these words to restore it." = "Esta carteira também usa uma frase secreta. Você precisa dela junto com estas palavras para restaurá-la.";
 "Passphrase" = "Frase secreta";
+
+/* Addresses of the other network are refused (IOS-003) */
+"This is a Testnet address. KaChat is on Mainnet." = "Este é um endereço da Testnet. O KaChat está na Mainnet.";
+"This is a Mainnet address. KaChat is on Testnet." = "Este é um endereço da Mainnet. O KaChat está na Testnet.";

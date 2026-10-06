@@ -225,7 +225,7 @@ struct AddContactView: View {
                                 HStack {
                                     Image(systemName: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
                                         .foregroundColor(isValidAddress ? .green : .red)
-                                    Text(isValidAddress ? "Valid address" : "Invalid address format")
+                                    Text(verbatim: KaspaAddress.validityText(addressInput, isValid: isValidAddress))
                                         .font(.caption)
                                         .foregroundColor(isValidAddress ? .green : .red)
                                 }
@@ -669,7 +669,8 @@ struct AddContactView: View {
 
         // Check if it's a direct Kaspa address
         if trimmed.hasPrefix("kaspa:") || trimmed.hasPrefix("kaspatest:") {
-            isValidAddress = contactsManager.isValidKaspaAddress(trimmed)
+            // the other network's address is the same key on another chain: refused
+            isValidAddress = KaspaAddress.isValidOnActiveNetwork(trimmed)
             return
         }
 
@@ -1153,7 +1154,7 @@ struct AddContactView: View {
         if entry.looksLikeDomain {
             return entry.resolvedAddress != nil
         }
-        return contactsManager.isValidKaspaAddress(entry.trimmedText)
+        return KaspaAddress.isValidOnActiveNetwork(entry.trimmedText)
     }
 
     /// Lowercased effective addresses that appear more than once across all entries - catches the
@@ -1250,11 +1251,11 @@ struct AddContactView: View {
                     .lineLimit(1)
             }
         } else if !entry.looksLikeDomain {
-            let isValid = contactsManager.isValidKaspaAddress(entry.trimmedText)
+            let isValid = KaspaAddress.isValidOnActiveNetwork(entry.trimmedText)
             HStack {
                 Image(systemName: isValid ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .foregroundColor(isValid ? .green : .red)
-                Text(isValid ? "Valid address" : "Invalid address format")
+                Text(verbatim: KaspaAddress.validityText(entry.trimmedText, isValid: isValid))
                     .font(.caption)
                     .foregroundColor(isValid ? .green : .red)
             }
@@ -1267,7 +1268,7 @@ struct AddContactView: View {
     private func groupAddressPreviewCard(for entry: GroupAddressEntry) -> some View {
         if let address = entry.effectiveAddress,
            !address.isEmpty,
-           entry.resolvedAddress != nil || contactsManager.isValidKaspaAddress(address) {
+           entry.resolvedAddress != nil || KaspaAddress.isValidOnActiveNetwork(address) {
             HStack(spacing: 12) {
                 KNSAvatarView(
                     avatarURLString: knsService.profileCache[address]?.avatarURL,

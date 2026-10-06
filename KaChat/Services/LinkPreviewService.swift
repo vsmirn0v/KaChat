@@ -130,10 +130,12 @@ enum KaChatInternalLink: Equatable {
 
     /// A pasted address is attacker-controlled like everything else in a link: it has to be a
     /// valid Kaspa address, checksum and all, or the link is not ours.
+    /// The address opens on the network the app runs on: a link without a prefix (or shared
+    /// from the other network) names the same key, so it becomes that key's address here -
+    /// a `kaspa:` contact on testnet could never be reached (IOS-003).
     private static func profileLink(rawAddress: String) -> KaChatInternalLink? {
-        var address = rawAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !address.contains(":") { address = "kaspa:" + address }
-        guard address.count <= 100, KaspaAddress.isValid(address) else { return nil }
+        let raw = rawAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard raw.count <= 100, let address = KaspaAddress.onActiveNetwork(raw) else { return nil }
         return .profile(address: address)
     }
 

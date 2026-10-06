@@ -111,7 +111,7 @@ struct SendRecipientCard: View {
                     .truncationMode(.middle)
             }
         } else {
-            Label(isValidAddress ? "Valid address" : "Invalid address format",
+            Label(KaspaAddress.validityText(trimmed, isValid: isValidAddress),
                   systemImage: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .font(.caption)
                 .foregroundColor(isValidAddress ? .green : .red)

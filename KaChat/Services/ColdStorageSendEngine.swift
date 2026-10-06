@@ -217,6 +217,7 @@ final class ColdStorageSendEngine {
         guard amountSompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
         }
+        if let reason = KaspaAddress.otherNetworkReason(toAddress) { throw KasiaError.networkError(reason) }
         guard let recipientScript = KaspaAddress.scriptPublicKey(from: toAddress),
               let changeScript = KaspaAddress.scriptPublicKey(from: fromAddress) else {
             throw KasiaError.invalidAddress

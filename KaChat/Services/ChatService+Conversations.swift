@@ -2497,6 +2497,7 @@ extension ChatService {
         // each candidate's on-chain history first, so a pool address already paid by another
         // device running the same seed is skipped instead of reused. See
         // `ChatService+PaymentPools.swift` / MESSAGING.md.
+        if let reason = KaspaAddress.otherNetworkReason(contact.address) { throw KasiaError.networkError(reason) }
         let destinationAddress = await poolPaymentDestination(for: contact, pendingTxId: activePendingTxId)
 
         do {
@@ -2656,6 +2657,8 @@ extension ChatService {
         guard KaspaAddress.scriptPublicKey(from: toAddress) != nil else {
             throw KasiaError.invalidAddress
         }
+        // the script ignores the prefix: a kaspatest: address on mainnet would pay real KAS
+        if let reason = KaspaAddress.otherNetworkReason(toAddress) { throw KasiaError.networkError(reason) }
         guard let wallet = WalletManager.shared.currentWallet else {
             throw KasiaError.walletNotFound
         }
@@ -2791,6 +2794,8 @@ extension ChatService {
         guard KaspaAddress.scriptPublicKey(from: toAddress) != nil else {
             throw KasiaError.invalidAddress
         }
+        // the script ignores the prefix: a kaspatest: address on mainnet would pay real KAS
+        if let reason = KaspaAddress.otherNetworkReason(toAddress) { throw KasiaError.networkError(reason) }
         guard let fromAddress = WalletManager.shared.spendingAddress(at: index),
               let privateKey = WalletManager.shared.spendingPrivateKey(at: index) else {
             throw KasiaError.keychainError("Could not derive this spending address")

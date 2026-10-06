@@ -3558,7 +3558,7 @@ struct KNSDomainSendView: View {
                             HStack {
                                 Image(systemName: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
                                     .foregroundColor(isValidAddress ? .green : .red)
-                                Text(isValidAddress ? "Valid address" : "Invalid address format")
+                                Text(verbatim: KaspaAddress.validityText(addressInput, isValid: isValidAddress))
                                     .font(.caption)
                                     .foregroundColor(isValidAddress ? .green : .red)
                             }
@@ -3705,7 +3705,7 @@ struct KNSDomainSendView: View {
         }
 
         if trimmed.hasPrefix("kaspa:") || trimmed.hasPrefix("kaspatest:") {
-            isValidAddress = KaspaAddress.isValid(trimmed)
+            isValidAddress = KaspaAddress.isValidOnActiveNetwork(trimmed)
             return
         }
 
@@ -4922,7 +4922,8 @@ struct WithdrawKaspaView: View {
         }
 
         if trimmed.hasPrefix("kaspa:") || trimmed.hasPrefix("kaspatest:") {
-            isValidAddress = contactsManager.isValidKaspaAddress(trimmed)
+            // the other network's address is the same key on another chain: refused
+            isValidAddress = KaspaAddress.isValidOnActiveNetwork(trimmed)
             return
         }
 

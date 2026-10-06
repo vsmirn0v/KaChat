@@ -1297,3 +1297,7 @@
 /* Seed phrase screen: the passphrase is part of the backup (IOS-017) */
 "This wallet also uses a passphrase. You need it together with these words to restore it." = "このウォレットはパスフレーズも使っています。復元するには、これらの単語と一緒にパスフレーズが必要です。";
 "Passphrase" = "パスフレーズ";
+
+/* Addresses of the other network are refused (IOS-003) */
+"This is a Testnet address. KaChat is on Mainnet." = "これは Testnet のアドレスです。KaChat は Mainnet で動作中です。";
+"This is a Mainnet address. KaChat is on Testnet." = "これは Mainnet のアドレスです。KaChat は Testnet で動作中です。";

@@ -1743,7 +1743,8 @@ struct SpendingAddressWithdrawView: View {
         }
 
         if trimmed.hasPrefix("kaspa:") || trimmed.hasPrefix("kaspatest:") {
-            isValidAddress = contactsManager.isValidKaspaAddress(trimmed)
+            // the other network's address is the same key on another chain: refused
+            isValidAddress = KaspaAddress.isValidOnActiveNetwork(trimmed)
             return
         }
 

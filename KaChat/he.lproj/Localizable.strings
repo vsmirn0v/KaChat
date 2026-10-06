@@ -1297,3 +1297,7 @@
 /* Seed phrase screen: the passphrase is part of the backup (IOS-017) */
 "This wallet also uses a passphrase. You need it together with these words to restore it." = "הארנק הזה משתמש גם בביטוי סיסמה. צריך אותו יחד עם המילים האלה כדי לשחזר אותו.";
 "Passphrase" = "ביטוי סיסמה";
+
+/* Addresses of the other network are refused (IOS-003) */
+"This is a Testnet address. KaChat is on Mainnet." = "זו כתובת Testnet. ‏KaChat פועל ב-Mainnet.";
+"This is a Mainnet address. KaChat is on Testnet." = "זו כתובת Mainnet. ‏KaChat פועל ב-Testnet.";
