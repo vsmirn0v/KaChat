@@ -592,8 +592,46 @@ final class NodePoolService: ObservableObject {
     }
 
     /// Submit transaction (broadcast to multiple nodes)
+    ///
+    /// A failed submit is not always a failed send: node A can accept the transaction while its
+    /// answer times out, and the node raced against it then rejects the same transaction
+    /// ("already in the mempool", orphan, double spend). Reporting that as a failure invites a
+    /// resend that pays twice. So before throwing, the transaction's own id (computed locally) is
+    /// looked up: found in a mempool or accepted, the send succeeded.
     func submitTransaction(_ transaction: KaspaRpcTransaction, allowOrphan: Bool = false) async throws -> (txId: String, endpoint: String) {
-        try await submitRpcTransaction(transaction.toProtobuf(), allowOrphan: allowOrphan)
+        do {
+            return try await submitRpcTransaction(transaction.toProtobuf(), allowOrphan: allowOrphan)
+        } catch {
+            let txId = KasiaTransactionBuilder.computeTransactionId(transaction)
+            if await isTransactionKnown(txId: txId) {
+                AppLog.log("[NodePool] submit of %@ reported \"%@\" but the network has it: treated as sent",
+                           String(txId.prefix(12)), error.localizedDescription)
+                return (txId: txId, endpoint: "already-known")
+            }
+            throw error
+        }
+    }
+
+    /// Whether the network already has `txId`: in a mempool, or accepted (REST API). Checked
+    /// twice, a moment apart, since a just-accepted transaction may not have propagated yet.
+    private func isTransactionKnown(txId: String) async -> Bool {
+        for attempt in 0..<2 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 1_500_000_000) }
+            if await getMempoolEntry(txId: txId, attempt: attempt) != nil { return true }
+            if await Self.isAcceptedViaREST(txId: txId) { return true }
+        }
+        return false
+    }
+
+    private static func isAcceptedViaREST(txId: String) async -> Bool {
+        let base = AppSettings.load().kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: "\(base.hasSuffix("/") ? String(base.dropLast()) : base)/transactions/\(txId)?inputs=false&outputs=false&resolve_previous_outpoints=no") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return (j["is_accepted"] as? Bool) == true
     }
 
     /// Submit an already-converted transaction. The version-1 (Toccata) builders fill
