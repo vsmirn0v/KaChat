@@ -659,6 +659,22 @@ struct PaymentResponse: Codable {
         case messagePayload = "message_payload"
     }
 
+    /// The indexer stores a payment before resolving its sender from the transaction inputs and
+    /// sends `"sender": null` until then. Such a row decodes with an empty sender, so one row
+    /// can't fail its whole page; the sync resolves an empty sender itself (`processPayments`).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        txId = try c.decode(String.self, forKey: .txId)
+        sender = try c.decodeIfPresent(String.self, forKey: .sender) ?? ""
+        receiver = try c.decode(String.self, forKey: .receiver)
+        amount = try c.decodeIfPresent(UInt64.self, forKey: .amount)
+        message = try c.decodeIfPresent(String.self, forKey: .message)
+        blockTime = try c.decodeIfPresent(UInt64.self, forKey: .blockTime)
+        acceptingBlock = try c.decodeIfPresent(String.self, forKey: .acceptingBlock)
+        acceptingDaaScore = try c.decodeIfPresent(UInt64.self, forKey: .acceptingDaaScore)
+        messagePayload = try c.decodeIfPresent(String.self, forKey: .messagePayload)
+    }
+
     init(txId: String, sender: String, receiver: String, amount: UInt64?, message: String?, blockTime: UInt64?, acceptingBlock: String?, acceptingDaaScore: UInt64?, messagePayload: String?) {
         self.txId = txId
         self.sender = sender
