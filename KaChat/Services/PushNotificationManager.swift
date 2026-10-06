@@ -1066,7 +1066,8 @@ final class PushNotificationManager: ObservableObject {
 
     /// Process pending messages stored by notification extension
     func processPendingMessages() async {
-        // Get messages decrypted by extension
+        // Decrypted messages an older notification extension stored in plain text (it no longer
+        // does - IOS-051): processed once, then only those entries removed (IOS-052).
         let storedMessages = SharedDataManager.getStoredMessages()
         if !storedMessages.isEmpty {
             AppLog.log("[Push] Processing %d messages from extension", storedMessages.count)
@@ -1091,10 +1092,11 @@ final class PushNotificationManager: ObservableObject {
                 }
             }
 
-            SharedDataManager.clearStoredMessages()
+            SharedDataManager.removeStoredMessages(txIds: Set(storedMessages.compactMap { $0["txId"] as? String }))
         }
 
-        // Get pending messages that need fetching (large payloads)
+        // Get pending messages that need fetching (large payloads, and every 1:1 message the
+        // extension decrypted for its banner)
         let pendingMessages = SharedDataManager.getPendingMessages()
         if !pendingMessages.isEmpty {
             AppLog.log("[Push] Fetching %d pending messages", pendingMessages.count)

@@ -265,14 +265,12 @@ class NotificationService: UNNotificationServiceExtension {
         case "contextual":
             if let payloadHex,
                let decrypted = decryptContextualMessage(payloadHex: payloadHex) {
-                storeDecryptedMessage(
-                    txId: txId,
-                    sender: senderAddress,
-                    content: decrypted,
-                    timestamp: extractTimestamp(userInfo: userInfo)
-                )
+                // Only the txId and sender are kept for the app, which fetches and decrypts the
+                // message itself: the App Group plist is not encrypted at rest (and goes into
+                // unencrypted backups), so the plaintext never lands there (IOS-051).
+                addPendingMessage(txId: txId, sender: senderAddress, type: "contextual")
                 // Fresh-address payment pool control envelopes (addr_pool / addr_pool_request)
-                // are invisible protocol messages - suppress the banner entirely (still stored
+                // are invisible protocol messages - suppress the banner entirely (still queued
                 // above so the main app processes them on open). A payment_notice however IS a
                 // payment the user should see, worded like a real payment push.
                 // An edit envelope changes an earlier bubble in place - nothing to announce.
@@ -1364,43 +1362,6 @@ class NotificationService: UNNotificationServiceExtension {
         if mimeType.hasPrefix("audio/") { return "Sent a voice message" }
         if mimeType.hasPrefix("video/") { return "Sent a video" }
         return text
-    }
-
-    private func storeDecryptedMessage(txId: String, sender: String, content: String, timestamp: Int64) {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
-
-        var messages: [[String: Any]] = []
-        if let data = defaults.data(forKey: "stored_messages"),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            messages = existing
-        }
-
-        guard !messages.contains(where: { ($0["txId"] as? String) == txId }) else { return }
-
-        messages.append([
-            "txId": txId,
-            "sender": sender,
-            "content": content,
-            "timestamp": timestamp
-        ])
-
-        if messages.count > 50 {
-            messages = Array(messages.suffix(50))
-        }
-
-        if let data = try? JSONSerialization.data(withJSONObject: messages) {
-            defaults.set(data, forKey: "stored_messages")
-        }
-    }
-
-    private func extractTimestamp(userInfo: [AnyHashable: Any]) -> Int64 {
-        if let timestamp = userInfo["timestamp"] as? Int64 {
-            return timestamp
-        }
-        if let timestamp = userInfo["timestamp"] as? NSNumber {
-            return timestamp.int64Value
-        }
-        return Int64(Date().timeIntervalSince1970 * 1000)
     }
 
     // MARK: - Off-chain read for payload-less pushes

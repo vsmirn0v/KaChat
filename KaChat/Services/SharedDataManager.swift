@@ -473,31 +473,7 @@ final class SharedDataManager {
         setPendingMessages(filtered)
     }
 
-    // MARK: - Stored Messages (decrypted by extension, ready to add to chat)
-
-    /// Store a decrypted message from notification extension
-    static func storeMessage(txId: String, sender: String, content: String, timestamp: Int64) {
-        var messages = getStoredMessagesRaw()
-
-        // Avoid duplicates
-        guard !messages.contains(where: { ($0["txId"] as? String) == txId }) else { return }
-
-        messages.append([
-            "txId": txId,
-            "sender": sender,
-            "content": content,
-            "timestamp": timestamp
-        ] as [String: Any])
-
-        // Keep only last 50 stored messages
-        if messages.count > 50 {
-            messages = Array(messages.suffix(50))
-        }
-
-        if let data = try? JSONSerialization.data(withJSONObject: messages) {
-            sharedDefaults?.set(data, forKey: Keys.storedMessages)
-        }
-    }
+    // MARK: - Stored Messages (legacy: decrypted text an older extension kept; read once, removed)
 
     /// Get all stored messages
     static func getStoredMessages() -> [[String: Any]] {
@@ -512,10 +488,17 @@ final class SharedDataManager {
         return messages
     }
 
-    /// Clear all stored messages
-    static func clearStoredMessages() {
-        sharedDefaults?.removeObject(forKey: Keys.storedMessages)
+    /// Removes only these entries: anything added meanwhile stays (IOS-052).
+    static func removeStoredMessages(txIds: Set<String>) {
+        guard !txIds.isEmpty else { return }
+        let remaining = getStoredMessagesRaw().filter { !txIds.contains(($0["txId"] as? String) ?? "") }
+        if remaining.isEmpty {
+            sharedDefaults?.removeObject(forKey: Keys.storedMessages)
+        } else if let data = try? JSONSerialization.data(withJSONObject: remaining) {
+            sharedDefaults?.set(data, forKey: Keys.storedMessages)
+        }
     }
+
 
     // MARK: - Outbound Shares (Share Extension -> Main App)
 
