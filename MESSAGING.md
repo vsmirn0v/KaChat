@@ -38,6 +38,15 @@ When a UTXO notification arrives, we know:
 
 **Payload format**: `kchat:1:comm:<alias>:<base64_encrypted_message>` (legacy root `ciph_msg:1:comm:` still accepted on read)
 
+**First contact**: the sender's first message to someone who has never written to them is
+`kchat:1:dm:<inboxTag>:<alias>:<base64_encrypted_message>` instead - a `comm` message plus the
+recipient's inbox tag, so the recipient's app can find it (no handshake needed).
+`inboxTag = lowercase hex of the first 16 bytes of SHA-256(UTF-8("kachat-inbox:v1:" + recipient))`,
+`recipient` being the full lowercased address with its prefix. Readers normalise it to `comm` by
+dropping the tag; everything after the tag is identical. Only that one message carries the tag.
+Full rules (when to tag, the indexer's inbox endpoint, Message Requests):
+`NO_HANDSHAKE_MESSAGING.md`.
+
 **Flow**:
 ```
 1. Alice wants to send message to Bob
@@ -623,6 +632,7 @@ every kind below (dual-read, write-new):
 
 ```
 kchat:1:comm:<alias>:<base64_encrypted>       # Contextual message
+kchat:1:dm:<inboxTag>:<alias>:<base64_encrypted>  # First-contact message: comm + the recipient's inbox tag (NO_HANDSHAKE_MESSAGING.md)
 kchat:1:pay:<base64_encrypted>                # Payment with memo
 kchat:1:handshake:<encrypted_hex>             # Handshake
 kchat:1:self_stash:<data>                     # Self-stash metadata

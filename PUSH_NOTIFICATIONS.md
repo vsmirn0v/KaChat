@@ -636,7 +636,14 @@ class NotificationService: UNNotificationServiceExtension {
         }
     }
 
-    private func tryDecrypt(payload: String, sharedSecret: Data) -> String? {
+    private func tryDecrypt(payload rawPayload: String, sharedSecret: Data) -> String? {
+        // A first-contact message is a comm message plus the recipient's inbox tag:
+        // kchat:1:dm:<inboxTag>:<rest> reads as kchat:1:comm:<rest> (NO_HANDSHAKE_MESSAGING.md).
+        var payload = rawPayload
+        if payload.hasPrefix("kchat:1:dm:") {
+            let afterTag = payload.dropFirst("kchat:1:dm:".count).drop { $0 != ":" }.dropFirst()
+            payload = "kchat:1:comm:" + afterTag
+        }
         // Parse payload: kchat:1:comm:<alias>|<encrypted> (legacy root ciph_msg:1: is read too)
         guard payload.hasPrefix("kchat:1:comm:") || payload.hasPrefix("ciph_msg:1:comm:"),
               let pipeIndex = payload.firstIndex(of: "|") else {
