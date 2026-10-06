@@ -1201,12 +1201,18 @@ struct AddressPoolRequestContent: Codable, Equatable {
 /// chatting address, so a payment to a pool address would otherwise never surface in the
 /// recipient's chat. The recipient renders a normal payment bubble from this notice (deduped by
 /// `txId`). `amountSompi` is an integer amount in sompi; `address` is the pool address the
-/// payment was sent to.
+/// payment was sent to; `memo` (optional, absent when empty) is the payer's note - the notice
+/// is the only part of a pool payment the recipient's chat reads, and it already travels
+/// encrypted to the contact (MESSAGING.md, Fresh-Address Payment Pools).
 struct PaymentNoticeContent: Codable, Equatable {
     var type: String = "payment_notice"
     let txId: String
     let amountSompi: UInt64
     let address: String
+    var memo: String? = nil
+
+    /// The longest note a notice carries or shows.
+    static let maxMemoLength = 500
 }
 
 /// Any one of the three payment-pool envelope shapes, parsed generically - mirrors

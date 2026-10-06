@@ -2526,7 +2526,11 @@ extension ChatService {
                 throw KasiaError.networkError("No spendable UTXOs available")
             }
 
-            guard let recipientPublicKey = KaspaAddress.publicKey(from: destinationAddress) else {
+            // The payment's note is sealed to the contact's CHAT key, whichever address it pays:
+            // that is the key every client decrypts payment payloads with (Android and Desktop
+            // seal to it too). A pool address's key was readable by nobody.
+            guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address),
+                  KaspaAddress.publicKey(from: destinationAddress) != nil else {
                 throw KasiaError.invalidAddress
             }
 
@@ -2579,7 +2583,8 @@ extension ChatService {
                 txId: txId,
                 amountSompi: amountSompi,
                 destinationAddress: destinationAddress,
-                pendingTxId: activePendingTxId
+                pendingTxId: activePendingTxId,
+                memo: note
             )
             return txId
         } catch {
@@ -2609,7 +2614,8 @@ extension ChatService {
                     txId: acceptedTxId,
                     amountSompi: amountSompi,
                     destinationAddress: destinationAddress,
-                    pendingTxId: activePendingTxId
+                    pendingTxId: activePendingTxId,
+                    memo: note
                 )
                 return acceptedTxId
             }

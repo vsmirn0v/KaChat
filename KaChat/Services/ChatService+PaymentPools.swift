@@ -542,15 +542,19 @@ extension ChatService {
         txId: String,
         amountSompi: UInt64,
         destinationAddress: String,
-        pendingTxId: String
+        pendingTxId: String,
+        memo: String = ""
     ) {
         PaymentPoolStore.shared.forgetPaymentDestination(pendingTxId: pendingTxId)
         guard destinationAddress != contact.address else { return }
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // the note travels in the notice: it is what the recipient's chat reads
+            let trimmedMemo = String(memo.trimmingCharacters(in: .whitespacesAndNewlines).prefix(PaymentNoticeContent.maxMemoLength))
             let payload = PaymentPoolCodec.encode(
-                PaymentNoticeContent(txId: txId, amountSompi: amountSompi, address: destinationAddress)
+                PaymentNoticeContent(txId: txId, amountSompi: amountSompi, address: destinationAddress,
+                                     memo: trimmedMemo.isEmpty ? nil : trimmedMemo)
             )
             guard !payload.isEmpty else { return }
             do {
@@ -739,12 +743,17 @@ extension ChatService {
             guard let self else { return }
             guard await self.findLocalMessage(txId: txId) == nil else { return }
 
-            let template = KaspaUnit.label(AppLocalization.string("Received %@ KAS"))
+            // same stored shape as a chatting-address payment, note included
+            let memo = (content.memo ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(PaymentNoticeContent.maxMemoLength)
+            let amount = self.formatKasAmount(content.amountSompi)
+            let text = memo.isEmpty
+                ? String(format: KaspaUnit.label(AppLocalization.string("Received %@ KAS")), amount)
+                : String(format: KaspaUnit.label(AppLocalization.string("Received %@ KAS — %@")), amount, String(memo))
             let bubble = ChatMessage(
                 txId: txId,
                 senderAddress: contactAddress,
                 receiverAddress: content.address,
-                content: String(format: template, self.formatKasAmount(content.amountSompi)),
+                content: text,
                 timestamp: Date(timeIntervalSince1970: TimeInterval(noticeBlockTime / 1000)),
                 blockTime: noticeBlockTime,
                 acceptingBlock: nil,

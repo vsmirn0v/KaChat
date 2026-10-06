@@ -379,7 +379,7 @@ with `replace:false` (append semantics) — subject to the mandatory inbound rat
 #### 3. `payment_notice` — tell the recipient about a pool payment
 
 ```json
-{"type":"payment_notice","txId":"a1b2...","amountSompi":123450000,"address":"kaspa:qq..."}
+{"type":"payment_notice","txId":"a1b2...","amountSompi":123450000,"address":"kaspa:qq...","memo":"rent"}
 ```
 
 | Field | Type | Required | Meaning |
@@ -388,6 +388,7 @@ with `replace:false` (append semantics) — subject to the mandatory inbound rat
 | `txId` | string | yes | Transaction id of the on-chain payment (lowercase hex) |
 | `amountSompi` | integer | yes | Amount paid, in sompi |
 | `address` | string | yes | The pool address the payment was sent to |
+| `memo` | string | no | The payer's note, at most 500 characters; omitted when empty (since 2026-10-06) |
 
 Sent by the **payer**, through the normal encrypted contextual channel, right after the payment
 transaction is accepted. Why it exists: payment detection (both UTXO subscriptions and REST
@@ -398,7 +399,9 @@ nor a contact address falls into the "unknown address — skip silently" case.)
 
 **Payment-bubble contract** (all platforms must match): on receiving a `payment_notice`, the
 recipient renders a normal incoming **payment bubble** in that conversation — same content as a
-detected payment ("Received X KAS"), timestamped from the notice envelope's block time, with the
+detected payment ("Received X KAS", or "Received X KAS — <memo>" when the notice carries a
+`memo`, the same stored shape as a chatting-address payment with a note), timestamped from the
+notice envelope's block time, with the
 bubble's transaction id set to `txId`. Deduplicate by `txId`: if a message with that txId already
 exists, do nothing. Rendering must NOT block on chain verification (the notice arrived over the
 sender-authenticated encrypted channel); verifying the referenced tx against a REST API when
@@ -451,7 +454,10 @@ NOT render anything from its own notice (its bubble was created by the send flow
    consumed (persisted immediately — a consumed address is never offered to a payment again,
    even if that payment ultimately fails; burning an address is safe, reusing one is not).
    A retry of the same payment reuses the same destination.
-2. After the payment tx is accepted, send `payment_notice`.
+2. After the payment tx is accepted, send `payment_notice`, with the payment's note as `memo`.
+   The payment's own `kchat:1:pay:` payload is sealed to the contact's **chatting address** key,
+   not the pool address's: every client decrypts payment payloads with the chat key, and the
+   pool address's key belongs to the recipient's spending chain, which no reader tries.
 3. If consumption leaves ≤ 1 unused address, send `addr_pool_request` (backstop — the offerer's
    auto-replenish normally refills the pool without being asked).
 4. No pool → pay the chatting address, no `payment_notice` (existing detection covers it).
