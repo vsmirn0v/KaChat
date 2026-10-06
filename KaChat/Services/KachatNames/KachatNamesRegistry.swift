@@ -939,7 +939,7 @@ final class KachatNamesNotifier {
                 s.graceNoted = true
                 if !s.lapsedNoted {
                     post("lapsed-\(n.name)-\(n.expiresAt)", n.name, S("%@ has lapsed", display),
-                         AppLocalization.string("Anyone can claim it now. Reclaim it yourself to get your bond back."))
+                         AppLocalization.string("It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back."))
                     s.lapsedNoted = true
                 }
             }

@@ -352,3 +352,6 @@
 "The owner declined it. The KAS is back with you." = "소유자가 거절했어요. KAS가 돌아왔어요.";
 "Offer on %@ expired" = "%@에 대한 제안 만료됨";
 "Nobody accepted it in time. The KAS is back with you." = "제때 아무도 수락하지 않았어요. KAS가 돌아왔어요.";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "더 이상 내 이름이 아니며 마켓플레이스의 회수 가능 탭으로 옮겨졌습니다. 직접 회수하면 보증금을 돌려받습니다.";

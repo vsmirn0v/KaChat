@@ -778,7 +778,7 @@ class NotificationService: UNNotificationServiceExtension {
             content.body = L("Renew it soon or anyone can claim it.", "Push body: grace period started")
         case "name_lapsed":
             content.title = String(format: L("%@ has lapsed", "Push title: your .kachat name's grace period ended"), name)
-            content.body = L("Anyone can claim it now. Reclaim it yourself to get your bond back.", "Push body: name lapsed")
+            content.body = L("It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back.", "Push body: name lapsed")
         case "name_offer_declined":
             content.title = String(format: L("Offer on %@ declined", "Push title: the owner declined your offer"), name)
             content.body = unitLabel(L("The owner declined it. The KAS is back with you.", "Push body: declined offer returned"))

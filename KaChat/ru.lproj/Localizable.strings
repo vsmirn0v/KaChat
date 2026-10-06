@@ -1364,3 +1364,6 @@
 "Claiming %@" = "Получение %@";
 "Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back." = "Не закрывайте KaChat: имя регистрируется примерно через минуту после подтверждения скрытого обязательства. Если вы выйдете, процесс продолжится с того же места, когда вы вернётесь.";
 "Finish the name you're claiming first." = "Сначала завершите получение текущего имени.";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "Оно больше не ваше и перешло в раздел «Можно вернуть» на маркетплейсе. Верните его сами, чтобы получить залог обратно.";

@@ -1364,3 +1364,6 @@
 "Claiming %@" = "%@ का दावा किया जा रहा है";
 "Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back." = "KaChat खुला रखें: छिपी प्रतिबद्धता की पुष्टि के लगभग एक मिनट बाद नाम पंजीकृत होता है। अगर आप बाहर जाते हैं, तो लौटने पर यह वहीं से जारी रहेगा।";
 "Finish the name you're claiming first." = "पहले वह नाम पूरा करें जिसका आप दावा कर रहे हैं।";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "यह अब आपका नहीं है और मार्केटप्लेस में “वापस लेने योग्य” में चला गया है। अपनी जमानत वापस पाने के लिए इसे खुद पुनः प्राप्त करें।";

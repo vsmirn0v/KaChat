@@ -1311,3 +1311,6 @@
 "Claiming %@" = "%@ wird beansprucht";
 "Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back." = "Lass KaChat geöffnet: Der Name wird etwa eine Minute nach der Bestätigung des verdeckten Commits registriert. Wenn du die App verlässt, geht es bei deiner Rückkehr dort weiter.";
 "Finish the name you're claiming first." = "Schließe zuerst den Namen ab, den du gerade beanspruchst.";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "Er gehört dir nicht mehr und steht jetzt unter „Zurückholbar“ im Marktplatz. Fordere ihn selbst zurück, um deine Kaution zurückzubekommen.";

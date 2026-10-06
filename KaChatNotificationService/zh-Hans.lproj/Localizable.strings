@@ -352,3 +352,6 @@
 "The owner declined it. The KAS is back with you." = "所有者拒绝了报价。KAS 已退回给你。";
 "Offer on %@ expired" = "对 %@ 的报价已过期";
 "Nobody accepted it in time. The KAS is back with you." = "没有人及时接受。KAS 已退回给你。";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "它已不再属于你，已移至市场的“可回收”标签。自己回收即可取回你的押金。";

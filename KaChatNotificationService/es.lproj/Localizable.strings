@@ -352,3 +352,6 @@
 "The owner declined it. The KAS is back with you." = "El dueño la rechazó. Los KAS volvieron a ti.";
 "Offer on %@ expired" = "Oferta por %@ vencida";
 "Nobody accepted it in time. The KAS is back with you." = "Nadie la aceptó a tiempo. Los KAS volvieron a ti.";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "Ya no es tuyo y pasó a Reclamables en el mercado. Recupéralo tú para que te devuelvan tu fianza.";

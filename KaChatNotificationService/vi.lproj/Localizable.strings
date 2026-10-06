@@ -352,3 +352,6 @@
 "The owner declined it. The KAS is back with you." = "Chủ đã từ chối. KAS đã trở về với bạn.";
 "Offer on %@ expired" = "Đề nghị cho %@ đã hết hạn";
 "Nobody accepted it in time. The KAS is back with you." = "Không ai chấp nhận kịp. KAS đã trở về với bạn.";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "Tên này không còn là của bạn và đã chuyển sang mục “Có thể thu hồi” trong chợ. Hãy tự thu hồi để lấy lại tiền đặt cọc.";

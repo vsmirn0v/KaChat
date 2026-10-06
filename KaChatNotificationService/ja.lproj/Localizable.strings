@@ -352,3 +352,6 @@
 "The owner declined it. The KAS is back with you." = "所有者が辞退しました。KAS は返金されました。";
 "Offer on %@ expired" = "%@ へのオファーが期限切れ";
 "Nobody accepted it in time. The KAS is back with you." = "期限内に承諾されませんでした。KAS は返金されました。";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "この名前はもうあなたのものではなく、マーケットプレイスの「回収可能」に移りました。自分で取り戻すと保証金が返ってきます。";

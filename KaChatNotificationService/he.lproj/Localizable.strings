@@ -352,3 +352,6 @@
 "The owner declined it. The KAS is back with you." = "הבעלים דחה אותה. ה-KAS חזרו אליך.";
 "Offer on %@ expired" = "ההצעה על %@ פגה";
 "Nobody accepted it in time. The KAS is back with you." = "אף אחד לא קיבל אותה בזמן. ה-KAS חזרו אליך.";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "הוא כבר לא שלך ועבר ל״ניתנים לדרישה מחדש״ בשוק. השב אותו בעצמך כדי לקבל את הפיקדון שלך בחזרה.";

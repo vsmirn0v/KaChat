@@ -2603,7 +2603,10 @@ struct KachatLiveDomainsTab: View {
     private func load() async {
         guard let key = KachatNamesRegistry.keyOf(walletAddress) else { loaded = true; return }
         if registry.refreshedAt == nil { await registry.refresh() }
-        names = (try? await registry.names(owner: key, includeInactive: true)) ?? []
+        // A lapsed name is no longer yours: it moves to the marketplace's Reclaimable tab (and the
+        // bell says so, `KachatNamesNotifier`). Expired names in grace stay, to be renewed.
+        names = ((try? await registry.names(owner: key, includeInactive: true)) ?? [])
+            .filter { $0.status(graceMs: registry.graceMs) != .lapsed }
         myOffers = (try? await registry.myOffers(buyer: key)) ?? []
         if !myOffers.isEmpty {
             // expired offers, and ones made to an earlier owner, come back on their own

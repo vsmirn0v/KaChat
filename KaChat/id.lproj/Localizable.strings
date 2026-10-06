@@ -1364,3 +1364,6 @@
 "Claiming %@" = "Mengklaim %@";
 "Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back." = "Biarkan KaChat tetap terbuka: nama didaftarkan sekitar satu menit setelah komitmen tersembunyi dikonfirmasi. Jika Anda keluar, proses berlanjut dari titik terakhir saat Anda kembali.";
 "Finish the name you're claiming first." = "Selesaikan dulu nama yang sedang Anda klaim.";
+
+/* .kachat name lapsed: moved to Reclaimable */
+"It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "Nama ini bukan milik Anda lagi dan sudah pindah ke Dapat diklaim ulang di marketplace. Klaim ulang sendiri untuk mendapatkan kembali jaminan Anda.";
