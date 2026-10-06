@@ -993,7 +993,6 @@
 "Release" = "Freigeben";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "Mit der Freigabe gibst du den Namen endgültig auf: Jeder kann ihn registrieren, und die bezahlte Zeit ist verloren. Kaution und Registry-Einlage bekommst du zurück.";
 "Saved. Transaction %@" = "Gespeichert. Transaktion %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "Bis dieser Name abläuft, sind es weniger als 30 Tage. Du müsstest ihn bald verlängern.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Die Zahlung geht an den Verkäufer und der Name an dich in derselben Transaktion - beides passiert, oder nichts davon.";
 "Price (to the seller)" = "Preis (an den Verkäufer)";
 "Refundable after" = "Erstattbar nach";
@@ -1251,3 +1250,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "%1$@ an %2$@ senden?";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "Bis dieser Name abläuft, bleibt weniger als %@. Du müsstest ihn bald verlängern.";

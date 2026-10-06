@@ -1,5 +1,13 @@
 # Indexer handoff: testnet-10 + `.kachat` names and profiles
 
+> **Registry v3 (2026-10-05, what the app builds now; testnet genesis pending):** prices move into
+> an on-chain price record (8 shards under their own covenant; register, extend and renew read
+> one), periods follow `periodMs` (10 minutes on testnet), offers carry the seller (108-byte state)
+> and there is a new `decline` entry. Every dispatch tag that matters changed. The full handoff is
+> `docs/KACHAT_NAMES_REGISTRY_V3.md` in the indexer repo; the spec is `docs/REGISTRY_V3.md` in
+> kachat-domains. Keep following v2 until the v3 manifest lands. Where this file still says v2
+> (fixed prices, the 75-byte offer, the 3-part marker), v3 supersedes it.
+
 > **Registry v2 (2026-10-02):** names carry `periodStart` (126-byte state). There is a new
 > `extend` entry, and `renew` now opens 10 days before expiry and starts a new period. The
 > details are in `docs/KACHAT_NAMES_REGISTRY_V2.md` in the indexer repo and in KACHAT_NAMES.md
@@ -75,7 +83,8 @@ All of these are version-1 transactions (Toccata) with output covenant bindings.
 |---|---|---|---|
 | **Gap**: an unregistered interval `(lo, hi)` of the key space | P2SH of `KachatGap` | `gapValue` (1 KAS) | 66 B: `0x20 lo[32] 0x20 hi[32]` |
 | **Name**: one per registered name | P2SH of `KachatName` | `bond` (1 KAS) | 126 B (registry v2): `0x20 key[32] 0x20 name[32] 0x20 owner[32] 0x08 price[8] 0x08 periodStart[8] 0x08 expiresAt[8]` |
-| **Offer**: KAS a buyer locks for one name | P2SH of `KachatOffer` | the offer amount | 75 B: `0x20 key[32] 0x20 buyer[32] 0x08 refundAfter[8]` |
+| **Offer**: KAS a buyer locks for one name | P2SH of `KachatOffer` | the offer amount | 108 B (registry v3): `0x20 key[32] 0x20 buyer[32] 0x20 seller[32] 0x08 refundAfter[8]` (v2: 75 B, no seller) |
+| **Price shard** (registry v3): one of K = 8 | P2SH of `KachatPrice`, price covenant id | `priceValue` (1 KAS) | 87 B: `0x08 shard[8] 0x20 authority[32] 0x08 p1..p5[8 each]` |
 
 - **Key:** `key = blake3(name)`, where `name` is the ASCII bytes of the lowercase name without
   `.kachat`. Rules: `a-z 0-9 -`, 1-32 characters, no hyphen at either end.
@@ -107,8 +116,10 @@ All of these are version-1 transactions (Toccata) with output covenant bindings.
   - each contract's template hash, prefix and suffix bytes, and its dispatch tags
   - a scan checkpoint
   - the params: `bond`, `gapValue`, `tCommit` (600 DAA), `maxYears` (2), `graceMs` (10 days),
-    `prices` and `renewPrices` per length (5+ chars 35 KAS, 4 = 250, 3 = 1000, 2 = 2000,
-    1 = 4000, all per year), and `offerMaxFee` (0.02 KAS)
+    `prices` per length (registry v3: the price record's genesis prices, one table for
+    registering and renewing, per `periodMs`; mainnet 5+ chars 35 KAS, 4 = 250, 3 = 1000,
+    2 = 2000, 1 = 4000, testnet 1/100), `periodMs`, `renewWindowMs`, `priceShards`,
+    `priceValue`, and `offerMaxFee` (0.02 KAS)
 - **Testnet-10 is live: registry v2 (2026-10-02):**
   - registry id `82f4315c8f7b3e0e76fc2f77466fe7651d2c1fac4e0b5810d4da878a9cfa0f89`
   - genesis tx `e20325f70db06192b619e6ef161b45b4a24b3cde58b5d2b0188532395175a426`, accepted at
@@ -191,10 +202,11 @@ Offer outputs are plain P2SH with no covenant id, so they can't be recognised be
 spent. The app (and the CLI) put this in the **payload** of the transaction that creates an offer:
 
 ```
-kchat:1:offer:<keyHex>:<buyerXonlyHex>:<refundAfterDaa>
+kchat:1:offer:<keyHex>:<buyerXonlyHex>:<sellerXonlyHex>:<refundAfterDaa>
 ```
 
-Here `keyHex` and `buyerXonlyHex` are lowercase hex, and `refundAfterDaa` is decimal.
+Here `keyHex`, `buyerXonlyHex` and `sellerXonlyHex` are lowercase hex, and `refundAfterDaa` is
+decimal. (Registry v2's marker had no seller: `kchat:1:offer:<key>:<buyer>:<refundAfter>`.)
 
 - Verify it: `P2SH(offerPrefix ‖ offerState(key, buyer, refundAfter) ‖ offerSuffix)` must equal
   one of the transaction's outputs. That output is the offer, and its value is the amount.

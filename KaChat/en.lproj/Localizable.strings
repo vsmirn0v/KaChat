@@ -1047,7 +1047,6 @@
 "Release" = "Release";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back.";
 "Saved. Transaction %@" = "Saved. Transaction %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "Less than 30 days are left before this name expires. You'd have to renew it soon.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does.";
 "Price (to the seller)" = "Price (to the seller)";
 "Refundable after" = "Refundable after";
@@ -1305,3 +1304,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "Send %@ to %@?";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "Less than %@ is left before this name expires. You'd have to renew it soon.";

@@ -1046,7 +1046,6 @@
 "Release" = "释放";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "释放即永久放弃该名称：任何人都可以注册它，已付费的时间也将作废。保证金和注册表押金会退还给你。";
 "Saved. Transaction %@" = "已保存。交易 %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "这个名称将在 30 天内到期，你很快就需要续期。";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "付款到达卖家、名称到达你，在同一笔交易中完成——要么都发生，要么都不发生。";
 "Price (to the seller)" = "价格（归卖家）";
 "Refundable after" = "可退还时间";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "要向 %2$@ 发送 %1$@ 吗？";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "距离此名称到期已不足 %@。你很快就需要续期。";

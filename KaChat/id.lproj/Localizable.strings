@@ -1046,7 +1046,6 @@
 "Release" = "Lepas";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "Melepas berarti menyerahkan nama untuk selamanya: siapa pun bisa mendaftarkannya, dan waktu yang sudah Anda bayar hilang. Jaminan dan deposit registri dikembalikan kepada Anda.";
 "Saved. Transaction %@" = "Tersimpan. Transaksi %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "Kurang dari 30 hari lagi nama ini kedaluwarsa. Anda perlu memperpanjangnya segera.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Pembayaran sampai ke penjual dan nama sampai ke Anda dalam transaksi yang sama - keduanya terjadi, atau tidak sama sekali.";
 "Price (to the seller)" = "Harga (untuk penjual)";
 "Refundable after" = "Bisa dikembalikan setelah";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "Kirim %1$@ ke %2$@?";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "Tersisa kurang dari %@ sebelum nama ini kedaluwarsa. Anda perlu segera memperpanjangnya.";

@@ -696,8 +696,8 @@ extension KachatNames {
                     PlannedOutput(output: TxOutput(value: UInt64(n.fields.price), script: Codec.p2pkScript(n.fields.owner)), label: "payout to the seller")
                 ]
             )
-            if n.fields.expiresAt - 30 * 86_400_000 < env.wallMs {
-                d.notes.append("less than 30 days left before expiry")
+            if n.fields.expiresAt - params.expiresSoonMs < env.wallMs {
+                d.notes.append("expires soon: the buyer will have to renew it")
             }
             d.payload = Codec.namePayload(op: "buy", name: n.name)
             return try finish(d, wallet: wallet, fee: .funded(maxInputs: maxInputs), env: env)

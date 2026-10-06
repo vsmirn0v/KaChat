@@ -1046,7 +1046,6 @@
 "Release" = "해제";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "해제하면 이름을 영영 포기하게 돼요. 누구나 등록할 수 있게 되고 결제한 기간은 사라져요. 보증금과 레지스트리 예치금은 돌려받아요.";
 "Saved. Transaction %@" = "저장했어요. 거래 %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "이 이름은 만료까지 30일도 안 남았어요. 곧 갱신해야 해요.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "결제는 판매자에게, 이름은 나에게 같은 거래에서 도착해요. 둘 다 이루어지거나 둘 다 안 이루어져요.";
 "Price (to the seller)" = "가격 (판매자에게)";
 "Refundable after" = "환불 가능 시점";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "%2$@에게 %1$@을(를) 보낼까요?";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "이 이름의 만료까지 %@도 남지 않았어요. 곧 갱신해야 해요.";

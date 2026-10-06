@@ -1,5 +1,35 @@
 # .kachat names - design (v1)
 
+> **Registry v3 (2026-10-05) is what the app builds now.** The full spec is
+> `docs/REGISTRY_V3.md` in kachat-domains (branch `v3`). What changed from v2, and what every port
+> must match:
+>
+> - **Prices are not template constants.** A price record (`KachatPrice`): K = 8 shards under their
+>   own price covenant, minted by a price genesis before the registry genesis. One table
+>   (sompi **per period** for 1 / 2 / 3 / 4 / 5+ bytes) serves register, extend and renew; an
+>   authority key can change it at once, up or down. Shard state 87 B:
+>   `0x08 shard 0x20 authority 0x08 p1..p5`. Entries `use()` (read by a register / extend / renew in
+>   the same transaction, back unchanged), `update(newAuthority, n1..n5, sig)` (shard 0) and
+>   `follow()` (shards 1..K-1).
+> - **`periodMs`** replaces the hard-coded year: a year on mainnet, **10 minutes** on testnet-10
+>   (`maxYears` 2, `renewWindowMs` and `graceMs` 10 minutes there).
+> - **Offers are bound to a seller.** Offer state 108 B: `key, buyer, seller, refundAfter`. Only the
+>   seller can `accept(nameIdx, sellerSig)`, and only while the name is still theirs; the new
+>   `decline(sellerSig)` sends it back to the buyer at any time. Marker:
+>   `kchat:1:offer:<key>:<buyer>:<seller>:<refundAfter>`.
+> - **Layouts**: register `[gap.register(..., priceIdx=2), commit, shard.use, funding]` ->
+>   `[gap, gap, name, shard, change]`; extend / renew `[name(years, priceIdx=1), shard.use, funding]`
+>   -> `[name, shard, change]`.
+> - **Manifest**: `registryVersion: 3`, `priceCovenantId`, `priceGenesis`. The app refuses any other
+>   version as "outdated" (setting up). The price template hash is pinned in the app; gap, name and
+>   offer are pinned at the genesis, and until then only a bundled manifest is trusted.
+> - **App rules on top of the contracts**: never pay more than the confirmed price; offers capped at
+>   7 days, made and accepted only on active names; a transfer, release or accepted offer declines
+>   the other open offers; a renewal that would still end in the past is refused.
+>
+> Sections below that mention fixed yearly prices, the 75-byte offer or the v2 hashes describe
+> registry v2 and are kept as history.
+
 KaChat's own name service: names like `alice.kachat`, registered, renewed, transferred, listed,
 bought and offered on entirely on Kaspa through covenants. No server holds a name or a coin at any
 point; the indexer only reads the chain. Status: **design, under review** (2026-10-01).
@@ -8,7 +38,7 @@ Decisions this rests on (from the user):
 
 | | |
 |---|---|
-| Prices by name length, **per year** | 5+ chars **35 KAS**, 4 **250**, 3 **1000**, 2 **2000**, 1 **4000** |
+| Prices by name length, **per period** (registry v3: one table for registering and renewing, held in the on-chain price record and adjustable; these are the mainnet genesis prices, testnet is 1/100) | 5+ chars **35 KAS**, 4 **250**, 3 **1000**, 2 **2000**, 1 **4000** |
 | Where the price goes | **Miners** - left as transaction fee. KaChat takes nothing. |
 | Characters | `a-z`, `0-9`, `-`; 1-32 characters; no hyphen at either end |
 | Marketplace fee | **None** - the buyer pays the seller the price, plus the network fee |
@@ -193,12 +223,13 @@ archived in kachat-domains `manifests/v1/`.
 An **offer** is a separate UTXO a buyer creates for a name that may not be listed - KAS locked
 under a script, not held by anyone.
 
-State: `key` (the name wanted), `buyer` (x-only key), `refundAfter` (DAA score). Value: the
-offered KAS. Entries:
+State (registry v3, 108 B): `key` (the name wanted), `buyer` (x-only key), `seller` (the owner the
+offer was made to), `refundAfter` (DAA score). Value: the offered KAS. Entries:
 
 | Entry | Who | Effect |
 |---|---|---|
-| `accept(nameIdx)` | the name's owner (their `transfer` signature on the same tx) | checks input `nameIdx` is a registry name (covenant id + template) with `key`, its continuation goes to `buyer`, and the output after it pays the offer's value to the old owner |
+| `accept(nameIdx, sellerSig)` | the seller, still the name's owner (their `transfer` signature on the same tx) | checks input `nameIdx` is a registry name (covenant id + template) with `key` owned by `seller`, its continuation goes to `buyer`, and the output after it pays the offer's value to the seller |
+| `decline(sellerSig)` | seller | any time, alone in its transaction: the KAS goes back to the buyer, the network fee out of the offer |
 | `withdraw(sig)` | buyer | any time: the KAS goes back |
 | `refund()` | anyone | once `tx.daa >= refundAfter`: the KAS goes back to the buyer |
 
@@ -212,9 +243,10 @@ only grow.
 
 | Contract | Role | Covenant |
 |---|---|---|
+| `KachatPrice` | a price shard (registry v3): `use`, `update`, `follow` | price covenant id |
 | `KachatGap` | registry interval: `register`, `merge`, `absorbed` | registry id |
 | `KachatName` | a name: `transfer`, `list`, `buy`, `extend`, `renew`, `release`, `reclaim` | registry id |
-| `KachatOffer` | an offer: `accept`, `withdraw`, `refund` | none (plain P2SH) |
+| `KachatOffer` | an offer: `accept`, `decline`, `withdraw`, `refund` | none (plain P2SH) |
 | commit script | fixed template, built by the gap's check | none |
 
 - Written in Silverscript (`pragma silverscript ^0.1.0`), compiled with a pinned `silverc v1.0.0`
@@ -226,8 +258,9 @@ only grow.
 - **Manifest** (`kachat-names-<network>.json`): artifacts, template hashes, params, the genesis
   binding (outpoint + authorized output), the registry id. App and indexer embed it and verify the
   template hashes and the genesis binding before trusting any UTXO.
-- **Immutable**: once deployed, a template never changes - including its prices; a fix or a price
-  change means a new registry. Hence testnet first, a review/audit of every entry against the
+- **Immutable**: once deployed, a template never changes; a fix means a new registry. Since
+  registry v3 the prices are not in the templates: they live in the price record, which the
+  authority key can change. Hence testnet first, a review/audit of every entry against the
   consensus script engine, then mainnet.
 
 ## 7. Identity: everything lives on the address
@@ -341,17 +374,20 @@ only. The live screens (below) call it.
 
 - **Manifest**: `kachat-names-testnet-10.json` from the app bundle when present, else the indexer's
   `GET /names/manifest` (the chat indexer URL). Before use: network `testnet-10`, every template hash
-  recomputed from its prefix and suffix (gap and name pinned to the README's registry v2 hashes:
-  gap `182c463c…dd46`, name `e8ded947…9d16`), every dispatch tag present (the name's includes
-  `extend`), `renewWindowMs` in the params, the offer baked with this registry id and name template,
+  recomputed from its prefix and suffix (registry v3: the price template pinned to
+  `d225c3a3…81d3`; gap, name and offer pinned at the v3 genesis; an indexer-served manifest needs
+  all four pinned), every dispatch tag present, the gap and name baked for the price covenant and
+  price template, the price genesis outputs equal to shards 0..K-1 and
+  `priceCovenantId == covenant_id(price genesis outpoint, shards)`, the offer baked with this
+  registry id and name template,
   the genesis output equal to the genesis gap `(00..00, ff..ff)` worth `gapValue`, and
   `registryCovenantId == covenant_id(genesis outpoint, [(0, gap)])`. A dry-run manifest is refused.
-  A registry v1 manifest (no `renewWindowMs`, or the v1 template hashes) is recognised as outdated
+  Any manifest without `registryVersion: 3` is recognised as outdated
   (`Failure.outdatedRegistry`), never trusted.
 - **Compute budgets**: the CLI measures each input in the script engine; the app has none, so it
-  commits a fixed budget per entry (registry v2: register 8, merge 4, absorbed 0, transfer/list 12,
-  buy 2, extend 2, renew 2, release 10, reclaim 0, accept 5, withdraw 10, refund 0, commit/P2PK 10 -
-  the vectors' `recommendedBudgets`). Budgets are not in the
+  commits a fixed budget per entry (registry v3: register 11, merge 5, absorbed 0, transfer/list 12,
+  buy 2, extend 3, renew 3, release 10, reclaim 0, accept 17, decline 10, withdraw 10, refund 0,
+  price use 1, commit/P2PK 10 - the vectors' `recommendedBudgets`). Budgets are not in the
   sighash or the txid; a higher one only costs 100 grams per unit.
 - **Signing**: BIP-340 Schnorr with the wallet key (P256K), SIGHASH_ALL over the v1 sighash. The
   builders leave 65-byte placeholders, so sizes and fees are final before signing.
@@ -359,16 +395,16 @@ only. The live screens (below) call it.
   on inputs, `covenant` on registry outputs and `storageMass`, through `NodePoolService`. The
   protowire is regenerated from rusty-kaspa a41a333 (`scripts/regenerate_protowire.sh`).
 - **Verified against vectors**: `KaChatTests/KachatNamesVectors.json`, written by kachat-domains'
-  `kachat-names-vectors` from the CLI's own builders (registry v2: the whole 19-transaction e2e plan,
-  with an extend and a renewal after lapse, plus 13 edge cases - among them renewals in the window,
-  at its opening and in grace, a gifted extend and a cancelled commit - each validated by
-  rusty-kaspa's consensus validator). `scripts/test_kachat_names_core.swift` checks the
+  `kachat-names-vectors` from the CLI's own builders (registry v3: 38 transactions - the 23-step
+  e2e plan after both geneses, with two price changes, an extend, a renewal and an accepted,
+  declined, refunded and withdrawn offer, plus 15 edge cases - each validated by rusty-kaspa's
+  consensus validator; the app builds the 35 that aren't price changes). `scripts/test_kachat_names_core.swift` checks the
   pure core byte for byte, with the recorded signatures fed in: inputs, sequences, budgets, outputs,
   covenant bindings, lock time, payload, masses, fee, rest and full preimages, every sighash, every
-  signature script, txid and tx hash. All 32 transactions match. It also checks codecs, BLAKE3 against
+  signature script, txid and tx hash. All 35 transactions match. It also checks codecs, BLAKE3 against
   the official vectors and Rust `blake3::hash`, the manifest checks, and the period rules (what extend
   may add, when renew opens, its lock time against the vectors' `lockTimeRules`, every sequence 0,
-  the refusals). With the app's fixed budgets instead of the measured ones, all 32 rebuilt
+  the refusals). With the app's fixed budgets instead of the measured ones, all 35 rebuilt
   transactions pass `kachat-names-vectors check` (signed with the vectors' key and run through the
   consensus validator, under their budgets, standardness and the relay floor).
 - **Not verified without a device build**: P256K signing itself, the protowire conversion and the
@@ -381,7 +417,7 @@ screens run on the live registry. Mainnet is unchanged: mockups, "Coming soon", 
 
 | File | What |
 |---|---|
-| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled (registry v2 `82f4315c…0f89`, genesis `e20325f7…a426`) |
+| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled. Still registry v2 (`82f4315c…0f89`), which the app refuses as outdated, so testnet shows "setting up" until the v3 genesis manifest is bundled |
 | `KaChat/Services/KachatNames/KachatNamesRegistryState.swift` | pure: status (B5), label rule, profile record, REST tx parser, indexer shapes, the walker state and its decoder (`apply`, a port of the CLI's `Registry::apply`), the walk loop |
 | `KaChat/Services/KachatNames/KachatNamesRegistry.swift` | `@MainActor` reads: lookup, by owner, listings, lapsed, offers, history, activity, exit gaps, identity; source = names indexer or chain walker; cache in Application Support |
 | `KaChat/Services/KachatNames/KachatNamesActions.swift` | `@MainActor` actions (extend, renew, transfer, list, buy, offer, withdraw, refund, accept, release, reclaim, profile), quotes, the resumable registration driver, cancel commit |

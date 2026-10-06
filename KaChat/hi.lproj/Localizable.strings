@@ -1046,7 +1046,6 @@
 "Release" = "छोड़ें";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "छोड़ने का मतलब नाम हमेशा के लिए छोड़ देना है: कोई भी इसे रजिस्टर कर सकता है, और जिस समय का भुगतान किया था वह चला जाता है। बॉन्ड और रजिस्ट्री जमा आपको वापस मिलते हैं।";
 "Saved. Transaction %@" = "सहेजा गया। लेन-देन %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "इस नाम के समाप्त होने में 30 दिन से कम बचे हैं। आपको जल्द नवीनीकरण करना होगा।";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "भुगतान विक्रेता तक और नाम आप तक एक ही लेन-देन में पहुँचता है - दोनों होते हैं, या कोई नहीं।";
 "Price (to the seller)" = "कीमत (विक्रेता को)";
 "Refundable after" = "इसके बाद लौटाया जा सकता है";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "%2$@ को %1$@ भेजें?";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "इस नाम की समाप्ति में %@ से कम बचा है। आपको इसे जल्द नवीनीकृत करना होगा।";

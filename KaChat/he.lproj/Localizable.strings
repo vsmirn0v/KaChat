@@ -1046,7 +1046,6 @@
 "Release" = "שחרור";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "שחרור מוותר על השם לתמיד: כל אחד יוכל לרשום אותו, והזמן ששילמת עליו יאבד. הערבון ופיקדון הרישום יחזרו אליך.";
 "Saved. Transaction %@" = "נשמר. עסקה %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "נותרו פחות מ-30 יום עד שהשם יפוג. תצטרכו לחדש אותו בקרוב.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "התשלום מגיע למוכר והשם מגיע אליך באותה עסקה - שניהם קורים, או אף אחד מהם.";
 "Price (to the seller)" = "מחיר (למוכר)";
 "Refundable after" = "ניתן להחזר אחרי";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "לשלוח %1$@ אל %2$@?";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "נותרו פחות מ-%@ עד שהשם הזה יפוג. תצטרכו לחדש אותו בקרוב.";

@@ -1046,7 +1046,6 @@
 "Release" = "Bırak";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "Bırakmak adı kalıcı olarak vermek demektir: herkes kaydedebilir ve ödediğiniz süre boşa gider. Teminat ve kayıt depozitosu size geri döner.";
 "Saved. Transaction %@" = "Kaydedildi. İşlem %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "Bu adın süresinin dolmasına 30 günden az kaldı. Yakında yenilemeniz gerekir.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Ödeme satıcıya, ad size aynı işlemde ulaşır - ya ikisi de olur ya hiçbiri.";
 "Price (to the seller)" = "Fiyat (satıcıya)";
 "Refundable after" = "Şu süreden sonra iade edilebilir";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "%2$@ kişisine %1$@ gönderilsin mi?";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "Bu adın süresinin dolmasına %@ süreden az kaldı. Yakında yenilemeniz gerekir.";

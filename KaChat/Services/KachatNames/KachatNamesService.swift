@@ -13,9 +13,10 @@ import Security
 /// the contracts are audited - but the .kachat UI and identity are on for every network (see
 /// `isEnabled` / `isLaunched`).
 ///
-/// Phase 4a: no UI calls this yet. A screen will: `loadManifest()`, read the records it needs (the
-/// indexer's `/names/...` endpoints), confirm them with `liveRegistryUtxo`, `environment(...)`,
-/// build with `builder()`, show the plan's fee, then `signAndSubmit`.
+/// The flow every action follows (`KachatNamesActions`): `loadManifest()`, read the records it
+/// needs (`KachatNamesRegistry`: the indexer's `/names/...` or the chain walker), confirm them with
+/// `liveRegistryUtxo` / `livePriceUtxo`, `environment(...)`, build with `builder()`, show the plan's
+/// fee, then `signAndSubmit`.
 @MainActor
 final class KachatNamesService: ObservableObject {
     static let shared = KachatNamesService()
@@ -23,7 +24,7 @@ final class KachatNamesService: ObservableObject {
     @Published private(set) var manifest: KachatNames.Manifest?
     /// Where the manifest came from: "bundle" or the indexer URL.
     @Published private(set) var manifestSource: String?
-    /// The manifest describes the previous registry (v1): names wait for the v2 genesis manifest.
+    /// The manifest describes an earlier registry: names wait for the v3 genesis manifest.
     /// The screens show "Setting up" instead of an error.
     @Published private(set) var registryUpgrading = false
 
@@ -41,7 +42,7 @@ final class KachatNamesService: ObservableObject {
         case notOnChain(String)
         case badProfile(String)
         case submitMismatch(expected: String, got: String)
-        /// the manifest is for registry v1; this app builds for v2 and waits for its genesis
+        /// the manifest is for an earlier registry; this app builds for v3 and waits for its genesis
         case registryUpgrading
 
         var errorDescription: String? {

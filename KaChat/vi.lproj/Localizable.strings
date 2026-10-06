@@ -1046,7 +1046,6 @@
 "Release" = "Nhả";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "Nhả tên là từ bỏ vĩnh viễn: ai cũng có thể đăng ký, và thời gian bạn đã trả sẽ mất. Bạn nhận lại tiền bảo đảm và ký quỹ sổ đăng ký.";
 "Saved. Transaction %@" = "Đã lưu. Giao dịch %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "Còn chưa đến 30 ngày nữa tên này hết hạn. Bạn sẽ cần gia hạn sớm.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Khoản thanh toán đến người bán và tên đến bạn trong cùng một giao dịch - cả hai cùng xảy ra, hoặc không gì cả.";
 "Price (to the seller)" = "Giá (trả cho người bán)";
 "Refundable after" = "Có thể hoàn sau";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "Gửi %1$@ cho %2$@?";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "Còn chưa đến %@ là tên này hết hạn. Bạn sẽ phải gia hạn sớm.";

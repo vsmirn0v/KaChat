@@ -1046,7 +1046,6 @@
 "Release" = "解放";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "解放すると名前を完全に手放します。誰でも登録できるようになり、支払った期間は失われます。保証金とレジストリ預託金は戻ります。";
 "Saved. Transaction %@" = "保存しました。取引 %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "この名前の期限まで 30 日を切っています。すぐに更新が必要です。";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "支払いは売り手に、名前はあなたに同じ取引で届きます。両方が成立するか、どちらも成立しないかです。";
 "Price (to the seller)" = "価格（売り手へ）";
 "Refundable after" = "返金可能になるまで";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "%2$@ に %1$@ を送りますか？";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "この名前の期限まで %@ を切っています。すぐに更新が必要です。";

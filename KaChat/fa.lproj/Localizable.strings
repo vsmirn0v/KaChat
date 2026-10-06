@@ -1046,7 +1046,6 @@
 "Release" = "رها کردن";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "رها کردن یعنی کنار گذاشتن همیشگی نام: هر کسی می‌تواند ثبتش کند و زمانی که برایش پرداخته‌اید از دست می‌رود. وثیقه و سپردهٔ رجیستری به شما برمی‌گردد.";
 "Saved. Transaction %@" = "ذخیره شد. تراکنش %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "کمتر از ۳۰ روز تا انقضای این نام مانده است. باید به‌زودی تمدیدش کنید.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "پرداخت به فروشنده و نام به شما در همان تراکنش می‌رسد - یا هر دو انجام می‌شوند یا هیچ‌کدام.";
 "Price (to the seller)" = "قیمت (به فروشنده)";
 "Refundable after" = "قابل بازپرداخت پس از";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "%1$@ به %2$@ ارسال شود؟";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "کمتر از %@ تا انقضای این نام مانده است. باید به‌زودی تمدیدش کنید.";

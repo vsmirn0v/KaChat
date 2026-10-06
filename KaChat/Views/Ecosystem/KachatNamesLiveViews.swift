@@ -1929,14 +1929,16 @@ struct KachatLiveBuySheet: View {
         KachatTxSheet(
             title: "Buy Name", confirmTitle: "Confirm Purchase",
             authReason: KachatLive.authReason, doneTitle: "Name bought",
-            footer: soon ? "Less than 30 days are left before this name expires. You'd have to renew it soon." : "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does.",
+            footer: soon ? "Less than \(KachatLive.duration(soonMs)) is left before this name expires. You'd have to renew it soon." : "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does.",
             rows: [.init(title: "Name", value: info.display), .init(title: "Price (to the seller)", value: KaspaUnit.amount(info.price)),
-                   .init(title: "Expires", value: KachatLive.date(info.expiresAt).formatted(date: .abbreviated, time: .omitted))],
+                   .init(title: "Expires", value: KachatLive.day(info.expiresAt))],
             operation: .buy(info), operationKey: "buy-\(KachatNames.hex(info.outpoint.txid))"
         )
     }
 
-    private var soon: Bool { info.expiresAt - 30 * 86_400_000 < KachatNames.nowMs() }
+    /// 30 days on mainnet's yearly clock, the renewal window on testnet's 10-minute one.
+    private var soonMs: Int64 { KachatLive.params?.expiresSoonMs ?? 30 * 86_400_000 }
+    private var soon: Bool { info.expiresAt - soonMs < KachatNames.nowMs() }
 }
 
 struct KachatLiveOfferSheet: View {

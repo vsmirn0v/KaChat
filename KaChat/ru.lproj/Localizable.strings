@@ -1046,7 +1046,6 @@
 "Release" = "Освободить";
 "Releasing gives the name up for good: it becomes free for anyone to register, and the time you paid for is lost. You get the bond and the registry deposit back." = "Освобождение — это отказ от имени навсегда: его сможет зарегистрировать любой, а оплаченное время пропадёт. Залог и депозит реестра вернутся вам.";
 "Saved. Transaction %@" = "Сохранено. Транзакция %@";
-"Less than 30 days are left before this name expires. You'd have to renew it soon." = "До истечения этого имени меньше 30 дней. Его скоро придётся продлить.";
 "The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does." = "Платёж доходит до продавца, а имя — до вас в одной транзакции: либо оба, либо ничего.";
 "Price (to the seller)" = "Цена (продавцу)";
 "Refundable after" = "Можно вернуть через";
@@ -1304,3 +1303,6 @@
 
 /* Siri / Shortcuts payments are confirmed (IOS-021) */
 "Send %@ to %@?" = "Отправить %1$@ получателю %2$@?";
+
+/* .kachat: expires-soon follows the period clock (IOS-060) */
+"Less than %@ is left before this name expires. You'd have to renew it soon." = "До истечения этого имени осталось меньше %@. Скоро его придётся продлить.";

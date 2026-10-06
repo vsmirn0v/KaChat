@@ -239,7 +239,7 @@ enum KachatNames {
             return d
         }
 
-        /// Name state (registry v2), 126 bytes:
+        /// Name state (registry v2 and v3, unchanged), 126 bytes:
         /// `0x20 key 0x20 name 0x20 owner 0x08 price 0x08 periodStart 0x08 expiresAt`
         /// (price at bytes 100..108, periodStart 109..117, expiresAt 118..126).
         static func nameState(_ f: NameFields) -> Data {
