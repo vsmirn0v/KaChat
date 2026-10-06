@@ -1,6 +1,4 @@
-# KaChat (iOS)
-<details>
-<summary>Summary</summary>
+# KaChat-iOS
 
 KaChat is a native SwiftUI iOS app for encrypted peer-to-peer messaging and payments on the Kaspa blockchain.
 
