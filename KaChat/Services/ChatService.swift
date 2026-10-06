@@ -304,8 +304,33 @@ final class ChatService: ObservableObject {
     let ourAliasUpdatedAtKey = "kachat_our_aliases_updated_at"
     let conversationIdsKey = "kachat_conversation_ids"
     let declinedContactsKey = "kachat_declined_contacts"
-    let lastPollTimeKey = "kachat_last_poll_time"
-    let syncCursorsKey = "kachat_sync_object_cursors"
+    /// The sync high-water marks, kept per network (IOS-004): one key is one account on both
+    /// networks, but each chain has its own history, so a time synced on testnet must never be
+    /// where mainnet starts reading (and the other way round). Mainnet keeps the original keys.
+    /// The network is fixed for the process (a switch applies at launch), so these are stable.
+    var lastPollTimeKey: String { Self.networkScopedKey("kachat_last_poll_time") }
+    var syncCursorsKey: String { Self.networkScopedKey("kachat_sync_object_cursors") }
+
+    static func networkScopedKey(_ base: String, network: NetworkType = AppSettings.load().networkType) -> String {
+        network == .mainnet ? base : "\(base)_\(network.rawValue)"
+    }
+
+    /// Once: the unscoped keys held whichever network synced last. If that is testnet (the app
+    /// runs on it now), they move to the testnet keys and mainnet starts without a cursor - a
+    /// full re-read, instead of starting from testnet's time and missing mainnet history.
+    static func migrateSyncCursorsToNetworkScopeIfNeeded(_ defaults: UserDefaults) {
+        let doneKey = "kachat_sync_cursors_network_scoped"
+        guard !defaults.bool(forKey: doneKey) else { return }
+        defaults.set(true, forKey: doneKey)
+        guard AppSettings.load().networkType == .testnet else { return }
+        for base in ["kachat_last_poll_time", "kachat_sync_object_cursors"] {
+            let scoped = networkScopedKey(base, network: .testnet)
+            if defaults.object(forKey: scoped) == nil, let value = defaults.object(forKey: base) {
+                defaults.set(value, forKey: scoped)
+            }
+            defaults.removeObject(forKey: base)
+        }
+    }
     let pendingSelfStashKey = "kachat_pending_self_stash"
     let routingStatesKey = "kachat_routing_states"
     let deterministicMigrationDoneKey = "kachat_deterministic_migration_done"
@@ -573,6 +598,7 @@ final class ChatService: ObservableObject {
     var chatRequestsShareCancellable: AnyCancellable?
 
     private init() {
+        Self.migrateSyncCursorsToNetworkScopeIfNeeded(userDefaults)
         lastPollTime = UInt64(userDefaults.integer(forKey: lastPollTimeKey))
         migrateLegacyMessagesIfNeeded()
         Task { @MainActor [weak self] in
@@ -848,8 +874,11 @@ final class ChatService: ObservableObject {
         knsTransferHintsByTxId = [:]
         suppressNotificationsUntilSynced = true  // Suppress notifications during initial sync
         hasCompletedInitialSync = false  // Allow full re-sync for new wallet
-        userDefaults.removeObject(forKey: lastPollTimeKey)
-        userDefaults.removeObject(forKey: syncCursorsKey)
+        // a new wallet starts from scratch on both networks
+        for network in NetworkType.allCases {
+            userDefaults.removeObject(forKey: Self.networkScopedKey("kachat_last_poll_time", network: network))
+            userDefaults.removeObject(forKey: Self.networkScopedKey("kachat_sync_object_cursors", network: network))
+        }
         userDefaults.removeObject(forKey: messagesKey)
         userDefaults.removeObject(forKey: aliasesKey)
         userDefaults.removeObject(forKey: conversationPrimaryAliasesKey)
