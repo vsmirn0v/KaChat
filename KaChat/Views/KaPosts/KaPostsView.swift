@@ -6667,7 +6667,26 @@ private struct KaPostComposerView: View {
     }
     private var pollIsValid: Bool {
         let options = validPollOptions
-        return options.count >= 2 && options.count <= 4 && Set(options).count == options.count && options.allSatisfy { $0.count <= 40 }
+        return options.count >= 2 && options.count <= 4 && Set(options).count == options.count
+            && options.allSatisfy { $0.unicodeScalars.count <= Self.maxPollOptionScalars }
+    }
+
+    /// The indexer counts a poll option in Unicode scalars and drops the whole poll when one is
+    /// over 40 (KAPOSTS_INDEXER.md §5.9) - an emoji is one character on screen but up to seven
+    /// scalars. Counted the same way here, so a poll is never paid for and then discarded.
+    static let maxPollOptionScalars = 40
+
+    /// `text` cut to at most `max` Unicode scalars, at a character boundary (never half an emoji).
+    static func prefixScalars(_ text: String, max: Int) -> String {
+        var out = ""
+        var used = 0
+        for ch in text {
+            let n = ch.unicodeScalars.count
+            if used + n > max { break }
+            out.append(ch)
+            used += n
+        }
+        return out
     }
 
     private var trimmed: String {
@@ -7034,7 +7053,11 @@ private struct KaPostComposerView: View {
     private func postAll() {
         if pollEnabled, let onPostPoll {
             guard !trimmed.isEmpty, pollIsValid else { return }
-            onPostPoll(trimmed, validPollOptions, Date().addingTimeInterval(TimeInterval(pollDurationHours) * 3600))
+            // The indexer accepts a close at most 7 days after the block time; a phone clock a few
+            // seconds fast would push a "7 days" poll past it and the poll would be dropped. The
+            // longest poll closes 5 minutes early.
+            let maxLength: TimeInterval = 7 * 86_400 - 300
+            onPostPoll(trimmed, validPollOptions, Date().addingTimeInterval(min(TimeInterval(pollDurationHours) * 3600, maxLength)))
             dismiss()
             return
         }
@@ -7146,7 +7169,7 @@ private struct KaPostComposerView: View {
                             get: { index < pollOptions.count ? pollOptions[index] : "" },
                             set: { newValue in
                                 guard index < pollOptions.count else { return }
-                                pollOptions[index] = String(newValue.prefix(40))
+                                pollOptions[index] = Self.prefixScalars(newValue, max: Self.maxPollOptionScalars)
                             }
                         ))
                         .textFieldStyle(.plain)
