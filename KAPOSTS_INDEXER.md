@@ -41,11 +41,14 @@ kchat:1:poll:<pubkey>:<signature>:<b64_question>:<options_b64_csv>:<closes_at_ms
 kchat:1:pollvote:<pubkey>:<signature>:<poll_id>:<option_index>
 ```
 
-**Root migration.** The app used to write the K indexer's `k:1:` root; it now writes
-`kchat:1:` for every action, and reads both (`KaPostsProtocol.parseChainPayload`). The
-indexer must do the same: **scan and verify both roots** (posts from before the migration
-are still posts), and treat everything after the root identically. Nothing new is ever
-written under `k:1:`. Any new action (polls, scheduling, ...) is defined under `kchat:1:` only.
+**Root migration.** The app used to write the K indexer's `k:1:` root (until 2026-08-18); it
+now writes `kchat:1:` for every action. The indexer indexes **`kchat:1:` only** (kachat-indexer
+b137238, 2026-09-22): `k:1:` is the separate K-social network's root. Pre-migration KaChat posts
+already in an indexer's database stay there, but a reindex or a fresh install does not bring them
+back (accepted by the owner, 2026-10-06). The app still parses `k:1:` when it reads a payload
+straight off the chain (`KaPostsProtocol.parseChainPayload`), so an old post opened by txId
+still reads. Nothing new is ever written under `k:1:`. Any new action (polls, scheduling, ...) is
+defined under `kchat:1:` only.
 
 `unvote` and `unquote` are the removal counter-actions (§5.1); they are implemented in the
 KaChat indexer fork. The app does not write them yet — it will once the like/repost toggles

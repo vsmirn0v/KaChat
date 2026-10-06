@@ -629,8 +629,9 @@ enum KaPostsProtocol {
     /// message - votes, follows and unquotes carry no text, and other apps' payloads share the
     /// chain.
     ///
-    /// Reads the legacy `k:1:` root as well as today's `kchat:1:`, matching the indexer's own
-    /// dual-read: posts written before the migration are still perfectly good posts.
+    /// Reads the legacy `k:1:` root as well as today's `kchat:1:`: a post written before the
+    /// migration and opened by txId still reads. (The indexer indexes `kchat:1:` only - see
+    /// KAPOSTS_INDEXER.md "Root migration".)
     static func parseChainPayload(_ payload: String) -> ChainPost? {
         let roots = [prefix, "k:1:"]
         guard let root = roots.first(where: { payload.hasPrefix($0) }) else { return nil }
