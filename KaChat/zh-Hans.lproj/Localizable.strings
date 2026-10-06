@@ -1293,3 +1293,7 @@
 
 /* Wallet: import / sign-in stop if the current account can't be backed up (IOS-016) */
 "The current account's keys couldn't be backed up on this device, so nothing was changed. Try again." = "无法在此设备上备份当前账户的密钥，因此未做任何更改。请重试。";
+
+/* Seed phrase screen: the passphrase is part of the backup (IOS-017) */
+"This wallet also uses a passphrase. You need it together with these words to restore it." = "此钱包还使用了密码短语。恢复时需要它和这些单词一起使用。";
+"Passphrase" = "密码短语";

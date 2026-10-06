@@ -1293,3 +1293,7 @@
 
 /* Wallet: import / sign-in stop if the current account can't be backed up (IOS-016) */
 "The current account's keys couldn't be backed up on this device, so nothing was changed. Try again." = "এই ডিভাইসে বর্তমান অ্যাকাউন্টের কী ব্যাকআপ করা যায়নি, তাই কিছুই বদলানো হয়নি। আবার চেষ্টা করুন।";
+
+/* Seed phrase screen: the passphrase is part of the backup (IOS-017) */
+"This wallet also uses a passphrase. You need it together with these words to restore it." = "এই ওয়ালেট একটি পাসফ্রেজও ব্যবহার করে। এটি পুনরুদ্ধার করতে এই শব্দগুলোর সাথে সেটিও লাগবে।";
+"Passphrase" = "পাসফ্রেজ";

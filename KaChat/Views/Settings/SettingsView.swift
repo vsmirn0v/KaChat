@@ -1730,6 +1730,15 @@ struct SeedPhraseView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 if let seedPhrase = seedPhrase {
+                    // A passphrase (the "25th word") changes every key: the words alone restore a
+                    // different, empty wallet, so the backup screen must say so.
+                    if let passphrase = seedPhrase.passphrase, !passphrase.isEmpty {
+                        Label("This wallet also uses a passphrase. You need it together with these words to restore it.",
+                              systemImage: "key.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     if isRevealed {
                         // Seed phrase grid (protected from screenshots)
                         SecureView {
@@ -1756,6 +1765,22 @@ struct SeedPhraseView: View {
                                     .background(Color(.systemGray6))
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
                                 }
+                            }
+                        }
+                        if let passphrase = seedPhrase.passphrase, !passphrase.isEmpty {
+                            SecureView {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Passphrase")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text(verbatim: passphrase)
+                                        .font(.system(.subheadline, design: .monospaced))
+                                        .textSelection(.disabled)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                                .background(Color(.systemGray6))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
                         }
 
