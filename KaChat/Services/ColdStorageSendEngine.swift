@@ -70,16 +70,6 @@ final class ColdStorageSendEngine {
     /// real signature bytes yet. Matches Android's SCHNORR_SIG_SCRIPT_LEN.
     private nonisolated static let schnorrSigScriptLen: UInt64 = 66
 
-    /// Change-output dust threshold. Android's own Cold Storage engine uses 500 sompi here, but
-    /// that value predates any KIP-9 storage-mass accounting on either platform: below this,
-    /// an output's own storage mass (C / amount, C = 10^12) already exceeds a safe standard-mass
-    /// budget on its own, regardless of how simple the rest of the transaction is - a leftover
-    /// change output anywhere near 500 sompi is exactly the shape of transaction that gets
-    /// flat-out rejected ("transaction storage mass ... larger than max allowed size") even for
-    /// a plain few-input send. Matches KasiaTransactionBuilder.dustThreshold and the proven,
-    /// field-tested value from the KasSigner firmware's own `kspt.rs` (DUST_THRESHOLD).
-    private static let changeDustThreshold: UInt64 = 20_000_000
-
     // MARK: - Mass / fee (KaspaMass.kt port)
 
     /// Verified against Android's own cited real-world result: 1 input, two 34-byte outputs, no
@@ -282,10 +272,22 @@ final class ColdStorageSendEngine {
         var outputs: [KaspaRpcTransactionOutput] = [
             KaspaRpcTransactionOutput(value: selection.finalAmount, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScript))
         ]
+        // Keep the change whenever this transaction's storage mass allows it - the flat 0.2 KAS
+        // floor here handed up to 0.2 KAS of change to the miners for change the network (and
+        // KasSigner, whose own dust rule is the same storage-mass test) would accept. Only a
+        // remainder of at most 0.1 KAS may be folded into the fee; a bigger one that can't stand
+        // as an output means this amount can't be sent from these coins, so it is refused.
         var changeSompi: UInt64 = 0
-        if selection.changeSompi > Self.changeDustThreshold {
-            changeSompi = selection.changeSompi
-            outputs.append(KaspaRpcTransactionOutput(value: selection.changeSompi, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: changeScript)))
+        if selection.changeSompi > 0 {
+            if KasiaTransactionBuilder.fitsStorageMass(
+                inputAmounts: selection.utxos.map(\.amount),
+                outputAmounts: [selection.finalAmount, selection.changeSompi]
+            ) {
+                changeSompi = selection.changeSompi
+                outputs.append(KaspaRpcTransactionOutput(value: selection.changeSompi, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: changeScript)))
+            } else if selection.changeSompi > KasiaTransactionBuilder.maxFoldedChangeSompi {
+                throw KasiaError.networkError(KasiaTransactionBuilder.smallSendMassMessage)
+            }
         }
 
         let transaction = KaspaRpcTransaction(
@@ -300,7 +302,12 @@ final class ColdStorageSendEngine {
             payload: Data()
         )
 
-        return UnsignedColdTx(transaction: transaction, inputUtxos: selection.utxos, feeSompi: selection.feeSompi, changeSompi: changeSompi)
+        // the fee actually paid: everything the inputs hold that no output carries (a folded
+        // remainder included), so the confirmation screen shows the real amount
+        let inputTotal = selection.utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        let outputTotal = outputs.reduce(UInt64(0)) { $0 + $1.value }
+        let paidFee = inputTotal >= outputTotal ? inputTotal - outputTotal : selection.feeSompi
+        return UnsignedColdTx(transaction: transaction, inputUtxos: selection.utxos, feeSompi: paidFee, changeSompi: changeSompi)
     }
 
     struct AutomaticSelectionPreview {
