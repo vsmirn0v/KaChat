@@ -106,7 +106,12 @@ struct KachatMarketView: View {
                 KachatClaimSheet(target: target)
             }
             .modifier(KachatNameRouteDestination(route: $nameRoute))
-            .onAppear { takePendingName() }
+            // A notification that opened this screen fresh (a cold start, or .kachat not the open
+            // Kaspa Hub section) leaves its name pending: open it once the screen is up. Pushing in
+            // the same update as the stack's first appearance came up as a blank screen.
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { takePendingName() }
+            }
             // after the tab switch to this screen has landed: a push onto a stack that isn't on
             // screen yet came up blank
             .onReceive(NotificationCenter.default.publisher(for: .openKachatName)) { _ in
