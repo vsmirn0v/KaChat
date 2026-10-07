@@ -48,7 +48,7 @@ extension KachatNames {
         let tCommit: UInt64
         /// most periods a name may be paid ahead
         let maxYears: Int64
-        /// one paid period, ms: a year on mainnet, 10 minutes on the testnet-10 clock
+        /// one paid period, ms: a year on mainnet, 24 hours on the testnet-10 clock
         let periodMs: Int64
         let graceMs: Int64
         /// `renew` is valid from `expiresAt - renewWindowMs` on
@@ -86,7 +86,7 @@ extension KachatNames {
         func renewOpens(expiresAt: Int64) -> Int64 { expiresAt - renewWindowMs }
 
         /// How close to expiry a name counts as "expires soon" (a buyer would have to renew it):
-        /// 30 days on a yearly clock, the renewal window on a short one (testnet's 10 minutes),
+        /// 30 days on a yearly clock, the renewal window on a short one (testnet's 2 hours),
         /// where 30 days would cover every name.
         var expiresSoonMs: Int64 { max(renewWindowMs, min(30 * 86_400_000, periodMs / 12)) }
     }
@@ -101,7 +101,8 @@ extension KachatNames {
         static let bundleResource = "kachat-names-testnet-10"
 
         /// Template hashes of the pinned build - registry v4 (silverc v1.0.0 @ 3ed9733), testnet-10
-        /// params (kachat-domains artifacts/testnet10/build-info.json). The gap and the name bake
+        /// params on the day clock: 24-hour periods, 6-hour grace, 2-hour renewal window
+        /// (kachat-domains artifacts/testnet10/build-info.json). The gap and the name bake
         /// only the params - their fixed prices included - so they are pinned before any genesis.
         /// The offer bakes the registry id, so its hash exists once the registry genesis does: the
         /// deployment adds it in `deployedTemplateHashes`. Until every template is pinned only a
@@ -109,8 +110,8 @@ extension KachatNames {
         /// unpinned offer template could hold buyers' funds in a script the indexer controls
         /// (IOS-059).
         static let pinnedTemplateHashes: [String: String] = [
-            "KachatGap": "85cf57f8d300331c2acc5191794065d60fafdd29cac90e3b82e3e1ba1c3876f0",
-            "KachatName": "394204b612f345787412156521c0aabbd36bba30311f008302964d4c4ece685a"
+            "KachatGap": "9f057f406361583eb2b94956825f86a2d8cc47d3c8800f05855a3e75b39d8bf5",
+            "KachatName": "c263a8c2cb4bdfac3234675114fc3ce4ba5a1d26c12e887c3d3b2ca89460b56b"
         ]
 
         /// The price tables the pinned gap and name bake (kachat-domains params/testnet10.json): a
@@ -122,9 +123,10 @@ extension KachatNames {
         /// manifest for one of these registries must carry exactly this; any other registry (a dry
         /// run, the test vectors) has no offer pin, so only a bundled manifest of it is trusted.
         static let deployedTemplateHashes: [String: [String: String]] = [
-            // testnet-10 registry v4, 2026-10-07: genesis b1f28a5f..85a1
-            "bff185546af1940ec70d74143e23b5f018fdb864bd02e15ca9b4c8d8ede40e2f": [
-                "KachatOffer": "226def4b7fea21b21957c55fd47331b1d2f510fa2a63f8e7543bafaed4898e7d"
+            // testnet-10 registry v4 on the day clock, 2026-10-07: genesis 5ffdd006..a777 (the
+            // 10-minute deployment bff18554..0e2f before it is retired: its gap and name aren't pinned)
+            "e6b7244831004e1db928458bce570347317b50ff124c010d342d73a6c2017f0d": [
+                "KachatOffer": "5a7e22af319bac406769563b6b4b39b05c3aac145375ccaaada4095960372a7a"
             ]
         ]
         static let stateLengths: [String: Int] = ["KachatGap": 66, "KachatName": 126, "KachatOffer": 108]

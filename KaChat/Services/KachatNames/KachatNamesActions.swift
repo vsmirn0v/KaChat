@@ -126,7 +126,7 @@ final class KachatNamesActions: ObservableObject {
     }
 
     /// A unix-ms day ("Oct 12, 2027") in the in-app language, with the time when it is within two
-    /// days (testnet's 10-minute periods, or a renewal that opens tomorrow).
+    /// days (testnet's 24-hour periods, or a renewal that opens tomorrow).
     nonisolated static func dayString(_ ms: Int64) -> String {
         let f = DateFormatter()
         f.locale = AppLocalization.locale

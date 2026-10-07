@@ -1,7 +1,9 @@
 # .kachat names - design (v1)
 
-> **Registry v4 (2026-10-07) is what the app builds now** (branch `kachat-names-v4`). Live on
-> testnet-10 since 2026-10-07: genesis `b1f28a5f…85a1`, registry `bff18554…0e2f`. The spec is `docs/REGISTRY_V4.md` in kachat-domains (branch `v4`). What
+> **Registry v4 (2026-10-07) is what the app builds now.** Live on testnet-10 on the day clock
+> since 2026-10-07: genesis `5ffdd006…a777`, registry `e6b72448…7f0d` (the first, 10-minute v4
+> deployment, registry `bff18554…0e2f`, is retired; its names didn't carry over). The spec is
+> `docs/REGISTRY_V4.md` in kachat-domains. What
 > changed from v3:
 >
 > - **Fixed prices, no price record.** `KachatPrice`, its covenant, genesis, shards and authority
@@ -9,9 +11,10 @@
 >   table (sompi per period, 1 / 2 / 3 / 4 / 5+ bytes). `register` charges
 >   `reg(len) + renew(len) x (years - 1)`; `extend` / `renew` charge `renew(len) x years`. Mainnet:
 >   register 4000 / 2000 / 1000 / 250 / 35 KAS, renew 1000 / 500 / 250 / 62.5 / 8.75 KAS a year;
->   testnet-10 the same / 100 per 10-minute period.
-> - **Windows**: mainnet grace 90 days, renewal window 30 days; testnet-10 grace 30 minutes,
->   renewal window 10 minutes (a window can't be longer than a period).
+>   testnet-10 the same / 100 per 24-hour period.
+> - **Windows**: mainnet grace 90 days, renewal window 30 days; testnet-10 is mainnet scaled to a
+>   day per "year": 24-hour periods, grace 6 hours, renewal window 2 hours (a window can't be
+>   longer than a period).
 > - **Layouts**: register `[gap.register(name, owner, salt, now, years, prefix, suffix), commit,
 >   funding]` -> `[gap, gap, name, change]`; extend / renew `[name(years), funding]` ->
 >   `[name, change]`.

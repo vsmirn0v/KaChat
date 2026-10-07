@@ -288,7 +288,7 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
                 plan = try b.commit(env: env, wallet: wallet, name: s(args["name"]), salt: hx(args["salt"]))
             case "register":
                 plan = try b.register(env: env, wallet: wallet, gap: gapRec(rec["gap"]), commit: commitRec(rec["commit"]), years: i64(args["years"]), now: i64(args["now"]))
-                r.eq(KN.Builder.registerNow(env: env), i64(args["now"]) + (label.contains("lapse") ? 65 * 60_000 : 0), "\(label): registerNow")
+                r.eq(KN.Builder.registerNow(env: env), i64(args["now"]) + (label.contains("lapse") ? 55 * 3_600_000 : 0), "\(label): registerNow")
             case "extend":
                 let n = nameRec(rec["name"])
                 r.check(i64(args["years"]) <= m.params.extendableYears(n.fields), "\(label): extendableYears covers the step")
@@ -405,14 +405,15 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
     return results
 }
 
-/// The period rules on their own (KACHAT_NAMES.md 4.1, ops.rs) on the testnet-10 short clock
-/// (registry v3: periodMs = renewWindowMs = graceMs = 10 minutes): what extend may add, when renew
-/// opens, its lock time, the refusals.
+/// The period rules on their own (KACHAT_NAMES.md 4.1, ops.rs) on the testnet-10 day clock
+/// (registry v4: periodMs 24 hours, renewWindowMs 2 hours, graceMs 6 hours): what extend may add,
+/// when renew opens, its lock time, the refusals.
 func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
     let p = m.params
     let y = p.periodMs
-    r.eq(y, 600_000, "periodMs from the manifest (10 minutes)")
-    r.eq(p.renewWindowMs, 600_000, "renewWindowMs from the manifest")
+    r.eq(y, 86_400_000, "periodMs from the manifest (24 hours)")
+    r.eq(p.renewWindowMs, 7_200_000, "renewWindowMs from the manifest (2 hours)")
+    r.eq(p.graceMs, 21_600_000, "graceMs from the manifest (6 hours)")
     r.eq(i64(v["renewWindowMs"]), p.renewWindowMs, "renewWindowMs matches the vectors")
     let start: Int64 = 2_000_000_000_000
     r.eq(p.extendableYears(periodStart: start, expiresAt: start + y), 1, "1-period registration: extend by 1")
@@ -429,10 +430,10 @@ func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
     r.eq(f.withPrice(5).periodStart, start, "list keeps periodStart")
     r.eq(try? KN.Codec.decodeNameState(f.encoded), f, "126-byte state round trip")
     r.check((try? KN.Codec.decodeNameState(f.encoded.prefix(117))) == nil, "a 117-byte (v1) state is refused")
-    // a 2-period name, so the window (one period before expiry) opens a period in
+    // a 2-period name: the window opens 2 hours before its expiry
     let f2 = KN.NameFields(name: "alice", owner: Data(repeating: 7, count: 32), price: 0, periodStart: start, expiresAt: start + 2 * y)
     let opens = p.renewOpens(expiresAt: f2.expiresAt)
-    r.eq(opens, f2.expiresAt - 600_000, "renew opens one period before expiry")
+    r.eq(opens, f2.expiresAt - 7_200_000, "renew opens 2 hours before expiry")
     let before = KN.Env(me: f.owner, blockDaa: 1, blockTimeMs: UInt64(opens - 60_000), wallMs: opens + 60_000)
     r.check(!KN.Builder.renewWindowOpen(env: before, params: p, expiresAt: f2.expiresAt), "window closed while the median time is before the opening")
     r.eq(KN.Builder.renewLockTime(env: before, params: p, expiresAt: f2.expiresAt), opens, "lock time never before the opening")
@@ -485,7 +486,7 @@ func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
         do {
             let bm = try KN.Manifest.decode(bundled)
             try bm.verify()
-            print("bundled manifest: registry v3, verified")
+            print("bundled manifest: registry v4, verified")
         } catch {
             r.check((error as? KN.Failure)?.isOutdatedRegistry == true, "the bundled manifest neither verifies nor is an outdated one: \(error)")
             print("bundled manifest: an earlier registry (outdated) - the app shows .kachat as setting up until the v3 genesis manifest is bundled")

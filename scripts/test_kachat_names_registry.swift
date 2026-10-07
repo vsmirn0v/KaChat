@@ -160,7 +160,7 @@ func runWalker(_ v: J, _ r: Report) {
     let alphaRegister = (e2e[3]["args"] as! J)
     r.eq(alpha?.periodStart, i64(alphaRegister["now"]), "alpha-tn: periodStart = register's now, kept by extend, transfer, list and buy")
     r.eq(alpha?.expiresAt, i64(alphaRegister["now"]) + 2 * m.params.periodMs, "alpha-tn: registered for 1 period, extended by 1")
-    r.eq(m.params.periodMs, 600_000, "testnet vectors run the 10-minute clock")
+    r.eq(m.params.periodMs, 86_400_000, "testnet vectors run the 24-hour clock")
     // applying again changes nothing
     let snapshot = state
     for (i, st) in e2e.enumerated() { _ = try? state.apply(view(st, at: Int64(1_000 + i)), manifest: m) }

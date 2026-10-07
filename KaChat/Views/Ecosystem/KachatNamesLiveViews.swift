@@ -61,7 +61,7 @@ enum KachatLive {
     static func date(_ ms: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(ms) / 1000) }
 
     /// A unix-ms day as a row value ("Oct 12, 2027"), in the in-app language, with the time when
-    /// it is within two days (testnet's 10-minute periods).
+    /// it is within two days (testnet's 24-hour periods).
     static func day(_ ms: Int64) -> String {
         let near = abs(ms - KachatNames.nowMs()) < 2 * 86_400_000
         return date(ms).formatted(Date.FormatStyle(date: .abbreviated, time: near ? .shortened : .omitted).locale(AppLocalization.locale))
@@ -70,7 +70,7 @@ enum KachatLive {
     /// The registry parameters, once the manifest is verified.
     @MainActor static var params: KachatNames.Params? { KachatNamesService.shared.manifest?.params }
 
-    /// Whether a period is a year (mainnet), not a short test clock (testnet's 10 minutes).
+    /// Whether a period is a year (mainnet), not a short test clock (testnet's 24 hours).
     @MainActor static var yearlyPeriods: Bool { (params?.periodMs ?? KachatNames.yearMs) == KachatNames.yearMs }
 
     /// A length of time ("10 min", "10 days"), in the in-app language.
@@ -2297,7 +2297,7 @@ struct KachatLiveBuySheet: View {
         )
     }
 
-    /// 30 days on mainnet's yearly clock, the renewal window on testnet's 10-minute one.
+    /// 30 days on mainnet's yearly clock, the renewal window on testnet's 24-hour one.
     private var soonMs: Int64 { KachatLive.params?.expiresSoonMs ?? 30 * 86_400_000 }
     private var soon: Bool { info.expiresAt - soonMs < KachatNames.nowMs() }
 }

@@ -30,7 +30,7 @@ enum KachatNames {
 
     static let sompiPerKas: UInt64 = 100_000_000
     /// A mainnet period. Registry v3 reads the period from the manifest (`Params.periodMs`):
-    /// testnet-10 runs a 10-minute clock.
+    /// testnet-10 runs a 24-hour clock.
     static let yearMs: Int64 = 31_536_000_000
     /// rusty-kaspa `LOCK_TIME_THRESHOLD`: lock times below it are DAA scores, above unix ms.
     static let lockTimeThreshold: UInt64 = 500_000_000_000
