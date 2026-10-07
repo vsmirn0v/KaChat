@@ -725,6 +725,10 @@ final class KachatNamesActions: ObservableObject {
     /// Loads the current wallet's registrations and drives the open ones. Call on appear and
     /// when the app becomes active.
     func resume() {
+        // Every network: a profile saved on another device (Android, Desktop) shows here too.
+        if let address = myAddress {
+            Task { await registry.syncOwnProfile(address: address) }
+        }
         guard KachatNamesService.isLaunched, let address = myAddress else {
             driver?.cancel()
             driver = nil

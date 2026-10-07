@@ -556,12 +556,34 @@ final class KachatNamesRegistry: ObservableObject {
     }
 
     func noteOwnProfile(_ profile: KachatNames.Profile, address: String, txId: String) {
-        let record = OwnProfile(address: address.lowercased(), profile: profile.sanitized(), txId: txId, at: KachatNames.nowMs())
+        storeOwnProfile(OwnProfile(address: address.lowercased(), profile: profile.sanitized(), txId: txId, at: KachatNames.nowMs()))
+    }
+
+    private func storeOwnProfile(_ record: OwnProfile) {
         ownProfiles[record.address] = record
         if let data = try? JSONEncoder().encode(record) {
             Self.writeFile(Self.profileFile(record.address), data, network: Self.profileNetwork(record.address))
         }
         revision += 1
+    }
+
+    /// Brings this device's copy of its own profile up to date with the chain, so a profile saved
+    /// on another device - KaChat for Android or Desktop, another iPhone - shows here too, and the
+    /// editor starts from it instead of overwriting it with an older one. The indexer's record
+    /// (`GET /profiles/{address}`, every network) is adopted when this device has none (a fresh
+    /// import) or when it is a different, newer record. The local copy stays when it is the same
+    /// record or newer (the indexer hasn't seen this device's latest save yet).
+    func syncOwnProfile(address: String) async {
+        guard KachatNamesService.profilesEnabled, let base = Self.indexerBase() else { return }
+        let key = address.lowercased()
+        guard NetworkType.isOnActiveNetwork(key),
+              let j: KachatNames.IndexerAPI.ProfileJSON = try? await Self.get(base, "/profiles/\(key)"),
+              j.address.lowercased() == key, let remote = j.profile?.sanitized(), let txId = j.txId else { return }
+        if let local = ownProfile(for: key) {
+            guard local.txId != txId, let at = j.updatedAt, at > local.at else { return }
+        }
+        AppLog.log("[KachatNames] own profile updated from the chain (saved on another device): %@", String(txId.prefix(12)))
+        storeOwnProfile(OwnProfile(address: key, profile: remote, txId: txId, at: j.updatedAt ?? KachatNames.nowMs()))
     }
 
     /// An offer this wallet just created: tracked by the walker from now on.

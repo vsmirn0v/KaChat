@@ -609,6 +609,8 @@ struct ProfileView: View {
             return
         }
         await kachatRegistry.refreshIfStale(maxAge: 300)
+        // a profile saved on another device since this one's last save replaces the local copy
+        await kachatRegistry.syncOwnProfile(address: address)
         let identity = try? await kachatRegistry.identity(address: address)
         kachatLabel = identity?.label
         let profile = kachatRegistry.ownProfile(for: address)?.profile ?? identity?.profile

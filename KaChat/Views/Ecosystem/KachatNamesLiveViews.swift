@@ -2937,6 +2937,8 @@ struct KachatLiveProfileEditor: View {
     private func load() async {
         guard let address = KachatNamesActions.shared.myAddress else { loaded = true; return }
         await registry.refreshIfStale()
+        // start from the newest profile, wherever it was saved (another device included)
+        await registry.syncOwnProfile(address: address)
         var p = registry.ownProfile(for: address)?.profile
         if p == nil { p = try? await registry.identity(address: address).profile }
         if let p {
