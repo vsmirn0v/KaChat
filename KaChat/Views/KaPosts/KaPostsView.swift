@@ -4046,18 +4046,15 @@ struct KaPostsView: View {
         }
     }
 
-    /// Jumps into (or creates) the 1:1 chat with this poster: ensures a contact exists
-    /// (silently auto-added if new), ensures the conversation exists, then routes through the
-    /// standard .openChat navigation. Slight delay so the profile sheet finishes dismissing.
+    /// Jumps into (or creates) the 1:1 chat with this poster: ensures a contact exists (you
+    /// started the chat, so it's a contact of yours, not an auto-added stranger), ensures the
+    /// conversation exists, then routes through the standard .openChat navigation. The pending
+    /// target is set first, so the Chats list opens it even if it wasn't on screen to hear the
+    /// notification. Slight delay so the profile sheet finishes dismissing.
     private func startChat(with address: String, paymentMode: Bool = false) {
-        let contact: Contact?
-        if let existing = ContactsManager.shared.getContact(byAddress: address) {
-            contact = existing
-        } else {
-            contact = try? ContactsManager.shared.addContact(address: address, alias: "", isAutoAdded: true)
-        }
-        guard let contact else { return }
+        let contact = ContactsManager.shared.getOrCreateContact(address: address)
         _ = ChatService.shared.getOrCreateConversation(for: contact)
+        ChatService.shared.pendingChatNavigation = contact.address
         profileTarget = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             NotificationCenter.default.post(

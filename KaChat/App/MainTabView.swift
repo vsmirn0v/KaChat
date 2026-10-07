@@ -204,8 +204,10 @@ struct MainTabView: View {
             if let address { ProfileView.preloadQRCode(for: address) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { _ in
-            // Switch to Chats tab when notification is tapped
-            selectedTab = 1
+            // To Chats wherever it lives - its dock tab or Kaspa Hub. A bare `selectedTab = 1`
+            // landed on a tab that doesn't exist when Chats isn't in the dock: a blank screen.
+            PendingTabRoute.pending = nil
+            routeToFeature(.chats)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openPublicChat)) { _ in
             routeToPublicChats()
