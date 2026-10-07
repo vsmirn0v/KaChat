@@ -70,7 +70,11 @@ final class KachatNamesRegistry: ObservableObject {
     func prepare(forceSourceCheck: Bool = false) async throws -> KachatNames.Manifest {
         let m = try await service.loadManifest()
         if source == nil || forceSourceCheck {
-            source = await chooseSource(m)
+            let chosen = await chooseSource(m)
+            if let was = source, was != chosen {
+                AppLog.log("[KachatNames] registry source: %@", chosen == .chain ? "the chain (the indexer is behind or elsewhere)" : "the indexer")
+            }
+            source = chosen
         }
         if source == .chain, chainState == nil || cacheNetwork != m.network {
             chainState = Self.loadCache(m) ?? .atGenesis(m)
@@ -92,10 +96,22 @@ final class KachatNamesRegistry: ObservableObject {
 
     var graceMs: Int64 { service.manifest?.params.graceMs ?? 864_000_000 }
 
+    /// An indexer further behind the network than this (DAA scores, about a minute) isn't used:
+    /// its names would be stale - a name just claimed or sold missing, a registration waiting on
+    /// it - so the app walks the chain itself until the indexer catches up (its node can lag on
+    /// slow hardware).
+    static let maxIndexerLagDaa: UInt64 = 600
+
     private func chooseSource(_ m: KachatNames.Manifest) async -> Source {
         guard let base = Self.indexerBase() else { return .chain }
         guard let status: KachatNames.IndexerAPI.StatusJSON = try? await Self.get(base, "/names/status"),
-              status.registryCovenantId?.lowercased() == KachatNames.hex(m.registryCovenantId) else {
+              status.registryCovenantId?.lowercased() == KachatNames.hex(m.registryCovenantId),
+              status.synced != false else {
+            return .chain
+        }
+        // Without a network position to compare with, the indexer's own "synced" is trusted.
+        if let indexed = status.indexedDaa, let dag = try? await NodePoolService.shared.currentDagPoint(),
+           dag.virtualDaaScore > indexed + Self.maxIndexerLagDaa {
             return .chain
         }
         return .indexer(base)
@@ -110,14 +126,16 @@ final class KachatNamesRegistry: ObservableObject {
     // MARK: - Refresh
 
     /// Walks the chain forward (no indexer) or just marks fresh data (indexer). Safe to call often.
-    func refresh(forceSourceCheck: Bool = false) async {
+    /// Every refresh re-checks the source, so an indexer that fell behind is dropped and one that
+    /// caught up is used again.
+    func refresh() async {
         guard KachatNamesService.isLaunched else { return }
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         let previousError = lastError
         do {
-            let m = try await prepare(forceSourceCheck: forceSourceCheck)
+            let m = try await prepare(forceSourceCheck: true)
             if source == .chain {
                 try await walk(m)
             }
