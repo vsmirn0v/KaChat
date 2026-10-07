@@ -416,12 +416,17 @@ func runRules(_ r: Report) {
         KN.NameInfo(name: n, key: KN.Codec.key(n), owner: me, price: 0, expiresAt: exp, outpoint: KN.Outpoint(txid: KN.zero32, index: 0), registeredAt: reg)
     }
     let now: Int64 = 10_000_000_000_000
-    let owned = [info("zeta", exp: now + 5, reg: 10), info("alpha", exp: now + 5, reg: 20), info("old", exp: now - 5, reg: 1)]
-    r.eq(KN.label(owned: owned, primaryName: nil, graceMs: g, nowMs: now), "zeta", "label: the oldest active name")
+    // "grace" expired but is in its grace period; "gone" lapsed (back on the market). A name in
+    // grace still labels its owner (2026-10-07); only a lapsed one doesn't.
+    let owned = [info("zeta", exp: now + 5, reg: 10), info("alpha", exp: now + 5, reg: 20),
+                 info("grace", exp: now - 5, reg: 5), info("gone", exp: now - g - 5, reg: 1)]
+    r.eq(KN.label(owned: owned, primaryName: nil, graceMs: g, nowMs: now), "grace", "label: the oldest held name (one in grace counts)")
     r.eq(KN.label(owned: owned, primaryName: "Alpha.kachat", graceMs: g, nowMs: now), "alpha", "label: the primary name")
-    r.eq(KN.label(owned: owned, primaryName: "old", graceMs: g, nowMs: now), "zeta", "label: a primary name in grace is skipped")
-    r.eq(KN.label(owned: owned, primaryName: "notmine", graceMs: g, nowMs: now), "zeta", "label: a primary name not owned is skipped")
-    r.eq(KN.label(owned: [owned[2]], primaryName: nil, graceMs: g, nowMs: now), nil, "label: no active name")
+    r.eq(KN.label(owned: owned, primaryName: "grace", graceMs: g, nowMs: now), "grace", "label: a primary name in grace still labels")
+    r.eq(KN.label(owned: owned, primaryName: "gone", graceMs: g, nowMs: now), "grace", "label: a lapsed primary name is skipped")
+    r.eq(KN.label(owned: owned, primaryName: "notmine", graceMs: g, nowMs: now), "grace", "label: a primary name not owned is skipped")
+    r.eq(KN.label(owned: [owned[0], owned[1]], primaryName: nil, graceMs: g, nowMs: now), "zeta", "label: the oldest active name")
+    r.eq(KN.label(owned: [owned[3]], primaryName: nil, graceMs: g, nowMs: now), nil, "label: only a lapsed name")
 
     var p = KN.Profile()
     p.avatar = " x.com/KaspaCurrency/ "
