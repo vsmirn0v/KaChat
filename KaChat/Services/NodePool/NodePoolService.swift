@@ -602,6 +602,19 @@ final class NodePoolService: ObservableObject {
         do {
             return try await submitRpcTransaction(transaction.toProtobuf(), allowOrphan: allowOrphan)
         } catch {
+            // "Orphan where orphan is disallowed": its inputs came from a node that already has
+            // their parent transaction (the UTXO query), but the node this submit reached hasn't
+            // caught up yet - a reaction or message sent right after the previous one. Give the
+            // parent a moment to propagate and try once more; then let the node hold it as an
+            // orphan until the parent arrives.
+            if !allowOrphan, Self.isOrphanRejection(error) {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                if let sent = try? await submitRpcTransaction(transaction.toProtobuf(), allowOrphan: false) { return sent }
+                if let sent = try? await submitRpcTransaction(transaction.toProtobuf(), allowOrphan: true) {
+                    AppLog.log("[NodePool] %@ submitted as an orphan: its parent hadn't reached that node yet", String(sent.txId.prefix(12)))
+                    return sent
+                }
+            }
             let txId = KasiaTransactionBuilder.computeTransactionId(transaction)
             if await isTransactionKnown(txId: txId) {
                 AppLog.log("[NodePool] submit of %@ reported \"%@\" but the network has it: treated as sent",
@@ -610,6 +623,10 @@ final class NodePoolService: ObservableObject {
             }
             throw error
         }
+    }
+
+    private static func isOrphanRejection(_ error: Error) -> Bool {
+        error.localizedDescription.lowercased().contains("orphan")
     }
 
     /// Whether the network already has `txId`: in a mempool, or accepted (REST API). Checked
