@@ -1423,3 +1423,7 @@
 "Photos copied from your device address book. Re-read from Contacts." = "صور منسوخة من دفتر عناوين جهازك. تُقرأ مجددًا من جهات الاتصال.";
 "Link previews and API responses held by the system's network cache." = "معاينات الروابط وردود واجهات البرمجة المحفوظة في ذاكرة الشبكة المؤقتة للنظام.";
 "Scratch files from sending photos and voice notes. Safe to remove at any time." = "ملفات مؤقتة من إرسال الصور والرسائل الصوتية. يمكن حذفها في أي وقت.";
+
+/* .kachat Renew: choose the period first */
+"How long?" = "لأي مدة؟";
+"A renewal starts the next period at the current expiry, not from today." = "يبدأ التجديد الفترة التالية عند تاريخ الانتهاء الحالي، وليس من اليوم.";

@@ -1423,3 +1423,7 @@
 "Photos copied from your device address book. Re-read from Contacts." = "기기 주소록에서 복사한 사진. 연락처에서 다시 읽어옵니다.";
 "Link previews and API responses held by the system's network cache." = "시스템 네트워크 캐시에 보관된 링크 미리보기와 API 응답.";
 "Scratch files from sending photos and voice notes. Safe to remove at any time." = "사진과 음성 메모를 보낼 때 생긴 임시 파일. 언제든 삭제해도 안전합니다.";
+
+/* .kachat Renew: choose the period first */
+"How long?" = "기간은?";
+"A renewal starts the next period at the current expiry, not from today." = "갱신하면 다음 기간이 오늘이 아니라 현재 만료 시점부터 시작됩니다.";

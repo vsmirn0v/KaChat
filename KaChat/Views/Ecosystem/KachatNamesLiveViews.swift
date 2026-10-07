@@ -1304,6 +1304,9 @@ struct KachatTxSheet<Inputs: View>: View {
     let operation: KachatNamesActions.Operation?
     let operationKey: String
     var onDone: (String) -> Void = { _ in }
+    /// Shown as a step of a flow that already has its NavigationStack (Renew's "How long?" first):
+    /// no stack of its own, and Back, not Cancel, leads back.
+    var embedded = false
     @ViewBuilder var inputs: () -> Inputs
 
     @Environment(\.dismiss) private var dismiss
@@ -1317,90 +1320,99 @@ struct KachatTxSheet<Inputs: View>: View {
     @State private var sendError: String?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                inputs()
-                Section {
-                    ForEach(rows) { row in
-                        LabeledRow(title: row.title, value: row.value)
-                    }
-                    if let plan {
-                        if plan.priceFee > 0 {
-                            LabeledRow(title: "Price (to miners)", value: KaspaUnit.amount(plan.priceFee))
-                        }
-                        LabeledRow(title: "Network fee", value: KaspaUnit.amount(plan.networkFee))
-                        // Names always spend from, and pay back to, the chatting address: show its
-                        // real balance and what it will be once this is sent.
-                        if let me = KachatNamesActions.shared.myKey {
-                            let change = Self.balanceChange(plan, me: me)
-                            if let balance = WalletManager.shared.currentWallet?.balanceSompi {
-                                LabeledRow(title: "Chatting address balance", value: KaspaUnit.amount(balance))
-                                LabeledRow(title: "Balance after", value: KaspaUnit.amount(UInt64(max(0, Int64(balance) + change))), bold: true)
-                            } else {
-                                LabeledRow(title: "Balance change", value: KaspaUnit.signed(change), bold: true)
-                            }
-                        }
-                    } else if building {
-                        HStack { Text("Network fee"); Spacer(); ProgressView() }
-                    }
-                } footer: {
-                    if let planError {
-                        Text(verbatim: planError).foregroundColor(.red)
-                    } else if let footer {
-                        Text(footer)
-                    }
+        if embedded {
+            form
+        } else {
+            NavigationStack { form }
+        }
+    }
+
+    private var form: some View {
+        Form {
+            inputs()
+            Section {
+                ForEach(rows) { row in
+                    LabeledRow(title: row.title, value: row.value)
                 }
-                if let warning {
-                    Section {
-                        Label { Text(warning) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
-                            .foregroundColor(.red)
+                if let plan {
+                    if plan.priceFee > 0 {
+                        LabeledRow(title: "Price (to miners)", value: KaspaUnit.amount(plan.priceFee))
                     }
+                    LabeledRow(title: "Network fee", value: KaspaUnit.amount(plan.networkFee))
+                    // Names always spend from, and pay back to, the chatting address: show its
+                    // real balance and what it will be once this is sent.
+                    if let me = KachatNamesActions.shared.myKey {
+                        let change = Self.balanceChange(plan, me: me)
+                        if let balance = WalletManager.shared.currentWallet?.balanceSompi {
+                            LabeledRow(title: "Chatting address balance", value: KaspaUnit.amount(balance))
+                            LabeledRow(title: "Balance after", value: KaspaUnit.amount(UInt64(max(0, Int64(balance) + change))), bold: true)
+                        } else {
+                            LabeledRow(title: "Balance change", value: KaspaUnit.signed(change), bold: true)
+                        }
+                    }
+                } else if building {
+                    HStack { Text("Network fee"); Spacer(); ProgressView() }
                 }
-                Section {
-                    if let txId {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Label("Sent", systemImage: "checkmark.circle.fill").foregroundColor(.green)
-                            Text(verbatim: txId)
-                                .font(.caption.monospaced())
-                                .foregroundColor(.secondary)
-                                .textSelection(.enabled)
-                            Text("It shows here once the network accepts it, usually within seconds.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    } else {
-                        Button(role: warning == nil ? nil : ButtonRole.destructive) {
-                            if warning != nil { confirmWarning = true } else { authorize() }
-                        } label: {
-                            HStack {
-                                Spacer()
-                                if sending { ProgressView() } else { Text(confirmTitle).font(.headline) }
-                                Spacer()
-                            }
-                        }
-                        .disabled(plan == nil || sending)
-                    }
-                } footer: {
-                    if let sendError { Text(verbatim: sendError).foregroundColor(.red) }
+            } footer: {
+                if let planError {
+                    Text(verbatim: planError).foregroundColor(.red)
+                } else if let footer {
+                    Text(footer)
                 }
             }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
+            if let warning {
+                Section {
+                    Label { Text(warning) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                        .foregroundColor(.red)
+                }
+            }
+            Section {
+                if let txId {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Sent", systemImage: "checkmark.circle.fill").foregroundColor(.green)
+                        Text(verbatim: txId)
+                            .font(.caption.monospaced())
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                        Text("It shows here once the network accepts it, usually within seconds.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Button(role: warning == nil ? nil : ButtonRole.destructive) {
+                        if warning != nil { confirmWarning = true } else { authorize() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if sending { ProgressView() } else { Text(confirmTitle).font(.headline) }
+                            Spacer()
+                        }
+                    }
+                    .disabled(plan == nil || sending)
+                }
+            } footer: {
+                if let sendError { Text(verbatim: sendError).foregroundColor(.red) }
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // embedded: the flow's Back leads out until it's sent
+            if !embedded || txId != nil {
                 ToolbarItem(placement: txId == nil ? .cancellationAction : .confirmationAction) {
                     Button { dismiss() } label: {
                         if txId == nil { Text("Cancel") } else { Text("Done") }
                     }
                 }
             }
-            .task(id: operationKey) { await rebuild() }
-            .sheet(item: $done, onDismiss: { dismiss() }) { KachatTxDoneSheet(done: $0) }
-            .alert(Text(title), isPresented: $confirmWarning) {
-                Button(confirmTitle, role: .destructive) { authorize() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                if let warning { Text(warning) }
-            }
+        }
+        .task(id: operationKey) { await rebuild() }
+        .sheet(item: $done, onDismiss: { dismiss() }) { KachatTxDoneSheet(done: $0) }
+        .alert(Text(title), isPresented: $confirmWarning) {
+            Button(confirmTitle, role: .destructive) { authorize() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let warning { Text(warning) }
         }
     }
 
@@ -2321,13 +2333,77 @@ struct KachatExtendSheet: View {
     }
 }
 
-/// `renew`: the next period, from the current expiry, for 1 or 2 periods - only once the renewal
-/// window is open (`renewWindowMs` before the expiry; the detail screen says when).
+/// `renew`: the next period, from the current expiry, for 1 or 2 periods - only once the
+/// renewal window is open (`renewWindowMs` before the expiry; the detail screen says when). A
+/// half sheet in two steps: how long (10m / 20m on testnet's clock, 1 / 2 years on mainnet's),
+/// then the review with the fee.
 struct KachatRenewSheet: View {
     let info: KachatNames.NameInfo
-    @State private var years: Int64 = 1
+    /// Nothing is chosen until the person taps one.
+    @State private var years: Int?
+    @State private var showReview = false
+    @Environment(\.dismiss) private var dismiss
 
-    private var maxYears: Int64 { KachatLive.params?.maxYears ?? 2 }
+    private var maxYears: Int { Int(KachatLive.params?.maxYears ?? 2) }
+    private var perYear: UInt64 { KachatLive.renewPrice(info.name) ?? 0 }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("How long?")
+                        .font(.title2.weight(.bold))
+                    Text("A renewal starts the next period at the current expiry, not from today.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    ForEach(1...max(1, maxYears), id: \.self) { y in
+                        Button {
+                            years = y
+                        } label: {
+                            HStack {
+                                Image(systemName: years == y ? "checkmark.circle.fill" : "circle")
+                                KachatYearsText(years: y)
+                                Spacer()
+                                Text(verbatim: KaspaUnit.amount(perYear * UInt64(y)))
+                            }
+                            .font(.body.weight(.semibold))
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(years == y ? Color.accentColor : Color.clear)
+                            .foregroundColor(years == y ? .white : .accentColor)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 1.5))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .contentShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(years == y ? .isSelected : [])
+                    }
+                    CreateWalletNextButton(title: "Next", enabled: years != nil) { showReview = true }
+                        .padding(.top, 6)
+                }
+                .padding()
+            }
+            .navigationTitle("Renew")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .navigationDestination(isPresented: $showReview) {
+                if let years {
+                    KachatRenewReview(info: info, years: Int64(years))
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+/// Renew, step 2: what the chosen period costs, and Renew.
+private struct KachatRenewReview: View {
+    let info: KachatNames.NameInfo
+    let years: Int64
+
     private var perYear: UInt64 { KachatLive.renewPrice(info.name) ?? 0 }
     private var periodMs: Int64 { KachatLive.params?.periodMs ?? KachatNames.yearMs }
 
@@ -2341,16 +2417,10 @@ struct KachatRenewSheet: View {
                 .init(title: KachatLive.pricePerPeriodTitle, value: KaspaUnit.amount(perYear)),
                 .init(title: "New period", value: "\(KachatLive.day(info.expiresAt)) – \(KachatLive.day(info.expiresAt + years * periodMs))")
             ],
-            operation: .renew(info, years: years), operationKey: "renew-\(years)"
+            operation: .renew(info, years: years), operationKey: "renew-\(years)",
+            embedded: true
         ) {
-            Section {
-                Picker("Years", selection: $years) {
-                    ForEach(1...max(1, Int(maxYears)), id: \.self) { y in
-                        KachatYearsText(years: y).tag(Int64(y))
-                    }
-                }
-                .pickerStyle(.segmented)
-            }
+            EmptyView()
         }
     }
 }

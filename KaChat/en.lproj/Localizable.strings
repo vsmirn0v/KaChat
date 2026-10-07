@@ -1424,3 +1424,7 @@
 "Photos copied from your device address book. Re-read from Contacts." = "Photos copied from your device address book. Re-read from Contacts.";
 "Link previews and API responses held by the system's network cache." = "Link previews and API responses held by the system's network cache.";
 "Scratch files from sending photos and voice notes. Safe to remove at any time." = "Scratch files from sending photos and voice notes. Safe to remove at any time.";
+
+/* .kachat Renew: choose the period first */
+"How long?" = "How long?";
+"A renewal starts the next period at the current expiry, not from today." = "A renewal starts the next period at the current expiry, not from today.";

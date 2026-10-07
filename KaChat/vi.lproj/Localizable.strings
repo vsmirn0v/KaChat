@@ -1423,3 +1423,7 @@
 "Photos copied from your device address book. Re-read from Contacts." = "Ảnh sao chép từ danh bạ của thiết bị. Được đọc lại từ Danh bạ.";
 "Link previews and API responses held by the system's network cache." = "Bản xem trước liên kết và phản hồi API trong bộ nhớ đệm mạng của hệ thống.";
 "Scratch files from sending photos and voice notes. Safe to remove at any time." = "Tệp tạm khi gửi ảnh và tin nhắn thoại. Có thể xóa bất kỳ lúc nào.";
+
+/* .kachat Renew: choose the period first */
+"How long?" = "Trong bao lâu?";
+"A renewal starts the next period at the current expiry, not from today." = "Gia hạn bắt đầu kỳ tiếp theo từ lúc hết hạn hiện tại, không phải từ hôm nay.";

@@ -1423,3 +1423,7 @@
 "Photos copied from your device address book. Re-read from Contacts." = "从设备通讯录复制的照片。会从通讯录重新读取。";
 "Link previews and API responses held by the system's network cache." = "系统网络缓存中的链接预览和 API 响应。";
 "Scratch files from sending photos and voice notes. Safe to remove at any time." = "发送照片和语音消息时产生的临时文件。随时可以安全删除。";
+
+/* .kachat Renew: choose the period first */
+"How long?" = "多长时间?";
+"A renewal starts the next period at the current expiry, not from today." = "续期会从当前到期时间开始下一个周期，而不是从今天开始。";

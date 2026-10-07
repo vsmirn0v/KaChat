@@ -1423,3 +1423,7 @@
 "Photos copied from your device address book. Re-read from Contacts." = "Foto copiate dalla rubrica del dispositivo. Rilette dai Contatti.";
 "Link previews and API responses held by the system's network cache." = "Anteprime dei link e risposte API conservate nella cache di rete del sistema.";
 "Scratch files from sending photos and voice notes. Safe to remove at any time." = "File temporanei dall'invio di foto e note vocali. Si possono rimuovere in qualsiasi momento.";
+
+/* .kachat Renew: choose the period first */
+"How long?" = "Per quanto tempo?";
+"A renewal starts the next period at the current expiry, not from today." = "Un rinnovo fa partire il periodo successivo dalla scadenza attuale, non da oggi.";
