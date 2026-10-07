@@ -74,6 +74,26 @@ enum KachatLive {
     @MainActor static var yearlyPeriods: Bool { (params?.periodMs ?? KachatNames.yearMs) == KachatNames.yearMs }
 
     /// A length of time ("10 min", "10 days"), in the in-app language.
+    /// Time left until a moment, for a live countdown: "2d 5h" while days remain, else "1:04:09"
+    /// or "4:09" (hours, minutes, seconds).
+    static func countdown(_ ms: Int64) -> String {
+        let seconds = Double(max(ms, 0)) / 1000
+        let f = DateComponentsFormatter()
+        var calendar = Calendar.current
+        calendar.locale = AppLocalization.locale
+        f.calendar = calendar
+        if seconds >= 86_400 {
+            f.allowedUnits = [.day, .hour]
+            f.unitsStyle = .abbreviated
+            f.maximumUnitCount = 2
+        } else {
+            f.allowedUnits = seconds >= 3600 ? [.hour, .minute, .second] : [.minute, .second]
+            f.unitsStyle = .positional
+            f.zeroFormattingBehavior = .pad
+        }
+        return f.string(from: seconds) ?? ""
+    }
+
     static func duration(_ ms: Int64) -> String {
         let f = DateComponentsFormatter()
         let seconds = Double(ms) / 1000
@@ -380,6 +400,8 @@ final class KachatHubModel: ObservableObject {
     @Published private(set) var search: Search = .idle
     @Published private(set) var listings: [KachatNames.NameInfo] = []
     @Published private(set) var lapsed: [KachatNames.NameInfo] = []
+    /// Expired and still in grace: the Expired tab, with a countdown to each release.
+    @Published private(set) var grace: [KachatNames.NameInfo] = []
     @Published private(set) var mine: [KachatNames.NameInfo] = []
     @Published private(set) var myOffers: [KachatNames.OfferInfo] = []
     @Published private(set) var activity: [KachatNames.Event] = []
@@ -424,6 +446,7 @@ final class KachatHubModel: ObservableObject {
         do {
             listings = try await registry.listings()
             lapsed = try await registry.lapsed()
+            grace = (try? await registry.inGrace()) ?? []
             if let me = KachatNamesActions.shared.myKey {
                 mine = try await registry.names(owner: me, includeInactive: true)
                 myOffers = try await registry.myOffers(buyer: me)
@@ -939,6 +962,61 @@ struct KachatLiveMarketPage: View {
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 2)
                                         .background(Capsule().fill(Color.orange.opacity(0.15)))
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
+    }
+}
+
+/// Names that expired and are still in their grace period: only their owner can renew them, and
+/// each counts down to the moment it is released to Available - for anyone waiting to claim a
+/// name they want.
+struct KachatLiveExpiredPage: View {
+    @ObservedObject var model: KachatHubModel
+    @State private var openName: KachatNames.NameInfo?
+    @State private var reloadedFor: Set<String> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            KachatLiveSectionHeader(title: "Expired", detail: nil)
+            if model.grace.isEmpty {
+                KachatLiveEmpty(text: model.loaded ? "No names are in their grace period right now." : nil)
+            } else {
+                KachatNameGrid {
+                    ForEach(model.grace) { n in
+                        NavigationLink { KachatListingDetailView(info: n) } label: {
+                            KachatNameTile(name: n.name) {
+                                TimelineView(.periodic(from: .now, by: 1)) { context in
+                                    let releaseAt = n.expiresAt + (KachatLive.params?.graceMs ?? 0)
+                                    let left = releaseAt - Int64(context.date.timeIntervalSince1970 * 1000)
+                                    VStack(spacing: 2) {
+                                        Text("Released in")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text(verbatim: KachatLive.countdown(left))
+                                            .font(.subheadline.weight(.bold).monospacedDigit())
+                                            .foregroundColor(.orange)
+                                    }
+                                    .onChange(of: left <= 0) { released in
+                                        // released: it moves to Available
+                                        if released, !reloadedFor.contains(n.id) {
+                                            reloadedFor.insert(n.id)
+                                            Task { await model.reload() }
+                                        }
+                                    }
+                                }
+                                if let price = KachatLive.price(n.name) {
+                                    Text(verbatim: KaspaUnit.amount(price))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
                                 }
                             }
                         }

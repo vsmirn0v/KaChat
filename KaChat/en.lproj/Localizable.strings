@@ -1428,3 +1428,8 @@
 /* .kachat Renew: choose the period first */
 "How long?" = "How long?";
 "A renewal starts the next period at the current expiry, not from today." = "A renewal starts the next period at the current expiry, not from today.";
+
+/* .kachat marketplace: the Expired tab (names in grace, counting down) */
+"Released in" = "Released in";
+"No names are in their grace period right now." = "No names are in their grace period right now.";
+"Names in their grace period appear here once .kachat names launch." = "Names in their grace period appear here once .kachat names launch.";

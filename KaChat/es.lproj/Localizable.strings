@@ -1427,3 +1427,8 @@
 /* .kachat Renew: choose the period first */
 "How long?" = "¿Por cuánto tiempo?";
 "A renewal starts the next period at the current expiry, not from today." = "Una renovación empieza el siguiente periodo al vencer el actual, no desde hoy.";
+
+/* .kachat marketplace: the Expired tab (names in grace, counting down) */
+"Released in" = "Se libera en";
+"No names are in their grace period right now." = "Ahora mismo no hay nombres en periodo de gracia.";
+"Names in their grace period appear here once .kachat names launch." = "Los nombres en periodo de gracia aparecerán aquí cuando se lancen los nombres .kachat.";

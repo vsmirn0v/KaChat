@@ -1427,3 +1427,8 @@
 /* .kachat Renew: choose the period first */
 "How long?" = "برای چه مدت؟";
 "A renewal starts the next period at the current expiry, not from today." = "تمدید، دوره بعدی را از زمان انقضای فعلی شروع می‌کند، نه از امروز.";
+
+/* .kachat marketplace: the Expired tab (names in grace, counting down) */
+"Released in" = "آزاد شدن تا";
+"No names are in their grace period right now." = "در حال حاضر هیچ نامی در دوره مهلت نیست.";
+"Names in their grace period appear here once .kachat names launch." = "نام‌های در دوره مهلت پس از راه‌اندازی نام‌های ‎.kachat اینجا نمایش داده می‌شوند.";

@@ -360,6 +360,28 @@ final class KachatNamesRegistry: ObservableObject {
         }
     }
 
+    /// Names that expired and are still in their grace period (only their owner can renew them),
+    /// soonest release first: each is free to claim at `expiresAt + graceMs`. The indexer serves
+    /// `GET /names/grace` (kachat-indexer docs/KACHAT_NAMES_GRACE.md); an indexer without it yet
+    /// is answered from this device's own chain walk when it has one.
+    func inGrace() async throws -> [KachatNames.NameInfo] {
+        try await prepare()
+        let grace = graceMs
+        let fromChain = { (self.chainState?.names ?? []).map(KachatNames.RegistryState.info) }
+        let all: [KachatNames.NameInfo]
+        switch source {
+        case .indexer(let base):
+            if let j: KachatNames.IndexerAPI.NamesJSON = try? await Self.get(base, "/names/grace") {
+                all = j.names.compactMap { $0.info(keyOf: Self.keyOf) }
+            } else {
+                all = fromChain()
+            }
+        default:
+            all = fromChain()
+        }
+        return all.filter { $0.status(graceMs: grace) == .grace }.sorted { $0.expiresAt < $1.expiresAt }
+    }
+
     /// Open offers on a name. Without an indexer only the offers this device made are known.
     func offers(for name: String) async throws -> [KachatNames.OfferInfo] {
         try await prepare()

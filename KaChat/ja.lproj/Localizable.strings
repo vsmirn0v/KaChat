@@ -1427,3 +1427,8 @@
 /* .kachat Renew: choose the period first */
 "How long?" = "期間は?";
 "A renewal starts the next period at the current expiry, not from today." = "更新は次の期間を今日からではなく、現在の有効期限から開始します。";
+
+/* .kachat marketplace: the Expired tab (names in grace, counting down) */
+"Released in" = "解放まで";
+"No names are in their grace period right now." = "現在、猶予期間中の名前はありません。";
+"Names in their grace period appear here once .kachat names launch." = ".kachat の名前が開始されると、猶予期間中の名前がここに表示されます。";

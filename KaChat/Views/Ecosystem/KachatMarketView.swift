@@ -44,14 +44,16 @@ enum KachatTabIcon {
 /// the tabs read the registry (`KachatNamesRegistry`), and registrations in flight show their
 /// progress.
 struct KachatMarketView: View {
-    /// Names for sale, expired names anyone may claim, and everything that happens in the registry.
+    /// Names for sale, names in their grace period (counting down to release), expired names
+    /// anyone may claim, and everything that happens in the registry.
     /// Your own names (and the offers you made) live in Profile > Your Domains.
     private enum Page: String, CaseIterable {
-        case market, available, activity
+        case market, expired, available, activity
 
         var title: String {
             switch self {
             case .market: return "Marketplace"
+            case .expired: return "Expired"
             case .available: return "Available"
             case .activity: return "Activity"
             }
@@ -82,12 +84,14 @@ struct KachatMarketView: View {
                     if live.isLive || !KachatNamesService.isLaunched {
                         switch page {
                         case .market: KachatLiveMarketPage(model: live)
+                        case .expired: KachatLiveExpiredPage(model: live)
                         case .available: KachatLiveAvailablePage(model: live)
                         case .activity: KachatLiveActivityPage(model: live)
                         }
                     } else {
                         switch page {
                         case .market: marketPage
+                        case .expired: expiredPage
                         case .available: availablePage
                         case .activity: activityPage
                         }
@@ -296,6 +300,22 @@ struct KachatMarketView: View {
                 .font(.subheadline.weight(.semibold))
         }
         .redacted(reason: .placeholder)
+    }
+
+    // MARK: - Expired
+
+    private var expiredPage: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            sectionHeader("Expired", detail: nil)
+            KachatNameGrid {
+                ForEach(0..<2, id: \.self) { _ in tilePlaceholder(footer: "00:00") }
+            }
+            Text("Names in their grace period appear here once .kachat names launch.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.top, 4)
     }
 
     // MARK: - Available

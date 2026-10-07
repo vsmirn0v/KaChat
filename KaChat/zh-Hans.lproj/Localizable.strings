@@ -1427,3 +1427,8 @@
 /* .kachat Renew: choose the period first */
 "How long?" = "多长时间?";
 "A renewal starts the next period at the current expiry, not from today." = "续期会从当前到期时间开始下一个周期，而不是从今天开始。";
+
+/* .kachat marketplace: the Expired tab (names in grace, counting down) */
+"Released in" = "释放倒计时";
+"No names are in their grace period right now." = "目前没有处于宽限期的名称。";
+"Names in their grace period appear here once .kachat names launch." = ".kachat 名称上线后，处于宽限期的名称会显示在这里。";
