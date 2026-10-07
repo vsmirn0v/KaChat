@@ -859,6 +859,17 @@ extension KachatNames {
                 let (t, x) = key(input.outpoint)
                 return offers.first { $0.txid == t && $0.index == x }.map { (i, $0) }
             }
+            // A spend of a gap or name this state doesn't track yet: its creating transaction is
+            // still ahead in the walk (a reclaim is found through its long-tracked gaps before
+            // the name's latest renewal or listing is). Applying it now would merge the gaps and
+            // leave the name alive, so it waits, changing nothing.
+            let trackedInputs = Set(gapIns.map(\.0) + nameIns.map(\.0))
+            for (i, input) in tx.inputs.enumerated() where !trackedInputs.contains(i) {
+                guard let redeem = (try? Codec.parsePushes(input.signatureScript))?.last else { continue }
+                if (try? m.gap.state(ofRedeem: redeem)) != nil || (try? m.name.state(ofRedeem: redeem)) != nil {
+                    throw Failure.waitsForEarlierTransaction
+                }
+            }
             let newOffer = RegistryState.offerFromMarker(tx, m)
             if regOuts.isEmpty && gapIns.isEmpty && nameIns.isEmpty && offerIns.isEmpty && newOffer == nil {
                 return []
@@ -1173,6 +1184,9 @@ extension KachatNames.RegistryState {
         /// tracked UTXOs the node no longer has but whose spending transaction was not found yet
         /// (an indexing delay of the REST API); the next refresh retries
         var unresolved: [String] = []
+        /// a tracked UTXO was spent by a transaction this state already applied: the state is
+        /// inconsistent (the caller walks again from the genesis)
+        var stale = false
     }
 
     /// Moves the state forward to the chain's current registry. `live(addresses)` answers which
@@ -1219,6 +1233,12 @@ extension KachatNames.RegistryState {
             }
             report.unresolved = spent.map { $0.1 }.filter { !found.contains($0) }.sorted()
             if candidates.isEmpty { return report }
+            // a still-tracked UTXO spent by a transaction already applied: re-applying changes
+            // nothing, so no round could ever move past it
+            if candidates.keys.contains(where: { applied.contains($0) }) {
+                report.stale = true
+                return report
+            }
             var pending = candidates.values.sorted { ($0.at ?? 0, $0.idHex) < ($1.at ?? 0, $1.idHex) }
             var lastError: Error?
             var progressed = true
@@ -1243,9 +1263,24 @@ extension KachatNames.RegistryState {
                 }
                 pending = rest
             }
-            // nothing applied: the same spends would fail again next round
-            if appliedThisRound == 0, let lastError { throw lastError }
+            // nothing applied: the same spends would fail again next round. Transactions that
+            // only wait for an earlier one the REST API hasn't indexed yet end the walk quietly;
+            // the next refresh picks them up.
+            if appliedThisRound == 0, let lastError {
+                if (lastError as? KachatNames.Failure) == .waitsForEarlierTransaction { return report }
+                throw lastError
+            }
+            sortEventsByTime()
         }
         return report
+    }
+
+    /// Events in the order they happened: a walk applies a round's transactions in dependency
+    /// order, which is not always the time order. Events without a time keep their place
+    /// relative to each other, after the timed ones.
+    mutating func sortEventsByTime() {
+        events = events.enumerated()
+            .sorted { ($0.element.at ?? .max, $0.offset) < ($1.element.at ?? .max, $1.offset) }
+            .map(\.element)
     }
 }

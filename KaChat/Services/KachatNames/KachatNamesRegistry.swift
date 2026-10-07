@@ -150,9 +150,30 @@ final class KachatNamesRegistry: ObservableObject {
 
     private func walk(_ m: KachatNames.Manifest) async throws {
         var state = chainState ?? .atGenesis(m)
+        var report = try await walkOnce(&state, m)
+        // An inconsistent result (a stale UTXO, or gaps and names that don't tile the key
+        // space) is walked again once from the genesis rather than kept.
+        if report.stale || (try? state.checkInvariants()) == nil {
+            AppLog.log("[KachatNames] the walked registry is inconsistent; walking again from the genesis")
+            state = .atGenesis(m)
+            report = try await walkOnce(&state, m)
+            try state.checkInvariants()
+        }
+        state.verifiedAt = KachatNames.nowMs()
+        if !report.applied.isEmpty {
+            AppLog.log("[KachatNames] walked %d registry transaction(s) in %d round(s)", report.applied.count, report.rounds)
+        }
+        if !report.unresolved.isEmpty {
+            AppLog.log("[KachatNames] %d spent registry UTXO(s) wait for the REST API to index their spend", report.unresolved.count)
+        }
+        chainState = state
+        Self.saveCache(state)
+    }
+
+    private func walkOnce(_ state: inout KachatNames.RegistryState, _ m: KachatNames.Manifest) async throws -> KachatNames.RegistryState.WalkReport {
         // the registry's gaps and names (registry v4 has no price record)
         let covenantIds: Set<String> = [KachatNames.hex(m.registryCovenantId)]
-        let report = try await state.walk(
+        return try await state.walk(
             manifest: m,
             address: { KachatNamesService.p2shAddress(script: $0) },
             live: { addresses in
@@ -172,15 +193,6 @@ final class KachatNamesRegistry: ObservableObject {
             },
             transactions: { address in try await Self.restTransactions(address: address) }
         )
-        state.verifiedAt = KachatNames.nowMs()
-        if !report.applied.isEmpty {
-            AppLog.log("[KachatNames] walked %d registry transaction(s) in %d round(s)", report.applied.count, report.rounds)
-        }
-        if !report.unresolved.isEmpty {
-            AppLog.log("[KachatNames] %d spent registry UTXO(s) wait for the REST API to index their spend", report.unresolved.count)
-        }
-        chainState = state
-        Self.saveCache(state)
     }
 
     /// Accepted transactions touching `address`, newest first (kaspa-rest-server).

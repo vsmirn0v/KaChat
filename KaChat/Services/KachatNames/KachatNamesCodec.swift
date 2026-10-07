@@ -20,6 +20,10 @@ enum KachatNames {
         /// Not an error to show as one: the screens say the registry is being set up.
         static let outdatedRegistry = Failure("manifest: an earlier registry; this app needs the registry v4 manifest (new genesis pending)")
         var isOutdatedRegistry: Bool { self == Failure.outdatedRegistry }
+
+        /// A registry transaction that spends a gap or name not tracked yet: it applies once the
+        /// walk has reached the transaction that created that UTXO (`RegistryState.apply`).
+        static let waitsForEarlierTransaction = Failure("a registry input is not tracked yet: an earlier registry transaction comes first")
     }
 
     // MARK: - Constants (rusty-kaspa a41a333, kachat-domains params)

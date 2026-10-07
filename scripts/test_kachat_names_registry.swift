@@ -277,6 +277,134 @@ func runWalk(_ v: J, _ r: Report) async {
     _ = expected
 }
 
+/// The walk must reach the same registry whatever order the REST API hands transactions back
+/// in, with or without times, in one walk or several. A reclaim is found through its long-tracked
+/// gaps in the same round as the renewal that precedes it: walked in the wrong order, the old
+/// code merged the gaps, kept the reclaimed name and re-added it (report from the desktop port,
+/// 2026-10-07).
+func runWalkOrders(_ v: J, _ r: Report) async {
+    let m = try! KN.Manifest.decode(JSONSerialization.data(withJSONObject: v["manifest"]!))
+    let steps = Array((v["steps"] as! [J]).prefix(e2eCount))
+    let timed = steps.enumerated().map { view($0.element, at: Int64(1_000 + $0.offset)) }
+    var created: [String: Data] = [:]
+    var spentBy: [String: String] = [:]
+    for t in timed {
+        for (k, o) in t.outputs.enumerated() { created["\(t.idHex):\(k)"] = o.script }
+        for i in t.inputs { spentBy["\(KN.hex(i.outpoint.txid)):\(i.outpoint.index)"] = t.idHex }
+    }
+    created["\(KN.hex(m.genesisTxid)):0"] = m.genesisOutput.script
+    func addr(_ script: Data) -> String? { KaspaAddress.address(fromScriptPublicKey: script, hrp: "kaspatest") }
+    var reference = KN.RegistryState.atGenesis(m)
+    for t in timed { _ = try? reference.apply(t, manifest: m) }
+
+    func walk(_ state: inout KN.RegistryState, upTo: Int, order: ([KN.TxView]) -> [KN.TxView], times: Bool) async throws -> KN.RegistryState.WalkReport {
+        let visible = Array(timed.prefix(upTo)).map { t -> KN.TxView in var c = t; if !times { c.at = nil }; return c }
+        let visibleIds = Set(visible.map(\.idHex))
+        return try await state.walk(
+            manifest: m, address: addr,
+            live: { addresses in
+                Set(created.filter { op, script in
+                    addresses.contains(addr(script) ?? "")
+                        && (op.hasPrefix(KN.hex(m.genesisTxid)) || visibleIds.contains(String(op.prefix(64))))
+                        && !(spentBy[op].map { visibleIds.contains($0) } ?? false)
+                }.keys)
+            },
+            transactions: { a in
+                order(visible.filter { t in
+                    t.outputs.contains { addr($0.script) == a } || t.inputs.contains { i in created["\(KN.hex(i.outpoint.txid)):\(i.outpoint.index)"].flatMap(addr) == a }
+                })
+            }
+        )
+    }
+    func same(_ s: KN.RegistryState, _ label: String) {
+        r.eq(Set(s.gaps.map { "\($0.txid):\($0.index)" }), Set(reference.gaps.map { "\($0.txid):\($0.index)" }), "\(label): gaps")
+        r.eq(Set(s.names.map { "\($0.name)@\($0.txid):\($0.index)" }), Set(reference.names.map { "\($0.name)@\($0.txid):\($0.index)" }), "\(label): names")
+        r.eq(Set(s.offers.map { "\($0.txid):\($0.index)" }), Set(reference.offers.map { "\($0.txid):\($0.index)" }), "\(label): offers")
+        // a walk can't discover offers (no registry UTXO marks them), so their events are left out
+        func nameEvents(_ e: [KN.Event]) -> [String] {
+            e.map(\.op).filter { $0 == "offer_accepted" || !$0.hasPrefix("offer") }.sorted()
+        }
+        r.eq(nameEvents(s.events), nameEvents(reference.events), "\(label): events")
+        r.check((try? s.checkInvariants()) != nil, "\(label): invariants")
+    }
+    // a fixed shuffle, so a failure reproduces
+    var seed: UInt64 = 0x9E3779B97F4A7C15
+    func shuffled(_ a: [KN.TxView]) -> [KN.TxView] {
+        var out = a
+        for i in stride(from: out.count - 1, to: 0, by: -1) {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            out.swapAt(i, Int(seed >> 33) % (i + 1))
+        }
+        return out
+    }
+    let orders: [(String, ([KN.TxView]) -> [KN.TxView])] = [
+        ("newest first", { $0.reversed() }), ("oldest first", { $0 }), ("shuffled", shuffled), ("by id", { $0.sorted { $0.idHex < $1.idHex } })
+    ]
+    for (name, order) in orders {
+        for times in [true, false] {
+            let label = "walk \(name)\(times ? "" : ", no times")"
+            var s = KN.RegistryState.atGenesis(m)
+            do {
+                let report = try await walk(&s, upTo: e2eCount, order: order, times: times)
+                r.check(!report.stale, "\(label): stale")
+                r.check(report.rounds < 30, "\(label): \(report.rounds) rounds")
+                same(s, label)
+            } catch {
+                r.check(false, "\(label) threw \(error)")
+            }
+            // and incrementally, a few transactions visible at a time
+            var inc = KN.RegistryState.atGenesis(m)
+            do {
+                for upTo in [4, 7, 9, 13, 18, e2eCount] { _ = try await walk(&inc, upTo: upTo, order: order, times: times) }
+                same(inc, "\(label), incremental")
+            } catch {
+                r.check(false, "\(label), incremental threw \(error)")
+            }
+        }
+    }
+    // The live case: the gaps a reclaim spends are tracked, but the name only at an earlier
+    // version (its renewal hasn't been walked yet). The reclaim must wait, changing nothing -
+    // applied, it would merge the gaps and keep the name, which the renewal later re-adds.
+    if let reclaimIdx = steps.firstIndex(where: { s($0["op"]) == "reclaim" }),
+       let renewIdx = steps.firstIndex(where: { s($0["op"]) == "renew" }) {
+        var st = KN.RegistryState.atGenesis(m)
+        for t in timed.prefix(reclaimIdx) { _ = try? st.apply(t, manifest: m) }
+        let renew = timed[renewIdx]
+        let oldName = (steps[renewIdx]["records"] as! J)["name"] as! J
+        guard let k = st.names.firstIndex(where: { $0.name == s(oldName["name"]) }), let prev = renew.inputs.first?.outpoint else {
+            r.check(false, "no renewed name to roll back"); return
+        }
+        st.names[k].txid = KN.hex(prev.txid)
+        st.names[k].index = prev.index
+        st.names[k].periodStart = i64(oldName["periodStart"])
+        st.names[k].expiresAt = i64(oldName["expiresAt"])
+        let before = st
+        do {
+            _ = try st.apply(timed[reclaimIdx], manifest: m)
+            r.check(false, "a reclaim of an untracked name version was applied")
+        } catch {
+            r.eq(error as? KN.Failure, KN.Failure.waitsForEarlierTransaction, "the early reclaim waits")
+        }
+        r.eq(st, before, "the waiting reclaim changed nothing")
+        r.check(st.names.contains { $0.name == s(oldName["name"]) }, "the name is still there to be renewed, then reclaimed")
+    } else {
+        r.check(false, "no reclaim / renew in the vectors")
+    }
+    // a stale UTXO (a tracked output whose spender was already applied) is reported, not looped on
+    // (the genesis gap, put back although the first registration - already applied - spent it)
+    var stale = reference
+    if let g = KN.RegistryState.atGenesis(m).gaps.first {
+        stale.gaps.append(g)
+        do {
+            let report = try await walk(&stale, upTo: e2eCount, order: { $0 }, times: true)
+            r.check(report.stale, "a stale tracked UTXO is reported")
+            r.check(report.rounds <= 2, "stale: \(report.rounds) rounds")
+        } catch {
+            r.check(false, "stale walk threw \(error)")
+        }
+    }
+}
+
 func runRules(_ r: Report) {
     let g: Int64 = 864_000_000
     r.eq(KN.Status.of(expiresAt: 1_000, graceMs: g, nowMs: 999), .active, "status before expiry")
@@ -531,6 +659,8 @@ struct KachatNamesRegistryTest {
         print("+ walker over the vectors: \(r.pass) pass, \(r.fail) fail")
         await runWalk(v, r)
         print("+ walk over a simulated chain: \(r.pass) pass, \(r.fail) fail")
+        await runWalkOrders(v, r)
+        print("+ walks in any order: \(r.pass) pass, \(r.fail) fail")
         for f in r.failures.prefix(40) { print("  FAIL " + f) }
         var ok = r.fail == 0
         if args.contains("--live") { ok = await runLive() && ok }
