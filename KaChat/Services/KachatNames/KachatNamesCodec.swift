@@ -15,10 +15,10 @@ enum KachatNames {
         init(_ message: String) { self.message = message }
         var errorDescription: String? { message }
 
-        /// The manifest describes an earlier registry (v1 or v2): this app builds for registry v3
-        /// (the price record, seller-bound offers, periodMs) and waits for its genesis manifest.
+        /// The manifest describes an earlier registry (v1 - v3): this app builds for registry v4
+        /// (fixed register and renew tables, no price record) and waits for its genesis manifest.
         /// Not an error to show as one: the screens say the registry is being set up.
-        static let outdatedRegistry = Failure("manifest: an earlier registry; this app needs the registry v3 manifest (new genesis pending)")
+        static let outdatedRegistry = Failure("manifest: an earlier registry; this app needs the registry v4 manifest (new genesis pending)")
         var isOutdatedRegistry: Bool { self == Failure.outdatedRegistry }
     }
 
@@ -261,30 +261,6 @@ enum KachatNames {
             return d
         }
 
-        /// Price shard state (registry v3), 87 bytes: `0x08 shard 0x20 authority (0x08 price) x5`.
-        static func priceState(_ f: PriceFields) -> Data {
-            var d = Data([0x08]); d.append(num8(f.shard))
-            d.append(0x20); d.append(f.authority)
-            for p in f.prices {
-                d.append(0x08); d.append(num8(Int64(p)))
-            }
-            return d
-        }
-
-        static func decodePriceState(_ s: Data) throws -> PriceFields {
-            let b = [UInt8](s)
-            guard b.count == 87, b[0] == 0x08, b[9] == 0x20 else { throw Failure("not a price state") }
-            var prices: [UInt64] = []
-            for t in 0..<5 {
-                let at = 42 + t * 9
-                guard b[at] == 0x08 else { throw Failure("not a price state") }
-                let v = try decodeNum8(Data(b[(at + 1)..<(at + 9)]))
-                guard v >= 0 else { throw Failure("negative price") }
-                prices.append(UInt64(v))
-            }
-            return PriceFields(shard: try decodeNum8(Data(b[1..<9])), authority: Data(b[10..<42]), prices: prices)
-        }
-
         static func decodeGapState(_ s: Data) throws -> (lo: Data, hi: Data) {
             let b = [UInt8](s)
             guard b.count == 66, b[0] == 0x20, b[33] == 0x20 else { throw Failure("not a gap state") }
@@ -506,16 +482,5 @@ enum KachatNames {
         var seller: Data
         var refundAfter: Int64
         var encoded: Data { Codec.offerState(self) }
-    }
-
-    /// A price shard's state (registry v3).
-    struct PriceFields: Equatable {
-        var shard: Int64
-        var authority: Data
-        /// sompi per period for names of 1, 2, 3, 4, 5+ bytes (registering and renewing)
-        var prices: [UInt64]
-        var encoded: Data { Codec.priceState(self) }
-
-        func price(forLength n: Int) -> UInt64 { prices[Codec.tier(n)] }
     }
 }

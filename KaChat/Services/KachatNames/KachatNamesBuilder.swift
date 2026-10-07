@@ -22,23 +22,21 @@ extension KachatNames {
         case offerDecline = "offer.decline"
         case offerWithdraw = "offer.withdraw"
         case offerRefund = "offer.refund"
-        case priceUse = "price.use"
     }
 
     /// Per-input compute budgets. The CLI measures each input in the script engine; the app has no
     /// engine, so it commits a fixed budget per entry that covers every case (README "Cost per
     /// operation"; the vector generator checks every measured budget fits this table, the
     /// vectors' `recommendedBudgets`). An input that needs more than it committed fails, so these
-    /// only ever err on the side of a slightly higher fee (100 grams per unit). Registry v3.
+    /// only ever err on the side of a slightly higher fee (100 grams per unit). Registry v4.
     struct Budgets: Equatable {
         var table: [BudgetRole: UInt16]
 
         static let recommended = Budgets(table: [
             .p2pk: 10, .commit: 10,
-            .gapRegister: 11, .gapMerge: 5, .gapAbsorbed: 0,
-            .nameTransfer: 12, .nameList: 12, .nameBuy: 2, .nameExtend: 3, .nameRenew: 3, .nameRelease: 10, .nameReclaim: 0,
-            .offerAccept: 17, .offerDecline: 10, .offerWithdraw: 10, .offerRefund: 0,
-            .priceUse: 1
+            .gapRegister: 8, .gapMerge: 4, .gapAbsorbed: 0,
+            .nameTransfer: 12, .nameList: 12, .nameBuy: 2, .nameExtend: 2, .nameRenew: 2, .nameRelease: 10, .nameReclaim: 0,
+            .offerAccept: 17, .offerDecline: 10, .offerWithdraw: 10, .offerRefund: 0
         ])
 
         subscript(role: BudgetRole) -> UInt16 {
@@ -73,15 +71,6 @@ extension KachatNames {
         var value: UInt64
         var utxo: Utxo
         var name: String { fields.name }
-    }
-
-    /// A price shard (registry v3) with its live UTXO: register / extend / renew read one.
-    struct PriceRecord: Equatable {
-        var fields: PriceFields
-        var value: UInt64
-        var utxo: Utxo
-        var shard: Int64 { fields.shard }
-        func price(forLength n: Int) -> UInt64 { fields.price(forLength: n) }
     }
 
     struct OfferRecord: Equatable {
@@ -243,7 +232,6 @@ extension KachatNames {
 
         var params: Params { manifest.params }
         var registryId: Data { manifest.registryCovenantId }
-        var priceId: Data { manifest.priceCovenantId }
 
         private static let placeholderSignature = Data(repeating: 0, count: 64) + Data([sighashAll])
 
@@ -444,18 +432,6 @@ extension KachatNames {
             return PlannedInput(utxo: g.utxo, unlock: unlock, role: role, label: label)
         }
 
-        /// A price shard's `use()` input and its unchanged continuation, authorized by `inputIndex`.
-        private func shardRead(_ s: PriceRecord, inputIndex: UInt16) throws -> (PlannedInput, PlannedOutput) {
-            try checkLive("price shard \(s.shard)", s.utxo, value: params.priceValue, covenant: priceId)
-            let unlock = Unlock.contract(redeem: manifest.price.redeem(s.fields.encoded), tag: try manifest.price.tag("use"), args: [])
-            let input = PlannedInput(utxo: s.utxo, unlock: unlock, role: .priceUse, label: "price shard \(s.shard) use()")
-            let out = TxOutput(
-                value: params.priceValue, script: manifest.price.script(s.fields.encoded),
-                covenant: CovenantBinding(authorizingInput: inputIndex, covenantId: priceId)
-            )
-            return (input, PlannedOutput(output: out, label: "price shard \(s.shard) (unchanged)"))
-        }
-
         private func offerInput(_ o: OfferRecord, _ entry: String, _ args: [Arg], role: BudgetRole, label: String) throws -> PlannedInput {
             let unlock = Unlock.contract(redeem: manifest.offer.redeem(o.fields.encoded), tag: try manifest.offer.tag(entry), args: args)
             return PlannedInput(utxo: o.utxo, unlock: unlock, role: role, label: label)
@@ -487,11 +463,11 @@ extension KachatNames {
             min(env.wallMs - 180_000, Int64(env.blockTimeMs) - 1_000)
         }
 
-        /// Register `commit.name` for `years` periods: [gap.register(.., priceIdx = 2), commit,
-        /// price shard (use), funding] -> [gap (lo,key), gap (key,hi), name (periodStart = now),
-        /// the shard unchanged, change]; lock time `now`, commit sequence `tCommit`. The price is
-        /// the shard's (registry v3).
-        func register(env: Env, wallet: [Utxo], gap: GapRecord, commit: CommitRecord, shard: PriceRecord, years: Int64, now: Int64) throws -> Plan {
+        /// Register `commit.name` for `years` periods: [gap.register, commit, funding] -> [gap
+        /// (lo,key), gap (key,hi), name (periodStart = now), change]; lock time `now`, commit
+        /// sequence `tCommit`. The price is the baked one (registry v4): the registration price
+        /// for the first period, the renewal price for each further one.
+        func register(env: Env, wallet: [Utxo], gap: GapRecord, commit: CommitRecord, years: Int64, now: Int64) throws -> Plan {
             let name = commit.name
             try Codec.validate(name)
             guard commit.owner == env.me else { throw Failure("the commit for \(name) is for another owner") }
@@ -507,9 +483,8 @@ extension KachatNames {
             guard now > 0, UInt64(now) >= lockTimeThreshold else { throw Failure("now must be a unix-ms timestamp") }
 
             let nameLength = name.utf8.count
-            let price = shard.price(forLength: nameLength) * UInt64(years)
+            let price = params.registerCost(forLength: nameLength, years: years)
             let expires = now + years * params.periodMs
-            let (shardIn, shardOut) = try shardRead(shard, inputIndex: 2)
             let fields = NameFields(name: name, owner: env.me, price: 0, periodStart: now, expiresAt: expires)
             var notes: [String] = []
             let matureAt = commitUtxo.entry.blockDaaScore + params.tCommit
@@ -524,18 +499,17 @@ extension KachatNames {
             let gapIn = try gapInput(
                 gap, "register",
                 [.bytes(Data(name.utf8)), .bytes(env.me), .bytes(commit.salt), .int(now), .int(years),
-                 .bytes(manifest.name.prefix), .bytes(manifest.name.suffix), .int(2)],
-                role: .gapRegister, label: "gap register (price at input 2)"
+                 .bytes(manifest.name.prefix), .bytes(manifest.name.suffix)],
+                role: .gapRegister, label: "gap register"
             )
             let commitIn = PlannedInput(utxo: commitUtxo, sequence: params.tCommit, unlock: .commit(redeem: redeem), role: .commit, label: "commit for \(name)")
             var d = Draft(
                 op: "register \(name) (\(years) period(s))",
-                inputs: [gapIn, commitIn, shardIn],
+                inputs: [gapIn, commitIn],
                 outputs: [
                     PlannedOutput(output: gapOutput(lo: gap.lo, hi: key), label: "gap (lo, key)"),
                     PlannedOutput(output: gapOutput(lo: key, hi: gap.hi), label: "gap (key, hi)"),
-                    PlannedOutput(output: nameOutput(fields), label: "name \(name)"),
-                    shardOut
+                    PlannedOutput(output: nameOutput(fields), label: "name \(name)")
                 ]
             )
             d.lockTime = UInt64(now)
@@ -585,11 +559,11 @@ extension KachatNames {
             Int64(env.blockTimeMs) > params.renewOpens(expiresAt: expiresAt)
         }
 
-        /// Anyone extends the current period (a gift needs no signature): [name.extend(years, 1),
-        /// price shard (use), funding] -> [continuation (periodStart kept, expiresAt + years
-        /// periods), the shard unchanged, change]. Lock time 0, every sequence 0. Valid any time
-        /// while `expiresAt + years <= periodStart + maxYears` (in periods).
-        func extend(env: Env, wallet: [Utxo], name n: NameRecord, shard: PriceRecord, years: Int64) throws -> Plan {
+        /// Anyone extends the current period (a gift needs no signature): [name.extend(years),
+        /// funding] -> [continuation (periodStart kept, expiresAt + years periods), change]. Lock
+        /// time 0, every sequence 0. Valid any time while `expiresAt + years <= periodStart +
+        /// maxYears` (in periods). Pays the renewal price per period.
+        func extend(env: Env, wallet: [Utxo], name n: NameRecord, years: Int64) throws -> Plan {
             guard years >= 1, years <= params.maxYears else { throw Failure("years must be 1..\(params.maxYears)") }
             try checkLive(n.name, n.utxo, value: params.bond, covenant: registryId)
             let f = n.fields
@@ -600,13 +574,12 @@ extension KachatNames {
                         + "paid until \(f.expiresAt), so \(room) can be added now; renew opens at \(params.renewOpens(expiresAt: f.expiresAt))"
                 )
             }
-            let price = shard.price(forLength: n.name.utf8.count) * UInt64(years)
+            let price = params.renewPrice(forLength: n.name.utf8.count) * UInt64(years)
             let nf = f.extended(years, periodMs: params.periodMs)
-            let (shardIn, shardOut) = try shardRead(shard, inputIndex: 1)
             var d = Draft(
                 op: "extend \(n.name) (\(years) period(s))",
-                inputs: [try nameInput(n, "extend", [.int(years), .int(1)], role: .nameExtend, label: "name extend(\(years), price at input 1)"), shardIn],
-                outputs: [PlannedOutput(output: nameOutput(nf), label: "name \(n.name)"), shardOut]
+                inputs: [try nameInput(n, "extend", [.int(years)], role: .nameExtend, label: "name extend(\(years))")],
+                outputs: [PlannedOutput(output: nameOutput(nf), label: "name \(n.name)")]
             )
             d.priceFee = price
             d.notes = [
@@ -617,26 +590,25 @@ extension KachatNames {
             return try finish(d, wallet: wallet, fee: .funded(maxInputs: maxInputsFeeEntry), env: env)
         }
 
-        /// Anyone renews once the renewal window opened: [name.renew(years, 1), price shard (use),
-        /// funding] -> [continuation (periodStart = old expiresAt, expiresAt + years periods), the
-        /// shard unchanged, change]. Lock time =
+        /// Anyone renews once the renewal window opened: [name.renew(years), funding] ->
+        /// [continuation (periodStart = old expiresAt, expiresAt + years periods), change]. Pays the
+        /// renewal price per period. Lock time =
         /// `renewLockTime` (timestamp domain), every input sequence 0 (not final, as the CLTV
         /// needs). Before the window opens the plan is built but not valid (a note says so); the
         /// actions refuse to submit it.
-        func renew(env: Env, wallet: [Utxo], name n: NameRecord, shard: PriceRecord, years: Int64) throws -> Plan {
+        func renew(env: Env, wallet: [Utxo], name n: NameRecord, years: Int64) throws -> Plan {
             guard years >= 1, years <= params.maxYears else { throw Failure("years must be 1..\(params.maxYears)") }
             try checkLive(n.name, n.utxo, value: params.bond, covenant: registryId)
             let f = n.fields
             let opens = params.renewOpens(expiresAt: f.expiresAt)
             guard opens >= 0, UInt64(opens) >= lockTimeThreshold else { throw Failure("\(n.name): expiresAt - renewWindowMs is not a timestamp") }
             let lock = Builder.renewLockTime(env: env, params: params, expiresAt: f.expiresAt)
-            let price = shard.price(forLength: n.name.utf8.count) * UInt64(years)
+            let price = params.renewPrice(forLength: n.name.utf8.count) * UInt64(years)
             let nf = f.renewed(years, periodMs: params.periodMs)
-            let (shardIn, shardOut) = try shardRead(shard, inputIndex: 1)
             var d = Draft(
                 op: "renew \(n.name) (\(years) period(s))",
-                inputs: [try nameInput(n, "renew", [.int(years), .int(1)], role: .nameRenew, label: "name renew(\(years), price at input 1)"), shardIn],
-                outputs: [PlannedOutput(output: nameOutput(nf), label: "name \(n.name)"), shardOut]
+                inputs: [try nameInput(n, "renew", [.int(years)], role: .nameRenew, label: "name renew(\(years))")],
+                outputs: [PlannedOutput(output: nameOutput(nf), label: "name \(n.name)")]
             )
             d.lockTime = UInt64(lock)
             d.priceFee = price
