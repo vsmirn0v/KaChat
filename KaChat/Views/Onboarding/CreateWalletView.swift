@@ -95,32 +95,38 @@ struct SeedLengthButton: View {
     }
 }
 
-/// What a seed phrase is, in plain words: the half sheet behind "What is this?" on the seed
-/// length step.
-struct SeedPhraseExplainerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
+/// What a seed phrase is, in plain words: the page behind "What is this?" on the seed length
+/// step. A full page on a plain background, like "What is a passphrase?", so it reads easily.
+struct SeedPhraseExplainerPage: View {
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("A seed phrase is a list of 12 or 24 ordinary words that works as the master key to your account. Your wallet, your chatting address and your messages all come from it.")
-                    Text("Anyone who has these words can take everything in your account. If you lose them and lose this device, nobody can get your account back, not even KaChat.")
-                    Text("Write the words on paper, in order, and keep them somewhere safe and private. Never type them into a website, send them in a chat, or keep them in a screenshot or cloud notes.")
-                    Text("12 words are already very secure. 24 words add even more protection.")
-                }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                section("The short version",
+                        "A seed phrase is a list of 12 or 24 ordinary words that works as the master key to your account. Your wallet, your chatting address and your messages all come from it.")
+                section("Anyone with it can take everything",
+                        "Anyone who has these words can take everything in your account. If you lose them and lose this device, nobody can get your account back, not even KaChat.")
+                section("How to keep it safe",
+                        "Write the words on paper, in order, and keep them somewhere safe and private. Never type them into a website, send them in a chat, or keep them in a screenshot or cloud notes.")
+                section("12 or 24 words?",
+                        "12 words are already very secure. 24 words add even more protection.")
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color(.systemBackground))
+        .navigationTitle("What is a seed phrase?")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func section(_ title: LocalizedStringKey, _ body: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.headline)
+            Text(body)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-                .padding()
-            }
-            .navigationTitle("What is a seed phrase?")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
     }
 }
 
@@ -178,7 +184,7 @@ private struct CreateWalletLengthStep: View {
             }
             .padding()
         }
-        .sheet(isPresented: $showExplainer) { SeedPhraseExplainerSheet() }
+        .navigationDestination(isPresented: $showExplainer) { SeedPhraseExplainerPage() }
         .navigationTitle("Create Account")
         .navigationBarTitleDisplayMode(.large)
         .alert("Error", isPresented: .constant(error != nil)) {

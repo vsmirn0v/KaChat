@@ -1405,3 +1405,11 @@
 "Anyone who has these words can take everything in your account. If you lose them and lose this device, nobody can get your account back, not even KaChat." = "जिसके पास ये शब्द हैं वह आपके खाते का सब कुछ ले सकता है। अगर आप इन्हें खो दें और यह डिवाइस भी खो दें, तो कोई भी आपका खाता वापस नहीं ला सकता, KaChat भी नहीं।";
 "Write the words on paper, in order, and keep them somewhere safe and private. Never type them into a website, send them in a chat, or keep them in a screenshot or cloud notes." = "शब्दों को क्रम से कागज़ पर लिखें और किसी सुरक्षित, निजी जगह पर रखें। इन्हें कभी किसी वेबसाइट पर टाइप न करें, चैट में न भेजें, और स्क्रीनशॉट या क्लाउड नोट्स में न रखें।";
 "12 words are already very secure. 24 words add even more protection." = "12 शब्द पहले से ही बहुत सुरक्षित हैं। 24 शब्द और भी ज़्यादा सुरक्षा देते हैं।";
+
+/* Onboarding: seed phrase explainer page headings */
+"Anyone with it can take everything" = "जिसके पास यह है वह सब कुछ ले सकता है";
+"How to keep it safe" = "इसे सुरक्षित कैसे रखें";
+"12 or 24 words?" = "12 या 24 शब्द?";
+
+/* Onboarding: seed phrase explainer page, first heading */
+"The short version" = "संक्षेप में";

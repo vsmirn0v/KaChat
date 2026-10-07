@@ -1405,3 +1405,11 @@
 "Anyone who has these words can take everything in your account. If you lose them and lose this device, nobody can get your account back, not even KaChat." = "Siapa pun yang memiliki kata-kata ini dapat mengambil semua isi akun Anda. Jika Anda kehilangannya dan juga kehilangan perangkat ini, tidak ada yang bisa mengembalikan akun Anda, bahkan KaChat.";
 "Write the words on paper, in order, and keep them somewhere safe and private. Never type them into a website, send them in a chat, or keep them in a screenshot or cloud notes." = "Tulis kata-katanya di kertas secara berurutan dan simpan di tempat yang aman dan pribadi. Jangan pernah mengetiknya di situs web, mengirimnya lewat chat, atau menyimpannya di tangkapan layar atau catatan cloud.";
 "12 words are already very secure. 24 words add even more protection." = "12 kata sudah sangat aman. 24 kata menambah perlindungan lebih lagi.";
+
+/* Onboarding: seed phrase explainer page headings */
+"Anyone with it can take everything" = "Siapa pun yang memilikinya bisa mengambil semuanya";
+"How to keep it safe" = "Cara menyimpannya dengan aman";
+"12 or 24 words?" = "12 atau 24 kata?";
+
+/* Onboarding: seed phrase explainer page, first heading */
+"The short version" = "Singkatnya";
