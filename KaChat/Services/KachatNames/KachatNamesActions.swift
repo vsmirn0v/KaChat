@@ -32,8 +32,11 @@ extension KachatNames {
         /// the commit UTXO's DAA score once seen
         var commitDaa: UInt64?
         var registerTxId: String?
-        /// The reclaim this registration sent to free a lapsed old record of the name first.
+        /// The reclaim this registration sent to free a lapsed old record of the name first, and
+        /// the gap it reopens (hex), which is that reclaim's output 0.
         var reclaimTxId: String? = nil
+        var reclaimLo: String? = nil
+        var reclaimHi: String? = nil
         /// When the current commit went out, and how many times it was sent again after a node
         /// dropped it (a busy network evicts low-fee transactions).
         var commitSentAt: Int64? = nil
@@ -642,11 +645,12 @@ final class KachatNamesActions: ObservableObject {
         try KachatNames.Codec.validate(name)
         loadPending(for: s.address)
         await registry.refresh()
+        var lapsed: KachatNames.NameInfo?
         switch try await registry.lookup(name) {
         case .registered(let n) where n.status(graceMs: registry.graceMs) == .lapsed:
-            // Expired past grace: free to claim. The commit goes out now; the driver frees the
-            // old record (a reclaim) and then registers.
-            break
+            // Expired past grace: free to claim. The commit and the reclaim that frees the old
+            // record both go out now; the driver registers once the commit has aged.
+            lapsed = n
         case .registered:
             throw ActionError.notRegisterable(String(format: AppLocalization.string("%@ is already registered."), "\(name).kachat"))
         case .free:
@@ -673,6 +677,9 @@ final class KachatNamesActions: ObservableObject {
             record.stage = .waiting
             record.updatedAt = KachatNames.nowMs()
             upsert(record)
+            // The reclaim needs nothing from the wallet (its fee comes out of the freed deposit),
+            // so it runs while the commit ages instead of after. If it fails, the driver sends it.
+            if let lapsed { try? await sendReclaim(of: lapsed, for: record) }
         } catch {
             // The node may still have taken it: keep the record (and the salt) until the driver
             // sees the commit on chain or gives up on it.
@@ -872,6 +879,18 @@ final class KachatNamesActions: ObservableObject {
         }
     }
 
+    /// Frees a lapsed old record of `p`'s name (a reclaim) and notes the gap it reopens.
+    private func sendReclaim(of n: KachatNames.NameInfo, for p: KachatNames.PendingRegistration) async throws {
+        let gaps = try await registry.exitGaps(for: n)
+        let txId = try await perform(.reclaim(n))
+        set(p) {
+            $0.reclaimTxId = txId
+            $0.reclaimLo = KachatNames.hex(gaps.below.lo)
+            $0.reclaimHi = KachatNames.hex(gaps.above.hi)
+            $0.lastError = String(format: AppLocalization.string("Freeing %@ for you..."), "\(p.name).kachat")
+        }
+    }
+
     /// This wallet holds `name` as a live registration (a lapsed old record of it doesn't count:
     /// that is what claiming an expired name registers over).
     private func ownsName(_ name: String) async -> Bool {
@@ -893,18 +912,22 @@ final class KachatNamesActions: ObservableObject {
                 // (anyone may; its bond goes back to the old owner and the freed deposit comes to
                 // you), then registers on a later tick once the registry shows the gap.
                 // (Only sending the reclaim touches the record, so `updatedAt` is when it went out.)
-                if let tx = p.reclaimTxId {
-                    if await KachatNamesRegistry.isAccepted(txId: tx) {
-                        await registry.refresh()
-                    } else if KachatNames.nowMs() - p.updatedAt > 120_000 {
-                        set(p) { $0.reclaimTxId = nil } // never accepted: send it again
-                    }
+                guard let tx = p.reclaimTxId else {
+                    try await sendReclaim(of: n, for: p)
                     return
                 }
-                let txId = try await perform(.reclaim(n))
-                set(p) {
-                    $0.reclaimTxId = txId
-                    $0.lastError = String(format: AppLocalization.string("Freeing %@ for you..."), "\(p.name).kachat")
+                // The freed gap is the reclaim's output 0: register into it as soon as a node has
+                // it, without waiting for the registry (a chain walk, or the indexer) to notice.
+                if let lo = p.reclaimLo.flatMap({ try? KachatNames.unhex32($0) }), let hi = p.reclaimHi.flatMap({ try? KachatNames.unhex32($0) }),
+                   let txid = try? KachatNames.unhex32(tx) {
+                    let freed = KachatNames.GapInfo(lo: lo, hi: hi, outpoint: KachatNames.Outpoint(txid: txid, index: 0))
+                    if (try? await liveGap(freed, m)) != nil {
+                        gap = freed
+                        break
+                    }
+                }
+                if KachatNames.nowMs() - p.updatedAt > 120_000 {
+                    set(p) { $0.reclaimTxId = nil } // never accepted: send it again
                 }
                 return
             case .registered(let n):
