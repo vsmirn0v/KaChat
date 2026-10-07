@@ -7,11 +7,29 @@ struct CreateWalletView: View {
     /// Starts empty on purpose: the name is the user's choice.
     @State private var alias = ""
     @State private var showLengthStep = false
-    @FocusState private var nameFocused: Bool
 
     private var trimmedAlias: String {
         alias.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    var body: some View {
+        AccountNameForm(alias: $alias) { showLengthStep = true }
+            .navigationTitle("Create Account")
+            .navigationBarTitleDisplayMode(.large)
+            .navigationDestination(isPresented: $showLengthStep) {
+                CreateWalletLengthStep(alias: trimmedAlias)
+            }
+    }
+}
+
+/// The account name step of Create Account and Import Account: a name local to this device.
+/// Next stays off until there is a name.
+struct AccountNameForm: View {
+    @Binding var alias: String
+    let onNext: () -> Void
+    @FocusState private var nameFocused: Bool
+
+    private var hasName: Bool { !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
         ScrollView {
@@ -30,22 +48,77 @@ struct CreateWalletView: View {
                     .submitLabel(.next)
                     .onSubmit { next() }
 
-                CreateWalletNextButton(title: "Next", enabled: !trimmedAlias.isEmpty) { next() }
+                CreateWalletNextButton(title: "Next", enabled: hasName) { next() }
             }
             .padding()
         }
-        .navigationTitle("Create Account")
-        .navigationBarTitleDisplayMode(.large)
         .onAppear { nameFocused = true }
-        .navigationDestination(isPresented: $showLengthStep) {
-            CreateWalletLengthStep(alias: trimmedAlias)
-        }
     }
 
     private func next() {
-        guard !trimmedAlias.isEmpty else { return }
+        guard hasName else { return }
         nameFocused = false
-        showLengthStep = true
+        onNext()
+    }
+}
+
+/// One of the two seed length choices (12 or 24 words): a full-width button in the Generate
+/// Account style, filled when chosen and outlined otherwise.
+struct SeedLengthButton: View {
+    let count: Int
+    let title: LocalizedStringKey
+    @Binding var selection: Int?
+    var disabled = false
+
+    var body: some View {
+        let chosen = selection == count
+        Button {
+            selection = count
+        } label: {
+            HStack {
+                Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
+                Text(title)
+            }
+            .font(.body.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(chosen ? Color.accentColor : Color.clear)
+            .foregroundColor(chosen ? .white : .accentColor)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 1.5))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
+    }
+}
+
+/// What a seed phrase is, in plain words: the half sheet behind "What is this?" on the seed
+/// length step.
+struct SeedPhraseExplainerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("A seed phrase is a list of 12 or 24 ordinary words that works as the master key to your account. Your wallet, your chatting address and your messages all come from it.")
+                    Text("Anyone who has these words can take everything in your account. If you lose them and lose this device, nobody can get your account back, not even KaChat.")
+                    Text("Write the words on paper, in order, and keep them somewhere safe and private. Never type them into a website, send them in a chat, or keep them in a screenshot or cloud notes.")
+                    Text("12 words are already very secure. 24 words add even more protection.")
+                }
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .padding()
+            }
+            .navigationTitle("What is a seed phrase?")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 
@@ -59,6 +132,7 @@ private struct CreateWalletLengthStep: View {
     @State private var isCreating = false
     @State private var generatedSeedPhrase: SeedPhrase?
     @State private var showSeedStep = false
+    @State private var showExplainer = false
     @State private var error: String?
 
     var body: some View {
@@ -69,8 +143,8 @@ private struct CreateWalletLengthStep: View {
                         .font(.title2.weight(.bold))
                     // Two full-width buttons in the Generate Account style; the chosen one is
                     // filled, the other outlined. Nothing is chosen until the user taps one.
-                    lengthButton(12, title: "12 words")
-                    lengthButton(24, title: "24 words")
+                    SeedLengthButton(count: 12, title: "12 words", selection: $wordCount, disabled: isCreating)
+                    SeedLengthButton(count: 24, title: "24 words", selection: $wordCount, disabled: isCreating)
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -89,9 +163,20 @@ private struct CreateWalletLengthStep: View {
                 CreateWalletNextButton(title: "Generate Account", enabled: wordCount != nil && !isCreating, busy: isCreating) {
                     generate()
                 }
+
+                Button {
+                    showExplainer = true
+                } label: {
+                    Label("What is this?", systemImage: "questionmark.circle")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentColor)
             }
             .padding()
         }
+        .sheet(isPresented: $showExplainer) { SeedPhraseExplainerSheet() }
         .navigationTitle("Create Account")
         .navigationBarTitleDisplayMode(.large)
         .alert("Error", isPresented: .constant(error != nil)) {
@@ -104,28 +189,6 @@ private struct CreateWalletLengthStep: View {
                 CreateWalletSeedStep(alias: alias, seedPhrase: generatedSeedPhrase)
             }
         }
-    }
-
-    private func lengthButton(_ count: Int, title: LocalizedStringKey) -> some View {
-        let chosen = wordCount == count
-        return Button {
-            wordCount = count
-        } label: {
-            HStack {
-                Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
-                Text(title)
-            }
-            .font(.body.weight(.semibold))
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(chosen ? Color.accentColor : Color.clear)
-            .foregroundColor(chosen ? .white : .accentColor)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 1.5))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-        }
-        .buttonStyle(.plain)
-        .disabled(isCreating)
-        .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
     private func generate() {
@@ -290,8 +353,9 @@ private struct CreateWalletSeedStep: View {
     }
 }
 
-/// The accent-filled continue button of the Create Account steps (dims while disabled).
-private struct CreateWalletNextButton: View {
+/// The accent-filled continue button of the Create Account and Import Account steps (dims while
+/// disabled).
+struct CreateWalletNextButton: View {
     let title: LocalizedStringKey
     let enabled: Bool
     var busy = false

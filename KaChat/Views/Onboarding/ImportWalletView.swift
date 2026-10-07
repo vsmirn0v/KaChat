@@ -1,5 +1,60 @@
 import SwiftUI
 
+/// Import Account, after the source wallet (`ImportSourceWalletView`): the account's name, local
+/// to this device - the same screen as Create Account's first step. Then the seed length
+/// (`ImportLengthStep`), the words (`ImportWalletView`), and the optional passphrase.
+struct ImportNameStep: View {
+    var sourceFamily: WalletSourceFamily = .kaspaStandard
+    /// Starts empty on purpose: the name is the user's choice.
+    @State private var alias = ""
+    @State private var showLengthStep = false
+
+    var body: some View {
+        AccountNameForm(alias: $alias) { showLengthStep = true }
+            .navigationTitle("Import Account")
+            .navigationBarTitleDisplayMode(.large)
+            .navigationDestination(isPresented: $showLengthStep) {
+                ImportLengthStep(sourceFamily: sourceFamily, alias: alias.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+    }
+}
+
+/// Import Account: how many words the seed phrase being imported has.
+struct ImportLengthStep: View {
+    let sourceFamily: WalletSourceFamily
+    let alias: String
+    /// No length is selected until the user picks one.
+    @State private var wordCount: Int?
+    @State private var showWords = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Choose seed phrase length")
+                        .font(.title2.weight(.bold))
+                    Text("How many words is the seed phrase you're importing?")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    SeedLengthButton(count: 12, title: "12 words", selection: $wordCount)
+                    SeedLengthButton(count: 24, title: "24 words", selection: $wordCount)
+                }
+
+                CreateWalletNextButton(title: "Next", enabled: wordCount != nil) { showWords = true }
+            }
+            .padding()
+        }
+        .navigationTitle("Import Account")
+        .navigationBarTitleDisplayMode(.large)
+        .navigationDestination(isPresented: $showWords) {
+            if let wordCount {
+                ImportWalletView(sourceFamily: sourceFamily, alias: alias, wordCount: wordCount)
+            }
+        }
+    }
+}
+
+/// Import Account: the seed phrase's words (in-app keyboard, or Paste), then the passphrase step.
 struct ImportWalletView: View {
     @EnvironmentObject var walletManager: WalletManager
 
@@ -7,14 +62,21 @@ struct ImportWalletView: View {
     /// source-wallet screen (`ImportSourceWalletView`) BEFORE this seed-entry screen. Standard
     /// (KaChat's own path) unless the user picked a wallet on another branch.
     var sourceFamily: WalletSourceFamily = .kaspaStandard
+    /// The account's name, from `ImportNameStep`.
+    var alias: String = "Imported Account"
 
-    @State private var alias = "Imported Account"
-    @State private var seedWordCount = 24
+    /// From `ImportLengthStep`; a pasted phrase of the other length switches it.
+    @State private var seedWordCount: Int
     // Fixed-capacity backing store; only the first `seedWordCount` entries are used.
     @State private var words: [String] = Array(repeating: "", count: 24)
     @State private var showPassphraseStep = false
     @State private var error: String?
-    @FocusState private var aliasFocused: Bool
+
+    init(sourceFamily: WalletSourceFamily = .kaspaStandard, alias: String = "Imported Account", wordCount: Int = 24) {
+        self.sourceFamily = sourceFamily
+        self.alias = alias
+        _seedWordCount = State(initialValue: wordCount == 12 ? 12 : 24)
+    }
 
     private var slots: [String] { Array(words.prefix(seedWordCount)) }
     private var seedPhraseText: String { slots.joined(separator: " ") }
@@ -59,32 +121,13 @@ struct ImportWalletView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Account name (uses the normal keyboard - it isn't sensitive)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Account Name")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                TextField("Enter account name", text: $alias)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($aliasFocused)
-                    .submitLabel(.done)
-                    .onSubmit { aliasFocused = false }
-            }
-
-            // Word-count selector
-            Picker("", selection: $seedWordCount) {
-                Text("12 words").tag(12)
-                Text("24 words").tag(24)
-            }
-            .pickerStyle(.segmented)
-
             HStack {
                 Text("Enter your recovery phrase")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 Spacer()
-                // A phrase on the clipboard fills the slots in one tap; the word-count picker
-                // follows whichever length was pasted.
+                // A phrase on the clipboard fills the slots in one tap; the word count follows
+                // whichever length was pasted.
                 Button {
                     pasteSeedPhrase()
                 } label: {

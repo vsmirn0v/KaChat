@@ -1343,3 +1343,12 @@
 "Names being claimed" = "Namen, die gerade beansprucht werden";
 "The network is busy. Your commit is waiting for a block." = "Das Netzwerk ist ausgelastet. Dein Commit wartet auf einen Block.";
 "The network is busy, so the commit was sent again." = "Das Netzwerk ist ausgelastet, daher wurde der Commit erneut gesendet.";
+
+/* Onboarding: import length step and the seed phrase explainer */
+"How many words is the seed phrase you're importing?" = "Wie viele Wörter hat die Seed Phrase, die du importierst?";
+"What is this?" = "Was ist das?";
+"What is a seed phrase?" = "Was ist eine Seed Phrase?";
+"A seed phrase is a list of 12 or 24 ordinary words that works as the master key to your account. Your wallet, your chatting address and your messages all come from it." = "Eine Seed Phrase ist eine Liste aus 12 oder 24 gewöhnlichen Wörtern, die als Hauptschlüssel zu deinem Konto dient. Deine Wallet, deine Chat-Adresse und deine Nachrichten stammen alle davon.";
+"Anyone who has these words can take everything in your account. If you lose them and lose this device, nobody can get your account back, not even KaChat." = "Wer diese Wörter hat, kann alles aus deinem Konto nehmen. Wenn du sie verlierst und auch dieses Gerät, kann niemand dein Konto wiederherstellen, nicht einmal KaChat.";
+"Write the words on paper, in order, and keep them somewhere safe and private. Never type them into a website, send them in a chat, or keep them in a screenshot or cloud notes." = "Schreibe die Wörter der Reihe nach auf Papier und bewahre sie an einem sicheren, privaten Ort auf. Gib sie nie auf einer Website ein, schick sie nie in einem Chat und speichere sie nicht in einem Screenshot oder in Cloud-Notizen.";
+"12 words are already very secure. 24 words add even more protection." = "12 Wörter sind bereits sehr sicher. 24 Wörter bieten noch mehr Schutz.";

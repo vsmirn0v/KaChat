@@ -88,7 +88,7 @@ struct ImportSourceWalletView: View {
         .navigationTitle("Import Account")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $continueToSeedEntry) {
-            ImportWalletView(sourceFamily: selectedFamily)
+            ImportNameStep(sourceFamily: selectedFamily)
         }
     }
 
