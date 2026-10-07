@@ -48,7 +48,7 @@ struct KachatMarketView: View {
     /// anyone may claim, and everything that happens in the registry.
     /// Your own names (and the offers you made) live in Profile > Your Domains.
     private enum Page: String, CaseIterable {
-        case market, expired, available, activity
+        case market, available, expired, activity
 
         var title: String {
             switch self {
