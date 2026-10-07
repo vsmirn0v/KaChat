@@ -881,7 +881,7 @@ final class KachatNamesActions: ObservableObject {
                 // An expired name is free to claim: this registration frees the old record first
                 // (anyone may; its bond goes back to the old owner and the freed deposit comes to
                 // you), then registers on a later tick once the registry shows the gap.
-                set(p) { $0.lastError = String(format: AppLocalization.string("Freeing %@ for you..."), "\(p.name).kachat") }
+                // (Only sending the reclaim touches the record, so `updatedAt` is when it went out.)
                 if let tx = p.reclaimTxId {
                     if await KachatNamesRegistry.isAccepted(txId: tx) {
                         await registry.refresh()
@@ -891,7 +891,10 @@ final class KachatNamesActions: ObservableObject {
                     return
                 }
                 let txId = try await perform(.reclaim(n))
-                set(p) { $0.reclaimTxId = txId }
+                set(p) {
+                    $0.reclaimTxId = txId
+                    $0.lastError = String(format: AppLocalization.string("Freeing %@ for you..."), "\(p.name).kachat")
+                }
                 return
             case .registered(let n):
                 if n.owner == s.me { finishRegistered(p) } else { set(p) { $0.stage = .taken; $0.lastError = nil } }
