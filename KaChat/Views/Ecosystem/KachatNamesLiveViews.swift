@@ -115,10 +115,16 @@ enum KachatLive {
         return KachatSocialImageResolver.shared.profile(for: link)?.bio
     }
 
-    /// The price per period for `name`, from the price record (registry v3; every shard holds the
-    /// same prices): the last prices read, else the genesis prices.
+    /// What registering `name` costs for its first period (registry v4: fixed, baked into the
+    /// pinned templates). Each further period costs `renewPrice`.
     @MainActor static func price(_ name: String) -> UInt64? {
-        guard let prices = KachatNamesRegistry.shared.cachedPrices, prices.count == 5 else { return nil }
+        guard let prices = KachatNamesRegistry.shared.registerPrices, prices.count == 5 else { return nil }
+        return prices[KachatNames.Codec.tier(name.utf8.count)]
+    }
+
+    /// What one more period of `name` costs: extend, renew, and registering past the first period.
+    @MainActor static func renewPrice(_ name: String) -> UInt64? {
+        guard let prices = KachatNamesRegistry.shared.renewPrices, prices.count == 5 else { return nil }
         return prices[KachatNames.Codec.tier(name.utf8.count)]
     }
 
@@ -418,8 +424,6 @@ final class KachatHubModel: ObservableObject {
         do {
             listings = try await registry.listings()
             lapsed = try await registry.lapsed()
-            // the prices can change at any time (registry v3): read them with the rest
-            _ = try? await registry.currentPrices()
             if let me = KachatNamesActions.shared.myKey {
                 mine = try await registry.names(owner: me, includeInactive: true)
                 myOffers = try await registry.myOffers(buyer: me)
@@ -857,8 +861,6 @@ struct KachatRegistrationCard: View {
         case .registered: Text("Registered. It's yours.")
         case .taken: KaspaUnit.text("Someone registered this name first. Cancel the commit to get its 0.2 KAS back.")
         case .failed: Text("The registration stopped.")
-        case .priceChanged:
-            Text("The price changed to \(KaspaUnit.amount(registration.priceChangedTo ?? 0)) since you confirmed, so nothing was sent. Confirm the new price to continue, or cancel the commit.")
         case .cancelling: Text("Cancelling the commit...")
         case .cancelled: Text("Cancelled.")
         }
@@ -880,14 +882,6 @@ struct KachatRegistrationCard: View {
             Button("Cancel Commit", role: .destructive) { confirmCancel = true }
                 .buttonStyle(.bordered)
                 .disabled(working)
-        case .priceChanged:
-            HStack {
-                Button("Confirm New Price") { authorizeNewPrice() }
-                    .buttonStyle(.borderedProminent)
-                Button("Cancel Commit", role: .destructive) { confirmCancel = true }
-                    .buttonStyle(.bordered)
-                    .disabled(working)
-            }
         case .failed:
             HStack {
                 Button("Try Again") { actions.retry(registration) }
@@ -898,13 +892,6 @@ struct KachatRegistrationCard: View {
             }
         default:
             EmptyView()
-        }
-    }
-
-    /// Paying a higher price is a new approval: it goes through the device lock like any send.
-    private func authorizeNewPrice() {
-        DeviceAuth.authenticate(reason: KachatLive.authReason) {
-            Task { @MainActor in actions.acceptNewPrice(registration) }
         }
     }
 
@@ -1443,7 +1430,7 @@ struct KachatTxSheet<Inputs: View>: View {
         sending = true
         sendError = nil
         do {
-            // never pays more than the price shown (the price record can change at any time)
+            // never pays more than the price shown
             let id = try await KachatNamesActions.shared.perform(operation, maxPrice: plan?.priceFee)
             txId = id
             Haptics.success()
@@ -1547,7 +1534,8 @@ struct KachatClaimSheet: View {
 
                 Section {
                     if let q = quote {
-                        LabeledRow(title: "Price (to miners)", value: "\(KaspaUnit.amount(q.price / UInt64(max(q.years, 1)))) × \(q.years)")
+                        // the first period at the registration price, any further one at the renewal price
+                        LabeledRow(title: "Price (to miners)", value: KaspaUnit.amount(q.price))
                         LabeledRow(title: "Bond (returned on release)", value: KaspaUnit.amount(q.bond))
                         LabeledRow(title: "Registry deposit (returned on release)", value: KaspaUnit.amount(q.gapDeposit))
                         LabeledRow(title: "Commit (returned at registration)", value: KaspaUnit.amount(q.commit))
@@ -2277,7 +2265,7 @@ struct KachatExtendSheet: View {
     private var maxYears: Int64 { params?.maxYears ?? 2 }
     /// The years that still fit in the period (in practice 1).
     private var available: Int64 { max(1, params.map { info.extendableYears($0) } ?? 1) }
-    private var perYear: UInt64 { KachatLive.price(info.name) ?? 0 }
+    private var perYear: UInt64 { KachatLive.renewPrice(info.name) ?? 0 }
     private var periodMs: Int64 { params?.periodMs ?? KachatNames.yearMs }
 
     /// Whether extending by `years` fills the period to exactly `maxYears`.
@@ -2333,7 +2321,7 @@ struct KachatRenewSheet: View {
     @State private var years: Int64 = 1
 
     private var maxYears: Int64 { KachatLive.params?.maxYears ?? 2 }
-    private var perYear: UInt64 { KachatLive.price(info.name) ?? 0 }
+    private var perYear: UInt64 { KachatLive.renewPrice(info.name) ?? 0 }
     private var periodMs: Int64 { KachatLive.params?.periodMs ?? KachatNames.yearMs }
 
     var body: some View {

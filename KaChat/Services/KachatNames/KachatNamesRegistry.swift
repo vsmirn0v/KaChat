@@ -42,7 +42,6 @@ final class KachatNamesRegistry: ObservableObject {
     @Published private(set) var revision = 0
 
     private var cacheNetwork: String?
-    @Published private var currentPricesCache: KachatNames.PriceFields?
     private var ownProfiles: [String: OwnProfile] = [:]
 
     /// `.kachat` identities by lowercased address, for the app's display rules (names, avatars,
@@ -85,7 +84,6 @@ final class KachatNamesRegistry: ObservableObject {
         source = nil
         chainState = nil
         cacheNetwork = nil
-        currentPricesCache = nil
         ownProfiles = [:]
         lastError = nil
         refreshedAt = nil
@@ -97,8 +95,7 @@ final class KachatNamesRegistry: ObservableObject {
     private func chooseSource(_ m: KachatNames.Manifest) async -> Source {
         guard let base = Self.indexerBase() else { return .chain }
         guard let status: KachatNames.IndexerAPI.StatusJSON = try? await Self.get(base, "/names/status"),
-              status.registryCovenantId?.lowercased() == KachatNames.hex(m.registryCovenantId),
-              status.priceCovenantId?.lowercased() == KachatNames.hex(m.priceCovenantId) else {
+              status.registryCovenantId?.lowercased() == KachatNames.hex(m.registryCovenantId) else {
             return .chain
         }
         return .indexer(base)
@@ -153,8 +150,8 @@ final class KachatNamesRegistry: ObservableObject {
 
     private func walk(_ m: KachatNames.Manifest) async throws {
         var state = chainState ?? .atGenesis(m)
-        // the registry's gaps and names, and the price record's shards (registry v3)
-        let covenantIds: Set<String> = [KachatNames.hex(m.registryCovenantId), KachatNames.hex(m.priceCovenantId)]
+        // the registry's gaps and names (registry v4 has no price record)
+        let covenantIds: Set<String> = [KachatNames.hex(m.registryCovenantId)]
         let report = try await state.walk(
             manifest: m,
             address: { KachatNamesService.p2shAddress(script: $0) },
@@ -165,7 +162,7 @@ final class KachatNamesRegistry: ObservableObject {
                     let chunk = Array(addresses[start..<min(start + 50, addresses.count)])
                     for u in try await NodePoolService.shared.getUtxosByAddresses(chunk) {
                         // A node reports the covenant id; the REST fallback cannot (nil). A UTXO
-                        // carrying another id is neither the registry's nor a price shard.
+                        // carrying another id is not the registry's.
                         if let c = u.covenantId, !c.isEmpty, !covenantIds.contains(c.lowercased()) { continue }
                         out.insert("\(u.outpoint.transactionId.lowercased()):\(u.outpoint.index)")
                     }
@@ -378,42 +375,20 @@ final class KachatNamesRegistry: ObservableObject {
         switch source {
         case .indexer(let base):
             if let all: KachatNames.IndexerAPI.EventsJSON = try? await Self.get(base, "/names/activity") {
-                return all.events.map(\.event).filter { !$0.op.hasPrefix("price") }
+                return all.events.map(\.event)
             }
             let j: KachatNames.IndexerAPI.EventsJSON = try await Self.get(base, "/market/activity")
             return j.events.map(\.event)
         default:
-            // name activity only: price changes are the registry's, not a name's
-            return Array((chainState?.events ?? []).filter { !$0.op.hasPrefix("price") }.reversed().prefix(200))
+            return Array((chainState?.events ?? []).reversed().prefix(200))
         }
     }
 
-    /// Every live price shard, shard order (registry v3). A register, extend or renew spends one;
-    /// the actions re-read the picked shard's UTXO from a node before building.
-    func shards() async throws -> [KachatNames.ShardInfo] {
-        try await prepare()
-        switch source {
-        case .indexer(let base):
-            let j: KachatNames.IndexerAPI.PricesJSON = try await Self.get(base, "/names/prices")
-            return j.shards.compactMap(\.info).sorted { $0.shard < $1.shard }
-        default:
-            return chainState?.shardInfos ?? []
-        }
-    }
 
-    /// The current prices per period by name length (every shard holds the same ones).
-    func currentPrices() async throws -> KachatNames.PriceFields? {
-        let all = try await shards()
-        currentPricesCache = all.first?.fields ?? currentPricesCache
-        return all.first?.fields
-    }
-
-    /// The last prices read, for screens that price names synchronously (refreshed by
-    /// `currentPrices()` and every walk). Falls back to the manifest's genesis prices.
-    var cachedPrices: [UInt64]? {
-        if let p = currentPricesCache ?? chainState?.currentPrices { return p.prices }
-        return service.manifest?.params.genesisPrices
-    }
+    /// The fixed prices (registry v4, baked into the pinned templates): sompi for a name's first
+    /// period, and for every further one, by length 1, 2, 3, 4, 5+ bytes. nil until a manifest loads.
+    var registerPrices: [UInt64]? { service.manifest?.params.registerPrices }
+    var renewPrices: [UInt64]? { service.manifest?.params.renewPrices }
 
     /// The free gap a lapsed name's reclaim reopens - the two gaps around it, merged: where a
     /// claim of it registers. The claim sheet prices with it; the registration driver reclaims

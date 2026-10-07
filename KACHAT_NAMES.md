@@ -1,6 +1,29 @@
 # .kachat names - design (v1)
 
-> **Registry v3 (2026-10-05) is what the app builds now.** The full spec is
+> **Registry v4 (2026-10-07) is what the app builds now** (branch `kachat-names-v4` until its
+> testnet genesis). The spec is `docs/REGISTRY_V4.md` in kachat-domains (branch `v4`). What
+> changed from v3:
+>
+> - **Fixed prices, no price record.** `KachatPrice`, its covenant, genesis, shards and authority
+>   key are gone. The gap bakes a register table and a renew table; the name bakes the renew
+>   table (sompi per period, 1 / 2 / 3 / 4 / 5+ bytes). `register` charges
+>   `reg(len) + renew(len) x (years - 1)`; `extend` / `renew` charge `renew(len) x years`. Mainnet:
+>   register 4000 / 2000 / 1000 / 250 / 35 KAS, renew 1000 / 500 / 250 / 62.5 / 8.75 KAS a year;
+>   testnet-10 the same / 100 per 10-minute period.
+> - **Windows**: mainnet grace 90 days, renewal window 30 days; testnet-10 grace 30 minutes,
+>   renewal window 10 minutes (a window can't be longer than a period).
+> - **Layouts**: register `[gap.register(name, owner, salt, now, years, prefix, suffix), commit,
+>   funding]` -> `[gap, gap, name, change]`; extend / renew `[name(years), funding]` ->
+>   `[name, change]`.
+> - **Manifest**: `registryVersion: 4`, `params.prices.register` / `.renew`, one genesis. The gap
+>   and name bake only params, so their template hashes - and the tables they bake - are pinned
+>   in the app before the genesis; the offer is pinned at the genesis. Any other version is
+>   "outdated" (setting up).
+>
+> Registry v3 (2026-10-05, the live testnet registry on `main` until the v4 genesis) is described
+> below for the record:
+>
+> **Registry v3 (2026-10-05).** The full spec is
 > `docs/REGISTRY_V3.md` in kachat-domains (branch `v3`). What changed from v2, and what every port
 > must match:
 >

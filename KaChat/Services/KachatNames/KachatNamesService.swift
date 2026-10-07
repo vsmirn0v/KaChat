@@ -15,7 +15,7 @@ import Security
 ///
 /// The flow every action follows (`KachatNamesActions`): `loadManifest()`, read the records it
 /// needs (`KachatNamesRegistry`: the indexer's `/names/...` or the chain walker), confirm them with
-/// `liveRegistryUtxo` / `livePriceUtxo`, `environment(...)`, build with `builder()`, show the plan's
+/// `liveRegistryUtxo`, `environment(...)`, build with `builder()`, show the plan's
 /// fee, then `signAndSubmit`.
 @MainActor
 final class KachatNamesService: ObservableObject {
@@ -240,14 +240,6 @@ final class KachatNamesService: ObservableObject {
         let m = try await loadManifest()
         let u = try await liveUtxo(script: script, outpoint: outpoint)
         guard u.entry.covenantId == m.registryCovenantId else { throw ServiceError.notOnChain("a registry UTXO") }
-        return u
-    }
-
-    /// `liveUtxo` for a price shard, which must also carry the price covenant id (registry v3).
-    func livePriceUtxo(script: Data, outpoint: KachatNames.Outpoint) async throws -> KachatNames.Utxo {
-        let m = try await loadManifest()
-        let u = try await liveUtxo(script: script, outpoint: outpoint)
-        guard u.entry.covenantId == m.priceCovenantId else { throw ServiceError.notOnChain("a price shard") }
         return u
     }
 
