@@ -1412,8 +1412,15 @@ struct KachatTxSheet<Inputs: View>: View {
         try? await Task.sleep(nanoseconds: 300_000_000)
         guard !Task.isCancelled else { return }
         do {
-            plan = try await KachatNamesActions.shared.plan(operation)
+            let built = try await KachatNamesActions.shared.plan(operation)
+            // A newer choice (10m -> 20m) replaced this build while it ran: its plan is for the
+            // old choice, and the new build owns the sheet now.
+            guard !Task.isCancelled else { return }
+            plan = built
         } catch {
+            // Cancelled (the choice changed): not an error to show, and the new build owns the
+            // sheet. Showing it left "Swift.CancellationError" and a disabled Renew.
+            guard !Task.isCancelled, !(error is CancellationError), (error as? URLError)?.code != .cancelled else { return }
             planError = error.localizedDescription
         }
         building = false
