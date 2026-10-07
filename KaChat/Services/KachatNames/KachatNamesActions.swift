@@ -790,7 +790,6 @@ final class KachatNamesActions: ObservableObject {
 
     /// One step of one registration.
     private func advance(_ p: KachatNames.PendingRegistration) async {
-        let age = KachatNames.nowMs() - p.createdAt
         let sinceUpdate = KachatNames.nowMs() - p.updatedAt
         switch p.stage {
         case .committing, .waiting:
