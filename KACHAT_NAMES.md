@@ -188,8 +188,8 @@ name has expired; expiry is enforced by who reads the name, and by `reclaim`:
 | Period | On-chain | In the app and indexer |
 |---|---|---|
 | Active (`now < expiresAt`) | everything works | the name resolves; the owner gets reminders 30 / 7 / 1 days before expiry |
-| Grace (`expiresAt <= now < expiresAt + GRACE`) | everything still works; nobody can take it | the name **stops resolving**; only the owner is shown "Expired - renew to keep it" |
-| Lapsed (`now >= expiresAt + GRACE`) | anyone may `reclaim`, returning the bond to the old owner and reopening the gap; the owner can still renew until someone does | the name shows as available; claiming it is reclaim + the usual commit/register |
+| Grace (`expiresAt <= now < expiresAt + GRACE`) | everything still works; nobody can take it | the name **still resolves** to its owner and keeps labelling them (decided 2026-10-07, so an owner in grace stays reachable); the owner is shown "Expired - renew to keep it" |
+| Lapsed (`now >= expiresAt + GRACE`) | anyone may `reclaim`, returning the bond to the old owner and reopening the gap; the owner can still renew until someone does | the name stops resolving and shows as available; claiming it is reclaim + the usual commit/register |
 
 `GRACE`: **10 days** (decided). A renewal during or after grace counts from the old expiry, so lapsed
 time is paid for (no free gap years). Anyone wanting a lapsed name can commit before the reclaim,
@@ -331,8 +331,8 @@ of that, so **identity belongs to the address, and a name is only a label pointi
 
 ### How the app shows an address
 
-1. **Label** - the address's `primaryName` if the address owns it and it is active; otherwise its
-   oldest active `.kachat` name; otherwise the short address `kaspa:qr…xyz4`. `.k` / `.kaspa`
+1. **Label** - the address's `primaryName` if the address still holds it (active or in grace);
+   otherwise its oldest held (active or grace) `.kachat` name; otherwise the short address `kaspa:qr…xyz4`. `.k` / `.kaspa`
    names stay read-only extras, never the label.
 2. **Avatar, banner, bio, links** - always from the address's own profile, whatever its name.
 
@@ -509,7 +509,7 @@ registry on Testnet is being upgraded" (Your Domains' `.kachat` tab says the sam
 error; lookups answer nothing, the registration driver stops, and the profile record (address-keyed,
 registry-independent) still saves. Bundling the v2 genesis manifest is all it takes to go live.
 
-**Identity on testnet**: `NameServiceTLD.kachat` resolves (active names only) in every
+**Identity on testnet**: `NameServiceTLD.kachat` resolves (active names and names in grace; not lapsed ones) in every
 resolve-everywhere field; the profile hero shows your label; Edit .kachat Profile writes the
 `kchat:1:profile:` record (avatar, banner, bio, links, primary name - no display name).
 
