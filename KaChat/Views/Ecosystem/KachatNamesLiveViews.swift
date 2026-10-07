@@ -2076,7 +2076,11 @@ struct KachatLiveNameDetail: View {
                 info = n
                 gone = false
                 // lapsed: free to claim, in the gap claiming it reopens
-                freeGap = n.status(graceMs: registry.graceMs) == .lapsed ? try? await registry.claimGap(for: n) : nil
+                if n.status(graceMs: registry.graceMs) == .lapsed {
+                    freeGap = try? await registry.claimGap(for: n)
+                } else {
+                    freeGap = nil
+                }
             case .free(_, let gap):
                 gone = true
                 freeGap = gap
