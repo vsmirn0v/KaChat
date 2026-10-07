@@ -762,7 +762,10 @@ final class KachatNamesActions: ObservableObject {
                 for p in self.pending where p.needsDriving {
                     await self.advance(p)
                 }
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                // waiting for a registration's acceptance: check often, so the receipt shows
+                // within a couple of seconds of it
+                let registering = self.pending.contains { $0.stage == .registering }
+                try? await Task.sleep(nanoseconds: registering ? 2_000_000_000 : 5_000_000_000)
             }
             self?.driver = nil
         }
@@ -813,8 +816,11 @@ final class KachatNamesActions: ObservableObject {
             await register(p, commit: commit)
         case .registering:
             if let tx = p.registerTxId, await KachatNamesRegistry.isAccepted(txId: tx) {
-                await registry.refresh()
-                if await ownsName(p.name) { finishRegistered(p) }
+                // Accepted is registered: the gap only accepts a register that mints this owner's
+                // name. The receipt shows now; the registry catches up in the background instead
+                // of first (a chain walk while the indexer follows another registry).
+                finishRegistered(p)
+                Task { await registry.refresh() }
                 return
             }
             // not accepted after two minutes and the commit is still there: register again
