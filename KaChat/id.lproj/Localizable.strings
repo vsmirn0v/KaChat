@@ -1375,3 +1375,6 @@
 
 /* Create Account: seed length step title */
 "Choose seed phrase length" = "Pilih panjang frasa pemulihan";
+
+/* .kachat sale tile: expiry flag */
+"Expires soon" = "Segera kedaluwarsa";

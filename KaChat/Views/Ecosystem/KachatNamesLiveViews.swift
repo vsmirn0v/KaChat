@@ -912,6 +912,19 @@ struct KachatLiveMarketPage: View {
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.7)
+                                // what a buyer gets: the paid time left, flagged when it's short
+                                Text(String(format: AppLocalization.string("Expires %@"), KachatNamesActions.dayString(n.expiresAt)))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                if n.expiresAt - (KachatLive.params?.expiresSoonMs ?? 30 * 86_400_000) < KachatNames.nowMs() {
+                                    Text("Expires soon")
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundColor(.orange)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(Color.orange.opacity(0.15)))
+                                }
                             }
                         }
                         .buttonStyle(.plain)

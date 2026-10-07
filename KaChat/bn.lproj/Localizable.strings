@@ -1375,3 +1375,6 @@
 
 /* Create Account: seed length step title */
 "Choose seed phrase length" = "seed phrase-এর দৈর্ঘ্য বেছে নিন";
+
+/* .kachat sale tile: expiry flag */
+"Expires soon" = "শীঘ্রই মেয়াদ শেষ";

@@ -1376,3 +1376,6 @@
 
 /* Create Account: seed length step title */
 "Choose seed phrase length" = "Choisissez la longueur de la seed phrase";
+
+/* .kachat sale tile: expiry flag */
+"Expires soon" = "Expire bientôt";

@@ -1375,3 +1375,6 @@
 
 /* Create Account: seed length step title */
 "Choose seed phrase length" = "בחר את אורך ה-seed phrase";
+
+/* .kachat sale tile: expiry flag */
+"Expires soon" = "פג תוקף בקרוב";

@@ -1375,3 +1375,6 @@
 
 /* Create Account: seed length step title */
 "Choose seed phrase length" = "seed phrase 길이 선택";
+
+/* .kachat sale tile: expiry flag */
+"Expires soon" = "곧 만료";

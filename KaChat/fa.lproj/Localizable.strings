@@ -1375,3 +1375,6 @@
 
 /* Create Account: seed length step title */
 "Choose seed phrase length" = "طول عبارت بازیابی را انتخاب کنید";
+
+/* .kachat sale tile: expiry flag */
+"Expires soon" = "به‌زودی منقضی می‌شود";
