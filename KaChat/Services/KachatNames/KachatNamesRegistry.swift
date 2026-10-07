@@ -799,7 +799,15 @@ final class KachatSocialImageResolver: ObservableObject {
             KachatProfileCache.write(Self.cacheFile, data)
         }
         UserDefaults.standard.removeObject(forKey: Self.legacyDefaultsKey)
+        // Answers with nothing at all are looked up again once: earlier builds cached FxTwitter's
+        // wrong "User not found" as an account with no avatar, banner or bio for a day.
+        if !UserDefaults.standard.bool(forKey: Self.emptyRecheckKey) {
+            entries = entries.filter { $0.value.profile != KachatNames.SocialProfile() }
+            UserDefaults.standard.set(true, forKey: Self.emptyRecheckKey)
+        }
     }
+
+    private static let emptyRecheckKey = "kachat_social_empty_rechecked_v1"
 
     /// Settings > Storage > Cache > Profiles: forgets every looked-up avatar, banner and bio;
     /// they are looked up again when next shown.
@@ -913,8 +921,11 @@ final class KachatSocialImageResolver: ObservableObject {
             // challenged or rate-limited where a desktop is not.
             if let url = URL(string: "https://api.fxtwitter.com/\(source.handle)") {
                 let answer = await fetch(url, agent: browserAgent, timeout: 5)
-                if let (data, status) = answer, status == 200 || status == 404,
-                   let p = S.fxTwitterProfile(fromJSON: data) {
+                // Only a profile is taken from FxTwitter. Its "User not found" is not final: it
+                // says that for real accounts too (@Curiousbeing99, 2026-10-07), so X's own page
+                // below decides whether the account is gone.
+                if let (data, status) = answer, status == 200,
+                   let p = S.fxTwitterProfile(fromJSON: data), p != KachatNames.SocialProfile() {
                     return p
                 }
                 AppLog.log("[KachatSocial] x %@: FxTwitter %@", source.handle,
