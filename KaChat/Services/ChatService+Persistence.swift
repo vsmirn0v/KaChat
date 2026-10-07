@@ -1638,39 +1638,19 @@ extension ChatService {
 
     /// Quiet old-style aliases are queried at most this often (once per launch, then daily).
     static let legacyAliasPollIntervalMs: UInt64 = 24 * 60 * 60 * 1000
-    /// An old-style alias counts as in use - queried on every sync - for this long after the
-    /// contact's last message on one (or, for a contact that has never used the deterministic
-    /// alias, their last message at all).
-    static let legacyAliasActiveWindowMs: UInt64 = 30 * 24 * 60 * 60 * 1000
 
     /// Whether a sync should query `alias` this time.
     ///
-    /// Deterministic aliases (and every alias of a contact with no routing state) are queried
-    /// every time. Old-style aliases from before deterministic routing mostly hold history, yet
-    /// each one cost an indexer request on every sync, sweep and open-chat poll, forever. They
-    /// now ride a slow lane - queried once per launch, then at most daily - unless in use:
-    /// - incoming: the contact sent on an old alias within 30 days, or has never used the
-    ///   deterministic alias and messaged within 30 days (an old client);
-    /// - outgoing: it is the alias this device currently sends on.
-    /// A new message on an old alias still arrives live through the UTXO subscription (which
-    /// also moves it back into the every-sync lane); this only thins the indexer backstop.
+    /// Every INCOMING alias is queried every time: anyone in the chat list must always be found,
+    /// whichever alias their app sends on (an old client, or a reinstall that started over on
+    /// an old-style alias). The slow lane - once per launch, then at most daily - is for the
+    /// OUTGOING old-style aliases only (copies of what this device sent long ago), except the one
+    /// this device currently sends on. Gating incoming ones (00d4919) kept a contact's messages
+    /// off the list until the chat was opened or a day passed.
     func shouldPollAlias(_ alias: String, direction: String, contactAddress: String, syncObjectKey: String, nowMs: UInt64) -> Bool {
-        guard let state = routingStates[contactAddress] else { return true }
+        guard direction == "out", let state = routingStates[contactAddress] else { return true }
         if alias == state.deterministicMyAlias || alias == state.deterministicTheirAlias { return true }
-        func isRecent(_ ms: UInt64?) -> Bool {
-            guard let ms, ms > 0 else { return false }
-            return nowMs < ms || nowMs - ms < Self.legacyAliasActiveWindowMs
-        }
-        if direction == "out" {
-            if outgoingAlias(for: contactAddress) == alias { return true }
-        } else {
-            if isRecent(state.lastLegacyIncomingAtMs) { return true }
-            if !state.peerSupportsDeterministic {
-                let lastIncoming = conversations.first(where: { $0.contact.address == contactAddress })?
-                    .messages.last(where: { !$0.isOutgoing })?.blockTime
-                if isRecent(lastIncoming) { return true }
-            }
-        }
+        if outgoingAlias(for: contactAddress) == alias { return true }
         guard let lastPolled = legacyAliasPolledAtMs[syncObjectKey] else { return true }
         return nowMs < lastPolled || nowMs - lastPolled >= Self.legacyAliasPollIntervalMs
     }

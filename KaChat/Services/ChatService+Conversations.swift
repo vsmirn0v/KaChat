@@ -363,8 +363,13 @@ extension ChatService {
               let privateKey = WalletManager.shared.getPrivateKey() else {
             return .skipped
         }
-        // The subscription delivers everything this sweep would find, within a second or two,
-        // for as long as it is verified alive. The sweep is for when it is not.
+        // People writing to us for the first time, without a handshake (Message Requests). The
+        // live subscription never sees these (the inbox tag is the indexer's), so this runs
+        // whether or not it is healthy.
+        await syncInbox()
+        if Task.isCancelled { return .skipped }
+        // The subscription delivers everything the rest of this sweep would find, within a second
+        // or two, for as long as it is verified alive. The rest is for when it is not.
         guard !isUtxoSubscriptionHealthy else { return .skipped }
         let myAddress = wallet.publicAddress
 
@@ -376,9 +381,6 @@ extension ChatService {
         if !(await sweepIncomingHandshakes(myAddress: myAddress, privateKey: privateKey)) {
             return .failed
         }
-        if Task.isCancelled { return .skipped }
-        // People writing to us for the first time, without a handshake (Message Requests).
-        await syncInbox()
         if Task.isCancelled { return .skipped }
 
         let targets = nextForegroundSweepWindow(excluding: activeConversationAddress)
@@ -3756,6 +3758,31 @@ extension ChatService {
         if conversation.messages.contains(where: { $0.isOutgoing }) { return false }
         guard let first = conversation.messages.lazy.map(\.timestamp).min() else { return false }
         return first >= state.startedAt
+    }
+
+    /// Chats that existed before Message Requests arrived stay ordinary chats for good. Decided
+    /// from the oldest STORED message, once, and recorded as accepted: `isMessageRequest` only
+    /// sees the messages held in memory (the newest 160), so an old chat whose early messages
+    /// were trimmed (or removed by retention) used to turn into a request - leaving the chat list
+    /// and the push watch list. Runs after the initial sync.
+    func grandfatherPreexistingChats() async {
+        let state = chatRequestState()
+        let candidates = conversations.filter { conversation in
+            let address = conversation.contact.address.lowercased()
+            if state.accepted.contains(address) || state.privateChats.contains(address) || state.blocked.contains(address) { return false }
+            let contact = contactsManager.getContact(byAddress: conversation.contact.address) ?? conversation.contact
+            return contact.isAutoAdded && !contact.hasSentOutgoingMessage
+        }
+        var preexisting: [String] = []
+        for conversation in candidates {
+            if let first = await messageStore.earliestMessageDate(contactAddress: conversation.contact.address),
+               first < state.startedAt {
+                preexisting.append(conversation.contact.address.lowercased())
+            }
+        }
+        guard !preexisting.isEmpty else { return }
+        AppLog.log("[ChatService] %d chat(s) from before Message Requests kept as ordinary chats", preexisting.count)
+        updateChatRequests { $0.accepted.formUnion(preexisting) }
     }
 
     /// Message Requests, newest first.

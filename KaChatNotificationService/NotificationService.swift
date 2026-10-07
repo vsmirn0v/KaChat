@@ -341,9 +341,11 @@ class NotificationService: UNNotificationServiceExtension {
         shouldIncrementUnread: Bool,
         contentHandler: @escaping (UNNotificationContent) -> Void
     ) {
-        if content.body == NSLocalizedString("New message", comment: "Generic push body") || messageType != "contextual" {
-            addPendingMessage(txId: txId, sender: senderAddress, type: messageType)
-        }
+        // Always hand the id to the app (the queue ignores duplicates). Only queuing when the
+        // preview failed left every photo, voice and long message - whose preview is read from
+        // the chain - for the app to stumble on later: missing from the chat list until that
+        // chat was opened.
+        addPendingMessage(txId: txId, sender: senderAddress, type: messageType)
 
         if shouldIncrementUnread, let badge = incrementUnreadCountIfNeeded() {
             content.badge = NSNumber(value: badge)

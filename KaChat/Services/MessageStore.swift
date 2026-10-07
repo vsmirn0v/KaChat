@@ -522,6 +522,31 @@ final class MessageStore {
         return MessagePage(messages: Array(pageSlice.reversed()), oldestCursor: cursor, hasMore: hasMore)
     }
 
+    /// When the oldest stored message of a conversation was sent (current wallet scope), or nil
+    /// when there is none. Background context, like `countMessages`.
+    func earliestMessageDate(contactAddress: String) async -> Date? {
+        guard ensureStoreLoaded() else { return nil }
+        let walletAddress = currentWalletAddress
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Date?, Never>) in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+                if let walletAddress {
+                    request.predicate = NSPredicate(
+                        format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
+                        contactAddress,
+                        walletAddress
+                    )
+                } else {
+                    request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+                }
+                request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
+                request.fetchLimit = 1
+                request.includesPendingChanges = false
+                continuation.resume(returning: (try? context.fetch(request))?.first?.timestamp)
+            }
+        }
+    }
+
     /// Count messages for a single conversation in current wallet scope.
     /// Runs on a background context - see `fetchConversationMeta` for why blocking `viewContext`
     /// here used to be able to freeze the UI (e.g. this is on the read-receipt/notification path).

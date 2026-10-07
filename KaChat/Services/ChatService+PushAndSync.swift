@@ -526,6 +526,8 @@ extension ChatService {
             // After initial sync, enable notifications (they were suppressed during wallet import)
             suppressNotificationsUntilSynced = false
             hasCompletedInitialSync = true
+            // old chats whose first messages fell out of memory stay ordinary chats
+            Task { await self.grandfatherPreexistingChats() }
             setInitialSyncPhase(.finished)
 
             // No remote-push early-out here: fallback polling depends only on whether the

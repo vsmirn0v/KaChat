@@ -2973,6 +2973,12 @@ extension ChatService {
         if !message.isOutgoing, isChatBlocked(contactAddress) {
             return
         }
+        // Someone first seen through a push or the live subscription gets routing state like any
+        // other contact, so every sync and sweep looks for their messages from now on (both cover
+        // only contacts with routing state or an alias).
+        if !message.isOutgoing, routingStates[contactAddress] == nil {
+            ensureRoutingState(for: contactAddress, privateKey: WalletManager.shared.getPrivateKey())
+        }
 
         // Reactions are never shown as their own chat bubble - just attached to the message they
         // target - so intercept and route to the reactions store before this ever becomes a
