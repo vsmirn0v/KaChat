@@ -121,7 +121,12 @@ extension KachatNames {
         /// The offer build each deployed registry was launched with, by registry covenant id. A
         /// manifest for one of these registries must carry exactly this; any other registry (a dry
         /// run, the test vectors) has no offer pin, so only a bundled manifest of it is trusted.
-        static let deployedTemplateHashes: [String: [String: String]] = [:]
+        static let deployedTemplateHashes: [String: [String: String]] = [
+            // testnet-10 registry v4, 2026-10-07: genesis b1f28a5f..85a1
+            "bff185546af1940ec70d74143e23b5f018fdb864bd02e15ca9b4c8d8ede40e2f": [
+                "KachatOffer": "226def4b7fea21b21957c55fd47331b1d2f510fa2a63f8e7543bafaed4898e7d"
+            ]
+        ]
         static let stateLengths: [String: Int] = ["KachatGap": 66, "KachatName": 126, "KachatOffer": 108]
         static let entries: [String: [String]] = [
             "KachatGap": ["register", "merge", "absorbed"],
