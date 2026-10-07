@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "Yakında sona eriyor";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "%@ sizin için serbest bırakılıyor...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "Bu adın süresi doldu ve yenilenmedi, bu yüzden herkes onu normal fiyattan alabilir. Önceki sahibin teminatı kendisine geri döner.";
+"No expired names right now." = "Şu anda süresi dolmuş ad yok.";
+"Expired names appear here once .kachat names launch." = ".kachat adları başlatıldığında süresi dolmuş adlar burada görünecek.";
+"%@ was freed" = "%@ serbest bırakıldı";
+"It expired and was cleared from the registry. Your bond is back with you." = "Süresi doldu ve kayıttan kaldırıldı. Teminatınız size geri döndü.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ artık sizin değil";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "Süresi doldu ve yenilenmedi, bu yüzden artık pazar yerinde herkese açık. Biri onu aldığında teminatınız size geri döner.";

@@ -355,3 +355,7 @@
 
 /* .kachat name lapsed: moved to Reclaimable */
 "It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "Tên này không còn là của bạn và đã chuyển sang mục “Có thể thu hồi” trong chợ. Hãy tự thu hồi để lấy lại tiền đặt cọc.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ không còn là của bạn";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "Tên đã hết hạn và không được gia hạn, nên giờ ai cũng có thể nhận trong chợ. Tiền đặt cọc sẽ trở lại với bạn khi có người nhận tên.";

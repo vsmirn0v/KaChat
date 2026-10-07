@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "Segera kedaluwarsa";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "Membebaskan %@ untuk Anda...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "Nama ini kedaluwarsa dan tidak diperpanjang, jadi siapa pun dapat mengklaimnya dengan harga normal. Jaminan pemilik sebelumnya kembali kepadanya.";
+"No expired names right now." = "Belum ada nama kedaluwarsa saat ini.";
+"Expired names appear here once .kachat names launch." = "Nama kedaluwarsa akan muncul di sini setelah nama .kachat diluncurkan.";
+"%@ was freed" = "%@ telah dibebaskan";
+"It expired and was cleared from the registry. Your bond is back with you." = "Nama ini kedaluwarsa dan dihapus dari registri. Jaminan Anda sudah kembali.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ bukan milik Anda lagi";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "Nama ini kedaluwarsa dan tidak diperpanjang, jadi sekarang tersedia untuk siapa pun di marketplace. Jaminan Anda kembali saat seseorang mengklaimnya.";

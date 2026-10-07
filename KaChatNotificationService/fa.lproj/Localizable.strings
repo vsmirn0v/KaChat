@@ -355,3 +355,7 @@
 
 /* .kachat name lapsed: moved to Reclaimable */
 "It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back." = "دیگر متعلق به شما نیست و به بخش «قابل بازپس‌گیری» در بازار منتقل شده است. خودتان آن را بازپس بگیرید تا وثیقه‌تان برگردد.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ دیگر متعلق به شما نیست";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "منقضی شده و تمدید نشده است، بنابراین اکنون در بازار برای همه در دسترس است. وقتی کسی آن را دریافت کند، وثیقه شما برمی‌گردد.";

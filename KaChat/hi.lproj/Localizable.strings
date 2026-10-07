@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "जल्द समाप्त";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "आपके लिए %@ मुक्त किया जा रहा है...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "इस नाम की अवधि समाप्त हो गई और इसे नवीनीकृत नहीं किया गया, इसलिए कोई भी इसे सामान्य कीमत पर ले सकता है। पिछले मालिक की जमानत उन्हें वापस मिलती है।";
+"No expired names right now." = "अभी कोई समाप्त नाम नहीं है।";
+"Expired names appear here once .kachat names launch." = ".kachat नाम लॉन्च होने पर समाप्त नाम यहाँ दिखेंगे।";
+"%@ was freed" = "%@ मुक्त हो गया";
+"It expired and was cleared from the registry. Your bond is back with you." = "इसकी अवधि समाप्त हुई और इसे रजिस्ट्री से हटा दिया गया। आपकी जमानत आपको वापस मिल गई।";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ अब आपका नहीं है";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "इसकी अवधि समाप्त हो गई और इसे नवीनीकृत नहीं किया गया, इसलिए अब यह मार्केटप्लेस में किसी के भी लिए उपलब्ध है। कोई इसे लेगा तो आपकी जमानत आपको वापस मिल जाएगी।";

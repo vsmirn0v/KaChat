@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "곧 만료";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "%@ 해제 중...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "이 이름은 만료되었고 갱신되지 않아 누구나 일반 가격으로 받을 수 있습니다. 이전 소유자의 보증금은 그에게 돌아갑니다.";
+"No expired names right now." = "지금은 만료된 이름이 없습니다.";
+"Expired names appear here once .kachat names launch." = ".kachat 이름이 출시되면 만료된 이름이 여기에 표시됩니다.";
+"%@ was freed" = "%@ 해제됨";
+"It expired and was cleared from the registry. Your bond is back with you." = "만료되어 레지스트리에서 정리되었습니다. 보증금이 돌아왔습니다.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@은(는) 더 이상 내 것이 아닙니다";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "만료되었고 갱신되지 않아 이제 마켓플레이스에서 누구나 받을 수 있습니다. 누군가 받으면 보증금이 돌아옵니다.";

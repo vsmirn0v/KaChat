@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "פג תוקף בקרוב";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "משחרר את %@ עבורך...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "תוקף השם פג והוא לא חודש, כך שכל אחד יכול לתבוע אותו במחיר הרגיל. הפיקדון של הבעלים הקודם חוזר אליו.";
+"No expired names right now." = "אין שמות שפג תוקפם כרגע.";
+"Expired names appear here once .kachat names launch." = "שמות שפג תוקפם יופיעו כאן כששמות ‎.kachat יושקו.";
+"%@ was freed" = "%@ שוחרר";
+"It expired and was cleared from the registry. Your bond is back with you." = "תוקפו פג והוא הוסר מהרישום. הפיקדון שלך חזר אליך.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ כבר לא שלך";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "תוקפו פג והוא לא חודש, כך שעכשיו הוא זמין לכל אחד בשוק. הפיקדון שלך יחזור אליך כשמישהו יתבע אותו.";

@@ -44,15 +44,15 @@ enum KachatTabIcon {
 /// the tabs read the registry (`KachatNamesRegistry`), and registrations in flight show their
 /// progress.
 struct KachatMarketView: View {
-    /// Names for sale, names anyone may reclaim, and everything that happens in the registry.
+    /// Names for sale, expired names anyone may claim, and everything that happens in the registry.
     /// Your own names (and the offers you made) live in Profile > Your Domains.
     private enum Page: String, CaseIterable {
-        case market, reclaimable, activity
+        case market, available, activity
 
         var title: String {
             switch self {
             case .market: return "Marketplace"
-            case .reclaimable: return "Reclaimable"
+            case .available: return "Available"
             case .activity: return "Activity"
             }
         }
@@ -82,13 +82,13 @@ struct KachatMarketView: View {
                     if live.isLive || !KachatNamesService.isLaunched {
                         switch page {
                         case .market: KachatLiveMarketPage(model: live)
-                        case .reclaimable: KachatLiveReclaimablePage(model: live)
+                        case .available: KachatLiveAvailablePage(model: live)
                         case .activity: KachatLiveActivityPage(model: live)
                         }
                     } else {
                         switch page {
                         case .market: marketPage
-                        case .reclaimable: reclaimablePage
+                        case .available: availablePage
                         case .activity: activityPage
                         }
                     }
@@ -289,15 +289,15 @@ struct KachatMarketView: View {
         .redacted(reason: .placeholder)
     }
 
-    // MARK: - Reclaimable
+    // MARK: - Available
 
-    private var reclaimablePage: some View {
+    private var availablePage: some View {
         VStack(alignment: .leading, spacing: 18) {
-            sectionHeader("Reclaimable", detail: "Names whose owners let them lapse. Anyone may reclaim one: the bond goes back to its last owner, you keep the freed deposit as a bounty, and the name is free to claim.")
+            sectionHeader("Available", detail: nil)
             KachatNameGrid {
                 ForEach(0..<2, id: \.self) { _ in tilePlaceholder(footer: "000 \(KaspaUnit.symbol)") }
             }
-            Text("Reclaimable names appear here once .kachat names launch.")
+            Text("Expired names appear here once .kachat names launch.")
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity)
@@ -898,7 +898,8 @@ struct KachatAddressLiveNamesList: View {
     private func load() async {
         guard let key = KachatNamesRegistry.keyOf(address) else { loaded = true; return }
         if registry.refreshedAt == nil { await registry.refresh() }
-        names = (try? await registry.names(owner: key, includeInactive: true)) ?? []
+        // an expired name past grace isn't theirs any more: it's available to anyone
+        names = (try? await registry.heldNames(owner: key)) ?? []
         loaded = true
     }
 }

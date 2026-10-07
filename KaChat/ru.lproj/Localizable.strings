@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "Скоро истекает";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "Освобождаем %@ для вас...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "Срок этого имени истёк, и его не продлили, поэтому любой может получить его по обычной цене. Залог прежнего владельца возвращается ему.";
+"No expired names right now." = "Сейчас нет имён с истёкшим сроком.";
+"Expired names appear here once .kachat names launch." = "Имена с истёкшим сроком появятся здесь после запуска имён .kachat.";
+"%@ was freed" = "%@ освобождено";
+"It expired and was cleared from the registry. Your bond is back with you." = "Срок истёк, и имя удалено из реестра. Ваш залог вернулся к вам.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ больше не ваше";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "Срок истёк, и имя не продлили, поэтому теперь оно доступно всем на маркетплейсе. Залог вернётся к вам, когда кто-нибудь его получит.";

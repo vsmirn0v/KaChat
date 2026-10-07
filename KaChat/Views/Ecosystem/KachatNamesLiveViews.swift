@@ -231,7 +231,8 @@ struct KachatStatusPill: View {
             switch status {
             case .active: Text("Active")
             case .grace: Text("Expired")
-            case .lapsed: Text("Lapsed")
+            // past grace a name is free to claim
+            case .lapsed: Text("Available")
             }
         }
         .font(.caption2.weight(.bold))
@@ -245,7 +246,7 @@ struct KachatStatusPill: View {
         switch status {
         case .active: return .green
         case .grace: return .orange
-        case .lapsed: return .red
+        case .lapsed: return .green
         }
     }
 }
@@ -307,48 +308,9 @@ struct KachatLiveNameRow: View {
     }
 }
 
-// MARK: - Reclaim to Own: register it again?
-
-/// The half sheet after a Reclaim to Own went out: register the freed name again, or not now.
-struct KachatOwnAgainSheet: View {
-    let name: String
-    let choose: (Bool) -> Void
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "at.badge.plus")
-                .font(.system(size: 34, weight: .semibold))
-                .foregroundColor(.accentColor)
-            Text(String(format: AppLocalization.string("Register %@ again?"), name))
-                .font(.headline)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("It's free now. Pick how long to hold it, like any new name: the hidden commit goes first and the name is registered about a minute later.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            VStack(spacing: 10) {
-                Button { choose(true) } label: {
-                    Text("Register Again").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
-                }
-                .buttonStyle(.borderedProminent)
-                Button { choose(false) } label: {
-                    Text("Not Now").frame(maxWidth: .infinity).padding(.vertical, 4)
-                }
-                .buttonStyle(.bordered)
-            }
-            .padding(.top, 4)
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 24)
-        .padding(.bottom, 16)
-    }
-}
-
 // MARK: - Name tiles
 
-/// A square tile for one name in the marketplace grids (For sale, Reclaimable): the full name -
+/// A square tile for one name in the marketplace grids (For sale, Available): the full name -
 /// it wraps onto more lines, never truncates, and the tile grows to fit - with ".kachat" under
 /// it, and the price (or a Reclaim button) at the bottom.
 struct KachatNameTile<Footer: View>: View {
@@ -486,7 +448,7 @@ final class KachatHubModel: ObservableObject {
         guard KachatLive.invalidReason(typed) == nil else { search = .invalid(typed); return }
         search = .checking
         do {
-            switch try await registry.lookup(typed) {
+            switch try await registry.claimLookup(typed) {
             case .registered(let n): search = .registered(n)
             case .free(let name, let gap): search = .free(name, gap)
             }
@@ -602,7 +564,8 @@ struct KachatLiveSearchResult: View {
         case .grace:
             Text("Expired - the owner can still renew it").font(.caption).foregroundColor(.orange)
         case .lapsed:
-            Text("Lapsed - reclaim it, then claim it").font(.caption).foregroundColor(.red)
+            // never reached: a lapsed name searches as free to claim (`claimLookup`)
+            EmptyView()
         }
     }
 }
@@ -936,24 +899,25 @@ struct KachatLiveMarketPage: View {
     }
 }
 
-/// Names that expired and stayed unrenewed through the grace period: anyone may reclaim one.
-struct KachatLiveReclaimablePage: View {
+/// Names that expired and stayed unrenewed through the grace period: back on the market at the
+/// normal price. Claim frees the old record and registers it in one go (the progress half sheet).
+struct KachatLiveAvailablePage: View {
     @ObservedObject var model: KachatHubModel
-    @State private var reclaimTarget: KachatNames.NameInfo?
-    /// The tile tapped (outside its Reclaim button): its detail opens.
+    @State private var claimTarget: KachatClaimTarget?
+    /// The tile tapped (outside its Claim button): its detail opens.
     @State private var openName: KachatNames.NameInfo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            KachatLiveSectionHeader(title: "Reclaimable", detail: "Names whose owners let them lapse. Anyone may reclaim one: the bond goes back to its last owner, you keep the freed deposit as a bounty, and the name is free to claim.")
+            KachatLiveSectionHeader(title: "Available", detail: nil)
             if model.lapsed.isEmpty {
-                KachatLiveEmpty(text: model.loaded ? "Nothing to reclaim." : nil)
+                KachatLiveEmpty(text: model.loaded ? "No expired names right now." : nil)
             } else {
-                // a tap gesture, not a NavigationLink, so the Reclaim button inside keeps its tap
+                // a tap gesture, not a NavigationLink, so the Claim button inside keeps its tap
                 KachatNameGrid {
                     ForEach(model.lapsed) { n in
                         KachatNameTile(name: n.name) {
-                            // what claiming it costs once reclaimed: the price for its length
+                            // what claiming it costs: the price for its length
                             if let price = KachatLive.price(n.name) {
                                 Text(verbatim: KaspaUnit.amount(price))
                                     .font(.subheadline.weight(.semibold))
@@ -961,8 +925,8 @@ struct KachatLiveReclaimablePage: View {
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.7)
                             }
-                            Button("Reclaim") { reclaimTarget = n }
-                                .buttonStyle(.bordered)
+                            Button("Claim") { claim(n) }
+                                .buttonStyle(.borderedProminent)
                                 .controlSize(.small)
                         }
                         .onTapGesture { openName = n }
@@ -972,9 +936,16 @@ struct KachatLiveReclaimablePage: View {
             }
         }
         .padding(.top, 4)
-        .sheet(item: $reclaimTarget) { n in KachatReclaimSheet(info: n) }
+        .sheet(item: $claimTarget) { KachatClaimSheet(target: $0) }
         .navigationDestination(isPresented: Binding(get: { openName != nil }, set: { if !$0 { openName = nil } })) {
             if let openName { KachatListingDetailView(info: openName) }
+        }
+    }
+
+    private func claim(_ n: KachatNames.NameInfo) {
+        Task { @MainActor in
+            guard let gap = try? await KachatNamesRegistry.shared.claimGap(for: n) else { return }
+            claimTarget = KachatClaimTarget(name: n.name, gap: gap)
         }
     }
 }
@@ -1628,17 +1599,10 @@ struct KachatLiveNameDetail: View {
     @ObservedObject private var actions = KachatNamesActions.shared
 
     private enum Sheet: Identifiable {
-        case buy, offer, extend, renew, list, delist, transfer, release, reclaim, reclaimToOwn
+        case buy, offer, extend, renew, list, delist, transfer, release
         var id: Int { hashValue }
     }
 
-    /// Reclaim to Own (your own name, lapsed): the gaps around it before the reclaim (the
-    /// merged gap the reclaim creates spans them), the reclaim's txid once it went out, then
-    /// "register it again?" and the claim sheet.
-    @State private var reclaimSpan: (lo: Data, hi: Data)?
-    @State private var reclaimedTxId: String?
-    @State private var askOwnAgain = false
-    @State private var wantsOwnAgain = false
     @State private var claimTarget: KachatClaimTarget?
 
     @State private var ownerCopied = false
@@ -1653,7 +1617,8 @@ struct KachatLiveNameDetail: View {
     @State private var offers: [KachatNames.OfferInfo] = []
     @State private var history: [KachatNames.Event] = []
     @State private var gone = false
-    /// The free gap the name now sits in, once it's gone (released or reclaimed): Claim uses it.
+    /// The free gap the name sits in once it's gone (released or reclaimed), or the one claiming
+    /// a lapsed name reopens: Claim uses it.
     @State private var freeGap: KachatNames.GapInfo?
     @State private var confirmPrimary = false
     /// Which of this wallet's addresses holds the name (chatting, a spending address, a KasSigner
@@ -1674,20 +1639,23 @@ struct KachatLiveNameDetail: View {
     private var status: KachatNames.Status { info.status(graceMs: registry.graceMs) }
     /// Listed and still active: the only state in which the asking price means anything.
     private var forSale: Bool { info.isListed && status == .active }
+    /// Free to claim: released or reclaimed, or expired past grace (claiming frees it first).
+    private var isFree: Bool { gone || status == .lapsed }
     private var ownerAddress: String? { KachatNamesRegistry.address(of: info.owner) }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 nameCard
-                if gone {
+                if isFree {
                     if let freeGap, KachatLive.isEnabled {
                         actionButton("Claim", "at.badge.plus", prominent: true) {
                             claimTarget = KachatClaimTarget(name: info.name, gap: freeGap)
                         }
                         .padding(.horizontal, 16)
                     }
-                    Text("This name was released or reclaimed. It's free to claim again.")
+                    Text(gone ? "This name was released or reclaimed. It's free to claim again."
+                              : "This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 20)
@@ -1705,28 +1673,7 @@ struct KachatLiveNameDetail: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await registry.refresh() }
         .task(id: registry.revision) { await reload() }
-        .sheet(item: $sheet, onDismiss: {
-            // a Reclaim to Own that went out: offer to register the name again
-            if reclaimedTxId != nil { askOwnAgain = true }
-        }) { s in sheetView(s) }
-        // "Register it again?" as a half sheet; the claim sheet opens once it has gone down
-        // (two sheets can't present at once).
-        .sheet(isPresented: $askOwnAgain, onDismiss: {
-            if wantsOwnAgain {
-                wantsOwnAgain = false
-                registerAgain()
-            } else {
-                reclaimedTxId = nil
-                reclaimSpan = nil
-            }
-        }) {
-            KachatOwnAgainSheet(name: info.display) { yes in
-                wantsOwnAgain = yes
-                askOwnAgain = false
-            }
-            .presentationDetents([.height(300)])
-            .presentationDragIndicator(.visible)
-        }
+        .sheet(item: $sheet) { s in sheetView(s) }
         .sheet(item: $claimTarget) { target in KachatClaimSheet(target: target) }
         .sheet(isPresented: $showManage, onDismiss: {
             if let next = pendingSheet {
@@ -1761,8 +1708,9 @@ struct KachatLiveNameDetail: View {
                         .minimumScaleFactor(0.5)
                         .padding(.horizontal, 16)
                 )
-            if gone {
-                // Released or reclaimed: the old record (its expiry, period, listing) is history.
+            if isFree {
+                // Released, reclaimed or lapsed: the old record (its expiry, period, listing) is
+                // history.
                 HStack {
                     Text("Free to claim").font(.subheadline).foregroundColor(.secondary)
                     Spacer()
@@ -1823,10 +1771,7 @@ struct KachatLiveNameDetail: View {
             case .grace:
                 Text("Expired. It no longer resolves; the owner can still renew it.")
                     .font(.footnote).foregroundColor(.orange)
-            case .lapsed:
-                Text("Lapsed: anyone may reclaim it, and then claim it again.")
-                    .font(.footnote).foregroundColor(.red)
-            case .active:
+            case .lapsed, .active:
                 EmptyView()
             }
     }
@@ -1835,13 +1780,9 @@ struct KachatLiveNameDetail: View {
     private var actionButtons: some View {
         VStack(spacing: 10) {
             if canActAsOwner {
-                // Expired (in grace or lapsed) and renewable: the one thing that matters now stays
-                // on the page instead of inside the menu.
-                if status == .lapsed {
-                    // Past grace: a renewal can't bring it back, so the way back is to clear it
-                    // (your bond comes back) and register it again.
-                    actionButton("Reclaim to Own", "arrow.3.trianglepath", prominent: true) { startReclaimToOwn() }
-                } else if status != .active, let p = KachatLive.params, info.renewOpen(p) {
+                // Expired (in grace) and renewable: the one thing that matters now stays on the
+                // page instead of inside the menu. (A lapsed name shows as free to claim.)
+                if status != .active, let p = KachatLive.params, info.renewOpen(p) {
                     actionButton("Renew", "arrow.clockwise", prominent: true) { sheet = .renew }
                 }
                 // Every owner action lives in one half sheet of tiles.
@@ -1851,18 +1792,13 @@ struct KachatLiveNameDetail: View {
                 // says which); acting on it is the device's job.
                 EmptyView()
             } else {
-                switch status {
-                case .lapsed:
-                    actionButton("Reclaim", "arrow.3.trianglepath", prominent: true) { sheet = .reclaim }
-                default:
-                    HStack(spacing: 10) {
-                        if info.isListed && status == .active {
-                            actionButton("Buy Now", "cart", prominent: true) { sheet = .buy }
-                        }
-                        // an expired name can be reclaimed by anyone soon: no offers on it
-                        if status == .active {
-                            actionButton("Make an Offer", "hand.raised") { sheet = .offer }
-                        }
+                HStack(spacing: 10) {
+                    if info.isListed && status == .active {
+                        actionButton("Buy Now", "cart", prominent: true) { sheet = .buy }
+                    }
+                    // an expired name is free to claim soon: no offers on it
+                    if status == .active {
+                        actionButton("Make an Offer", "hand.raised") { sheet = .offer }
                     }
                 }
             }
@@ -1889,13 +1825,6 @@ struct KachatLiveNameDetail: View {
         var items: [ManageItem] = []
         // The picked action opens once this sheet has gone down (see the onDismiss).
         let open: (Sheet) -> () -> Void = { s in { pendingSheet = s; showManage = false } }
-        // Lapsed: the name is past saving - listing, transferring or making it primary means
-        // nothing now. The one way back is to clear it and register it again.
-        if status == .lapsed {
-            return [ManageItem(title: AppLocalization.string("Reclaim to Own"),
-                               subtitle: AppLocalization.string("Clear the lapsed name and get your bond back, then register it again."),
-                               icon: "arrow.3.trianglepath", run: open(.reclaimToOwn))]
-        }
         if let p = KachatLive.params {
             let extendable = info.extendableYears(p)
             if extendable > 0 {
@@ -2135,43 +2064,7 @@ struct KachatLiveNameDetail: View {
                 rows: [.init(title: "Name", value: info.display)],
                 operation: .release(info), operationKey: "release-\(KachatNames.hex(info.outpoint.txid))"
             )
-        case .reclaim: KachatReclaimSheet(info: info)
-        case .reclaimToOwn:
-            KachatTxSheet(
-                title: "Reclaim to Own", confirmTitle: "Reclaim",
-                authReason: KachatLive.authReason, doneTitle: "Name reclaimed",
-                footer: "Your name lapsed, so it can't be renewed any more. Reclaiming clears it from the registry: your bond comes back to you, and you also keep the freed registry deposit, less the network fee. Then you can register it again.",
-                rows: [
-                    .init(title: "Name", value: info.display),
-                    .init(title: "Bond back to you", value: KaspaUnit.amount(KachatNamesService.shared.manifest?.params.bond ?? 0))
-                ],
-                operation: .reclaim(info), operationKey: "reclaim-own-\(KachatNames.hex(info.outpoint.txid))",
-                onDone: { reclaimedTxId = $0 }
-            )
         }
-    }
-
-    /// Reclaim to Own, step 1: the reclaim sheet. The gaps around the name (which the reclaim
-    /// merges) are noted on load (`reload`); fetched here if that hasn't happened yet.
-    private func startReclaimToOwn() {
-        reclaimedTxId = nil
-        Task { @MainActor in
-            if reclaimSpan == nil, let gaps = try? await registry.exitGaps(for: info) {
-                reclaimSpan = (gaps.below.lo, gaps.above.hi)
-            }
-            sheet = .reclaimToOwn
-        }
-    }
-
-    /// Reclaim to Own, step 2: the claim sheet for the freed name, on the gap the reclaim
-    /// created (output 0 of the reclaim). The registration itself looks the gap up again.
-    private func registerAgain() {
-        defer { reclaimedTxId = nil }
-        guard let txId = reclaimedTxId, let span = reclaimSpan, let txid = try? KachatNames.unhex32(txId) else { return }
-        claimTarget = KachatClaimTarget(
-            name: info.name,
-            gap: KachatNames.GapInfo(lo: span.lo, hi: span.hi, outpoint: KachatNames.Outpoint(txid: txid, index: 0))
-        )
     }
 
     // MARK: Loading
@@ -2182,17 +2075,14 @@ struct KachatLiveNameDetail: View {
             case .registered(let n):
                 info = n
                 gone = false
-                freeGap = nil
+                // lapsed: free to claim, in the gap claiming it reopens
+                freeGap = n.status(graceMs: registry.graceMs) == .lapsed ? try? await registry.claimGap(for: n) : nil
             case .free(_, let gap):
                 gone = true
                 freeGap = gap
             }
         } catch {}
         heldBy = actions.ownAddress(of: info.owner)
-        // your own lapsed name: note the gaps around it now, for Reclaim to Own
-        if canActAsOwner, status == .lapsed, reclaimSpan == nil, let gaps = try? await registry.exitGaps(for: info) {
-            reclaimSpan = (gaps.below.lo, gaps.above.hi)
-        }
         if !ownedByWallet, let ownerAddress, let id = try? await registry.identity(address: ownerAddress) {
             ownerLabel = id.label
         }
@@ -2516,23 +2406,6 @@ struct KachatTransferSheet: View {
     }
 }
 
-struct KachatReclaimSheet: View {
-    let info: KachatNames.NameInfo
-
-    var body: some View {
-        KachatTxSheet(
-            title: "Reclaim", confirmTitle: "Reclaim",
-            authReason: KachatLive.authReason, doneTitle: "Name reclaimed",
-            footer: "The name's bond goes back to its last owner, you keep the freed registry deposit (less the fee) as a bounty, and the name is free. To own it, claim it afterwards.",
-            rows: [
-                .init(title: "Name", value: info.display),
-                .init(title: "Bond to the last owner", value: KaspaUnit.amount(KachatNamesService.shared.manifest?.params.bond ?? 0))
-            ],
-            operation: .reclaim(info), operationKey: "reclaim-\(KachatNames.hex(info.outpoint.txid))"
-        )
-    }
-}
-
 // MARK: - Your Domains > .kachat
 
 struct KachatLiveDomainsTab: View {
@@ -2638,13 +2511,13 @@ struct KachatLiveDomainsTab: View {
         .accessibilityHint(Text("Opens the .kachat marketplace"))
     }
 
-    /// The card badge for a name: Listed, Expired (in grace) or Lapsed. Shared with the
-    /// per-address lists (`KachatAddressLiveNamesList`).
+    /// The card badge for a name: Listed, or Expired (in grace). Shared with the per-address
+    /// lists (`KachatAddressLiveNamesList`); neither lists lapsed names (`heldNames`).
     static func badge(for n: KachatNames.NameInfo, graceMs: Int64) -> String? {
         switch n.status(graceMs: graceMs) {
         case .active: return n.isListed ? AppLocalization.string("Listed") : nil
         case .grace: return AppLocalization.string("Expired")
-        case .lapsed: return AppLocalization.string("Lapsed")
+        case .lapsed: return AppLocalization.string("Available")
         }
     }
 
@@ -3266,7 +3139,7 @@ struct KachatNameRouteView: View {
     private func load() async {
         found = nil
         do {
-            switch try await KachatNamesRegistry.shared.lookup(name) {
+            switch try await KachatNamesRegistry.shared.claimLookup(name) {
             case .registered(let info): found = .registered(info)
             case .free(_, let gap): found = .free(gap)
             }

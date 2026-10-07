@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "まもなく期限切れ";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "%@ を解放しています...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "この名前は期限切れで更新されなかったため、誰でも通常価格で取得できます。以前の所有者の保証金は本人に返却されます。";
+"No expired names right now." = "現在、期限切れの名前はありません。";
+"Expired names appear here once .kachat names launch." = ".kachat の名前が開始されると、期限切れの名前がここに表示されます。";
+"%@ was freed" = "%@ が解放されました";
+"It expired and was cleared from the registry. Your bond is back with you." = "期限が切れてレジストリから削除されました。保証金はあなたに返却されました。";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ はあなたのものではなくなりました";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "期限切れで更新されなかったため、マーケットプレイスで誰でも取得できるようになりました。誰かが取得すると保証金があなたに返却されます。";

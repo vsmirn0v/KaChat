@@ -35,6 +35,8 @@ extension KachatNames {
         /// the commit UTXO's DAA score once seen
         var commitDaa: UInt64?
         var registerTxId: String?
+        /// The reclaim this registration sent to free a lapsed old record of the name first.
+        var reclaimTxId: String? = nil
         var cancelTxId: String?
         var stage: Stage
         var createdAt: Int64
@@ -674,8 +676,8 @@ final class KachatNamesActions: ObservableObject {
         await registry.refresh()
         switch try await registry.lookup(name) {
         case .registered(let n) where n.status(graceMs: registry.graceMs) == .lapsed:
-            // Lapsed: being reclaimed (Reclaim to Own, or by anyone). The commit can go out now;
-            // the registration waits until the old name is cleared from the registry.
+            // Expired past grace: free to claim. The commit goes out now; the driver frees the
+            // old record (a reclaim) and then registers.
             break
         case .registered:
             throw ActionError.notRegisterable(String(format: AppLocalization.string("%@ is already registered."), "\(name).kachat"))
@@ -860,7 +862,7 @@ final class KachatNamesActions: ObservableObject {
     }
 
     /// This wallet holds `name` as a live registration (a lapsed old record of it doesn't count:
-    /// that is what a Reclaim to Own registers over).
+    /// that is what claiming an expired name registers over).
     private func ownsName(_ name: String) async -> Bool {
         guard let me = myKey, case .registered(let n)? = try? await registry.lookup(name) else { return false }
         return n.owner == me && n.status(graceMs: registry.graceMs) != .lapsed
@@ -876,8 +878,20 @@ final class KachatNamesActions: ObservableObject {
             let gap: KachatNames.GapInfo
             switch try await registry.lookup(p.name) {
             case .registered(let n) where n.status(graceMs: registry.graceMs) == .lapsed:
-                // the old, lapsed name is still there (its reclaim not seen yet): next tick
-                set(p) { $0.lastError = String(format: AppLocalization.string("Waiting for the old %@ to be cleared from the registry."), "\(p.name).kachat") }
+                // An expired name is free to claim: this registration frees the old record first
+                // (anyone may; its bond goes back to the old owner and the freed deposit comes to
+                // you), then registers on a later tick once the registry shows the gap.
+                set(p) { $0.lastError = String(format: AppLocalization.string("Freeing %@ for you..."), "\(p.name).kachat") }
+                if let tx = p.reclaimTxId {
+                    if await KachatNamesRegistry.isAccepted(txId: tx) {
+                        await registry.refresh()
+                    } else if KachatNames.nowMs() - p.updatedAt > 120_000 {
+                        set(p) { $0.reclaimTxId = nil } // never accepted: send it again
+                    }
+                    return
+                }
+                let txId = try await perform(.reclaim(n))
+                set(p) { $0.reclaimTxId = txId }
                 return
             case .registered(let n):
                 if n.owner == s.me { finishRegistered(p) } else { set(p) { $0.stage = .taken; $0.lastError = nil } }

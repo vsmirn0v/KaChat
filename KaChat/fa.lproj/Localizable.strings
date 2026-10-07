@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "به‌زودی منقضی می‌شود";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "در حال آزادسازی %@ برای شما...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "این نام منقضی شده و تمدید نشده است، بنابراین هر کسی می‌تواند آن را با قیمت عادی دریافت کند. وثیقه مالک قبلی به او برمی‌گردد.";
+"No expired names right now." = "در حال حاضر نام منقضی‌شده‌ای وجود ندارد.";
+"Expired names appear here once .kachat names launch." = "نام‌های منقضی‌شده پس از راه‌اندازی نام‌های ‎.kachat اینجا نمایش داده می‌شوند.";
+"%@ was freed" = "%@ آزاد شد";
+"It expired and was cleared from the registry. Your bond is back with you." = "منقضی شد و از رجیستری پاک شد. وثیقه شما به شما برگشت.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ دیگر متعلق به شما نیست";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "منقضی شده و تمدید نشده است، بنابراین اکنون در بازار برای همه در دسترس است. وقتی کسی آن را دریافت کند، وثیقه شما برمی‌گردد.";

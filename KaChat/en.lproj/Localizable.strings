@@ -1379,3 +1379,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "Expires soon";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "Freeing %@ for you...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them.";
+"No expired names right now." = "No expired names right now.";
+"Expired names appear here once .kachat names launch." = "Expired names appear here once .kachat names launch.";
+"%@ was freed" = "%@ was freed";
+"It expired and was cleared from the registry. Your bond is back with you." = "It expired and was cleared from the registry. Your bond is back with you.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ is no longer yours";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it.";

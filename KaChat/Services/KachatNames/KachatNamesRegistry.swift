@@ -415,6 +415,25 @@ final class KachatNamesRegistry: ObservableObject {
         return service.manifest?.params.genesisPrices
     }
 
+    /// The free gap a lapsed name's reclaim reopens - the two gaps around it, merged: where a
+    /// claim of it registers. The claim sheet prices with it; the registration driver reclaims
+    /// the old record first and then looks the gap up again.
+    func claimGap(for n: KachatNames.NameInfo) async throws -> KachatNames.GapInfo {
+        let gaps = try await exitGaps(for: n)
+        return KachatNames.GapInfo(lo: gaps.below.lo, hi: gaps.above.hi, outpoint: gaps.below.outpoint)
+    }
+
+    /// `lookup` as the app shows a name to someone who wants it: a lapsed name is free to claim
+    /// (claiming it frees the old record and registers it in one go - see the driver), in the
+    /// gap its reclaim reopens.
+    func claimLookup(_ name: String) async throws -> KachatNames.Lookup {
+        let found = try await lookup(name)
+        if case .registered(let n) = found, n.status(graceMs: graceMs) == .lapsed {
+            return .free(name: n.name, gap: try? await claimGap(for: n))
+        }
+        return found
+    }
+
     /// The two gaps around a registered name (what release and reclaim spend).
     func exitGaps(for n: KachatNames.NameInfo) async throws -> (below: KachatNames.GapInfo, above: KachatNames.GapInfo) {
         try await prepare()
@@ -961,8 +980,8 @@ final class KachatNamesNotifier {
                 s.renewNoted = true
                 s.graceNoted = true
                 if !s.lapsedNoted {
-                    post("lapsed-\(n.name)-\(n.expiresAt)", n.name, S("%@ has lapsed", display),
-                         AppLocalization.string("It's no longer yours and has moved to Reclaimable in the marketplace. Reclaim it yourself to get your bond back."))
+                    post("lapsed-\(n.name)-\(n.expiresAt)", n.name, S("%@ is no longer yours", display),
+                         AppLocalization.string("It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it."))
                     s.lapsedNoted = true
                 }
             }
@@ -982,8 +1001,8 @@ final class KachatNamesNotifier {
             case "offer_accepted", "offer_accept":
                 post("sold-\(last.txId)", name, S("%@ sold", display), AppLocalization.string("You accepted an offer for it."))
             case "reclaim":
-                post("reclaimed-\(last.txId)", name, S("%@ was reclaimed", display),
-                     AppLocalization.string("It lapsed and someone reclaimed it. It's free to register again."))
+                post("reclaimed-\(last.txId)", name, S("%@ was freed", display),
+                     AppLocalization.string("It expired and was cleared from the registry. Your bond is back with you."))
             default:
                 break
             }

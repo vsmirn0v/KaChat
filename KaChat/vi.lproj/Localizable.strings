@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "Sắp hết hạn";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "Đang giải phóng %@ cho bạn...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "Tên này đã hết hạn và không được gia hạn, nên ai cũng có thể nhận với giá thông thường. Tiền đặt cọc của chủ cũ được trả lại cho họ.";
+"No expired names right now." = "Hiện không có tên nào hết hạn.";
+"Expired names appear here once .kachat names launch." = "Các tên hết hạn sẽ xuất hiện ở đây khi tên .kachat ra mắt.";
+"%@ was freed" = "%@ đã được giải phóng";
+"It expired and was cleared from the registry. Your bond is back with you." = "Tên đã hết hạn và được xóa khỏi sổ đăng ký. Tiền đặt cọc đã trở lại với bạn.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ không còn là của bạn";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "Tên đã hết hạn và không được gia hạn, nên giờ ai cũng có thể nhận trong chợ. Tiền đặt cọc sẽ trở lại với bạn khi có người nhận tên.";

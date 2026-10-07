@@ -1379,3 +1379,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "Expire bientôt";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "Libération de %@ pour vous...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "Ce nom a expiré et n'a pas été renouvelé : n'importe qui peut le réclamer au prix normal. La caution de l'ancien propriétaire lui est restituée.";
+"No expired names right now." = "Aucun nom expiré pour le moment.";
+"Expired names appear here once .kachat names launch." = "Les noms expirés apparaîtront ici au lancement des noms .kachat.";
+"%@ was freed" = "%@ a été libéré";
+"It expired and was cleared from the registry. Your bond is back with you." = "Il a expiré et a été retiré du registre. Votre caution vous a été restituée.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ ne vous appartient plus";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "Il a expiré et n'a pas été renouvelé : il est maintenant disponible pour tous sur la place de marché. Votre caution vous revient quand quelqu'un le réclame.";

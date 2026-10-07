@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "即将到期";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "正在为你释放 %@...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "该名称已过期且未续期，任何人都可以按正常价格认领。原所有者的押金会退还给他。";
+"No expired names right now." = "目前没有过期的名称。";
+"Expired names appear here once .kachat names launch." = ".kachat 名称上线后，过期名称会显示在这里。";
+"%@ was freed" = "%@ 已被释放";
+"It expired and was cleared from the registry. Your bond is back with you." = "它已过期并从注册表中清除。你的押金已退还给你。";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ 已不再属于你";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "它已过期且未续期，现在市场上任何人都可以认领。有人认领时，你的押金会退还给你。";

@@ -1378,3 +1378,15 @@
 
 /* .kachat sale tile: expiry flag */
 "Expires soon" = "ينتهي قريبًا";
+
+/* .kachat: expired names are available to claim */
+"Freeing %@ for you..." = "جارٍ تحرير %@ لك...";
+"This name expired and wasn't renewed, so anyone can claim it at the normal price. The old owner's bond goes back to them." = "انتهت صلاحية هذا الاسم ولم يُجدَّد، لذا يمكن لأي شخص المطالبة به بالسعر العادي. يعود ضمان المالك السابق إليه.";
+"No expired names right now." = "لا توجد أسماء منتهية الآن.";
+"Expired names appear here once .kachat names launch." = "ستظهر الأسماء المنتهية هنا عند إطلاق أسماء ‎.kachat.";
+"%@ was freed" = "تم تحرير %@";
+"It expired and was cleared from the registry. Your bond is back with you." = "انتهت صلاحيته وأُزيل من السجل. عاد ضمانك إليك.";
+
+/* .kachat: name past grace is available to anyone */
+"%@ is no longer yours" = "%@ لم يعد ملكك";
+"It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "انتهت صلاحيته ولم يُجدَّد، لذا أصبح متاحًا لأي شخص في السوق. يعود ضمانك إليك عندما يطالب به أحد.";
