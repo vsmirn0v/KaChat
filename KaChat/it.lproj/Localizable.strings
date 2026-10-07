@@ -1435,3 +1435,8 @@
 
 /* .kachat name screen: when an expired name's grace period ends */
 "Grace period ends %@" = "Il periodo di tolleranza termina il %@";
+
+/* .kachat: names in grace keep resolving to their owner */
+"No .kachat name by that name." = "Nessun nome .kachat con questo nome.";
+"Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Scaduto. Continua a risolversi al suo proprietario fino alla fine del periodo di grazia, e il proprietario può ancora rinnovarlo.";
+"Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Scaduto - rinnovalo per tenerlo. Fino alla fine del periodo di grazia continua a risolversi a te e nessun altro può prenderlo.";

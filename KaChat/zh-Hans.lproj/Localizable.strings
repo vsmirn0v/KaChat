@@ -1435,3 +1435,8 @@
 
 /* .kachat name screen: when an expired name's grace period ends */
 "Grace period ends %@" = "宽限期结束于 %@";
+
+/* .kachat: names in grace keep resolving to their owner */
+"No .kachat name by that name." = "没有这个名称的 .kachat 名称。";
+"Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "已过期。在宽限期结束前，它仍解析到其所有者，所有者仍可续期。";
+"Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "已过期 - 续期以保留它。在宽限期结束前，它仍解析到你，其他人无法获取。";

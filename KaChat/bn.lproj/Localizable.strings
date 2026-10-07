@@ -1435,3 +1435,8 @@
 
 /* .kachat name screen: when an expired name's grace period ends */
 "Grace period ends %@" = "গ্রেস পিরিয়ড শেষ হবে %@";
+
+/* .kachat: names in grace keep resolving to their owner */
+"No .kachat name by that name." = "এই নামে কোনো .kachat নাম নেই।";
+"Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "মেয়াদ শেষ। গ্রেস পিরিয়ড শেষ না হওয়া পর্যন্ত এটি এখনও মালিকের ঠিকানায় রিজলভ হয়, এবং মালিক এখনও এটি নবায়ন করতে পারেন।";
+"Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "মেয়াদ শেষ - রাখতে নবায়ন করুন। গ্রেস পিরিয়ড শেষ না হওয়া পর্যন্ত এটি এখনও আপনার ঠিকানায় রিজলভ হয় এবং অন্য কেউ এটি নিতে পারবে না।";

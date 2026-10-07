@@ -137,14 +137,15 @@ extension KachatNames {
 
     // MARK: - Label rule (KACHAT_NAMES.md section 7)
 
-    /// The label an address is shown with: its `primaryName` if it owns that name and it is
-    /// active; otherwise its oldest active name; otherwise nil (the caller shows the address).
+    /// The label an address is shown with: its `primaryName` if it still holds that name (active
+    /// or in grace); otherwise its oldest held name; otherwise nil (the caller shows the address).
+    /// A name in grace keeps labelling its owner until it lapses and is back on the market.
     static func label(owned: [NameInfo], primaryName: String?, graceMs: Int64, nowMs: Int64 = KachatNames.nowMs()) -> String? {
-        let active = owned.filter { $0.status(graceMs: graceMs, nowMs: nowMs) == .active }
-        if let p = primaryName.map(Codec.normalize), active.contains(where: { $0.name == p }) {
+        let held = owned.filter { $0.status(graceMs: graceMs, nowMs: nowMs) != .lapsed }
+        if let p = primaryName.map(Codec.normalize), held.contains(where: { $0.name == p }) {
             return p
         }
-        let oldest = active.sorted { a, b in
+        let oldest = held.sorted { a, b in
             let ra = a.registeredAt ?? Int64.max
             let rb = b.registeredAt ?? Int64.max
             return ra != rb ? ra < rb : a.name < b.name

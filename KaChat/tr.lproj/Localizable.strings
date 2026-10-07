@@ -1435,3 +1435,8 @@
 
 /* .kachat name screen: when an expired name's grace period ends */
 "Grace period ends %@" = "Ek süre %@ tarihinde bitiyor";
+
+/* .kachat: names in grace keep resolving to their owner */
+"No .kachat name by that name." = "Bu adla bir .kachat adı yok.";
+"Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Süresi doldu. Ek süre bitene kadar hâlâ sahibine çözümlenir ve sahibi hâlâ yenileyebilir.";
+"Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Süresi doldu - korumak için yenileyin. Ek süre bitene kadar hâlâ size çözümlenir ve başka kimse alamaz.";

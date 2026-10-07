@@ -1926,10 +1926,10 @@ struct KachatLiveNameDetail: View {
             }
             switch status {
             case .grace where ownedByWallet:
-                Text("Expired - renew to keep it. Until the grace period ends nobody else can take it.")
+                Text("Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it.")
                     .font(.footnote).foregroundColor(.orange)
             case .grace:
-                Text("Expired. It no longer resolves; the owner can still renew it.")
+                Text("Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it.")
                     .font(.footnote).foregroundColor(.orange)
             case .lapsed, .active:
                 EmptyView()
@@ -2617,10 +2617,11 @@ struct KachatTransferSheet: View {
         defer { resolving = false }
         do {
             switch try await KachatNamesRegistry.shared.lookup(name) {
-            case .registered(let n) where n.status(graceMs: KachatNamesRegistry.shared.graceMs) == .active:
+            // a name in grace still points to its owner, like everywhere else it resolves
+            case .registered(let n) where n.status(graceMs: KachatNamesRegistry.shared.graceMs) != .lapsed:
                 if let a = KachatNamesRegistry.address(of: n.owner) { resolved = (a, n.owner) }
             default:
-                resolveError = "No active .kachat name by that name."
+                resolveError = "No .kachat name by that name."
             }
         } catch {
             resolveError = "Couldn't look that name up."

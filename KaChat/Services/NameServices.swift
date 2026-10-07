@@ -382,8 +382,9 @@ final class NameServicesClient: ObservableObject {
         return results.first { $0.address != nil }
     }
 
-    /// `.kachat` (testnet only): the registry's owner of an ACTIVE name - a name in grace or lapsed
-    /// does not resolve (KACHAT_NAMES.md section 4). Same rules as the gap: a-z, 0-9, hyphen.
+    /// `.kachat`: the registry's owner of a name that is active or in its grace period - an owner
+    /// stays reachable until the name is back on the market; only a lapsed name doesn't resolve
+    /// (KACHAT_NAMES.md section 4). Same rules as the gap: a-z, 0-9, hyphen.
     private func resolveKachat(_ label: String) async -> NameResolution? {
         guard NameServiceTLD.kachat.isLive else { return nil }
         let canonical = KachatNames.Codec.normalize(label)
@@ -393,7 +394,7 @@ final class NameServicesClient: ObservableObject {
         await registry.refreshIfStale()
         do {
             switch try await registry.lookup(canonical) {
-            case .registered(let n) where n.status(graceMs: registry.graceMs) == .active:
+            case .registered(let n) where n.status(graceMs: registry.graceMs) != .lapsed:
                 return NameResolution(tld: .kachat, display: display, address: KachatNamesRegistry.address(of: n.owner), failed: false)
             default:
                 return NameResolution(tld: .kachat, display: display, address: nil, failed: false)

@@ -499,7 +499,8 @@ final class KachatNamesRegistry: ObservableObject {
             return j.identity
         default:
             guard let key = Self.keyOf(address) else { return KachatNames.Identity(address: address, label: nil, names: [], profile: nil) }
-            let owned = try await names(owner: key, includeInactive: false)
+            // held names: a name in grace still labels and resolves to its owner
+            let owned = try await heldNames(owner: key)
             let profile = ownProfile(for: address)?.profile
             let label = KachatNames.label(owned: owned, primaryName: profile?.primaryName, graceMs: graceMs)
             return KachatNames.Identity(address: address, label: label, names: owned.map(\.name), profile: profile)

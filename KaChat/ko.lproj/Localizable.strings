@@ -1435,3 +1435,8 @@
 
 /* .kachat name screen: when an expired name's grace period ends */
 "Grace period ends %@" = "유예 기간 종료: %@";
+
+/* .kachat: names in grace keep resolving to their owner */
+"No .kachat name by that name." = "해당 이름의 .kachat 이름이 없습니다.";
+"Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "만료되었습니다. 유예 기간이 끝날 때까지 여전히 소유자 주소로 연결되며, 소유자는 아직 갱신할 수 있습니다.";
+"Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "만료되었습니다 - 유지하려면 갱신하세요. 유예 기간이 끝날 때까지 여전히 내 주소로 연결되며 다른 사람은 가져갈 수 없습니다.";
