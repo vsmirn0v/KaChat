@@ -1390,3 +1390,9 @@
 /* .kachat: name past grace is available to anyone */
 "%@ is no longer yours" = "%@ لم يعد ملكك";
 "It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "انتهت صلاحيته ولم يُجدَّد، لذا أصبح متاحًا لأي شخص في السوق. يعود ضمانك إليك عندما يطالب به أحد.";
+
+/* .kachat: claims in progress button and busy-network notes */
+"Claiming" = "جارٍ المطالبة";
+"Names being claimed" = "الأسماء قيد المطالبة";
+"The network is busy. Your commit is waiting for a block." = "الشبكة مزدحمة. التزامك ينتظر كتلة.";
+"The network is busy, so the commit was sent again." = "الشبكة مزدحمة، لذلك أُرسل الالتزام مرة أخرى.";

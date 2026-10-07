@@ -1390,3 +1390,9 @@
 /* .kachat: name past grace is available to anyone */
 "%@ is no longer yours" = "%@ artık sizin değil";
 "It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "Süresi doldu ve yenilenmedi, bu yüzden artık pazar yerinde herkese açık. Biri onu aldığında teminatınız size geri döner.";
+
+/* .kachat: claims in progress button and busy-network notes */
+"Claiming" = "Alınıyor";
+"Names being claimed" = "Alınmakta olan adlar";
+"The network is busy. Your commit is waiting for a block." = "Ağ yoğun. Taahhüdünüz bir blok bekliyor.";
+"The network is busy, so the commit was sent again." = "Ağ yoğun, bu yüzden taahhüt yeniden gönderildi.";

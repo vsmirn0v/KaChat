@@ -1390,3 +1390,9 @@
 /* .kachat: name past grace is available to anyone */
 "%@ is no longer yours" = "%@ không còn là của bạn";
 "It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "Tên đã hết hạn và không được gia hạn, nên giờ ai cũng có thể nhận trong chợ. Tiền đặt cọc sẽ trở lại với bạn khi có người nhận tên.";
+
+/* .kachat: claims in progress button and busy-network notes */
+"Claiming" = "Đang nhận";
+"Names being claimed" = "Các tên đang được nhận";
+"The network is busy. Your commit is waiting for a block." = "Mạng đang bận. Cam kết của bạn đang chờ một khối.";
+"The network is busy, so the commit was sent again." = "Mạng đang bận nên cam kết đã được gửi lại.";

@@ -72,7 +72,7 @@ struct KachatMarketView: View {
                 VStack(spacing: 18) {
                     hero
                     searchCard
-                    // A registration in flight shows as its own half sheet (KachatRegistrationPresenter).
+                    // Registrations in flight: the claims button in the toolbar (KachatClaimsButton).
                     UnderlineTabBar(
                         tabs: Page.allCases.map { (tab: $0, title: $0.title) },
                         selection: $page
@@ -119,12 +119,16 @@ struct KachatMarketView: View {
                 ToolbarItem(placement: .navigationBarLeading) { ConnectionStatusIndicator() }
                 ToolbarItem(placement: .principal) { BalanceToolbarLabel() }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showHowItWorks = true
-                    } label: {
-                        Image(systemName: "questionmark.circle")
+                    HStack(spacing: 14) {
+                        // names being claimed: shown only while there are some
+                        KachatClaimsButton()
+                        Button {
+                            showHowItWorks = true
+                        } label: {
+                            Image(systemName: "questionmark.circle")
+                        }
+                        .accessibilityLabel(Text("How it works"))
                     }
-                    .accessibilityLabel(Text("How it works"))
                 }
             }
             .sheet(isPresented: $showHowItWorks) { howItWorksSheet }

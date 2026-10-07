@@ -37,6 +37,10 @@ extension KachatNames {
         var registerTxId: String?
         /// The reclaim this registration sent to free a lapsed old record of the name first.
         var reclaimTxId: String? = nil
+        /// When the current commit went out, and how many times it was sent again after a node
+        /// dropped it (a busy network evicts low-fee transactions).
+        var commitSentAt: Int64? = nil
+        var commitResends: Int? = nil
         var cancelTxId: String?
         var stage: Stage
         var createdAt: Int64
@@ -65,12 +69,15 @@ final class KachatNamesActions: ObservableObject {
     static let shared = KachatNamesActions()
 
     @Published private(set) var pending: [KachatNames.PendingRegistration] = []
-    /// Claim sheets currently showing a registration's progress themselves; while one does, the
-    /// app-level progress sheet (`KachatRegistrationPresenter`) stays down.
-    @Published var inlineProgressCount = 0
+    /// The registrations still open (in progress, or finished and not yet dismissed): the
+    /// .kachat screen's claims button lists them.
+    var openRegistrations: [KachatNames.PendingRegistration] { pending.filter(\.isOpen) }
 
-    /// The registration whose progress sheet is up: the open one (one at a time).
-    var openRegistration: KachatNames.PendingRegistration? { pending.first { $0.isOpen } }
+    /// The registration whose progress half sheet the app shows by itself
+    /// (`KachatRegistrationPresenter`): set once per launch when a claim is still in progress,
+    /// since it needs the app open to finish. Swiping the sheet away clears it.
+    @Published var autoPresentedRegistration: String?
+    private var autoPresentedThisLaunch = false
     /// The virtual DAA score the driver last saw (registration progress).
     @Published private(set) var virtualDaa: UInt64?
     /// Expired offers this app is sending back to their buyers (see `returnExpiredOffers`).
@@ -238,15 +245,24 @@ final class KachatNamesActions: ObservableObject {
     /// `max(100, the REST API's priority fee rate)` in sompi per gram.
     func feerate() async -> Double {
         let base = AppSettings.load().kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: "\(base.hasSuffix("/") ? String(base.dropLast()) : base)/info/fee-estimate"),
-              let (data, response) = try? await URLSession.shared.data(from: url),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let rate = ((j["priorityBucket"] as? [String: Any])?["feerate"] as? NSNumber)?.doubleValue else {
-            return KachatNames.minFeerate
+        guard let url = URL(string: "\(base.hasSuffix("/") ? String(base.dropLast()) : base)/info/fee-estimate") else {
+            return Self.unknownFeerate
         }
-        return max(KachatNames.minFeerate, rate)
+        for _ in 0..<2 {
+            if let (data, response) = try? await URLSession.shared.data(from: url),
+               (response as? HTTPURLResponse)?.statusCode == 200,
+               let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let rate = ((j["priorityBucket"] as? [String: Any])?["feerate"] as? NSNumber)?.doubleValue {
+                return max(KachatNames.minFeerate, rate)
+            }
+        }
+        return Self.unknownFeerate
     }
+
+    /// When the fee estimate can't be read: well above the floor, since the floor is exactly what
+    /// a busy network drops (testnet-10 asked 115-894 sompi/gram on 2026-10-07). Still a tiny fee
+    /// on these small transactions.
+    private static let unknownFeerate = KachatNames.minFeerate * 10
 
     /// Builder, environment and the wallet's funding UTXOs for one transaction.
     private func context(_ s: Signer) async throws -> (KachatNames.Builder, KachatNames.Env, [KachatNames.Utxo]) {
@@ -668,11 +684,7 @@ final class KachatNamesActions: ObservableObject {
         let s = try signer()
         let name = KachatNames.Codec.normalize(raw)
         try KachatNames.Codec.validate(name)
-        // One registration at a time: the progress sheet stays up until it's done.
         loadPending(for: s.address)
-        if pending.contains(where: { $0.isOpen && $0.stage != .registered }) {
-            throw ActionError.notRegisterable(AppLocalization.string("Finish the name you're claiming first."))
-        }
         await registry.refresh()
         switch try await registry.lookup(name) {
         case .registered(let n) where n.status(graceMs: registry.graceMs) == .lapsed:
@@ -701,6 +713,7 @@ final class KachatNamesActions: ObservableObject {
         do {
             let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
             record.commitTxId = txId
+            record.commitSentAt = KachatNames.nowMs()
             record.stage = .waiting
             record.updatedAt = KachatNames.nowMs()
             upsert(record)
@@ -779,6 +792,11 @@ final class KachatNamesActions: ObservableObject {
         }
         loadPending(for: address)
         startDriver()
+        // A claim still in progress when the app starts: its half sheet comes back up once.
+        if !autoPresentedThisLaunch, let open = pending.first(where: { $0.needsDriving }) {
+            autoPresentedThisLaunch = true
+            autoPresentedRegistration = open.id
+        }
     }
 
     private func startDriver() {
@@ -821,7 +839,7 @@ final class KachatNamesActions: ObservableObject {
         switch p.stage {
         case .committing, .waiting:
             guard let commit = await liveCommit(p) else {
-                if p.commitDaa == nil && age < 10 * 60_000 { return }
+                if p.commitDaa == nil, await commitStillPending(p) { return }
                 // the commit is gone: registered by us (another device?), or never confirmed
                 if await ownsName(p.name) {
                     finishRegistered(p)
@@ -858,6 +876,53 @@ final class KachatNamesActions: ObservableObject {
             }
         case .registered, .taken, .failed, .cancelled, .priceChanged:
             break
+        }
+    }
+
+    /// A commit not on chain yet: still waiting in a node's mempool (true), sent again because
+    /// a node dropped it (true), or past saving (false: the caller fails it). On a busy network a
+    /// low-fee transaction is evicted instead of mined, so silence must not mean "wait".
+    private func commitStillPending(_ p: KachatNames.PendingRegistration) async -> Bool {
+        let sinceSent = KachatNames.nowMs() - (p.commitSentAt ?? p.createdAt)
+        if sinceSent < 30_000 { return true } // just sent: give it time to show up
+        if await NodePoolService.shared.getMempoolEntry(txId: p.commitTxId) != nil {
+            if sinceSent > 60_000, p.lastError == nil {
+                set(p) { $0.lastError = AppLocalization.string("The network is busy. Your commit is waiting for a block.") }
+            }
+            return true
+        }
+        guard (p.commitResends ?? 0) < 3 else { return false }
+        await resendCommit(p)
+        return true
+    }
+
+    /// Sends the commit again - same name, owner and salt, so the same commit script - with
+    /// the current fee, after a node dropped the first one.
+    private func resendCommit(_ p: KachatNames.PendingRegistration) async {
+        do {
+            let s = try signer()
+            guard KachatNames.hex(s.me) == p.owner else { return }
+            guard let salt = try KeychainService.shared.loadKachatCommitSalt(id: p.id, walletAddress: s.address) else { throw ActionError.noSalt }
+            let (b, env, wallet) = try await context(s)
+            let plan = try b.commit(env: env, wallet: wallet, name: p.name, salt: salt)
+            guard let script = plan.newCommit?.utxo?.entry.script, KachatNames.hex(script) == p.commitScript else {
+                throw KachatNames.Failure("commit: a different script")
+            }
+            let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
+            AppLog.log("[KachatNames] commit for %@ sent again: %@", p.name, txId)
+            set(p) {
+                $0.commitTxId = txId
+                $0.commitSentAt = KachatNames.nowMs()
+                $0.commitResends = ($0.commitResends ?? 0) + 1
+                $0.lastError = AppLocalization.string("The network is busy, so the commit was sent again.")
+            }
+        } catch {
+            AppLog.log("[KachatNames] resending the commit for %@ failed: %@", p.name, error.localizedDescription)
+            set(p) {
+                $0.commitSentAt = KachatNames.nowMs()
+                $0.commitResends = ($0.commitResends ?? 0) + 1
+                $0.lastError = error.localizedDescription
+            }
         }
     }
 

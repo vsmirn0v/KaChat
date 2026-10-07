@@ -1391,3 +1391,9 @@
 /* .kachat: name past grace is available to anyone */
 "%@ is no longer yours" = "%@ is no longer yours";
 "It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it." = "It expired and wasn't renewed, so it's now available to anyone in the marketplace. Your bond comes back to you when someone claims it.";
+
+/* .kachat: claims in progress button and busy-network notes */
+"Claiming" = "Claiming";
+"Names being claimed" = "Names being claimed";
+"The network is busy. Your commit is waiting for a block." = "The network is busy. Your commit is waiting for a block.";
+"The network is busy, so the commit was sent again." = "The network is busy, so the commit was sent again.";

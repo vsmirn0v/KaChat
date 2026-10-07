@@ -654,9 +654,9 @@ struct KachatTxDoneSheet: View {
 
 // MARK: - Hub: registrations in flight
 
-/// A registration's progress as a half sheet that can't be closed until it's done: claiming
-/// takes the app being open (the commit has to age about a minute before the name registers),
-/// and one name is claimed at a time.
+/// A registration's progress as a half sheet. Swiping it away leaves the claim running: the
+/// .kachat screen's claims button (`KachatClaimsButton`) lists it. Claiming takes the app being
+/// open (the commit has to age about a minute before the name registers).
 struct KachatRegistrationProgressSheet: View {
     let registrationId: String
     let onClose: () -> Void
@@ -689,8 +689,8 @@ struct KachatRegistrationProgressSheet: View {
     }
 }
 
-/// The app-level progress sheet: brings an open registration's progress back up when the app
-/// starts or returns (a claim needs the app open to finish), unless a claim sheet is showing it.
+/// The app-level progress sheet: brings a claim still in progress back up once when the app
+/// starts (a claim needs the app open to finish). Swiping it away leaves the claim running.
 struct KachatRegistrationPresenter: ViewModifier {
     @ObservedObject private var actions = KachatNamesActions.shared
 
@@ -699,20 +699,82 @@ struct KachatRegistrationPresenter: ViewModifier {
     private var route: Binding<Route?> {
         Binding(
             get: {
-                guard KachatNamesService.isLaunched, actions.inlineProgressCount == 0,
-                      let r = actions.openRegistration else { return nil }
-                return Route(id: r.id)
+                guard KachatNamesService.isLaunched, let id = actions.autoPresentedRegistration else { return nil }
+                return Route(id: id)
             },
-            set: { _ in }
+            set: { if $0 == nil { actions.autoPresentedRegistration = nil } }
         )
     }
 
     func body(content: Content) -> some View {
         content.sheet(item: route) { r in
-            KachatRegistrationProgressSheet(registrationId: r.id) {}
+            KachatRegistrationProgressSheet(registrationId: r.id) { actions.autoPresentedRegistration = nil }
                 .presentationDetents([.medium, .large])
-                .interactiveDismissDisabled(true)
+                .presentationDragIndicator(.visible)
         }
+    }
+}
+
+/// The .kachat screen's claims button, next to "How it works": the names being claimed right
+/// now (and finished ones not yet dismissed), with a count. Hidden when there are none.
+struct KachatClaimsButton: View {
+    @ObservedObject private var actions = KachatNamesActions.shared
+    @State private var showList = false
+
+    var body: some View {
+        let open = actions.openRegistrations
+        if KachatNamesService.isLaunched, !open.isEmpty {
+            Button {
+                showList = true
+            } label: {
+                Image(systemName: "hourglass")
+                    .overlay(alignment: .topTrailing) {
+                        Text(verbatim: "\(open.count)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 15, minHeight: 15)
+                            .background(Capsule().fill(Color.accentColor))
+                            .offset(x: 9, y: -8)
+                    }
+            }
+            .accessibilityLabel(Text("Names being claimed"))
+            .sheet(isPresented: $showList) { KachatClaimsListSheet() }
+        }
+    }
+}
+
+/// Every open claim with its progress: the list behind `KachatClaimsButton`.
+struct KachatClaimsListSheet: View {
+    @ObservedObject private var actions = KachatNamesActions.shared
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 14) {
+                    ForEach(actions.openRegistrations) { registration in
+                        KachatRegistrationCard(registration: registration)
+                    }
+                    Text("Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                }
+                .padding(.vertical, 16)
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Claiming")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            // the last one dismissed: nothing left to show
+            .onChange(of: actions.openRegistrations.isEmpty) { empty in if empty { dismiss() } }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 
@@ -761,6 +823,9 @@ struct KachatRegistrationCard: View {
             }
             if let message = error ?? (registration.stage == .failed ? registration.lastError : nil) {
                 Text(verbatim: message).font(.caption).foregroundColor(.red)
+            } else if registration.needsDriving, let note = registration.lastError {
+                // what the driver is doing or waiting on (a busy network, freeing an expired name)
+                Text(verbatim: note).font(.caption).foregroundColor(.secondary)
             }
             buttons
         }
@@ -1440,10 +1505,9 @@ struct KachatClaimSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var actions = KachatNamesActions.shared
-    /// Once the registration started, this sheet becomes its progress half sheet (it can't be
-    /// closed until the registration is done) - from the marketplace and from Your Domains alike.
+    /// Once the registration started, this sheet becomes its progress half sheet - from the
+    /// marketplace and from Your Domains alike. Swiping it away leaves the claim running.
     @State private var progressId: String?
-    @State private var holdsInline = false
     @State private var detent: PresentationDetent = .large
     @State private var years: Int64 = 1
     @State private var quote: KachatNamesActions.Quote?
@@ -1462,10 +1526,6 @@ struct KachatClaimSheet: View {
             }
         }
         .presentationDetents([.medium, .large], selection: $detent)
-        .interactiveDismissDisabled(progressId.map { id in actions.pending.contains { $0.id == id && $0.isOpen } } ?? false)
-        .onDisappear {
-            if holdsInline { holdsInline = false; actions.inlineProgressCount -= 1 }
-        }
     }
 
     private var claimForm: some View {
@@ -1572,8 +1632,6 @@ struct KachatClaimSheet: View {
         guard let q = quote, q.years == years else { return }
         starting = true
         startError = nil
-        // This sheet shows the progress itself: keep the app-level progress sheet down meanwhile.
-        if !holdsInline { holdsInline = true; actions.inlineProgressCount += 1 }
         do {
             try await KachatNamesActions.shared.startRegistration(name: target.name, years: years, maxPrice: q.price)
             Haptics.success()
@@ -1582,7 +1640,6 @@ struct KachatClaimSheet: View {
             if progressId == nil { dismiss() } else { detent = .medium }
         } catch {
             startError = error.localizedDescription
-            if holdsInline { holdsInline = false; actions.inlineProgressCount -= 1 }
         }
         starting = false
     }
