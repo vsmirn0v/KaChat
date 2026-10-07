@@ -1906,6 +1906,24 @@ struct KachatLiveNameDetail: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
             }
+            if status == .grace {
+                // when the grace period ends: then anyone can claim it (Available)
+                let ends = info.expiresAt + registry.graceMs
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Grace period ends \(KachatLive.day(ends))")
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text("Released in") + Text(verbatim: " " + KachatLive.countdown(ends - Int64(context.date.timeIntervalSince1970 * 1000)))
+                                .monospacedDigit()
+                                .fontWeight(.semibold)
+                        }
+                    }
+                } icon: {
+                    Image(systemName: "hourglass")
+                }
+                .font(.caption)
+                .foregroundColor(.orange)
+            }
             switch status {
             case .grace where ownedByWallet:
                 Text("Expired - renew to keep it. Until the grace period ends nobody else can take it.")

@@ -1433,3 +1433,6 @@
 "Released in" = "Libéré dans";
 "No names are in their grace period right now." = "Aucun nom n'est en période de grâce pour le moment.";
 "Names in their grace period appear here once .kachat names launch." = "Les noms en période de grâce apparaîtront ici au lancement des noms .kachat.";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "Fin de la période de grâce : %@";

@@ -1432,3 +1432,6 @@
 "Released in" = "释放倒计时";
 "No names are in their grace period right now." = "目前没有处于宽限期的名称。";
 "Names in their grace period appear here once .kachat names launch." = ".kachat 名称上线后，处于宽限期的名称会显示在这里。";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "宽限期结束于 %@";

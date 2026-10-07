@@ -1432,3 +1432,6 @@
 "Released in" = "Dilepas dalam";
 "No names are in their grace period right now." = "Belum ada nama dalam masa tenggang saat ini.";
 "Names in their grace period appear here once .kachat names launch." = "Nama dalam masa tenggang akan muncul di sini setelah nama .kachat diluncurkan.";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "Masa tenggang berakhir %@";

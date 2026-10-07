@@ -1432,3 +1432,6 @@
 "Released in" = "解放まで";
 "No names are in their grace period right now." = "現在、猶予期間中の名前はありません。";
 "Names in their grace period appear here once .kachat names launch." = ".kachat の名前が開始されると、猶予期間中の名前がここに表示されます。";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "猶予期間の終了: %@";

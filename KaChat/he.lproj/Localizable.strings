@@ -1432,3 +1432,6 @@
 "Released in" = "משתחרר בעוד";
 "No names are in their grace period right now." = "אין כרגע שמות בתקופת החסד.";
 "Names in their grace period appear here once .kachat names launch." = "שמות בתקופת החסד יופיעו כאן כששמות ‎.kachat יושקו.";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "תקופת החסד מסתיימת ב-%@";

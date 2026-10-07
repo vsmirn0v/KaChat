@@ -1432,3 +1432,6 @@
 "Released in" = "মুক্ত হবে";
 "No names are in their grace period right now." = "এখন কোনো নাম গ্রেস পিরিয়ডে নেই।";
 "Names in their grace period appear here once .kachat names launch." = ".kachat নাম চালু হলে গ্রেস পিরিয়ডের নামগুলো এখানে দেখা যাবে।";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "গ্রেস পিরিয়ড শেষ হবে %@";

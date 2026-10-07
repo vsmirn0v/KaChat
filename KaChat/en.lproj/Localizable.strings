@@ -1433,3 +1433,6 @@
 "Released in" = "Released in";
 "No names are in their grace period right now." = "No names are in their grace period right now.";
 "Names in their grace period appear here once .kachat names launch." = "Names in their grace period appear here once .kachat names launch.";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "Grace period ends %@";

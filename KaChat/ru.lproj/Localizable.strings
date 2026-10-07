@@ -1432,3 +1432,6 @@
 "Released in" = "Освободится через";
 "No names are in their grace period right now." = "Сейчас нет имён в льготном периоде.";
 "Names in their grace period appear here once .kachat names launch." = "Имена в льготном периоде появятся здесь после запуска имён .kachat.";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "Льготный период заканчивается %@";

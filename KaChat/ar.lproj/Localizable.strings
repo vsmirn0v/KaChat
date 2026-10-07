@@ -1432,3 +1432,6 @@
 "Released in" = "يُطلق خلال";
 "No names are in their grace period right now." = "لا توجد أسماء في فترة السماح الآن.";
 "Names in their grace period appear here once .kachat names launch." = "ستظهر هنا الأسماء في فترة السماح عند إطلاق أسماء ‎.kachat.";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "تنتهي فترة السماح في %@";

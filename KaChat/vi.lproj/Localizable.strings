@@ -1432,3 +1432,6 @@
 "Released in" = "Mở lại sau";
 "No names are in their grace period right now." = "Hiện không có tên nào trong thời gian ân hạn.";
 "Names in their grace period appear here once .kachat names launch." = "Các tên trong thời gian ân hạn sẽ xuất hiện ở đây khi tên .kachat ra mắt.";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "Thời gian ân hạn kết thúc %@";

@@ -1432,3 +1432,6 @@
 "Released in" = "해제까지";
 "No names are in their grace period right now." = "지금은 유예 기간인 이름이 없습니다.";
 "Names in their grace period appear here once .kachat names launch." = ".kachat 이름이 출시되면 유예 기간인 이름이 여기에 표시됩니다.";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "유예 기간 종료: %@";

@@ -1432,3 +1432,6 @@
 "Released in" = "Serbest kalmasına";
 "No names are in their grace period right now." = "Şu anda ek süredeki ad yok.";
 "Names in their grace period appear here once .kachat names launch." = ".kachat adları başlatıldığında ek süredeki adlar burada görünecek.";
+
+/* .kachat name screen: when an expired name's grace period ends */
+"Grace period ends %@" = "Ek süre %@ tarihinde bitiyor";
