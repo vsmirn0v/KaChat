@@ -86,6 +86,8 @@ struct SeedLengthButton: View {
             .foregroundColor(chosen ? .white : .accentColor)
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 1.5))
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            // the whole card is the button: an unchosen one's clear background isn't hit-testable
+            .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .disabled(disabled)
