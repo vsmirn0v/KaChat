@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "Коротко";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "Профили";
+"Contact Photos" = "Фото контактов";
+"Web Responses" = "Веб-ответы";
+"Temporary Files" = "Временные файлы";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "Аватары, баннеры и описания вашего профиля и людей, которых вы видите. Загружаются снова, когда вы их снова увидите.";
+"Photos copied from your device address book. Re-read from Contacts." = "Фото, скопированные из адресной книги устройства. Читаются заново из Контактов.";
+"Link previews and API responses held by the system's network cache." = "Предпросмотры ссылок и ответы API в сетевом кэше системы.";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "Временные файлы от отправки фото и голосовых сообщений. Их можно удалить в любой момент.";

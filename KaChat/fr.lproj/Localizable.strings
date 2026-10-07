@@ -1414,3 +1414,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "En bref";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "Profils";
+"Contact Photos" = "Photos des contacts";
+"Web Responses" = "Réponses web";
+"Temporary Files" = "Fichiers temporaires";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "Avatars, bannières et bios de votre profil et des personnes que vous voyez. Rechargés la prochaine fois que vous les voyez.";
+"Photos copied from your device address book. Re-read from Contacts." = "Photos copiées depuis le carnet d'adresses de votre appareil. Relues depuis Contacts.";
+"Link previews and API responses held by the system's network cache." = "Aperçus de liens et réponses d'API conservés dans le cache réseau du système.";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "Fichiers temporaires issus de l'envoi de photos et de messages vocaux. Peuvent être supprimés à tout moment.";

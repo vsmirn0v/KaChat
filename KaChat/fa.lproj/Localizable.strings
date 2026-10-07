@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "به طور خلاصه";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "پروفایل‌ها";
+"Contact Photos" = "عکس مخاطبان";
+"Web Responses" = "پاسخ‌های وب";
+"Temporary Files" = "فایل‌های موقت";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "آواتار، بنر و بیوی پروفایل شما و افرادی که می‌بینید. دفعه بعد که آن‌ها را ببینید دوباره بارگیری می‌شوند.";
+"Photos copied from your device address book. Re-read from Contacts." = "عکس‌های کپی‌شده از دفترچه نشانی دستگاه شما. دوباره از مخاطبان خوانده می‌شوند.";
+"Link previews and API responses held by the system's network cache." = "پیش‌نمایش پیوندها و پاسخ‌های API که در حافظه موقت شبکه سیستم نگه داشته شده‌اند.";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "فایل‌های موقت ارسال عکس و پیام صوتی. حذف آن‌ها در هر زمان بی‌خطر است.";

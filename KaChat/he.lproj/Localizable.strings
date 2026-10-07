@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "בקצרה";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "פרופילים";
+"Contact Photos" = "תמונות אנשי קשר";
+"Web Responses" = "תגובות אינטרנט";
+"Temporary Files" = "קבצים זמניים";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "תמונות פרופיל, באנרים וביוגרפיות של הפרופיל שלך ושל האנשים שאתה רואה. ייטענו שוב כשתראה אותם בפעם הבאה.";
+"Photos copied from your device address book. Re-read from Contacts." = "תמונות שהועתקו מפנקס הכתובות במכשיר שלך. נקראות שוב מאנשי הקשר.";
+"Link previews and API responses held by the system's network cache." = "תצוגות מקדימות של קישורים ותגובות API שנשמרו במטמון הרשת של המערכת.";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "קבצי עבודה משליחת תמונות והודעות קוליות. בטוח למחוק אותם בכל עת.";

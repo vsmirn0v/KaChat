@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "简单来说";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "个人资料";
+"Contact Photos" = "联系人照片";
+"Web Responses" = "网页响应";
+"Temporary Files" = "临时文件";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "你的个人资料和你看到的人的头像、横幅和简介。下次看到时会重新加载。";
+"Photos copied from your device address book. Re-read from Contacts." = "从设备通讯录复制的照片。会从通讯录重新读取。";
+"Link previews and API responses held by the system's network cache." = "系统网络缓存中的链接预览和 API 响应。";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "发送照片和语音消息时产生的临时文件。随时可以安全删除。";

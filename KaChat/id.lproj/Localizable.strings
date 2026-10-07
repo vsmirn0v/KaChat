@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "Singkatnya";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "Profil";
+"Contact Photos" = "Foto kontak";
+"Web Responses" = "Respons web";
+"Temporary Files" = "File sementara";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "Avatar, banner, dan bio profil Anda dan orang-orang yang Anda lihat. Dimuat lagi saat Anda melihatnya berikutnya.";
+"Photos copied from your device address book. Re-read from Contacts." = "Foto yang disalin dari buku alamat perangkat Anda. Dibaca ulang dari Kontak.";
+"Link previews and API responses held by the system's network cache." = "Pratinjau tautan dan respons API yang disimpan di cache jaringan sistem.";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "File sementara dari pengiriman foto dan pesan suara. Aman dihapus kapan saja.";

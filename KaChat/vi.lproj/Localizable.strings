@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "Nói ngắn gọn";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "Hồ sơ";
+"Contact Photos" = "Ảnh danh bạ";
+"Web Responses" = "Phản hồi web";
+"Temporary Files" = "Tệp tạm";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "Ảnh đại diện, ảnh bìa và tiểu sử của hồ sơ bạn và những người bạn xem. Được tải lại khi bạn xem lần sau.";
+"Photos copied from your device address book. Re-read from Contacts." = "Ảnh sao chép từ danh bạ của thiết bị. Được đọc lại từ Danh bạ.";
+"Link previews and API responses held by the system's network cache." = "Bản xem trước liên kết và phản hồi API trong bộ nhớ đệm mạng của hệ thống.";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "Tệp tạm khi gửi ảnh và tin nhắn thoại. Có thể xóa bất kỳ lúc nào.";

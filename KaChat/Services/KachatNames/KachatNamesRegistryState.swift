@@ -543,7 +543,7 @@ extension KachatNames {
         var isEmpty: Bool { avatar == nil && banner == nil && bio == nil }
     }
 
-    struct Identity: Equatable {
+    struct Identity: Codable, Equatable {
         var address: String
         /// the bare name (no `.kachat`), nil when the address has no active name
         var label: String?

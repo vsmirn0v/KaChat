@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "Kısaca";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "Profiller";
+"Contact Photos" = "Kişi fotoğrafları";
+"Web Responses" = "Web yanıtları";
+"Temporary Files" = "Geçici dosyalar";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "Profilinizin ve gördüğünüz kişilerin avatarları, kapakları ve biyografileri. Bir sonraki görüşünüzde yeniden yüklenir.";
+"Photos copied from your device address book. Re-read from Contacts." = "Cihazınızın adres defterinden kopyalanan fotoğraflar. Kişiler'den yeniden okunur.";
+"Link previews and API responses held by the system's network cache." = "Sistemin ağ önbelleğinde tutulan bağlantı önizlemeleri ve API yanıtları.";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "Fotoğraf ve sesli not gönderirken oluşan geçici dosyalar. Her zaman silinebilir.";

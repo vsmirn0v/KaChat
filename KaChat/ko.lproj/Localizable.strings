@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "간단히 말하면";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "프로필";
+"Contact Photos" = "연락처 사진";
+"Web Responses" = "웹 응답";
+"Temporary Files" = "임시 파일";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "내 프로필과 내가 본 사람들의 아바타, 배너, 소개. 다음에 볼 때 다시 불러옵니다.";
+"Photos copied from your device address book. Re-read from Contacts." = "기기 주소록에서 복사한 사진. 연락처에서 다시 읽어옵니다.";
+"Link previews and API responses held by the system's network cache." = "시스템 네트워크 캐시에 보관된 링크 미리보기와 API 응답.";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "사진과 음성 메모를 보낼 때 생긴 임시 파일. 언제든 삭제해도 안전합니다.";

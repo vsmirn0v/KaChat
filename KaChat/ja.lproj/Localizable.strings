@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "かんたんに言うと";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "プロフィール";
+"Contact Photos" = "連絡先の写真";
+"Web Responses" = "Web レスポンス";
+"Temporary Files" = "一時ファイル";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "あなたのプロフィールと、表示した人のアバター、バナー、自己紹介。次に表示したときに再読み込みされます。";
+"Photos copied from your device address book. Re-read from Contacts." = "端末の連絡先からコピーした写真。連絡先から再度読み込まれます。";
+"Link previews and API responses held by the system's network cache." = "システムのネットワークキャッシュに保存されたリンクプレビューと API レスポンス。";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "写真やボイスメモの送信で作られた一時ファイル。いつ削除しても問題ありません。";

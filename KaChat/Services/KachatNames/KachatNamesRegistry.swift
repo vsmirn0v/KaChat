@@ -45,13 +45,15 @@ final class KachatNamesRegistry: ObservableObject {
     private var ownProfiles: [String: OwnProfile] = [:]
 
     /// `.kachat` identities by lowercased address, for the app's display rules (names, avatars,
-    /// banners, bios everywhere - see `cachedIdentity(for:)`).
-    private struct CachedIdentity {
+    /// banners, bios everywhere - see `cachedIdentity(for:)`). Kept on disk too
+    /// (`KachatProfileCache`), so people's avatars and bios show at once after a launch while a
+    /// fresh copy is fetched; Settings > Storage > Cache > Profiles clears it.
+    private struct CachedIdentity: Codable {
         var identity: KachatNames.Identity
         var revision: Int
         var at: Date
     }
-    @Published private var identities: [String: CachedIdentity] = [:]
+    @Published private var identities: [String: CachedIdentity] = KachatNamesRegistry.loadIdentities()
     private var identityLookups: Set<String> = []
     /// When an address's lookup last failed: it isn't asked again for five minutes, so a view
     /// body that reads `cachedIdentity` can't turn an unreachable indexer into a request loop.
@@ -531,6 +533,7 @@ final class KachatNamesRegistry: ObservableObject {
                 self.identityMisses[key] = nil
                 if self.identities[key]?.identity != found {
                     self.identities[key] = CachedIdentity(identity: found, revision: self.revision, at: Date())
+                    self.persistIdentities()
                     ContactsManager.shared.objectWillChange.send()
                 } else {
                     self.identities[key]?.revision = self.revision
@@ -544,6 +547,39 @@ final class KachatNamesRegistry: ObservableObject {
             identity?.profile = own
         }
         return identity
+    }
+
+    // MARK: Profile cache on disk
+
+    private nonisolated static let identitiesFile = "identities.json"
+    private static let identitiesKeep = 1000
+
+    /// The identities cached on the last run. Each is marked stale (an impossible revision), so it
+    /// is shown at once and re-fetched on first use.
+    private nonisolated static func loadIdentities() -> [String: CachedIdentity] {
+        guard let data = KachatProfileCache.read(identitiesFile),
+              let stored = try? JSONDecoder().decode([String: CachedIdentity].self, from: data) else { return [:] }
+        return stored.mapValues { var c = $0; c.revision = -1; return c }
+    }
+
+    private func persistIdentities() {
+        var keep = identities
+        if keep.count > Self.identitiesKeep {
+            for (k, _) in keep.sorted(by: { $0.value.at < $1.value.at }).prefix(keep.count - Self.identitiesKeep) { keep[k] = nil }
+        }
+        if let data = try? JSONEncoder().encode(keep) { KachatProfileCache.write(Self.identitiesFile, data) }
+    }
+
+    /// Settings > Storage > Cache > Profiles: forgets every cached identity (on disk too). Views
+    /// re-fetch them as they need them. This device's own saved profile record is not cache and
+    /// stays.
+    func clearProfileCache() {
+        identities = [:]
+        identityMisses = [:]
+        identityLookups = []
+        KachatProfileCache.remove(Self.identitiesFile)
+        revision += 1
+        ContactsManager.shared.objectWillChange.send()
     }
 
     /// The profile record this device last wrote for `address`.
@@ -694,6 +730,33 @@ final class KachatNamesRegistry: ObservableObject {
 
 // MARK: - Social profile: avatar, banner and bio (looked up on the device)
 
+/// The profile cache folder (Caches/KachatProfiles): what the app knows about people's profiles -
+/// their identity records and the avatars, banners and bios looked up from their social links.
+/// Rebuilt on demand, so it lives in Caches and is measured and cleared by Settings > Storage >
+/// Cache > Profiles (with the avatar and banner images, `KNSProfileImages`).
+enum KachatProfileCache {
+    static var directory: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("KachatProfiles", isDirectory: true)
+    }
+
+    static func read(_ name: String) -> Data? {
+        guard let url = directory?.appendingPathComponent(name) else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    static func write(_ name: String, _ data: Data) {
+        guard let dir = directory else { return }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? data.write(to: dir.appendingPathComponent(name), options: .atomic)
+    }
+
+    static func remove(_ name: String) {
+        guard let url = directory?.appendingPathComponent(name) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
 /// Turns a profile's social link (`KachatNames.SocialSource`) into what that platform shows right
 /// now - avatar, banner, bio - and caches the answer on this device; no indexer involved.
 ///
@@ -711,7 +774,9 @@ final class KachatSocialImageResolver: ObservableObject {
         var checkedAt: Date
     }
 
-    private static let defaultsKey = "kachat_social_profile_cache"
+    /// The cache file in `KachatProfileCache` (it lived in UserDefaults before 2026-10-07).
+    private static let cacheFile = "social.json"
+    private static let legacyDefaultsKey = "kachat_social_profile_cache"
     private static let freshFor: TimeInterval = 24 * 3600
     private static let maxEntries = 500
     /// The link-preview crawler user agent: X, TikTok and others serve their Open Graph tags to it.
@@ -724,10 +789,25 @@ final class KachatSocialImageResolver: ObservableObject {
     private var inFlight: [String: Task<Lookup, Never>] = [:]
 
     private init() {
-        if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
+        if let data = KachatProfileCache.read(Self.cacheFile),
            let decoded = try? JSONDecoder().decode([String: Entry].self, from: data) {
             entries = decoded
+        } else if let data = UserDefaults.standard.data(forKey: Self.legacyDefaultsKey),
+                  let decoded = try? JSONDecoder().decode([String: Entry].self, from: data) {
+            // moved out of UserDefaults into the measurable, clearable profile cache folder
+            entries = decoded
+            KachatProfileCache.write(Self.cacheFile, data)
         }
+        UserDefaults.standard.removeObject(forKey: Self.legacyDefaultsKey)
+    }
+
+    /// Settings > Storage > Cache > Profiles: forgets every looked-up avatar, banner and bio;
+    /// they are looked up again when next shown.
+    func clearAll() {
+        entries = [:]
+        inFlight.values.forEach { $0.cancel() }
+        inFlight = [:]
+        KachatProfileCache.remove(Self.cacheFile)
     }
 
     /// The cached profile for `link`, starting a lookup when there is none or it is stale.
@@ -809,7 +889,7 @@ final class KachatSocialImageResolver: ObservableObject {
             for (k, _) in oldest { entries[k] = nil }
         }
         if let data = try? JSONEncoder().encode(entries) {
-            UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+            KachatProfileCache.write(Self.cacheFile, data)
         }
     }
 

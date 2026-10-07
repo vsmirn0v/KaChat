@@ -1413,3 +1413,13 @@
 
 /* Onboarding: seed phrase explainer page, first heading */
 "The short version" = "باختصار";
+
+/* Settings > Storage > Cache: the four categories */
+"Profiles" = "الملفات الشخصية";
+"Contact Photos" = "صور جهات الاتصال";
+"Web Responses" = "ردود الويب";
+"Temporary Files" = "الملفات المؤقتة";
+"Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them." = "الصور الرمزية واللافتات والنبذات لملفك الشخصي وللأشخاص الذين تراهم. تُحمَّل مجددًا عندما تراها لاحقًا.";
+"Photos copied from your device address book. Re-read from Contacts." = "صور منسوخة من دفتر عناوين جهازك. تُقرأ مجددًا من جهات الاتصال.";
+"Link previews and API responses held by the system's network cache." = "معاينات الروابط وردود واجهات البرمجة المحفوظة في ذاكرة الشبكة المؤقتة للنظام.";
+"Scratch files from sending photos and voice notes. Safe to remove at any time." = "ملفات مؤقتة من إرسال الصور والرسائل الصوتية. يمكن حذفها في أي وقت.";

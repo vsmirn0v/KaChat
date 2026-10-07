@@ -12,7 +12,7 @@ final class CacheManager: ObservableObject {
     static let shared = CacheManager()
 
     enum Category: String, CaseIterable, Identifiable {
-        case profileImages
+        case profiles
         case contactPhotos
         case webResponses
         case temporaryFiles
@@ -21,29 +21,29 @@ final class CacheManager: ObservableObject {
 
         var title: String {
             switch self {
-            case .profileImages: return "Profile Images"
-            case .contactPhotos: return "Contact Photos"
-            case .webResponses: return "Web Responses"
-            case .temporaryFiles: return "Temporary Files"
+            case .profiles: return AppLocalization.string("Profiles")
+            case .contactPhotos: return AppLocalization.string("Contact Photos")
+            case .webResponses: return AppLocalization.string("Web Responses")
+            case .temporaryFiles: return AppLocalization.string("Temporary Files")
             }
         }
 
         var detail: String {
             switch self {
-            case .profileImages:
-                return "KNS avatars and banners. Downloaded again when you next see them."
+            case .profiles:
+                return AppLocalization.string("Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them.")
             case .contactPhotos:
-                return "Photos copied from your device address book. Re-read from Contacts."
+                return AppLocalization.string("Photos copied from your device address book. Re-read from Contacts.")
             case .webResponses:
-                return "Link previews and API responses held by the system's network cache."
+                return AppLocalization.string("Link previews and API responses held by the system's network cache.")
             case .temporaryFiles:
-                return "Scratch files from sending photos and voice notes. Safe to remove at any time."
+                return AppLocalization.string("Scratch files from sending photos and voice notes. Safe to remove at any time.")
             }
         }
 
         var systemImage: String {
             switch self {
-            case .profileImages: return "person.crop.square"
+            case .profiles: return "person.crop.square"
             case .contactPhotos: return "person.2"
             case .webResponses: return "globe"
             case .temporaryFiles: return "doc"
@@ -72,8 +72,10 @@ final class CacheManager: ObservableObject {
     /// files, so it is measured and cleared through its own API instead.
     private func directories(for category: Category) -> [URL] {
         switch category {
-        case .profileImages:
-            return [cachesRoot?.appendingPathComponent("KNSProfileImages", isDirectory: true)].compactMap { $0 }
+        case .profiles:
+            // the avatar and banner images, and the profile records and lookups (KachatProfileCache)
+            return [cachesRoot?.appendingPathComponent("KNSProfileImages", isDirectory: true),
+                    cachesRoot?.appendingPathComponent("KachatProfiles", isDirectory: true)].compactMap { $0 }
         case .contactPhotos:
             return [applicationSupportRoot?.appendingPathComponent("ContactAvatars", isDirectory: true)].compactMap { $0 }
         case .webResponses:
@@ -134,11 +136,11 @@ final class CacheManager: ObservableObject {
         switch category {
         case .webResponses:
             URLCache.shared.removeAllCachedResponses()
-        case .profileImages:
+        case .profiles:
             await emptyDirectories(directories(for: category))
             // The in-memory half has to go too, or the screen keeps showing what was just
             // deleted from disk until the app is relaunched.
-            await KNSProfileImageCacheControl.resetAfterExternalPurge()
+            await resetProfilesInMemory()
         case .contactPhotos:
             await emptyDirectories(directories(for: category))
         case .temporaryFiles:
@@ -152,8 +154,15 @@ final class CacheManager: ObservableObject {
             await emptyDirectories(directories(for: category))
         }
         URLCache.shared.removeAllCachedResponses()
-        await KNSProfileImageCacheControl.resetAfterExternalPurge()
+        await resetProfilesInMemory()
         await refreshSizes()
+    }
+
+    /// The profile images, identity records and social lookups held in memory.
+    private func resetProfilesInMemory() async {
+        await KNSProfileImageCacheControl.resetAfterExternalPurge()
+        KachatSocialImageResolver.shared.clearAll()
+        KachatNamesRegistry.shared.clearProfileCache()
     }
 
     /// Removes the CONTENTS, not the directory: services hold their directory URL from init, so
