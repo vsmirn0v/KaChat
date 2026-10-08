@@ -240,13 +240,13 @@ extension KachatNames {
         enum Kind: String { case avatar, banner, bio }
 
         enum Platform: String, CaseIterable {
-            case x, youtube, facebook, instagram, tiktok, twitch, kick, github, telegram, linkedin, discord
+            case x, youtube, facebook, instagram, tiktok, twitch, github, telegram, linkedin, discord
 
             /// Platforms whose banner can be read without signing in.
             var hasBanner: Bool { self == .x || self == .youtube || self == .discord }
 
             /// Platforms whose preview carries the person's own bio (see `bio(for:...)`).
-            var hasBio: Bool { [.x, .youtube, .telegram, .twitch, .kick, .github, .discord].contains(self) }
+            var hasBio: Bool { [.x, .youtube, .telegram, .twitch, .github, .discord].contains(self) }
 
             /// What the handle field shows in front of the handle.
             var prefix: String {
@@ -257,7 +257,6 @@ extension KachatNames {
                 case .instagram: return "instagram.com/"
                 case .tiktok: return "tiktok.com/@"
                 case .twitch: return "twitch.tv/"
-                case .kick: return "kick.com/"
                 case .github: return "github.com/"
                 case .telegram: return "t.me/"
                 case .linkedin: return "linkedin.com/in/"
@@ -268,9 +267,9 @@ extension KachatNames {
             /// The platforms that can fill a field, in picker order.
             static func choices(for kind: Kind) -> [Platform] {
                 switch kind {
-                case .avatar: return [.x, .youtube, .instagram, .tiktok, .facebook, .twitch, .kick, .github, .telegram, .linkedin, .discord]
+                case .avatar: return [.x, .youtube, .instagram, .tiktok, .facebook, .twitch, .github, .telegram, .linkedin, .discord]
                 case .banner: return [.x, .youtube, .discord]
-                case .bio: return [.x, .youtube, .telegram, .twitch, .kick, .github, .discord]
+                case .bio: return [.x, .youtube, .telegram, .twitch, .github, .discord]
                 }
             }
 
@@ -282,7 +281,6 @@ extension KachatNames {
                 case .instagram: return "Instagram"
                 case .tiktok: return "TikTok"
                 case .twitch: return "Twitch"
-                case .kick: return "Kick"
                 case .github: return "GitHub"
                 case .telegram: return "Telegram"
                 case .linkedin: return "LinkedIn"
@@ -338,8 +336,6 @@ extension KachatNames {
                 }
             case "twitch.tv":
                 if parts.count == 1, ok(parts[0]) { platform = .twitch; handle = parts[0]; link = "https://www.twitch.tv/\(handle)" }
-            case "kick.com":
-                if parts.count == 1, ok(parts[0]) { platform = .kick; handle = parts[0]; link = "https://kick.com/\(handle)" }
             case "github.com":
                 if parts.count == 1, ok(parts[0]) { platform = .github; handle = parts[0]; link = "https://github.com/\(handle)" }
             case "t.me", "telegram.me":
@@ -427,14 +423,14 @@ extension KachatNames {
         }
 
         /// The bio a platform shows in its preview, where that text really is the person's own
-        /// (X, YouTube, Telegram, Kick, and Twitch without its boilerplate). Instagram, TikTok,
+        /// (X, YouTube, Telegram, and Twitch without its boilerplate). Instagram, TikTok,
         /// Facebook and LinkedIn only put follower counts or site text there: no bio from them.
         /// GitHub and Discord come from their APIs instead.
         static func bio(for platform: Platform, openGraphDescription d: String?) -> String? {
             guard let d, !d.isEmpty else { return nil }
             let text: String
             switch platform {
-            case .x, .youtube, .telegram, .kick:
+            case .x, .youtube, .telegram:
                 text = d
             case .twitch:
                 // "<description> — Twitch streams live on Twitch! Check out their videos ..."

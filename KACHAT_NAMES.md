@@ -307,9 +307,9 @@ of that, so **identity belongs to the address, and a name is only a label pointi
   | Field | Meaning |
   |---|---|
   | `v` | `1` |
-  | `avatar` | where the avatar comes from: a **profile link** on X, YouTube, Facebook, Instagram, TikTok, Twitch, Kick, GitHub, Telegram, LinkedIn, or a Discord server invite |
+  | `avatar` | where the avatar comes from: a **profile link** on X, YouTube, Facebook, Instagram, TikTok, Twitch, GitHub, Telegram, LinkedIn, or a Discord server invite (Kick was removed 2026-10-08; a Kick link is ignored) |
   | `banner` | where the banner comes from: a profile link on X or YouTube, or a Discord server invite |
-  | `bio` | where the bio comes from: a profile link on X, YouTube, Telegram, Twitch, Kick, GitHub, or a Discord server invite |
+  | `bio` | where the bio comes from: a profile link on X, YouTube, Telegram, Twitch, GitHub, or a Discord server invite |
   | `linktree` | a Linktree page, `https://linktr.ee/<name>`: the only other link a profile can carry |
   | `primaryName` | which of the address's `.kachat` names to show (optional) |
 
@@ -319,7 +319,7 @@ of that, so **identity belongs to the address, and a name is only a label pointi
   (`KachatSocialImageResolver`; no indexer involved):
   - avatar: every supported platform;
   - banner: X, YouTube, Discord;
-  - bio: X, YouTube, Telegram, Twitch, Kick, GitHub, Discord. Instagram, TikTok, Facebook and
+  - bio: X, YouTube, Telegram, Twitch, GitHub, Discord. Instagram, TikTok, Facebook and
     LinkedIn don't show a real bio without signing in, so their profiles have none.
 
   The platform's own moderation therefore applies to all three: anything it takes down, or an
