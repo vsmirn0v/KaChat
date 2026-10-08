@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "ইমপোর্ট হয়েছে: %lld যোগ, %lld হালনাগাদ।";
 "That file isn't a KaChat Address Book export." = "এটি KaChat ঠিকানা বইয়ের এক্সপোর্ট নয়।";
 "That Address Book export has no addresses." = "এই এক্সপোর্টে কোনো ঠিকানা নেই।";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "নেটওয়ার্ক ব্যস্ত";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "সাধারণ ফি-তে অপেক্ষা করতে হতে পারে। দ্রুত বা অগ্রাধিকার একটু বেশি দিয়ে দ্রুত ব্লকে ঢোকে।";
+"Balance after: %@" = "পরে ব্যালেন্স: %@";
+"Balance change: %@" = "ব্যালেন্স পরিবর্তন: %@";
+"Available: %@" = "উপলব্ধ: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "দাবি করতে দুটি লেনদেন যায়: এখন কমিট, প্রায় এক মিনিট পরে নিবন্ধন। দুটোই এই গতিতে।";
+"Sent to the network" = "নেটওয়ার্কে পাঠানো হয়েছে";
+"In a block" = "একটি ব্লকে";
+"Updated in KaChat" = "KaChat-এ হালনাগাদ";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "নেটওয়ার্ক একে ব্লকে রাখার অপেক্ষায়। সাধারণত কয়েক সেকেন্ড; ব্যস্ত থাকলে বেশি।";
+"It's in a block. Updating KaChat..." = "এটি ব্লকে আছে। KaChat হালনাগাদ হচ্ছে...";
+"Done. It shows in KaChat now." = "সম্পন্ন। এখন KaChat-এ দেখা যাচ্ছে।";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "নেটওয়ার্ক এখনো নেয়নি। কখনো না পৌঁছালে কিছুই খরচ হয়নি - দ্রুত ফি দিয়ে আবার চেষ্টা করুন।";
+"Tap the transaction to open it in the explorer." = "এক্সপ্লোরারে খুলতে লেনদেনে ট্যাপ করুন।";

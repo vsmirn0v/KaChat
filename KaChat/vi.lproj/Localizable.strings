@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "Đã nhập: thêm %lld, cập nhật %lld.";
 "That file isn't a KaChat Address Book export." = "Tệp đó không phải bản xuất sổ địa chỉ KaChat.";
 "That Address Book export has no addresses." = "Bản xuất đó không có địa chỉ nào.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "Mạng đang bận";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "Với Bình thường có thể phải chờ. Nhanh hoặc Ưu tiên trả nhiều hơn một chút để vào khối sớm hơn.";
+"Balance after: %@" = "Số dư sau: %@";
+"Balance change: %@" = "Thay đổi số dư: %@";
+"Available: %@" = "Khả dụng: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "Nhận tên gửi hai giao dịch: cam kết ngay bây giờ, đăng ký khoảng một phút sau. Cả hai dùng tốc độ này.";
+"Sent to the network" = "Đã gửi lên mạng";
+"In a block" = "Trong một khối";
+"Updated in KaChat" = "Đã cập nhật trong KaChat";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "Đang chờ mạng đưa vào khối. Thường vài giây; lâu hơn khi mạng bận.";
+"It's in a block. Updating KaChat..." = "Đã vào khối. Đang cập nhật KaChat...";
+"Done. It shows in KaChat now." = "Xong. Giờ đã hiển thị trong KaChat.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "Mạng chưa nhận giao dịch. Nếu nó không bao giờ vào, không có gì bị tiêu - hãy thử lại với phí nhanh hơn.";
+"Tap the transaction to open it in the explorer." = "Chạm vào giao dịch để mở trong trình khám phá.";

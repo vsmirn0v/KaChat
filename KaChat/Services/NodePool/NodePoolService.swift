@@ -591,6 +591,26 @@ final class NodePoolService: ObservableObject {
         }
     }
 
+    /// The node's own fee estimate (sompi per gram, and how many seconds it expects a transaction
+    /// paying that to wait): the priority bucket, and the first normal bucket. Read from a node, so
+    /// a fee picture never depends on a third-party API.
+    func feeEstimate() async throws -> (priority: (feerate: Double, seconds: Double), normal: (feerate: Double, seconds: Double)) {
+        try await executeHedged(op: .getUtxosByAddress) { conn in
+            var msg = Protowire_KaspadMessage()
+            msg.getFeeEstimateRequest = Protowire_GetFeeEstimateRequestMessage()
+            let response = try await conn.sendRequest(msg, type: .getFeeEstimate, timeout: 10.0)
+            guard case .getFeeEstimateResponse(let r) = response.payload else {
+                throw KasiaError.networkError("Unexpected response")
+            }
+            if r.hasError && !r.error.message.isEmpty {
+                throw KasiaError.networkError(r.error.message)
+            }
+            let priority = r.estimate.priorityBucket
+            let normal = r.estimate.normalBuckets.first ?? priority
+            return ((priority.feerate, priority.estimatedSeconds), (normal.feerate, normal.estimatedSeconds))
+        }
+    }
+
     /// Submit transaction (broadcast to multiple nodes)
     ///
     /// A failed submit is not always a failed send: node A can accept the transaction while its

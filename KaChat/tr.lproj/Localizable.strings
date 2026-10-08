@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "İçe aktarıldı: %lld eklendi, %lld güncellendi.";
 "That file isn't a KaChat Address Book export." = "Bu dosya bir KaChat Adres Defteri dışa aktarımı değil.";
 "That Address Book export has no addresses." = "Bu dışa aktarımda adres yok.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "Ağ yoğun";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "Normal ile biraz sürebilir. Hızlı veya Öncelikli biraz daha ödeyip bloğa daha erken girer.";
+"Balance after: %@" = "Sonraki bakiye: %@";
+"Balance change: %@" = "Bakiye değişimi: %@";
+"Available: %@" = "Kullanılabilir: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "Talep etmek iki işlem gönderir: şimdi taahhüt, yaklaşık bir dakika sonra kayıt. İkisi de bu hızla.";
+"Sent to the network" = "Ağa gönderildi";
+"In a block" = "Bir blokta";
+"Updated in KaChat" = "KaChat'te güncellendi";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "Ağın onu bir bloğa koyması bekleniyor. Genelde birkaç saniye; yoğunken daha uzun.";
+"It's in a block. Updating KaChat..." = "Bir blokta. KaChat güncelleniyor...";
+"Done. It shows in KaChat now." = "Tamam. Artık KaChat'te görünüyor.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "Ağ henüz almadı. Hiç girmezse hiçbir şey harcanmaz - daha hızlı bir ücretle yeniden dene.";
+"Tap the transaction to open it in the explorer." = "Gezginde açmak için işleme dokun.";

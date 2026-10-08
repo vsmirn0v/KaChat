@@ -605,69 +605,115 @@ struct KachatTxDone: Identifiable, Equatable {
     let txId: String
     /// Localization key of the headline ("Listed for sale", "Profile saved", ...).
     var title: String = "Transaction sent"
+    /// Already known to be in a block (a registration the driver saw land): no progress to follow.
+    var accepted = false
 }
 
-/// The half sheet every finished name transaction shows: what happened, the transaction id
-/// (copyable), and a link to it on the block explorer - the one picked in Settings, which on
-/// testnet is the testnet-10 explorer. It opens in the in-app browser.
+/// The receipt every name transaction ends on, in the Send receipt's style: what it does, its
+/// progress followed on a node - sent, in a block, showing in KaChat - and the transaction id
+/// as a link to the block explorer picked in Settings (the testnet-10 one on testnet), opened in
+/// the in-app browser. Closing it early is fine: the change still lands.
 struct KachatTxDoneSheet: View {
     let done: KachatTxDone
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var actions = KachatNamesActions.shared
     @State private var browserURL: URL?
-    @State private var copied = false
 
     private var explorerURL: URL? { AppSettings.load().kaspaExplorer.txURL(for: done.txId) }
+    private var stage: KachatNamesActions.TxStage { actions.txStages[done.txId] ?? (done.accepted ? .shown : .sent) }
+    private var inBlock: Bool { stage == .accepted || stage == .shown }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 44, weight: .semibold))
-                .foregroundColor(.green)
-                .padding(.top, 24)
+        VStack(spacing: 0) {
+            Group {
+                switch stage {
+                case .shown:
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.scaled(size: 52))
+                        .foregroundColor(.green)
+                case .dropped:
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.scaled(size: 52))
+                        .foregroundColor(.orange)
+                default:
+                    ProgressView()
+                        .controlSize(.large)
+                        .frame(height: 52)
+                }
+            }
+            .padding(.top, 28)
+
             Text(LocalizedStringKey(done.title))
                 .font(.title3.weight(.bold))
-            Text("It shows here once the network accepts it, usually within seconds.")
+                .padding(.top, 12)
+
+            Text(stageText)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 28)
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 10) {
+                step("Sent to the network", done: true)
+                step("In a block", done: inBlock, active: !inBlock && stage != .dropped)
+                step("Updated in KaChat", done: stage == .shown, active: stage == .accepted)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(sendKaspaGlass(cornerRadius: 16))
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+
             Button {
-                UIPasteboard.general.string = done.txId
-                copied = true
-                Haptics.success()
+                browserURL = explorerURL
             } label: {
                 HStack(spacing: 6) {
                     Text(verbatim: done.txId)
-                        .font(.caption.monospaced())
+                        .font(.system(.footnote, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .font(.caption)
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.footnote)
                 }
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Capsule().fill(Color(.secondarySystemBackground)))
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .background(sendKaspaGlass(cornerRadius: 14))
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 24)
-            if let explorerURL {
-                Button {
-                    browserURL = explorerURL
-                } label: {
-                    Label("View in Explorer", systemImage: "safari")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .padding(.horizontal, 24)
+            .disabled(explorerURL == nil)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+
+            Text("Tap the transaction to open it in the explorer.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.top, 6)
+
+            Button {
+                dismiss()
+            } label: {
+                Text("Done")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Capsule().fill(Color.accentColor))
+                    .foregroundColor(.black)
             }
-            Button("Done") { dismiss() }
-                .font(.headline)
+            .buttonStyle(.plain)
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+
             Spacer(minLength: 0)
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.height(520), .large])
         .presentationDragIndicator(.visible)
+        .task {
+            // a transaction this sheet wasn't handed by `perform` (a profile save): follow it here
+            if actions.txStages[done.txId] == nil, !done.accepted { actions.follow(txId: done.txId, plan: nil) }
+        }
         .fullScreenCover(isPresented: Binding(
             get: { browserURL != nil },
             set: { if !$0 { browserURL = nil } }
@@ -675,6 +721,33 @@ struct KachatTxDoneSheet: View {
             if let browserURL {
                 InAppBrowserScreen(url: browserURL) { self.browserURL = nil }
             }
+        }
+    }
+
+    private var stageText: LocalizedStringKey {
+        switch stage {
+        case .sent, .inMempool: return "Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy."
+        case .accepted: return "It's in a block. Updating KaChat..."
+        case .shown: return "Done. It shows in KaChat now."
+        case .dropped: return "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee."
+        }
+    }
+
+    private func step(_ title: LocalizedStringKey, done: Bool, active: Bool = false) -> some View {
+        HStack(spacing: 10) {
+            Group {
+                if done {
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                } else if active {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "circle").foregroundColor(.secondary)
+                }
+            }
+            .frame(width: 20)
+            Text(title)
+                .font(.subheadline)
+                .foregroundColor(done || active ? .primary : .secondary)
         }
     }
 }
@@ -818,8 +891,8 @@ struct KachatRegistrationCard: View {
     /// The finished registration (or cancelled commit) as the half sheet shows it.
     private var finished: KachatTxDone? {
         switch registration.stage {
-        case .registered: return registration.registerTxId.map { KachatTxDone(txId: $0, title: "Name registered") }
-        case .cancelled: return registration.cancelTxId.map { KachatTxDone(txId: $0, title: "Commit cancelled") }
+        case .registered: return registration.registerTxId.map { KachatTxDone(txId: $0, title: "Name registered", accepted: true) }
+        case .cancelled: return registration.cancelTxId.map { KachatTxDone(txId: $0, title: "Commit cancelled", accepted: true) }
         default: return nil
         }
     }
@@ -1367,9 +1440,73 @@ struct KachatTxRow: Identifiable {
     let value: String
 }
 
-/// Every action's sheet: its inputs, what it costs (built against live UTXOs, nothing sent),
-/// one Confirm - an extra warning for the destructive ones - then the device lock, then the
-/// transaction. Shows the txid when it is sent.
+/// A glass card in the Send screens' style, for one group of a name transaction's details.
+struct KachatCard<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) { content }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(sendKaspaGlass(cornerRadius: 20))
+    }
+}
+
+/// An input in a name transaction's sheet (price, offer, new owner...): a small caption title,
+/// the field, and an optional note under it - in a Send-style card.
+struct KachatInputCard<Content: View>: View {
+    var title: LocalizedStringKey? = nil
+    var footer: Text? = nil
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        KachatCard {
+            if let title {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+            content
+            if let footer {
+                footer
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// Shown when the network is busy: Normal may wait, a faster fee gets in sooner.
+struct KachatBusyNetworkNotice: View {
+    let estimate: KachatNamesActions.FeeEstimate
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("The network is busy")
+                    .font(.subheadline.weight(.semibold))
+                Text("At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.orange.opacity(0.12))
+        )
+    }
+}
+
+/// Every action's sheet, in the Send screens' style: what it does (a card), its inputs (cards),
+/// the network fee with Normal / Fast / Priority or a custom amount (and a notice when the
+/// network is busy), the cost, and slide to confirm - an extra warning for the destructive ones -
+/// then the device lock, then the transaction. Ends on a receipt that follows it into a block.
 struct KachatTxSheet<Inputs: View>: View {
     let title: LocalizedStringKey
     let confirmTitle: LocalizedStringKey
@@ -1388,6 +1525,7 @@ struct KachatTxSheet<Inputs: View>: View {
     @ViewBuilder var inputs: () -> Inputs
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var actions = KachatNamesActions.shared
     @State private var plan: KachatNames.Plan?
     @State private var planError: String?
     @State private var building = false
@@ -1396,82 +1534,118 @@ struct KachatTxSheet<Inputs: View>: View {
     @State private var txId: String?
     @State private var done: KachatTxDone?
     @State private var sendError: String?
+    @State private var feeTier: WithdrawFeeTier = .normal
+    @State private var customFee: UInt64?
+    @State private var isEditingFee = false
+    @State private var customFeeText = ""
+    /// The person picked a speed: a busy network no longer moves it for them.
+    @State private var feeTouched = false
+
+    private var feeChoice: KachatNamesActions.FeeChoice {
+        customFee.map { .customTotal($0) } ?? .tier(feeTier)
+    }
 
     var body: some View {
         if embedded {
-            form
+            content
         } else {
-            NavigationStack { form }
+            NavigationStack { content }
         }
     }
 
-    private var form: some View {
-        Form {
-            inputs()
-            Section {
-                ForEach(rows) { row in
-                    LabeledRow(title: row.title, value: row.value)
-                }
-                if let plan {
-                    if plan.priceFee > 0 {
-                        LabeledRow(title: "Price (to miners)", value: KaspaUnit.amount(plan.priceFee))
-                    }
-                    LabeledRow(title: "Network fee", value: KaspaUnit.amount(plan.networkFee))
-                    // Names always spend from, and pay back to, the chatting address: show its
-                    // real balance and what it will be once this is sent.
-                    if let me = KachatNamesActions.shared.myKey {
-                        let change = Self.balanceChange(plan, me: me)
-                        if let balance = WalletManager.shared.currentWallet?.balanceSompi {
-                            LabeledRow(title: "Chatting address balance", value: KaspaUnit.amount(balance))
-                            LabeledRow(title: "Balance after", value: KaspaUnit.amount(UInt64(max(0, Int64(balance) + change))), bold: true)
-                        } else {
-                            LabeledRow(title: "Balance change", value: KaspaUnit.signed(change), bold: true)
+    private var content: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                if !rows.isEmpty || (plan?.priceFee ?? 0) > 0 {
+                    KachatCard {
+                        ForEach(rows) { row in
+                            LabeledRow(title: row.title, value: row.value)
+                        }
+                        if let plan, plan.priceFee > 0 {
+                            if !rows.isEmpty { Divider() }
+                            LabeledRow(title: "Price (to miners)", value: KaspaUnit.amount(plan.priceFee))
                         }
                     }
-                } else if building {
-                    HStack { Text("Network fee"); Spacer(); ProgressView() }
                 }
-            } footer: {
+
+                inputs()
+
+                if let estimate = actions.feeEstimate, estimate.isBusy, txId == nil {
+                    KachatBusyNetworkNotice(estimate: estimate)
+                }
+
+                SendFeeControls(
+                    feeTier: $feeTier,
+                    isEditingFee: $isEditingFee,
+                    customFeeText: $customFeeText,
+                    isEstimatingFee: building,
+                    feeText: plan.map { KaspaUnit.amount($0.networkFee) },
+                    onStartEditing: {
+                        customFeeText = plan.map { KaspaUnit.plain($0.networkFee) } ?? ""
+                        isEditingFee = true
+                    },
+                    onCommit: {
+                        isEditingFee = false
+                        feeTouched = true
+                        if let sompi = KaspaUnit.parseSompi(customFeeText), sompi > 0 { customFee = sompi }
+                    },
+                    showsCoinControl: false
+                )
+
+                if let plan, let me = actions.myKey {
+                    // Names always spend from, and pay back to, the chatting address.
+                    let change = Self.balanceChange(plan, me: me)
+                    HStack(spacing: 8) {
+                        if let balance = WalletManager.shared.currentWallet?.balanceSompi {
+                            SendInfoPill {
+                                Text("Balance after: \(KaspaUnit.amount(UInt64(max(0, Int64(balance) + change))))")
+                            }
+                        } else {
+                            SendInfoPill {
+                                Text("Balance change: \(KaspaUnit.signed(change))")
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if let warning {
+                    Label { Text(warning) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                        .font(.subheadline)
+                        .foregroundColor(.red)
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.red.opacity(0.1)))
+                }
+
                 if let planError {
-                    Text(verbatim: planError).foregroundColor(.red)
+                    Text(verbatim: planError)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 } else if let footer {
                     Text(footer)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-            if let warning {
-                Section {
-                    Label { Text(warning) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
-                        .foregroundColor(.red)
-                }
-            }
-            Section {
-                if let txId {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Sent", systemImage: "checkmark.circle.fill").foregroundColor(.green)
-                        Text(verbatim: txId)
-                            .font(.caption.monospaced())
-                            .foregroundColor(.secondary)
-                            .textSelection(.enabled)
-                        Text("It shows here once the network accepts it, usually within seconds.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                } else {
-                    Button(role: warning == nil ? nil : ButtonRole.destructive) {
+
+                if txId == nil {
+                    SendActionButton(title: confirmTitle, isBusy: sending, isEnabled: plan != nil && !building) {
                         if warning != nil { confirmWarning = true } else { authorize() }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if sending { ProgressView() } else { Text(confirmTitle).font(.headline) }
-                            Spacer()
-                        }
                     }
-                    .disabled(plan == nil || sending)
+                    .padding(.top, 4)
                 }
-            } footer: {
-                if let sendError { Text(verbatim: sendError).foregroundColor(.red) }
+                if let sendError {
+                    Text(verbatim: sendError)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
+            .padding(16)
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1484,7 +1658,18 @@ struct KachatTxSheet<Inputs: View>: View {
                 }
             }
         }
-        .task(id: operationKey) { await rebuild() }
+        .task(id: "\(operationKey)|\(feeTier.rawValue)|\(customFee ?? 0)") { await rebuild() }
+        .task {
+            // A busy network starts on Fast unless the person already chose.
+            if let estimate = await actions.refreshFeeEstimate(), estimate.isBusy, !feeTouched, customFee == nil {
+                feeTier = .fast
+            }
+        }
+        .onChange(of: feeTier) { _ in
+            // a speed replaces a typed fee
+            feeTouched = true
+            customFee = nil
+        }
         .sheet(item: $done, onDismiss: { dismiss() }) { KachatTxDoneSheet(done: $0) }
         .alert(Text(title), isPresented: $confirmWarning) {
             Button(confirmTitle, role: .destructive) { authorize() }
@@ -1502,14 +1687,14 @@ struct KachatTxSheet<Inputs: View>: View {
         try? await Task.sleep(nanoseconds: 300_000_000)
         guard !Task.isCancelled else { return }
         do {
-            let built = try await KachatNamesActions.shared.plan(operation)
-            // A newer choice (10m -> 20m) replaced this build while it ran: its plan is for the
-            // old choice, and the new build owns the sheet now.
+            let built = try await KachatNamesActions.shared.plan(operation, fee: feeChoice)
+            // A newer choice replaced this build while it ran: its plan is for the old choice,
+            // and the new build owns the sheet now.
             guard !Task.isCancelled else { return }
             plan = built
         } catch {
             // Cancelled (the choice changed): not an error to show, and the new build owns the
-            // sheet. Showing it left "Swift.CancellationError" and a disabled Renew.
+            // sheet. Showing it left "Swift.CancellationError" and a disabled button.
             guard !Task.isCancelled, !(error is CancellationError), (error as? URLError)?.code != .cancelled else { return }
             planError = error.localizedDescription
         }
@@ -1527,8 +1712,8 @@ struct KachatTxSheet<Inputs: View>: View {
         sending = true
         sendError = nil
         do {
-            // never pays more than the price shown
-            let id = try await KachatNamesActions.shared.perform(operation, maxPrice: plan?.priceFee)
+            // never pays more than the price shown, at the fee shown
+            let id = try await KachatNamesActions.shared.perform(operation, maxPrice: plan?.priceFee, fee: feeChoice)
             txId = id
             Haptics.success()
             onDone(id)
@@ -1598,6 +1783,8 @@ struct KachatClaimSheet: View {
     @State private var quoteError: String?
     @State private var starting = false
     @State private var startError: String?
+    @State private var feeTier: WithdrawFeeTier = .normal
+    @State private var feeTouched = false
 
     private var maxYears: Int64 { KachatNamesService.shared.manifest?.params.maxYears ?? 2 }
 
@@ -1614,90 +1801,128 @@ struct KachatClaimSheet: View {
 
     private var claimForm: some View {
         NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Text("Name")
-                        Spacer()
-                        Text(verbatim: "\(target.name).kachat").fontWeight(.semibold)
+            ScrollView {
+                VStack(spacing: 16) {
+                    KachatCard {
+                        HStack {
+                            Text("Name")
+                            Spacer()
+                            Text(verbatim: "\(target.name).kachat").fontWeight(.semibold)
+                        }
+                        Picker("Years", selection: $years) {
+                            ForEach(1...max(1, Int(maxYears)), id: \.self) { y in
+                                KachatYearsText(years: y).tag(Int64(y))
+                            }
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    Picker("Years", selection: $years) {
-                        ForEach(1...max(1, Int(maxYears)), id: \.self) { y in
-                            KachatYearsText(years: y).tag(Int64(y))
+
+                    KachatCard {
+                        if let q = quote {
+                            // the first period at the registration price, any further one at the renewal price
+                            LabeledRow(title: "Price (to miners)", value: KaspaUnit.amount(q.price))
+                            LabeledRow(title: "Bond (returned on release)", value: KaspaUnit.amount(q.bond))
+                            LabeledRow(title: "Registry deposit (returned on release)", value: KaspaUnit.amount(q.gapDeposit))
+                            LabeledRow(title: "Commit (returned at registration)", value: KaspaUnit.amount(q.commit))
+                            LabeledRow(title: "Network fees", value: KaspaUnit.amount(q.networkFee))
+                            Divider()
+                            LabeledRow(title: "Total", value: KaspaUnit.amount(q.total), bold: true)
+                        } else if let quoteError {
+                            Text(verbatim: quoteError).foregroundColor(.red)
+                        } else {
+                            HStack { Text("Total"); Spacer(); ProgressView() }
                         }
                     }
-                    .pickerStyle(.segmented)
-                }
 
-                Section {
+                    if let estimate = actions.feeEstimate, estimate.isBusy {
+                        KachatBusyNetworkNotice(estimate: estimate)
+                    }
+
+                    KachatCard {
+                        Text("Network Fee")
+                            .font(.subheadline)
+                        Picker("Fee", selection: $feeTier) {
+                            ForEach(WithdrawFeeTier.allCases) { tier in
+                                Text(LocalizedStringKey(tier.rawValue)).tag(tier)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        Text("Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
                     if let q = quote {
-                        // the first period at the registration price, any further one at the renewal price
-                        LabeledRow(title: "Price (to miners)", value: KaspaUnit.amount(q.price))
-                        LabeledRow(title: "Bond (returned on release)", value: KaspaUnit.amount(q.bond))
-                        LabeledRow(title: "Registry deposit (returned on release)", value: KaspaUnit.amount(q.gapDeposit))
-                        LabeledRow(title: "Commit (returned at registration)", value: KaspaUnit.amount(q.commit))
-                        LabeledRow(title: "Network fees", value: KaspaUnit.amount(q.networkFee))
-                        LabeledRow(title: "Total", value: KaspaUnit.amount(q.total), bold: true)
-                        LabeledRow(title: "Available", value: KaspaUnit.amount(q.spendable))
-                    } else if let quoteError {
-                        Text(verbatim: quoteError).foregroundColor(.red)
-                    } else {
-                        HStack { Text("Total"); Spacer(); ProgressView() }
+                        HStack(spacing: 8) {
+                            SendInfoPill { Text("Available: \(KaspaUnit.amount(q.spendable))") }
+                            Spacer(minLength: 0)
+                        }
                     }
-                } header: {
-                    Text("Cost")
-                } footer: {
-                    if let q = quote, !q.affordable {
-                        KaspaUnit.text("Not enough KAS on your chatting address for this name.")
-                            .foregroundColor(.red)
-                    } else {
-                        Text("The price goes to the miners - KaChat takes nothing. The bond and the deposit come back when you release the name.")
-                    }
-                }
 
-                Section {
-                    stepRow(1, "A hidden commit goes on chain first. Nobody can see which name it is for.")
-                    stepRow(2, "About a minute later KaChat registers the name by itself. Keep the app open; if you leave, it continues next time.")
-                    if KachatLive.yearlyPeriods {
-                        stepRow(3, "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it.")
-                    } else {
-                        stepRow(3, "The name is yours for the time you paid, at most \(KachatLive.periods(maxYears)) ahead. From \(KachatLive.duration(KachatLive.params?.renewWindowMs ?? 0)) before it expires you can renew it.")
+                    KachatCard {
+                        Text("How claiming works")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        stepRow(1, "A hidden commit goes on chain first. Nobody can see which name it is for.")
+                        stepRow(2, "About a minute later KaChat registers the name by itself. Keep the app open; if you leave, it continues next time.")
+                        if KachatLive.yearlyPeriods {
+                            stepRow(3, "The name is yours for the years you paid, at most 2 ahead. A 1-year name can be extended to 2 years; from 10 days before it expires you can renew it.")
+                        } else {
+                            stepRow(3, "The name is yours for the time you paid, at most \(KachatLive.periods(maxYears)) ahead. From \(KachatLive.duration(KachatLive.params?.renewWindowMs ?? 0)) before it expires you can renew it.")
+                        }
                     }
-                } header: {
-                    Text("How claiming works")
-                }
 
-                Section {
-                    Button {
+                    Group {
+                        if let q = quote, !q.affordable {
+                            KaspaUnit.text("Not enough KAS on your chatting address for this name.")
+                                .foregroundColor(.red)
+                        } else {
+                            Text("The price goes to the miners - KaChat takes nothing. The bond and the deposit come back when you release the name.")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    SendActionButton(
+                        title: "Claim \(target.name).kachat",
+                        isBusy: starting,
+                        isEnabled: quote?.affordable == true
+                    ) {
                         DeviceAuth.authenticate(reason: KachatLive.authReason) {
                             Task { @MainActor in await start() }
                         }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if starting { ProgressView() } else { Text("Claim \(target.name).kachat").font(.headline) }
-                            Spacer()
-                        }
                     }
-                    .disabled(quote?.affordable != true || starting)
-                } footer: {
-                    if let startError { Text(verbatim: startError).foregroundColor(.red) }
+                    .padding(.top, 4)
+                    if let startError {
+                        Text(verbatim: startError)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
+                .padding(16)
             }
             .navigationTitle("Claim Name")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
-            .task(id: years) {
+            .task(id: "\(years)|\(feeTier.rawValue)") {
                 quote = nil
                 quoteError = nil
                 do {
-                    quote = try await KachatNamesActions.shared.quote(name: target.name, years: years, gap: target.gap)
+                    quote = try await KachatNamesActions.shared.quote(name: target.name, years: years, gap: target.gap, feeTier: feeTier)
                 } catch {
                     quoteError = error.localizedDescription
                 }
             }
+            .task {
+                // A busy network starts on Fast unless the person already chose.
+                if let estimate = await actions.refreshFeeEstimate(), estimate.isBusy, !feeTouched { feeTier = .fast }
+            }
+            .onChange(of: feeTier) { _ in feeTouched = true }
         }
     }
 
@@ -1718,7 +1943,7 @@ struct KachatClaimSheet: View {
         starting = true
         startError = nil
         do {
-            try await KachatNamesActions.shared.startRegistration(name: target.name, years: years, maxPrice: q.price)
+            try await KachatNamesActions.shared.startRegistration(name: target.name, years: years, maxPrice: q.price, feeTier: feeTier)
             Haptics.success()
             onStarted()
             progressId = actions.pending.last(where: { $0.name == target.name && $0.isOpen })?.id
@@ -2327,19 +2552,18 @@ struct KachatLiveOfferSheet: View {
             rows: rows,
             operation: operation, operationKey: "\(amount ?? 0)-\(days)-\(virtualDaa ?? 0)"
         ) {
-            Section {
+            KachatInputCard(
+                title: "Your offer",
+                footer: KaspaUnit.text("Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you.")
+            ) {
                 HStack {
                     TextField("0", text: $amountText)
                         .keyboardType(.decimalPad)
-                        .font(.title3.weight(.semibold))
+                        .font(.title2.weight(.semibold))
                     Text(verbatim: KaspaUnit.symbol).foregroundColor(.secondary)
                 }
-            } header: {
-                Text("Your offer")
-            } footer: {
-                KaspaUnit.text("Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you.")
             }
-            Section {
+            KachatInputCard(title: "Refundable after") {
                 Picker("Expires", selection: $days) {
                     Text("1 Day").tag(1)
                     Text("3 Days").tag(3)
@@ -2347,8 +2571,6 @@ struct KachatLiveOfferSheet: View {
                     Text("7 Days").tag(7)
                 }
                 .pickerStyle(.segmented)
-            } header: {
-                Text("Refundable after")
             }
         }
         .task {
@@ -2416,7 +2638,7 @@ struct KachatExtendSheet: View {
             operation: .extend(info, years: min(years, available)), operationKey: "extend-\(years)"
         ) {
             if available > 1 {
-                Section {
+                KachatInputCard {
                     Picker("Years", selection: $years) {
                         ForEach(1...Int(available), id: \.self) { y in
                             KachatYearsText(years: y).tag(Int64(y))
@@ -2535,15 +2757,13 @@ struct KachatListSheet: View {
             rows: info.isListed ? [.init(title: "Listed at", value: KaspaUnit.amount(info.price))] : [],
             operation: price.map { .list(info, price: $0) }, operationKey: "list-\(price ?? 0)"
         ) {
-            Section {
+            KachatInputCard(title: "Price") {
                 HStack {
                     TextField("0", text: $priceText)
                         .keyboardType(.decimalPad)
-                        .font(.title3.weight(.semibold))
+                        .font(.title2.weight(.semibold))
                     Text(verbatim: KaspaUnit.symbol).foregroundColor(.secondary)
                 }
-            } header: {
-                Text("Price")
             }
         }
     }
@@ -2564,8 +2784,12 @@ struct KachatTransferSheet: View {
             rows: [KachatTxRow(title: "Name", value: info.display)] + (resolved.map { [KachatTxRow(title: "To", value: $0.address)] } ?? []),
             operation: resolved.map { .transfer(info, to: $0.key) }, operationKey: resolved?.address ?? "-"
         ) {
-            Section {
+            KachatInputCard(
+                title: "New owner",
+                footer: Text("A testnet address, or a .kachat name - it's resolved to the address shown.")
+            ) {
                 TextField("kaspatest:... or name.kachat", text: $input)
+                    .font(.system(.subheadline, design: .monospaced))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 if resolving {
@@ -2578,10 +2802,6 @@ struct KachatTransferSheet: View {
                 } else if let resolveError {
                     Text(resolveError).font(.caption).foregroundColor(.red)
                 }
-            } header: {
-                Text("New owner")
-            } footer: {
-                Text("A testnet address, or a .kachat name - it's resolved to the address shown.")
             }
         }
         .task(id: input) {

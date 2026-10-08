@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "已导入：新增 %lld 个，更新 %lld 个。";
 "That file isn't a KaChat Address Book export." = "该文件不是 KaChat 地址簿导出文件。";
 "That Address Book export has no addresses." = "该导出文件中没有地址。";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "网络繁忙";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "普通速度可能要等一会儿。快速或优先多付一点，更快进入区块。";
+"Balance after: %@" = "之后余额：%@";
+"Balance change: %@" = "余额变化：%@";
+"Available: %@" = "可用：%@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "认领会发送两笔交易：现在提交承诺，约一分钟后注册。两笔都用这个速度。";
+"Sent to the network" = "已发送到网络";
+"In a block" = "已进入区块";
+"Updated in KaChat" = "已在 KaChat 更新";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "正在等待网络将其打包进区块。通常几秒钟；繁忙时更久。";
+"It's in a block. Updating KaChat..." = "已进入区块。正在更新 KaChat...";
+"Done. It shows in KaChat now." = "完成。现在已在 KaChat 中显示。";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "网络尚未接收。如果始终未上链，不会花费任何东西——请用更快的费用重试。";
+"Tap the transaction to open it in the explorer." = "点按交易可在浏览器中打开。";

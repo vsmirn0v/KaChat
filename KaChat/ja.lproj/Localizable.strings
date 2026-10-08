@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "インポート完了：追加 %lld 件、更新 %lld 件。";
 "That file isn't a KaChat Address Book export." = "そのファイルは KaChat アドレス帳のエクスポートではありません。";
 "That Address Book export has no addresses." = "そのエクスポートにはアドレスがありません。";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "ネットワークが混雑しています";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "通常では時間がかかる場合があります。高速または優先は少し多く払い、早くブロックに入ります。";
+"Balance after: %@" = "送信後の残高: %@";
+"Balance change: %@" = "残高の変化: %@";
+"Available: %@" = "利用可能: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "取得では2つのトランザクションを送ります。今コミット、約1分後に登録。どちらもこの速度です。";
+"Sent to the network" = "ネットワークに送信";
+"In a block" = "ブロックに入りました";
+"Updated in KaChat" = "KaChat に反映";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "ネットワークがブロックに入れるのを待っています。通常は数秒、混雑時はもっとかかります。";
+"It's in a block. Updating KaChat..." = "ブロックに入りました。KaChat を更新中...";
+"Done. It shows in KaChat now." = "完了。KaChat に表示されています。";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "まだネットワークに取り込まれていません。届かなければ何も使われません。より速い手数料でもう一度お試しください。";
+"Tap the transaction to open it in the explorer." = "トランザクションをタップするとエクスプローラーで開きます。";

@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "Diimpor: %lld ditambahkan, %lld diperbarui.";
 "That file isn't a KaChat Address Book export." = "File itu bukan ekspor Buku Alamat KaChat.";
 "That Address Book export has no addresses." = "Ekspor itu tidak berisi alamat.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "Jaringan sedang sibuk";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "Dengan Normal bisa agak lama. Cepat atau Prioritas membayar sedikit lebih untuk masuk blok lebih cepat.";
+"Balance after: %@" = "Saldo setelahnya: %@";
+"Balance change: %@" = "Perubahan saldo: %@";
+"Available: %@" = "Tersedia: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "Klaim mengirim dua transaksi: commit sekarang, pendaftaran sekitar satu menit kemudian. Keduanya memakai kecepatan ini.";
+"Sent to the network" = "Dikirim ke jaringan";
+"In a block" = "Di dalam blok";
+"Updated in KaChat" = "Diperbarui di KaChat";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "Menunggu jaringan memasukkannya ke blok. Biasanya beberapa detik; lebih lama saat sibuk.";
+"It's in a block. Updating KaChat..." = "Sudah di dalam blok. Memperbarui KaChat...";
+"Done. It shows in KaChat now." = "Selesai. Sekarang tampil di KaChat.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "Jaringan belum menerimanya. Jika tidak pernah masuk, tidak ada yang terpakai - coba lagi dengan biaya lebih cepat.";
+"Tap the transaction to open it in the explorer." = "Ketuk transaksi untuk membukanya di explorer.";

@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "تم الاستيراد: أُضيف %lld، وحُدّث %lld.";
 "That file isn't a KaChat Address Book export." = "هذا الملف ليس تصديرًا لدفتر عناوين KaChat.";
 "That Address Book export has no addresses." = "لا يحتوي ملف التصدير هذا على أي عناوين.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "الشبكة مزدحمة";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "بالرسوم العادية قد يطول الانتظار. السريع أو الأولوية يدفع أكثر قليلًا ليدخل في كتلة أسرع.";
+"Balance after: %@" = "الرصيد بعد: %@";
+"Balance change: %@" = "تغيّر الرصيد: %@";
+"Available: %@" = "المتاح: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "المطالبة ترسل معاملتين: الالتزام الآن، والتسجيل بعد دقيقة تقريبًا. كلاهما بهذه السرعة.";
+"Sent to the network" = "أُرسلت إلى الشبكة";
+"In a block" = "في كتلة";
+"Updated in KaChat" = "حُدّثت في KaChat";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "بانتظار أن تضعها الشبكة في كتلة. عادة بضع ثوانٍ، وأطول عند الازدحام.";
+"It's in a block. Updating KaChat..." = "إنها في كتلة. جارٍ تحديث KaChat...";
+"Done. It shows in KaChat now." = "تم. تظهر في KaChat الآن.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "لم تقبلها الشبكة بعد. لن يُنفق شيء إن لم تصل أبدًا - أعد المحاولة برسوم أسرع.";
+"Tap the transaction to open it in the explorer." = "اضغط المعاملة لفتحها في المستكشف.";

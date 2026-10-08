@@ -49,6 +49,9 @@ extension KachatNames {
         /// The price the person confirmed for the whole registration (sompi). The registration
         /// never pays more (registry v4's prices are fixed, so it never has to).
         var maxPrice: UInt64?
+        /// The fee speed chosen when claiming (`WithdrawFeeTier` raw value), applied to the commit
+        /// and, at the current network rate, to the register. nil (claims from before): Priority.
+        var feeTier: String? = nil
 
         /// Still shown on the hub.
         var isOpen: Bool { stage != .cancelled }
@@ -240,21 +243,80 @@ final class KachatNamesActions: ObservableObject {
         }
     }
 
-    /// `max(100, the REST API's priority fee rate)` in sompi per gram.
-    func feerate() async -> Double {
+    // MARK: - Fees
+
+    /// The network's fee picture: what Normal pays (sompi per gram) and how long it is expected
+    /// to wait, and the priority rate. From a node; the REST API only if no node answers.
+    struct FeeEstimate: Equatable {
+        var normal: Double
+        var normalSeconds: Double
+        var priority: Double
+        var prioritySeconds: Double
+
+        /// Busy: Normal costs above the relay floor, or isn't expected in the next few blocks.
+        var isBusy: Bool { normal > KachatNames.minFeerate * 1.5 || normalSeconds > 10 }
+    }
+
+    /// The fee a name transaction pays: a speed (the Send screens' Normal / Fast / Priority, as
+    /// multiples of the network's Normal rate), or a total the person typed.
+    enum FeeChoice: Equatable {
+        case tier(WithdrawFeeTier)
+        /// the whole network fee, sompi
+        case customTotal(UInt64)
+    }
+
+    @Published private(set) var feeEstimate: FeeEstimate?
+
+    /// Reads the fee estimate (node first) and publishes it; nil when nothing answers.
+    @discardableResult
+    func refreshFeeEstimate() async -> FeeEstimate? {
+        if let e = try? await NodePoolService.shared.feeEstimate() {
+            let estimate = FeeEstimate(normal: e.normal.feerate, normalSeconds: e.normal.seconds,
+                                       priority: e.priority.feerate, prioritySeconds: e.priority.seconds)
+            feeEstimate = estimate
+            return estimate
+        }
         let base = AppSettings.load().kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: "\(base.hasSuffix("/") ? String(base.dropLast()) : base)/info/fee-estimate") else {
-            return Self.unknownFeerate
+        guard let url = URL(string: "\(base.hasSuffix("/") ? String(base.dropLast()) : base)/info/fee-estimate"),
+              let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let priority = j["priorityBucket"] as? [String: Any] else { return feeEstimate }
+        let normal = (j["normalBuckets"] as? [[String: Any]])?.first ?? priority
+        func num(_ d: [String: Any], _ k: String) -> Double { (d[k] as? NSNumber)?.doubleValue ?? 0 }
+        let estimate = FeeEstimate(normal: num(normal, "feerate"), normalSeconds: num(normal, "estimatedSeconds"),
+                                   priority: num(priority, "feerate"), prioritySeconds: num(priority, "estimatedSeconds"))
+        feeEstimate = estimate
+        return estimate
+    }
+
+    /// The rate a speed pays: the network's Normal rate (never under the relay floor) times the
+    /// speed's multiplier, the same 1x / 2x / 5x the Send screens use.
+    func feerate(for tier: WithdrawFeeTier) async -> Double {
+        let estimate = await refreshFeeEstimate()
+        let base = estimate.map { max(KachatNames.minFeerate, $0.normal) } ?? Self.unknownFeerate
+        return base * Double(tier.multiplier)
+    }
+
+    /// The rate for a choice; nil keeps the old default (the priority rate). A typed total is
+    /// turned into a rate by building the transaction once at the floor to learn its mass.
+    private func feerate(for choice: FeeChoice?, op: Operation, s: Signer) async throws -> Double {
+        switch choice {
+        case nil:
+            return await feerate()
+        case .tier(let tier):
+            return await feerate(for: tier)
+        case .customTotal(let total):
+            let probe = try await build(op, s, feerate: KachatNames.minFeerate).plan
+            let mass = max(1, Double(probe.costs.minFee) / KachatNames.minFeerate)
+            return max(KachatNames.minFeerate, Double(total) / mass)
         }
-        for _ in 0..<2 {
-            if let (data, response) = try? await URLSession.shared.data(from: url),
-               (response as? HTTPURLResponse)?.statusCode == 200,
-               let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let rate = ((j["priorityBucket"] as? [String: Any])?["feerate"] as? NSNumber)?.doubleValue {
-                return max(KachatNames.minFeerate, rate)
-            }
-        }
-        return Self.unknownFeerate
+    }
+
+    /// `max(100, the priority fee rate)` in sompi per gram.
+    func feerate() async -> Double {
+        guard let e = await refreshFeeEstimate(), e.priority > 0 else { return Self.unknownFeerate }
+        return max(KachatNames.minFeerate, e.priority)
     }
 
     /// When the fee estimate can't be read: well above the floor, since the floor is exactly what
@@ -262,10 +324,13 @@ final class KachatNamesActions: ObservableObject {
     /// on these small transactions.
     private static let unknownFeerate = KachatNames.minFeerate * 10
 
-    /// Builder, environment and the wallet's funding UTXOs for one transaction.
-    private func context(_ s: Signer) async throws -> (KachatNames.Builder, KachatNames.Env, [KachatNames.Utxo]) {
+    /// Builder, environment and the wallet's funding UTXOs for one transaction, at `feerate`
+    /// (default: the priority rate).
+    private func context(_ s: Signer, feerate rate: Double? = nil) async throws -> (KachatNames.Builder, KachatNames.Env, [KachatNames.Utxo]) {
         let builder = try await service.builder()
-        let env = try await service.environment(privateKey: s.privateKey, feerate: await feerate())
+        let chosen: Double
+        if let rate { chosen = rate } else { chosen = await feerate() }
+        let env = try await service.environment(privateKey: s.privateKey, feerate: chosen)
         virtualDaa = env.blockDaa
         let utxos = try await NodePoolService.shared.getUtxosByAddresses([s.address])
         let funding = KachatNamesService.fundingUtxos(utxos, me: s.me, virtualDaaScore: env.blockDaa)
@@ -332,14 +397,14 @@ final class KachatNamesActions: ObservableObject {
 
     /// Builds `op` against live UTXOs without submitting anything: the fee and outputs a sheet
     /// shows before the person confirms.
-    func plan(_ op: Operation) async throws -> KachatNames.Plan {
+    func plan(_ op: Operation, fee: FeeChoice? = nil) async throws -> KachatNames.Plan {
         let s = try signer(for: op)
-        return try await build(op, s).plan
+        return try await build(op, s, feerate: try await feerate(for: fee, op: op, s: s)).plan
     }
 
-    private func build(_ op: Operation, _ s: Signer) async throws -> (plan: KachatNames.Plan, env: KachatNames.Env) {
+    private func build(_ op: Operation, _ s: Signer, feerate rate: Double? = nil) async throws -> (plan: KachatNames.Plan, env: KachatNames.Env) {
         let m = try await registry.prepare()
-        let (b, env, wallet) = try await context(s)
+        let (b, env, wallet) = try await context(s, feerate: rate)
         let plan: KachatNames.Plan
         switch op {
         case .extend(let n, let years):
@@ -423,9 +488,9 @@ final class KachatNamesActions: ObservableObject {
     /// `maxPrice` is the price the person saw and confirmed (a plan's `priceFee`): a register,
     /// extend or renew never pays more. Prices can change at any time in the price record.
     @discardableResult
-    func perform(_ op: Operation, maxPrice: UInt64? = nil) async throws -> String {
+    func perform(_ op: Operation, maxPrice: UInt64? = nil, fee: FeeChoice? = nil) async throws -> String {
         let s = try signer(for: op)
-        let txId = try await submit(op, s, maxPrice: maxPrice)
+        let (txId, plan) = try await submit(op, s, maxPrice: maxPrice, feerate: try await feerate(for: fee, op: op, s: s))
         // An offer you withdrew or refunded yourself isn't news in the Profile bell; the ones
         // this app returns on its own (expired, made to an earlier owner) are.
         switch op {
@@ -445,14 +510,14 @@ final class KachatNamesActions: ObservableObject {
         default:
             break
         }
-        registry.refreshAfter(txId: txId)
+        follow(txId: txId, plan: plan)
         return txId
     }
 
     /// Signs and submits `op`, rebuilt against live UTXOs. It never pays more than `maxPrice`,
     /// the price the person confirmed.
-    private func submit(_ op: Operation, _ s: Signer, maxPrice: UInt64?) async throws -> String {
-        let (plan, env) = try await build(op, s)
+    private func submit(_ op: Operation, _ s: Signer, maxPrice: UInt64?, feerate rate: Double?) async throws -> (String, KachatNames.Plan) {
+        let (plan, env) = try await build(op, s, feerate: rate)
         if let maxPrice, plan.priceFee > maxPrice { throw ActionError.priceChanged(plan.priceFee) }
         let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
         if case .offer = op, let o = plan.newOffer {
@@ -460,7 +525,71 @@ final class KachatNamesActions: ObservableObject {
                 outpoint: o.utxo.outpoint, key: o.fields.key, name: o.name, buyer: o.fields.buyer, seller: o.fields.seller,
                 amount: o.value, refundAfter: o.fields.refundAfter, createdAt: KachatNames.nowMs()))
         }
-        return txId
+        return (txId, plan)
+    }
+
+    // MARK: - Following a sent transaction (node only)
+
+    /// Where a sent name transaction is: sent, waiting in a node's mempool, in a block (its output
+    /// is in the UTXO set), shown (the registry has it), or dropped (no node has it).
+    enum TxStage: Equatable { case sent, inMempool, accepted, shown, dropped }
+
+    /// The stage of every transaction sent from this app this session, by txid.
+    @Published private(set) var txStages: [String: TxStage] = [:]
+
+    /// Follows `txId` on a node until it is in a block, then refreshes the registry so the change
+    /// shows. "In a block" is the node's UTXO set holding the transaction's own output - no
+    /// indexer or explorer involved.
+    /// Without a plan (a transaction built elsewhere, like a profile save) only the mempool, then
+    /// the REST API, can tell.
+    func follow(txId: String, plan: KachatNames.Plan?) {
+        txStages[txId] = .sent
+        // a registry or offer output (P2SH) if there is one, else the first output
+        let outputs = plan?.unsignedTx.outputs ?? []
+        let index = outputs.firstIndex { KachatNamesService.p2shAddress(script: $0.script) != nil } ?? 0
+        let address: String? = index < outputs.count
+            ? (KachatNamesService.p2shAddress(script: outputs[index].script) ?? Self.p2pkAddress(script: outputs[index].script))
+            : nil
+        Task { @MainActor in
+            var sawMempool = false
+            let started = Date()
+            while Date().timeIntervalSince(started) < 300 {
+                if let address, let utxos = try? await NodePoolService.shared.getUtxosByAddresses([address]),
+                   utxos.contains(where: { $0.outpoint.transactionId.lowercased() == txId.lowercased() && $0.outpoint.index == UInt32(index) }) {
+                    txStages[txId] = .accepted
+                    await registry.refresh()
+                    txStages[txId] = .shown
+                    return
+                }
+                if await NodePoolService.shared.getMempoolEntry(txId: txId) != nil {
+                    sawMempool = true
+                    if txStages[txId] == .sent { txStages[txId] = .inMempool }
+                } else if sawMempool || address == nil || Date().timeIntervalSince(started) > 20 {
+                    // Out of the mempool and not found by its output: in a block whose output was
+                    // spent right away, or dropped. A node-held answer is preferred; the REST API
+                    // settles the rare case.
+                    if await KachatNamesRegistry.isAccepted(txId: txId) {
+                        txStages[txId] = .accepted
+                        await registry.refresh()
+                        txStages[txId] = .shown
+                        return
+                    }
+                    if Date().timeIntervalSince(started) > 60 {
+                        txStages[txId] = .dropped
+                        return
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            txStages[txId] = .dropped
+        }
+    }
+
+    /// The `kaspatest:` address of a P2PK output script (`<32-byte key> OP_CHECKSIG`).
+    private static func p2pkAddress(script: Data) -> String? {
+        let b = [UInt8](script)
+        guard b.count == 34, b[0] == 0x20, b[33] == 0xac else { return nil }
+        return KachatNamesRegistry.address(of: Data(b[1..<33]))
     }
 
     // MARK: - Expired offers
@@ -604,10 +733,10 @@ final class KachatNamesActions: ObservableObject {
 
     /// The cost of registering `name` for `years`, estimated by building both transactions
     /// (nothing is signed or sent).
-    func quote(name: String, years: Int64, gap: KachatNames.GapInfo) async throws -> Quote {
+    func quote(name: String, years: Int64, gap: KachatNames.GapInfo, feeTier: WithdrawFeeTier = .normal) async throws -> Quote {
         let s = try signer()
         let m = try await registry.prepare()
-        let (b, env, wallet) = try await context(s)
+        let (b, env, wallet) = try await context(s, feerate: await feerate(for: feeTier))
         let salt = try KachatNamesService.newSalt()
         let spendable = wallet.reduce(UInt64(0)) { $0 + $1.entry.amount }
         let price = m.params.registerCost(forLength: name.utf8.count, years: years)
@@ -639,7 +768,7 @@ final class KachatNamesActions: ObservableObject {
     /// Starts registering `name`: a fresh salt (Keychain), the salted commit (submitted), then the
     /// driver registers once the commit is `tCommit` deep. Returns the commit txid.
     @discardableResult
-    func startRegistration(name raw: String, years: Int64, maxPrice: UInt64) async throws -> String {
+    func startRegistration(name raw: String, years: Int64, maxPrice: UInt64, feeTier: WithdrawFeeTier = .normal) async throws -> String {
         let s = try signer()
         let name = KachatNames.Codec.normalize(raw)
         try KachatNames.Codec.validate(name)
@@ -656,7 +785,7 @@ final class KachatNamesActions: ObservableObject {
         case .free:
             break
         }
-        let (b, env, wallet) = try await context(s)
+        let (b, env, wallet) = try await context(s, feerate: await feerate(for: feeTier))
         let salt = try KachatNamesService.newSalt()
         let plan = try b.commit(env: env, wallet: wallet, name: name, salt: salt)
         guard let commit = plan.newCommit, let script = commit.utxo?.entry.script else { throw KachatNames.Failure("commit: no record") }
@@ -666,7 +795,8 @@ final class KachatNamesActions: ObservableObject {
         var record = KachatNames.PendingRegistration(
             id: id, name: name, years: years, owner: KachatNames.hex(s.me), commitTxId: plan.unsignedTx.idHex,
             commitScript: KachatNames.hex(script), commitDaa: nil, registerTxId: nil, cancelTxId: nil,
-            stage: .committing, createdAt: now, updatedAt: now, lastError: nil, maxPrice: maxPrice
+            stage: .committing, createdAt: now, updatedAt: now, lastError: nil, maxPrice: maxPrice,
+            feeTier: feeTier.rawValue
         )
         loadPending(for: s.address)
         upsert(record)
@@ -781,6 +911,27 @@ final class KachatNamesActions: ObservableObject {
         return try? await service.liveUtxo(script: script, outpoint: op)
     }
 
+    /// true: the node says the commit is no longer in the UTXO set; false: it still is; nil: the
+    /// node couldn't be asked (never read as "spent").
+    private func commitSpent(_ p: KachatNames.PendingRegistration) async -> Bool? {
+        guard let script = try? KachatNames.unhex(p.commitScript), let op = try? commitOutpoint(p) else { return nil }
+        do {
+            _ = try await service.liveUtxo(script: script, outpoint: op)
+            return false
+        } catch let error as KachatNamesService.ServiceError {
+            if case .notOnChain = error { return true }
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
+    /// The rate the registration's chosen speed pays now (its claim-time choice), else Priority.
+    private func registrationFeerate(_ p: KachatNames.PendingRegistration) async -> Double {
+        if let raw = p.feeTier, let tier = WithdrawFeeTier(rawValue: raw) { return await feerate(for: tier) }
+        return await feerate()
+    }
+
     private func set(_ p: KachatNames.PendingRegistration, _ change: (inout KachatNames.PendingRegistration) -> Void) {
         var q = pending.first { $0.id == p.id } ?? p
         change(&q)
@@ -814,7 +965,10 @@ final class KachatNamesActions: ObservableObject {
             guard dag.virtualDaaScore >= commit.entry.blockDaaScore + m.params.tCommit + 20 else { return }
             await register(p, commit: commit)
         case .registering:
-            if let tx = p.registerTxId, await KachatNamesRegistry.isAccepted(txId: tx) {
+            // In a block: no node holds it in a mempool any more, and the commit it spends is gone
+            // from the UTXO set (only this owner's register or cancel can spend it). Node only.
+            if let tx = p.registerTxId, await NodePoolService.shared.getMempoolEntry(txId: tx) == nil,
+               await commitSpent(p) == true {
                 // Accepted is registered: the gap only accepts a register that mints this owner's
                 // name. The receipt shows now; the registry catches up in the background instead
                 // of first (a chain walk while the indexer follows another registry).
@@ -861,7 +1015,7 @@ final class KachatNamesActions: ObservableObject {
             let s = try signer()
             guard KachatNames.hex(s.me) == p.owner else { return }
             guard let salt = try KeychainService.shared.loadKachatCommitSalt(id: p.id, walletAddress: s.address) else { throw ActionError.noSalt }
-            let (b, env, wallet) = try await context(s)
+            let (b, env, wallet) = try await context(s, feerate: await registrationFeerate(p))
             let plan = try b.commit(env: env, wallet: wallet, name: p.name, salt: salt)
             guard let script = plan.newCommit?.utxo?.entry.script, KachatNames.hex(script) == p.commitScript else {
                 throw KachatNames.Failure("commit: a different script")
@@ -887,7 +1041,7 @@ final class KachatNamesActions: ObservableObject {
     /// Frees a lapsed old record of `p`'s name (a reclaim) and notes the gap it reopens.
     private func sendReclaim(of n: KachatNames.NameInfo, for p: KachatNames.PendingRegistration) async throws {
         let gaps = try await registry.exitGaps(for: n)
-        let txId = try await perform(.reclaim(n))
+        let txId = try await perform(.reclaim(n), fee: p.feeTier.flatMap(WithdrawFeeTier.init(rawValue:)).map { .tier($0) })
         set(p) {
             $0.reclaimTxId = txId
             $0.reclaimLo = KachatNames.hex(gaps.below.lo)
@@ -942,7 +1096,7 @@ final class KachatNamesActions: ObservableObject {
                 guard let g else { throw KachatNames.Failure("no gap for \(p.name) yet") }
                 gap = g
             }
-            let (b, env, wallet) = try await context(s)
+            let (b, env, wallet) = try await context(s, feerate: await registrationFeerate(p))
             let plan = try b.register(
                 env: env, wallet: wallet, gap: try await liveGap(gap, m),
                 commit: KachatNames.CommitRecord(name: p.name, owner: s.me, salt: salt, value: commit.entry.amount, utxo: commit),

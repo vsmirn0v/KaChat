@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "وارد شد: %lld افزوده، %lld به‌روزرسانی.";
 "That file isn't a KaChat Address Book export." = "آن فایل یک فایل صادرشده دفترچه نشانی KaChat نیست.";
 "That Address Book export has no addresses." = "این فایل صادرشده هیچ نشانی‌ای ندارد.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "شبکه شلوغ است";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "با کارمزد عادی ممکن است طول بکشد. سریع یا اولویت کمی بیشتر می‌پردازد تا زودتر وارد بلوک شود.";
+"Balance after: %@" = "موجودی پس از آن: %@";
+"Balance change: %@" = "تغییر موجودی: %@";
+"Available: %@" = "در دسترس: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "ادعا دو تراکنش می‌فرستد: تعهد اکنون، و ثبت حدود یک دقیقه بعد. هر دو با این سرعت.";
+"Sent to the network" = "به شبکه ارسال شد";
+"In a block" = "در یک بلوک";
+"Updated in KaChat" = "در KaChat به‌روز شد";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "در انتظار قرار گرفتن در بلوک توسط شبکه. معمولاً چند ثانیه؛ هنگام شلوغی بیشتر.";
+"It's in a block. Updating KaChat..." = "در یک بلوک است. در حال به‌روزرسانی KaChat...";
+"Done. It shows in KaChat now." = "انجام شد. اکنون در KaChat دیده می‌شود.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "شبکه هنوز آن را نپذیرفته. اگر هرگز نرسد چیزی خرج نشده - با کارمزد سریع‌تر دوباره امتحان کنید.";
+"Tap the transaction to open it in the explorer." = "برای باز کردن در کاوشگر روی تراکنش بزنید.";

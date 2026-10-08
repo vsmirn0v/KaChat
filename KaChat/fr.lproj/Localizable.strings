@@ -1503,3 +1503,19 @@
 "Imported: %lld added, %lld updated." = "Importé : %lld ajoutées, %lld mises à jour.";
 "That file isn't a KaChat Address Book export." = "Ce fichier n'est pas un export du carnet d'adresses KaChat.";
 "That Address Book export has no addresses." = "Cet export ne contient aucune adresse.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "Le réseau est chargé";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "En Normal, cela peut prendre du temps. Rapide ou Prioritaire paie un peu plus pour entrer plus vite dans un bloc.";
+"Balance after: %@" = "Solde après : %@";
+"Balance change: %@" = "Variation du solde : %@";
+"Available: %@" = "Disponible : %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "Réclamer envoie deux transactions : l'engagement maintenant, l'enregistrement environ une minute plus tard. Toutes deux à cette vitesse.";
+"Sent to the network" = "Envoyée au réseau";
+"In a block" = "Dans un bloc";
+"Updated in KaChat" = "Mise à jour dans KaChat";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "En attente d'un bloc. En général quelques secondes, plus quand le réseau est chargé.";
+"It's in a block. Updating KaChat..." = "Elle est dans un bloc. Mise à jour de KaChat...";
+"Done. It shows in KaChat now." = "Terminé. C'est visible dans KaChat.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "Le réseau ne l'a pas encore prise. Si elle n'arrive jamais, rien n'est dépensé - réessayez avec des frais plus rapides.";
+"Tap the transaction to open it in the explorer." = "Touchez la transaction pour l'ouvrir dans l'explorateur.";

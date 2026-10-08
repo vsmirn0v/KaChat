@@ -17,6 +17,7 @@ enum KaspaRequestType: Hashable {
     case getBlockDagInfo
     case getCurrentNetwork
     case getMempoolEntry
+    case getFeeEstimate
 
     /// The expected response type for this request
     var responseCase: String {
@@ -31,6 +32,7 @@ enum KaspaRequestType: Hashable {
         case .getBlockDagInfo: return "getBlockDagInfoResponse"
         case .getCurrentNetwork: return "getCurrentNetworkResponse"
         case .getMempoolEntry: return "getMempoolEntryResponse"
+        case .getFeeEstimate: return "getFeeEstimateResponse"
         }
     }
 }
@@ -857,6 +859,8 @@ actor GRPCStreamConnection {
             return .getCurrentNetwork
         case .getMempoolEntryResponse:
             return .getMempoolEntry
+        case .getFeeEstimateResponse:
+            return .getFeeEstimate
         default:
             return nil
         }

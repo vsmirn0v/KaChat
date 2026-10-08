@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "יובאו: %lld נוספו, %lld עודכנו.";
 "That file isn't a KaChat Address Book export." = "הקובץ אינו ייצוא של פנקס הכתובות של KaChat.";
 "That Address Book export has no addresses." = "בייצוא הזה אין כתובות.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "הרשת עמוסה";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "ב'רגיל' זה עלול להתעכב. 'מהיר' או 'עדיפות' משלמים מעט יותר כדי להיכנס לבלוק מוקדם יותר.";
+"Balance after: %@" = "יתרה אחרי: %@";
+"Balance change: %@" = "שינוי ביתרה: %@";
+"Available: %@" = "זמין: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "תביעה שולחת שתי עסקאות: ההתחייבות עכשיו, והרישום כדקה אחר כך. שתיהן במהירות הזו.";
+"Sent to the network" = "נשלחה לרשת";
+"In a block" = "בבלוק";
+"Updated in KaChat" = "עודכן ב-KaChat";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "ממתינה שהרשת תכניס אותה לבלוק. בדרך כלל כמה שניות; יותר כשעמוס.";
+"It's in a block. Updating KaChat..." = "היא בבלוק. מעדכן את KaChat...";
+"Done. It shows in KaChat now." = "הושלם. זה מופיע ב-KaChat עכשיו.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "הרשת עוד לא קיבלה אותה. אם היא לא תגיע לעולם, דבר לא נוצל - נסו שוב עם עמלה מהירה יותר.";
+"Tap the transaction to open it in the explorer." = "הקישו על העסקה כדי לפתוח אותה בסייר.";

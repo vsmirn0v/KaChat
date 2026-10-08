@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "Импортировано: добавлено %lld, обновлено %lld.";
 "That file isn't a KaChat Address Book export." = "Это не экспорт адресной книги KaChat.";
 "That Address Book export has no addresses." = "В этом экспорте нет адресов.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "Сеть загружена";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "С обычной комиссией это может затянуться. Быстрая или приоритетная платит чуть больше и раньше попадает в блок.";
+"Balance after: %@" = "Баланс после: %@";
+"Balance change: %@" = "Изменение баланса: %@";
+"Available: %@" = "Доступно: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "Получение отправляет две транзакции: коммит сейчас, регистрацию примерно через минуту. Обе с этой скоростью.";
+"Sent to the network" = "Отправлено в сеть";
+"In a block" = "В блоке";
+"Updated in KaChat" = "Обновлено в KaChat";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "Ждём, пока сеть включит её в блок. Обычно несколько секунд, дольше при нагрузке.";
+"It's in a block. Updating KaChat..." = "Она в блоке. Обновляем KaChat...";
+"Done. It shows in KaChat now." = "Готово. Теперь это видно в KaChat.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "Сеть её пока не приняла. Если она так и не пройдёт, ничего не потрачено - попробуйте снова с более быстрой комиссией.";
+"Tap the transaction to open it in the explorer." = "Нажмите на транзакцию, чтобы открыть её в обозревателе.";

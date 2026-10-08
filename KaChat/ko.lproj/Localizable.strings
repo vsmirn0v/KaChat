@@ -1502,3 +1502,19 @@
 "Imported: %lld added, %lld updated." = "가져옴: %lld개 추가, %lld개 업데이트.";
 "That file isn't a KaChat Address Book export." = "그 파일은 KaChat 주소록 내보내기 파일이 아닙니다.";
 "That Address Book export has no addresses." = "그 내보내기 파일에 주소가 없습니다.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "네트워크가 혼잡합니다";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "보통으로는 오래 걸릴 수 있습니다. 빠름이나 우선은 조금 더 내고 더 빨리 블록에 들어갑니다.";
+"Balance after: %@" = "이후 잔액: %@";
+"Balance change: %@" = "잔액 변화: %@";
+"Available: %@" = "사용 가능: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "등록 시 두 건의 트랜잭션을 보냅니다. 지금 커밋, 약 1분 뒤 등록. 둘 다 이 속도로 보냅니다.";
+"Sent to the network" = "네트워크로 보냄";
+"In a block" = "블록에 포함됨";
+"Updated in KaChat" = "KaChat에 반영됨";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "네트워크가 블록에 넣기를 기다리는 중. 보통 몇 초, 혼잡하면 더 걸립니다.";
+"It's in a block. Updating KaChat..." = "블록에 포함되었습니다. KaChat 업데이트 중...";
+"Done. It shows in KaChat now." = "완료. 이제 KaChat에 표시됩니다.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "네트워크가 아직 받지 않았습니다. 끝내 들어가지 않으면 아무것도 쓰이지 않습니다 - 더 빠른 수수료로 다시 시도하세요.";
+"Tap the transaction to open it in the explorer." = "트랜잭션을 탭하면 익스플로러에서 열립니다.";

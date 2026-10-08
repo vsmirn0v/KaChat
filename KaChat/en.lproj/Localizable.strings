@@ -1503,3 +1503,19 @@
 "Imported: %lld added, %lld updated." = "Imported: %lld added, %lld updated.";
 "That file isn't a KaChat Address Book export." = "That file isn't a KaChat Address Book export.";
 "That Address Book export has no addresses." = "That Address Book export has no addresses.";
+
+/* .kachat: fees, busy network, progress receipt */
+"The network is busy" = "The network is busy";
+"At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner." = "At Normal this may wait a while. Fast or Priority pays a little more to get into a block sooner.";
+"Balance after: %@" = "Balance after: %@";
+"Balance change: %@" = "Balance change: %@";
+"Available: %@" = "Available: %@";
+"Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed." = "Claiming sends two transactions: the commit now, the registration about a minute later. Both use this speed.";
+"Sent to the network" = "Sent to the network";
+"In a block" = "In a block";
+"Updated in KaChat" = "Updated in KaChat";
+"Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy." = "Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy.";
+"It's in a block. Updating KaChat..." = "It's in a block. Updating KaChat...";
+"Done. It shows in KaChat now." = "Done. It shows in KaChat now.";
+"The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee.";
+"Tap the transaction to open it in the explorer." = "Tap the transaction to open it in the explorer.";
