@@ -555,9 +555,10 @@ final class KachatNamesActions: ObservableObject {
             let started = Date()
             while Date().timeIntervalSince(started) < 300 {
                 if let address, let utxos = try? await NodePoolService.shared.getUtxosByAddresses([address]),
-                   utxos.contains(where: { $0.outpoint.transactionId.lowercased() == txId.lowercased() && $0.outpoint.index == UInt32(index) }) {
+                   let landed = utxos.first(where: { $0.outpoint.transactionId.lowercased() == txId.lowercased() && $0.outpoint.index == UInt32(index) }) {
                     txStages[txId] = .accepted
-                    await registry.refresh()
+                    // until the registry (indexer or walk) has caught up with this block
+                    await registry.refreshUntilIncludes(txId: txId, daa: landed.blockDaaScore)
                     txStages[txId] = .shown
                     return
                 }
@@ -570,7 +571,7 @@ final class KachatNamesActions: ObservableObject {
                     // settles the rare case.
                     if await KachatNamesRegistry.isAccepted(txId: txId) {
                         txStages[txId] = .accepted
-                        await registry.refresh()
+                        await registry.refreshUntilIncludes(txId: txId, daa: await NodePoolService.shared.currentVirtualDaaScore())
                         txStages[txId] = .shown
                         return
                     }
@@ -973,7 +974,10 @@ final class KachatNamesActions: ObservableObject {
                 // name. The receipt shows now; the registry catches up in the background instead
                 // of first (a chain walk while the indexer follows another registry).
                 finishRegistered(p)
-                Task { await registry.refresh() }
+                Task {
+                    let daa = await NodePoolService.shared.currentVirtualDaaScore()
+                    await registry.refreshUntilIncludes(txId: tx, daa: daa)
+                }
                 return
             }
             // not accepted after two minutes and the commit is still there: register again

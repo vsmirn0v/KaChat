@@ -162,6 +162,31 @@ final class KachatNamesRegistry: ObservableObject {
         }
     }
 
+    /// Read-your-writes after this app's own transaction: refreshes until the registry shows it -
+    /// an indexer that has indexed up to `daa` (the block it landed in), or a chain walk that has
+    /// applied it - so every screen reloading on `revision` (Your Domains, the marketplace, the
+    /// name) shows the change without being opened again. Gives up after 45 s.
+    func refreshUntilIncludes(txId: String, daa: UInt64?) async {
+        let deadline = Date().addingTimeInterval(45)
+        repeat {
+            await refresh()
+            if await includes(txId: txId, daa: daa) { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        } while Date() < deadline
+    }
+
+    private func includes(txId: String, daa: UInt64?) async -> Bool {
+        switch source {
+        case .indexer(let base):
+            guard let daa else { return true }
+            guard let status: KachatNames.IndexerAPI.StatusJSON = try? await Self.get(base, "/names/status") else { return false }
+            return (status.indexedDaa ?? 0) >= daa
+        default:
+            let id = txId.lowercased()
+            return chainState?.applied.contains { $0.lowercased() == id } ?? false
+        }
+    }
+
     /// `refresh()` unless the last one is younger than `maxAge` seconds (lookups from typed names).
     func refreshIfStale(maxAge: TimeInterval = 60) async {
         if let at = refreshedAt, Date().timeIntervalSince(at) < maxAge { return }
