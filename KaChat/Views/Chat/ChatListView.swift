@@ -77,6 +77,9 @@ struct ChatListView: View {
     @State private var rowDeleteContact: Contact?
     /// The row whose long-press action sheet is up.
     @State private var conversationActionTarget: Conversation?
+    /// The chat row's "Add to Address Book" tile: the contact whose entry sheet is up.
+    @State private var addressBookTarget: Contact?
+    @ObservedObject private var addressBook = AddressBookManager.shared
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
     @State private var selectedGroupIDs: Set<String> = []
@@ -199,6 +202,12 @@ struct ChatListView: View {
             .toast(message: toastMessage, style: toastStyle)
 
         let withAlerts = withPresentation
+            .sheet(item: $addressBookTarget) { contact in
+                AddressBookEntryEditor(
+                    address: contact.address,
+                    suggestedName: contact.assignedName ?? contactsManager.displayName(for: contact)
+                ) { _ in }
+            }
             .sheet(item: $conversationActionTarget) { conversation in
             conversationRowSheet(for: conversation)
         }
@@ -1334,6 +1343,22 @@ struct ChatListView: View {
                 ) {
                     conversationActionTarget = nil
                     setSilent(!isSilent, for: conversation.contact)
+                }
+
+                // Save this person's address (or edit their saved entry) without leaving the list.
+                if !isOwnChat(conversation.contact) {
+                    let saved = addressBook.entry(for: conversation.contact.address) != nil
+                    ActionSheetRow(
+                        title: saved ? "Address Book" : "Add to Address Book",
+                        subtitle: saved
+                            ? "Edit or remove this saved address."
+                            : "Save this address with a name you'll recognize.",
+                        systemImage: saved ? "book.closed.fill" : "book.closed"
+                    ) {
+                        conversationActionTarget = nil
+                        // One turn later, like Delete: a sheet cannot present while this one leaves.
+                        DispatchQueue.main.async { addressBookTarget = conversation.contact }
+                    }
                 }
 
                 // Your chat with yourself cannot be deleted - it is always there, first in the list.

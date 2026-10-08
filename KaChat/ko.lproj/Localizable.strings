@@ -1473,3 +1473,7 @@
 "Remove Address Book Photos?" = "주소록 사진을 제거할까요?";
 "Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "저장한 주소에 지정한 사진으로, 이 기기의 모든 지갑에 해당합니다. 직접 제거할 때까지 유지되며 채팅 백업에 포함됩니다.";
 "Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "%@ 확보됩니다. 저장한 주소의 이름은 유지되고, 대신 주인이 설정한 아바타가 표시됩니다.";
+
+/* Chat row: Address Book tile */
+"Save this address with a name you'll recognize." = "이 주소를 알아보기 쉬운 이름으로 저장합니다.";
+"Edit or remove this saved address." = "저장한 이 주소를 편집하거나 제거합니다.";

@@ -1473,3 +1473,7 @@
 "Remove Address Book Photos?" = "ঠিকানা বইয়ের ছবি সরাবেন?";
 "Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "সংরক্ষিত ঠিকানাগুলোর জন্য আপনার দেওয়া ছবি, এই ডিভাইসের সব ওয়ালেটের জন্য। আপনি না সরানো পর্যন্ত থাকে, এবং আপনার চ্যাট ব্যাকআপে অন্তর্ভুক্ত থাকে।";
 "Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "%@ খালি হবে। সংরক্ষিত ঠিকানাগুলোর নাম থাকবে; বদলে মালিকের সেট করা অবতার দেখাবে।";
+
+/* Chat row: Address Book tile */
+"Save this address with a name you'll recognize." = "এই ঠিকানাটি চেনা নামে সংরক্ষণ করুন।";
+"Edit or remove this saved address." = "এই সংরক্ষিত ঠিকানাটি সম্পাদনা করুন বা সরান।";

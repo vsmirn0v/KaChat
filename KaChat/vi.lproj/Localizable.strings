@@ -1473,3 +1473,7 @@
 "Remove Address Book Photos?" = "Gỡ ảnh sổ địa chỉ?";
 "Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "Ảnh bạn gán cho các địa chỉ đã lưu, cho mọi ví trên thiết bị này. Ảnh được giữ cho đến khi bạn gỡ và có trong bản sao lưu trò chuyện.";
 "Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "Giải phóng %@. Các địa chỉ đã lưu vẫn giữ tên và sẽ hiển thị ảnh đại diện do chủ sở hữu đặt.";
+
+/* Chat row: Address Book tile */
+"Save this address with a name you'll recognize." = "Lưu địa chỉ này với một cái tên dễ nhận ra.";
+"Edit or remove this saved address." = "Sửa hoặc gỡ địa chỉ đã lưu này.";

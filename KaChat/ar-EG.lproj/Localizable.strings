@@ -1473,3 +1473,7 @@
 "Remove Address Book Photos?" = "إزالة صور دفتر العناوين؟";
 "Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "الصور التي خصصتها للعناوين المحفوظة، لكل المحافظ على هذا الجهاز. تبقى حتى تزيلها، وهي مضمّنة في النسخة الاحتياطية للمحادثات.";
 "Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "يحرّر %@. تحتفظ العناوين المحفوظة بأسمائها، وتعرض بدلًا من ذلك الصورة التي وضعها أصحابها.";
+
+/* Chat row: Address Book tile */
+"Save this address with a name you'll recognize." = "احفظ هذا العنوان باسم تتعرف عليه.";
+"Edit or remove this saved address." = "عدّل هذا العنوان المحفوظ أو أزله.";

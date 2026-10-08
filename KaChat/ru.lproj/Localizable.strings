@@ -1473,3 +1473,7 @@
 "Remove Address Book Photos?" = "Убрать фото адресной книги?";
 "Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "Фото, которые вы назначили сохранённым адресам, для всех кошельков на этом устройстве. Они хранятся, пока вы их не уберёте, и входят в резервную копию чатов.";
 "Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "Освободит %@. Сохранённые адреса сохранят имена и будут показывать аватар, указанный владельцем.";
+
+/* Chat row: Address Book tile */
+"Save this address with a name you'll recognize." = "Сохраните этот адрес под понятным именем.";
+"Edit or remove this saved address." = "Изменить или убрать этот сохранённый адрес.";

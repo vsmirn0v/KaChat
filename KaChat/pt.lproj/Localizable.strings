@@ -1473,3 +1473,7 @@
 "Remove Address Book Photos?" = "Remover as fotos do livro de endereços?";
 "Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "Fotos que você atribuiu a endereços salvos, para todas as carteiras deste dispositivo. Ficam até você removê-las e estão incluídas no backup das conversas.";
 "Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "Libera %@. Os endereços salvos mantêm os nomes e passam a mostrar o avatar definido pelo dono.";
+
+/* Chat row: Address Book tile */
+"Save this address with a name you'll recognize." = "Salve este endereço com um nome que você reconheça.";
+"Edit or remove this saved address." = "Edite ou remova este endereço salvo.";
