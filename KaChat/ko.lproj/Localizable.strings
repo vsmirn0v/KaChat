@@ -1484,3 +1484,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "주소록에서 사람을 고르거나, Kaspa 주소나 도메인으로 누구든 추가하세요.";
 "Add people to the group. You control the membership as the group admin." = "그룹에 사람을 추가하세요. 그룹 관리자로서 멤버를 관리합니다.";
 "No members added yet. Add people from your Address Book or by address below." = "아직 멤버가 없습니다. 아래에서 주소록이나 주소로 추가하세요.";
+
+/* Address Book import / export */
+"Import or export" = "가져오기 또는 내보내기";
+"Import or Export" = "가져오기 또는 내보내기";
+"Import File" = "파일 가져오기";
+"Export File" = "파일로 내보내기";
+"Add addresses from an Address Book export." = "주소록 내보내기 파일에서 주소를 추가합니다.";
+"Save this Address Book, with its photos, to a file." = "이 주소록을 사진과 함께 파일로 저장합니다.";
+"Pick an Address Book export from your Nextcloud." = "Nextcloud에서 주소록 내보내기 파일을 고르세요.";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "Nextcloud의 KaChat 폴더에 저장해 어느 기기에서든 가져올 수 있습니다.";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "설정 > 저장 공간에서 Nextcloud를 연결하면 그곳에도 저장하고 다른 기기에서 가져올 수 있습니다.";
+"Couldn't read that file." = "그 파일을 읽을 수 없습니다.";
+"Nothing to export yet. Add an address first." = "아직 내보낼 항목이 없습니다. 먼저 주소를 추가하세요.";
+"Export failed. Couldn't write the file." = "내보내기에 실패했습니다. 파일을 쓸 수 없습니다.";
+"Already up to date. Every address in the file is saved." = "이미 최신입니다. 파일의 모든 주소가 저장되어 있습니다.";
+"Imported: %lld added, %lld updated." = "가져옴: %lld개 추가, %lld개 업데이트.";
+"That file isn't a KaChat Address Book export." = "그 파일은 KaChat 주소록 내보내기 파일이 아닙니다.";
+"That Address Book export has no addresses." = "그 내보내기 파일에 주소가 없습니다.";

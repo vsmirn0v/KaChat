@@ -1154,6 +1154,19 @@ final class PortfolioViewModel: ObservableObject {
     /// header) so re-importing never depends on the exporting device's local timezone. Fee /
     /// Fee Currency are written as zero/USD — the ledger doesn't keep fee as a separate line
     /// item; any fee captured at import time is already folded into Total value (USD).
+    /// The export's file name: the name you gave the portfolio in the app ("Long Term 2026-10-08…
+    /// .csv"), so it is recognizable in Files and Nextcloud; "KaChat Portfolio" if it has none.
+    /// Characters a file name can't hold are dropped.
+    static func exportBaseName() -> String {
+        let manager = PortfolioManager.shared
+        let name = manager.portfolios.first { $0.id == manager.activePortfolioId }?.name ?? ""
+        let banned = CharacterSet(charactersIn: "/\\:?*\"<>|").union(.controlCharacters)
+        let cleaned = name.unicodeScalars.filter { !banned.contains($0) }
+            .map(String.init).joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? "KaChat Portfolio" : String(cleaned.prefix(60))
+    }
+
     func exportCsvURL() -> URL? {
         let dateFormatter = Self.makeDateFormatter(timeZone: TimeZone(identifier: "UTC") ?? .current)
         var csv = "Date (UTC+0:00),Token,Type,Price (USD),Amount,Total value (USD),Fee,Fee Currency,Notes\n"
@@ -1170,7 +1183,7 @@ final class PortfolioViewModel: ObservableObject {
 
         let isoFormatter = ISO8601DateFormatter()
         let fileTimestamp = isoFormatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let fileURL = exportDir.appendingPathComponent("kachat-portfolio-\(fileTimestamp).csv")
+        let fileURL = exportDir.appendingPathComponent("\(Self.exportBaseName()) \(fileTimestamp).csv")
 
         do {
             try csv.write(to: fileURL, atomically: true, encoding: .utf8)

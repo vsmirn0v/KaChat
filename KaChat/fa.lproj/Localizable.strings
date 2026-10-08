@@ -1484,3 +1484,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "افراد را از دفترچه نشانی انتخاب کنید، یا هر کسی را با نشانی Kaspa یا دامنه اضافه کنید.";
 "Add people to the group. You control the membership as the group admin." = "افرادی را به گروه اضافه کنید. شما به‌عنوان مدیر گروه عضویت را کنترل می‌کنید.";
 "No members added yet. Add people from your Address Book or by address below." = "هنوز عضوی اضافه نشده. در پایین افراد را از دفترچه نشانی یا با نشانی اضافه کنید.";
+
+/* Address Book import / export */
+"Import or export" = "وارد یا صادر کردن";
+"Import or Export" = "وارد یا صادر کردن";
+"Import File" = "وارد کردن فایل";
+"Export File" = "صادر کردن فایل";
+"Add addresses from an Address Book export." = "نشانی‌ها را از یک فایل صادرشده دفترچه نشانی اضافه کنید.";
+"Save this Address Book, with its photos, to a file." = "این دفترچه نشانی را همراه عکس‌هایش در یک فایل ذخیره کنید.";
+"Pick an Address Book export from your Nextcloud." = "یک فایل صادرشده دفترچه نشانی را از Nextcloud انتخاب کنید.";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "آن را در پوشه KaChat در Nextcloud ذخیره کنید تا روی هر دستگاهی وارد شود.";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "Nextcloud را در تنظیمات > فضای ذخیره‌سازی وصل کنید تا آنجا هم ذخیره و روی دستگاه دیگری وارد شود.";
+"Couldn't read that file." = "خواندن آن فایل ممکن نشد.";
+"Nothing to export yet. Add an address first." = "هنوز چیزی برای صادر کردن نیست. ابتدا یک نشانی اضافه کنید.";
+"Export failed. Couldn't write the file." = "صدور ناموفق بود. نوشتن فایل ممکن نشد.";
+"Already up to date. Every address in the file is saved." = "به‌روز است. همه نشانی‌های فایل ذخیره شده‌اند.";
+"Imported: %lld added, %lld updated." = "وارد شد: %lld افزوده، %lld به‌روزرسانی.";
+"That file isn't a KaChat Address Book export." = "آن فایل یک فایل صادرشده دفترچه نشانی KaChat نیست.";
+"That Address Book export has no addresses." = "این فایل صادرشده هیچ نشانی‌ای ندارد.";

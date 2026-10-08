@@ -1485,3 +1485,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "Pick people from your Address Book, or add anyone by Kaspa address or domain.";
 "Add people to the group. You control the membership as the group admin." = "Add people to the group. You control the membership as the group admin.";
 "No members added yet. Add people from your Address Book or by address below." = "No members added yet. Add people from your Address Book or by address below.";
+
+/* Address Book import / export */
+"Import or export" = "Import or export";
+"Import or Export" = "Import or Export";
+"Import File" = "Import File";
+"Export File" = "Export File";
+"Add addresses from an Address Book export." = "Add addresses from an Address Book export.";
+"Save this Address Book, with its photos, to a file." = "Save this Address Book, with its photos, to a file.";
+"Pick an Address Book export from your Nextcloud." = "Pick an Address Book export from your Nextcloud.";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "Save it to the KaChat folder in your Nextcloud, to import on any device.";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "Connect Nextcloud in Settings > Storage to also save it there and import it on another device.";
+"Couldn't read that file." = "Couldn't read that file.";
+"Nothing to export yet. Add an address first." = "Nothing to export yet. Add an address first.";
+"Export failed. Couldn't write the file." = "Export failed. Couldn't write the file.";
+"Already up to date. Every address in the file is saved." = "Already up to date. Every address in the file is saved.";
+"Imported: %lld added, %lld updated." = "Imported: %lld added, %lld updated.";
+"That file isn't a KaChat Address Book export." = "That file isn't a KaChat Address Book export.";
+"That Address Book export has no addresses." = "That Address Book export has no addresses.";

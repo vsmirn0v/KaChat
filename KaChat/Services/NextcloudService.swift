@@ -1578,7 +1578,9 @@ final class NextcloudService: ObservableObject {
     /// the chat backup lives in), creating the folder chain if it isn't there yet, and returns
     /// the stored path. A file of the same name is replaced - exports carry a timestamp in their
     /// name, so in practice each one is a new file.
-    func uploadToKaChatFolder(data: Data, filename: String, contentType: String) async throws -> String {
+    /// `keepSpaces` keeps a name the user gave (a portfolio's, "KaChat Address Book") readable in
+    /// Nextcloud instead of turning its spaces into underscores.
+    func uploadToKaChatFolder(data: Data, filename: String, contentType: String, keepSpaces: Bool = false) async throws -> String {
         guard let account, let server = account.serverURL else { throw NextcloudError.badCredentials }
         let folder = backupFolderPath
         var folderURL = server.appendingPathComponent("remote.php/dav/files/\(account.username)")
@@ -1597,7 +1599,7 @@ final class NextcloudService: ObservableObject {
             }
         }
 
-        let storedName = Self.sanitizedMediaFilename(filename)
+        let storedName = Self.sanitizedMediaFilename(filename, keepSpaces: keepSpaces)
         var put = URLRequest(url: folderURL.appendingPathComponent(storedName))
         put.httpMethod = "PUT"
         put.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -1625,8 +1627,8 @@ final class NextcloudService: ObservableObject {
     /// Keeps stored filenames WebDAV/URL-safe: alphanumerics, dot, dash and underscore survive;
     /// everything else becomes "_". The extension must survive intact — Nextcloud derives the
     /// Content-Type it serves (and thus the recipient's media-kind detection) from it.
-    private nonisolated static func sanitizedMediaFilename(_ name: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+    private nonisolated static func sanitizedMediaFilename(_ name: String, keepSpaces: Bool = false) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: keepSpaces ? "._- " : "._-"))
         let cleaned = String(name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
         return cleaned.isEmpty ? "file" : cleaned
     }

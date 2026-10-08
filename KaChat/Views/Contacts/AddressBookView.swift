@@ -1,6 +1,7 @@
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 // The Address Book (Kaspa Hub > Address Book): saved Kaspa addresses with a name and a note, per
 // wallet. It replaced syncing with the phone's Contacts - see `AddressBookManager`.
@@ -8,10 +9,24 @@ import UIKit
 /// Kaspa Hub > Address Book (also a dock tab, if placed there).
 struct AddressBookView: View {
     @ObservedObject private var book = AddressBookManager.shared
+    @ObservedObject private var nextcloud = NextcloudService.shared
     @State private var search = ""
     @State private var showAdd = false
+    @State private var showImportExport = false
+    @State private var showFileImporter = false
+    @State private var showNextcloudImporter = false
+    @State private var exportFile: ExportedFile?
+    @State private var toastMessage: String?
+    @State private var toastStyle: ToastStyle = .success
+    @State private var toastToken = UUID()
 
     private var shown: [AddressBookEntry] { book.search(search) }
+
+    /// A written export waiting for the share sheet.
+    private struct ExportedFile: Identifiable {
+        let url: URL
+        var id: String { url.path }
+    }
 
     var body: some View {
         NavigationStack {
@@ -46,7 +61,13 @@ struct AddressBookView: View {
                 ToolbarItem(placement: .principal) {
                     BalanceToolbarLabel()
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button {
+                        showImportExport = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                    }
+                    .accessibilityLabel(Text("Import or export"))
                     Button {
                         showAdd = true
                     } label: {
@@ -57,6 +78,159 @@ struct AddressBookView: View {
             }
             .sheet(isPresented: $showAdd) {
                 AddressBookEntryEditor(address: nil) { _ in }
+            }
+            .sheet(isPresented: $showImportExport) { importExportSheet }
+            .sheet(item: $exportFile) { file in
+                AddressBookShareSheet(fileURL: file.url)
+            }
+            .sheet(isPresented: $showNextcloudImporter) {
+                NextcloudFileSelectView(allowedExtensions: ["json"]) { file in
+                    importFromNextcloud(file)
+                }
+            }
+            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.json]) { result in
+                guard case .success(let url) = result else { return }
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url) else {
+                    showToast(AppLocalization.string("Couldn't read that file."), style: .error)
+                    return
+                }
+                runImport(data)
+            }
+            .toast(message: toastMessage, style: toastStyle)
+        }
+    }
+
+    // MARK: Import / export
+
+    private var importExportSheet: some View {
+        VStack(spacing: 12) {
+            Text("Import or Export")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+            ActionSheetRow(
+                title: "Import File",
+                subtitle: "Add addresses from an Address Book export.",
+                systemImage: "square.and.arrow.down"
+            ) {
+                showImportExport = false
+                DispatchQueue.main.async { showFileImporter = true }
+            }
+            ActionSheetRow(
+                title: "Export File",
+                subtitle: "Save this Address Book, with its photos, to a file.",
+                systemImage: "square.and.arrow.up"
+            ) {
+                showImportExport = false
+                exportToFile()
+            }
+            if nextcloud.isConnected {
+                ActionSheetRow(
+                    title: "Import from Nextcloud",
+                    subtitle: "Pick an Address Book export from your Nextcloud.",
+                    systemImage: "icloud.and.arrow.down"
+                ) {
+                    showImportExport = false
+                    DispatchQueue.main.async { showNextcloudImporter = true }
+                }
+                ActionSheetRow(
+                    title: "Export to Nextcloud",
+                    subtitle: "Save it to the KaChat folder in your Nextcloud, to import on any device.",
+                    systemImage: "icloud.and.arrow.up"
+                ) {
+                    showImportExport = false
+                    exportToNextcloud()
+                }
+            } else {
+                Text("Connect Nextcloud in Settings > Storage to also save it there and import it on another device.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 4)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(nextcloud.isConnected ? 450 : 330)])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// The export as a file in a temporary folder, or nil (with a toast) when there is nothing to
+    /// write or the write fails.
+    private func writeExport() -> URL? {
+        guard !book.entries.isEmpty else {
+            showToast(AppLocalization.string("Nothing to export yet. Add an address first."), style: .error)
+            return nil
+        }
+        do {
+            let data = try book.exportData()
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("address_book_exports", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent(AddressBookManager.exportFileName())
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            showToast(AppLocalization.string("Export failed. Couldn't write the file."), style: .error)
+            return nil
+        }
+    }
+
+    private func exportToFile() {
+        guard let url = writeExport() else { return }
+        // One turn later: the share sheet can't present while the import/export sheet leaves.
+        DispatchQueue.main.async { exportFile = ExportedFile(url: url) }
+    }
+
+    private func exportToNextcloud() {
+        guard let url = writeExport(), let data = try? Data(contentsOf: url) else { return }
+        Task {
+            do {
+                let path = try await NextcloudService.shared.uploadToKaChatFolder(
+                    data: data, filename: url.lastPathComponent, contentType: "application/json", keepSpaces: true
+                )
+                showToast(String(format: AppLocalization.string("Saved to %@ in Nextcloud."), path))
+            } catch {
+                showToast(String(format: AppLocalization.string("Export to Nextcloud failed: %@"), UserFacingError.message(for: error)), style: .error)
+            }
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func importFromNextcloud(_ file: NextcloudFile) {
+        Task {
+            do {
+                runImport(try await NextcloudService.shared.downloadFile(file.path, maxBytes: 50_000_000))
+            } catch {
+                showToast(String(format: AppLocalization.string("Import from Nextcloud failed: %@"), UserFacingError.message(for: error)), style: .error)
+            }
+        }
+    }
+
+    private func runImport(_ data: Data) {
+        do {
+            let result = try book.importExport(data)
+            if result.added + result.updated == 0 {
+                showToast(AppLocalization.string("Already up to date. Every address in the file is saved."))
+            } else {
+                showToast(String(format: AppLocalization.string("Imported: %lld added, %lld updated."), result.added, result.updated))
+            }
+        } catch {
+            showToast(error.localizedDescription, style: .error)
+        }
+    }
+
+    private func showToast(_ message: String, style: ToastStyle = .success) {
+        let token = UUID()
+        toastToken = token
+        toastStyle = style
+        withAnimation(.easeOut(duration: 0.2)) { toastMessage = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) { toastMessage = nil }
             }
         }
     }
@@ -570,4 +744,15 @@ struct AddressBookPickerSheet: View {
             if ticked.contains(key) { ticked.remove(key) } else { ticked.insert(key) }
         }
     }
+}
+
+/// The system share sheet for an Address Book export (Files, AirDrop, Mail, ...).
+private struct AddressBookShareSheet: UIViewControllerRepresentable {
+    let fileURL: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

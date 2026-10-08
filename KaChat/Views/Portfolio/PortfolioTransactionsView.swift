@@ -250,7 +250,8 @@ struct PortfolioTransactionsView<Header: View>: View {
                 let path = try await NextcloudService.shared.uploadToKaChatFolder(
                     data: data,
                     filename: url.lastPathComponent,
-                    contentType: "text/csv"
+                    contentType: "text/csv",
+                    keepSpaces: true
                 )
                 showToast(localizedFormat("Saved to %@ in Nextcloud.", path))
             } catch {

@@ -37,7 +37,8 @@ from sync:
 | What | Where | Why it's a new file |
 |---|---|---|
 | Media sent "via Nextcloud" | `KaChat/Media/<name>` | one per photo, video or voice note; the chat carries its share link |
-| Manual exports (e.g. Portfolio CSV) | `<backup folder>/<name>-<timestamp>.csv` | one per tap on Export |
+| Manual exports: Portfolio CSV | `<backup folder>/<portfolio name> <timestamp>.csv` (the name the user gave the portfolio; "KaChat Portfolio" if none) | one per tap on Export |
+| Manual exports: Address Book | `<backup folder>/KaChat Address Book <timestamp>.json` | one per tap on Export to Nextcloud. Plain JSON `{type: "kachat-address-book", version: 1, exportedAt, walletAddress, entries: [<addressBook entry, with photo>]}` (entry shape in §5). Importing adds every address not saved (even one deleted since) and updates one already saved only from a newer `updatedAt`. Any wallet may import it |
 
 ## 2. Which folder
 

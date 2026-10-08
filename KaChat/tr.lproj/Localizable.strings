@@ -1484,3 +1484,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "Adres defterinden kişi seç ya da herkesi Kaspa adresi veya alan adıyla ekle.";
 "Add people to the group. You control the membership as the group admin." = "Gruba kişi ekle. Grup yöneticisi olarak üyeliği sen yönetirsin.";
 "No members added yet. Add people from your Address Book or by address below." = "Henüz üye yok. Aşağıdan adres defterinden veya adresle kişi ekle.";
+
+/* Address Book import / export */
+"Import or export" = "İçe veya dışa aktar";
+"Import or Export" = "İçe veya Dışa Aktar";
+"Import File" = "Dosya İçe Aktar";
+"Export File" = "Dosya Dışa Aktar";
+"Add addresses from an Address Book export." = "Bir Adres Defteri dışa aktarımından adres ekle.";
+"Save this Address Book, with its photos, to a file." = "Bu Adres Defterini fotoğraflarıyla bir dosyaya kaydet.";
+"Pick an Address Book export from your Nextcloud." = "Nextcloud'undan bir Adres Defteri dışa aktarımı seç.";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "Herhangi bir cihazda içe aktarmak için Nextcloud'undaki KaChat klasörüne kaydet.";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "Oraya da kaydedip başka bir cihazda içe aktarmak için Ayarlar > Depolama'da Nextcloud'u bağla.";
+"Couldn't read that file." = "Bu dosya okunamadı.";
+"Nothing to export yet. Add an address first." = "Henüz dışa aktaracak bir şey yok. Önce bir adres ekle.";
+"Export failed. Couldn't write the file." = "Dışa aktarma başarısız. Dosya yazılamadı.";
+"Already up to date. Every address in the file is saved." = "Zaten güncel. Dosyadaki tüm adresler kayıtlı.";
+"Imported: %lld added, %lld updated." = "İçe aktarıldı: %lld eklendi, %lld güncellendi.";
+"That file isn't a KaChat Address Book export." = "Bu dosya bir KaChat Adres Defteri dışa aktarımı değil.";
+"That Address Book export has no addresses." = "Bu dışa aktarımda adres yok.";

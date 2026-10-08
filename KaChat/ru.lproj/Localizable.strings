@@ -1484,3 +1484,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "Выберите людей из адресной книги или добавьте любого по адресу Kaspa или домену.";
 "Add people to the group. You control the membership as the group admin." = "Добавьте людей в группу. Как администратор группы, вы управляете составом.";
 "No members added yet. Add people from your Address Book or by address below." = "Участников пока нет. Добавьте людей из адресной книги или по адресу ниже.";
+
+/* Address Book import / export */
+"Import or export" = "Импорт или экспорт";
+"Import or Export" = "Импорт или экспорт";
+"Import File" = "Импорт из файла";
+"Export File" = "Экспорт в файл";
+"Add addresses from an Address Book export." = "Добавить адреса из экспорта адресной книги.";
+"Save this Address Book, with its photos, to a file." = "Сохранить эту адресную книгу вместе с фото в файл.";
+"Pick an Address Book export from your Nextcloud." = "Выберите экспорт адресной книги в своём Nextcloud.";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "Сохранить в папку KaChat в Nextcloud, чтобы импортировать на любом устройстве.";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "Подключите Nextcloud в Настройки > Хранилище, чтобы сохранять туда и импортировать на другом устройстве.";
+"Couldn't read that file." = "Не удалось прочитать этот файл.";
+"Nothing to export yet. Add an address first." = "Пока нечего экспортировать. Сначала добавьте адрес.";
+"Export failed. Couldn't write the file." = "Экспорт не удался. Не получилось записать файл.";
+"Already up to date. Every address in the file is saved." = "Уже актуально. Все адреса из файла сохранены.";
+"Imported: %lld added, %lld updated." = "Импортировано: добавлено %lld, обновлено %lld.";
+"That file isn't a KaChat Address Book export." = "Это не экспорт адресной книги KaChat.";
+"That Address Book export has no addresses." = "В этом экспорте нет адресов.";

@@ -1484,3 +1484,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "আপনার ঠিকানা বই থেকে লোক বেছে নিন, অথবা Kaspa ঠিকানা বা ডোমেইন দিয়ে যে কাউকে যোগ করুন।";
 "Add people to the group. You control the membership as the group admin." = "গ্রুপে লোক যোগ করুন। গ্রুপ অ্যাডমিন হিসেবে সদস্যপদ আপনার নিয়ন্ত্রণে।";
 "No members added yet. Add people from your Address Book or by address below." = "এখনো কোনো সদস্য যোগ হয়নি। নিচে ঠিকানা বই থেকে বা ঠিকানা দিয়ে লোক যোগ করুন।";
+
+/* Address Book import / export */
+"Import or export" = "ইমপোর্ট বা এক্সপোর্ট";
+"Import or Export" = "ইমপোর্ট বা এক্সপোর্ট";
+"Import File" = "ফাইল ইমপোর্ট";
+"Export File" = "ফাইল এক্সপোর্ট";
+"Add addresses from an Address Book export." = "ঠিকানা বইয়ের এক্সপোর্ট থেকে ঠিকানা যোগ করুন।";
+"Save this Address Book, with its photos, to a file." = "এই ঠিকানা বই, ছবিসহ, একটি ফাইলে সংরক্ষণ করুন।";
+"Pick an Address Book export from your Nextcloud." = "আপনার Nextcloud থেকে একটি ঠিকানা বই এক্সপোর্ট বেছে নিন।";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "আপনার Nextcloud-এর KaChat ফোল্ডারে সংরক্ষণ করুন, যেকোনো ডিভাইসে ইমপোর্ট করতে।";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "সেটিংস > স্টোরেজ-এ Nextcloud যুক্ত করুন, যাতে সেখানেও সংরক্ষণ করে অন্য ডিভাইসে ইমপোর্ট করা যায়।";
+"Couldn't read that file." = "ফাইলটি পড়া গেল না।";
+"Nothing to export yet. Add an address first." = "এখনো এক্সপোর্ট করার কিছু নেই। আগে একটি ঠিকানা যোগ করুন।";
+"Export failed. Couldn't write the file." = "এক্সপোর্ট ব্যর্থ। ফাইল লেখা গেল না।";
+"Already up to date. Every address in the file is saved." = "ইতিমধ্যে হালনাগাদ। ফাইলের সব ঠিকানা সংরক্ষিত আছে।";
+"Imported: %lld added, %lld updated." = "ইমপোর্ট হয়েছে: %lld যোগ, %lld হালনাগাদ।";
+"That file isn't a KaChat Address Book export." = "এটি KaChat ঠিকানা বইয়ের এক্সপোর্ট নয়।";
+"That Address Book export has no addresses." = "এই এক্সপোর্টে কোনো ঠিকানা নেই।";

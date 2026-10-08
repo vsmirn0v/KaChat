@@ -1485,3 +1485,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "Choisissez des personnes dans votre carnet d'adresses, ou ajoutez n'importe qui par adresse Kaspa ou domaine.";
 "Add people to the group. You control the membership as the group admin." = "Ajoutez des personnes au groupe. En tant qu'administrateur, vous gérez les membres.";
 "No members added yet. Add people from your Address Book or by address below." = "Aucun membre pour l'instant. Ajoutez des personnes depuis votre carnet d'adresses ou par adresse ci-dessous.";
+
+/* Address Book import / export */
+"Import or export" = "Importer ou exporter";
+"Import or Export" = "Importer ou exporter";
+"Import File" = "Importer un fichier";
+"Export File" = "Exporter un fichier";
+"Add addresses from an Address Book export." = "Ajoutez des adresses depuis un export du carnet d'adresses.";
+"Save this Address Book, with its photos, to a file." = "Enregistrez ce carnet d'adresses, avec ses photos, dans un fichier.";
+"Pick an Address Book export from your Nextcloud." = "Choisissez un export du carnet d'adresses dans votre Nextcloud.";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "Enregistrez-le dans le dossier KaChat de votre Nextcloud pour l'importer sur n'importe quel appareil.";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "Connectez Nextcloud dans Réglages > Stockage pour l'y enregistrer aussi et l'importer sur un autre appareil.";
+"Couldn't read that file." = "Impossible de lire ce fichier.";
+"Nothing to export yet. Add an address first." = "Rien à exporter pour l'instant. Ajoutez d'abord une adresse.";
+"Export failed. Couldn't write the file." = "Échec de l'export. Impossible d'écrire le fichier.";
+"Already up to date. Every address in the file is saved." = "Déjà à jour. Toutes les adresses du fichier sont enregistrées.";
+"Imported: %lld added, %lld updated." = "Importé : %lld ajoutées, %lld mises à jour.";
+"That file isn't a KaChat Address Book export." = "Ce fichier n'est pas un export du carnet d'adresses KaChat.";
+"That Address Book export has no addresses." = "Cet export ne contient aucune adresse.";

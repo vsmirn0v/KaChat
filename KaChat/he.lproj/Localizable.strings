@@ -1484,3 +1484,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "בחרו אנשים מפנקס הכתובות, או הוסיפו כל אחד לפי כתובת Kaspa או דומיין.";
 "Add people to the group. You control the membership as the group admin." = "הוסיפו אנשים לקבוצה. כמנהלי הקבוצה, אתם שולטים בחברות.";
 "No members added yet. Add people from your Address Book or by address below." = "עדיין לא נוספו חברים. הוסיפו אנשים מפנקס הכתובות או לפי כתובת למטה.";
+
+/* Address Book import / export */
+"Import or export" = "ייבוא או ייצוא";
+"Import or Export" = "ייבוא או ייצוא";
+"Import File" = "ייבוא קובץ";
+"Export File" = "ייצוא קובץ";
+"Add addresses from an Address Book export." = "הוספת כתובות מייצוא של פנקס הכתובות.";
+"Save this Address Book, with its photos, to a file." = "שמירת פנקס הכתובות הזה, עם התמונות, בקובץ.";
+"Pick an Address Book export from your Nextcloud." = "בחרו ייצוא של פנקס הכתובות מה-Nextcloud שלכם.";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "שמרו בתיקיית KaChat ב-Nextcloud כדי לייבא בכל מכשיר.";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "חברו Nextcloud בהגדרות > אחסון כדי לשמור גם שם ולייבא במכשיר אחר.";
+"Couldn't read that file." = "לא ניתן לקרוא את הקובץ.";
+"Nothing to export yet. Add an address first." = "אין עדיין מה לייצא. הוסיפו קודם כתובת.";
+"Export failed. Couldn't write the file." = "הייצוא נכשל. לא ניתן לכתוב את הקובץ.";
+"Already up to date. Every address in the file is saved." = "כבר מעודכן. כל הכתובות בקובץ שמורות.";
+"Imported: %lld added, %lld updated." = "יובאו: %lld נוספו, %lld עודכנו.";
+"That file isn't a KaChat Address Book export." = "הקובץ אינו ייצוא של פנקס הכתובות של KaChat.";
+"That Address Book export has no addresses." = "בייצוא הזה אין כתובות.";

@@ -1484,3 +1484,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "从地址簿中选择，或通过 Kaspa 地址或域名添加任何人。";
 "Add people to the group. You control the membership as the group admin." = "向群组添加成员。作为群组管理员，由你管理成员。";
 "No members added yet. Add people from your Address Book or by address below." = "还没有成员。请在下方从地址簿或通过地址添加。";
+
+/* Address Book import / export */
+"Import or export" = "导入或导出";
+"Import or Export" = "导入或导出";
+"Import File" = "导入文件";
+"Export File" = "导出到文件";
+"Add addresses from an Address Book export." = "从地址簿导出文件中添加地址。";
+"Save this Address Book, with its photos, to a file." = "将此地址簿连同照片保存到文件。";
+"Pick an Address Book export from your Nextcloud." = "从你的 Nextcloud 中选择一个地址簿导出文件。";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "保存到 Nextcloud 的 KaChat 文件夹，可在任何设备上导入。";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "在 设置 > 存储 中连接 Nextcloud，即可同时保存到那里并在其他设备上导入。";
+"Couldn't read that file." = "无法读取该文件。";
+"Nothing to export yet. Add an address first." = "还没有可导出的内容。请先添加一个地址。";
+"Export failed. Couldn't write the file." = "导出失败。无法写入文件。";
+"Already up to date. Every address in the file is saved." = "已是最新。文件中的地址都已保存。";
+"Imported: %lld added, %lld updated." = "已导入：新增 %lld 个，更新 %lld 个。";
+"That file isn't a KaChat Address Book export." = "该文件不是 KaChat 地址簿导出文件。";
+"That Address Book export has no addresses." = "该导出文件中没有地址。";

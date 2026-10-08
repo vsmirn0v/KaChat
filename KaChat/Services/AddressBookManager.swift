@@ -293,6 +293,90 @@ final class AddressBookManager: ObservableObject {
         photoVersion &+= 1
     }
 
+    // MARK: - Export / import (Address Book > import-export sheet)
+
+    /// The exported file: plain JSON, readable by any KaChat (iOS, Android, Desktop) and any wallet.
+    struct ExportFile: Codable {
+        static let kind = "kachat-address-book"
+        var type: String = ExportFile.kind
+        var version: Int = 1
+        var exportedAt: Date
+        /// The wallet it was exported from (informational: any wallet may import it).
+        var walletAddress: String?
+        /// Every entry with its assigned photo (base64 JPEG) attached.
+        var entries: [AddressBookEntry]
+    }
+
+    enum ImportError: LocalizedError {
+        case notAnAddressBook, empty
+
+        var errorDescription: String? {
+            switch self {
+            case .notAnAddressBook: return AppLocalization.string("That file isn't a KaChat Address Book export.")
+            case .empty: return AppLocalization.string("That Address Book export has no addresses.")
+            }
+        }
+    }
+
+    /// This wallet's Address Book as an export file.
+    func exportData() throws -> Data {
+        let file = ExportFile(exportedAt: Date(), walletAddress: walletAddress, entries: archiveEntries)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(file)
+    }
+
+    /// The export's file name, with the time so several exports don't overwrite each other.
+    nonisolated static func exportFileName(at date: Date = Date()) -> String {
+        let stamp = ISO8601DateFormatter().string(from: date).replacingOccurrences(of: ":", with: "-")
+        return "KaChat Address Book \(stamp).json"
+    }
+
+    /// Imports an export file into this wallet's book: an address not saved here is added (even
+    /// one deleted since - importing is asking for it back); one already saved takes the file's
+    /// version only when that is newer. Photos come with their entry. Returns (added, updated).
+    @discardableResult
+    func importExport(_ data: Data) throws -> (added: Int, updated: Int) {
+        guard walletAddress != nil else { throw SaveError.noWallet }
+        let iso = JSONDecoder()
+        iso.dateDecodingStrategy = .iso8601
+        guard let file = (try? iso.decode(ExportFile.self, from: data)) ?? (try? JSONDecoder().decode(ExportFile.self, from: data)),
+              file.type == ExportFile.kind else { throw ImportError.notAnAddressBook }
+        let valid = file.entries.filter {
+            !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && ContactsManager.shared.isValidKaspaAddress(Self.normalize($0.address))
+        }
+        guard !valid.isEmpty else { throw ImportError.empty }
+        var added = 0, updated = 0
+        for var incoming in valid {
+            let address = Self.normalize(incoming.address)
+            incoming.address = address
+            let photo = incoming.photo.flatMap { Data(base64Encoded: $0) }
+            incoming.photo = nil
+            if let i = byAddress[address] {
+                guard incoming.updatedAt > entries[i].updatedAt else { continue }
+                entries[i].name = incoming.name
+                entries[i].note = incoming.note
+                entries[i].updatedAt = incoming.updatedAt
+                if let photo { writePhoto(photo, for: address) } else { deletePhoto(for: address) }
+                updated += 1
+            } else {
+                if entries.contains(where: { $0.id == incoming.id }) { incoming.id = UUID() }
+                entries.append(incoming)
+                if let photo { writePhoto(photo, for: address) }
+                added += 1
+                rebuildIndex()
+            }
+            deleted[address] = nil
+        }
+        entries = Self.sorted(entries)
+        rebuildIndex()
+        persist()
+        if added + updated > 0 { didChange() }
+        return (added, updated)
+    }
+
     // MARK: - Backup
 
     /// What the chat backup carries for this wallet: each entry with its assigned photo (base64

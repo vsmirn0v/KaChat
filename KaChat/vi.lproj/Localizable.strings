@@ -1484,3 +1484,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "Chọn người từ sổ địa chỉ, hoặc thêm bất kỳ ai bằng địa chỉ Kaspa hay tên miền.";
 "Add people to the group. You control the membership as the group admin." = "Thêm người vào nhóm. Là quản trị viên, bạn quản lý thành viên.";
 "No members added yet. Add people from your Address Book or by address below." = "Chưa có thành viên. Thêm người từ sổ địa chỉ hoặc bằng địa chỉ bên dưới.";
+
+/* Address Book import / export */
+"Import or export" = "Nhập hoặc xuất";
+"Import or Export" = "Nhập hoặc xuất";
+"Import File" = "Nhập tệp";
+"Export File" = "Xuất tệp";
+"Add addresses from an Address Book export." = "Thêm địa chỉ từ một bản xuất sổ địa chỉ.";
+"Save this Address Book, with its photos, to a file." = "Lưu sổ địa chỉ này, kèm ảnh, vào một tệp.";
+"Pick an Address Book export from your Nextcloud." = "Chọn một bản xuất sổ địa chỉ từ Nextcloud của bạn.";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "Lưu vào thư mục KaChat trên Nextcloud để nhập trên mọi thiết bị.";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "Kết nối Nextcloud trong Cài đặt > Lưu trữ để lưu ở đó và nhập trên thiết bị khác.";
+"Couldn't read that file." = "Không đọc được tệp đó.";
+"Nothing to export yet. Add an address first." = "Chưa có gì để xuất. Hãy thêm một địa chỉ trước.";
+"Export failed. Couldn't write the file." = "Xuất thất bại. Không ghi được tệp.";
+"Already up to date. Every address in the file is saved." = "Đã cập nhật. Mọi địa chỉ trong tệp đều đã được lưu.";
+"Imported: %lld added, %lld updated." = "Đã nhập: thêm %lld, cập nhật %lld.";
+"That file isn't a KaChat Address Book export." = "Tệp đó không phải bản xuất sổ địa chỉ KaChat.";
+"That Address Book export has no addresses." = "Bản xuất đó không có địa chỉ nào.";

@@ -1484,3 +1484,21 @@
 "Pick people from your Address Book, or add anyone by Kaspa address or domain." = "Pilih orang dari Buku Alamat, atau tambahkan siapa saja lewat alamat Kaspa atau domain.";
 "Add people to the group. You control the membership as the group admin." = "Tambahkan orang ke grup. Sebagai admin grup, Anda yang mengatur keanggotaan.";
 "No members added yet. Add people from your Address Book or by address below." = "Belum ada anggota. Tambahkan orang dari Buku Alamat atau lewat alamat di bawah.";
+
+/* Address Book import / export */
+"Import or export" = "Impor atau ekspor";
+"Import or Export" = "Impor atau Ekspor";
+"Import File" = "Impor File";
+"Export File" = "Ekspor File";
+"Add addresses from an Address Book export." = "Tambahkan alamat dari ekspor Buku Alamat.";
+"Save this Address Book, with its photos, to a file." = "Simpan Buku Alamat ini, beserta fotonya, ke file.";
+"Pick an Address Book export from your Nextcloud." = "Pilih ekspor Buku Alamat dari Nextcloud Anda.";
+"Save it to the KaChat folder in your Nextcloud, to import on any device." = "Simpan ke folder KaChat di Nextcloud Anda, untuk diimpor di perangkat mana pun.";
+"Connect Nextcloud in Settings > Storage to also save it there and import it on another device." = "Hubungkan Nextcloud di Pengaturan > Penyimpanan agar bisa disimpan di sana dan diimpor di perangkat lain.";
+"Couldn't read that file." = "File itu tidak bisa dibaca.";
+"Nothing to export yet. Add an address first." = "Belum ada yang bisa diekspor. Tambahkan alamat dulu.";
+"Export failed. Couldn't write the file." = "Ekspor gagal. File tidak bisa ditulis.";
+"Already up to date. Every address in the file is saved." = "Sudah terbaru. Semua alamat di file sudah tersimpan.";
+"Imported: %lld added, %lld updated." = "Diimpor: %lld ditambahkan, %lld diperbarui.";
+"That file isn't a KaChat Address Book export." = "File itu bukan ekspor Buku Alamat KaChat.";
+"That Address Book export has no addresses." = "Ekspor itu tidak berisi alamat.";
