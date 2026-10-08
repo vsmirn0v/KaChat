@@ -33,14 +33,6 @@ struct AddContactView: View {
     /// The resolved address's KNS profile, once fetched - the preview card's source.
     @State private var previewProfile: KNSAddressProfileInfo?
     @State private var isLoadingPreview = false
-    // KaPosts follow graph, offered as one-tap chat targets under the Address field.
-    @State private var pickerContacts: [PickerContact] = []
-    /// Starts true so the section renders on first layout and its `.task` actually fires; the
-    /// loader clears it, which hides the section entirely when the graph is empty.
-    @State private var isLoadingPickerContacts = true
-    @State private var didLoadPickerContacts = false
-    @State private var isSearchingPickerContacts = false
-    @State private var pickerSearchText = ""
     @State private var showQRScanner = false
     @State private var showAddressBookPicker = false
 
@@ -50,9 +42,9 @@ struct AddContactView: View {
     @State private var groupAddressEntries: [GroupAddressEntry] = [GroupAddressEntry()]
     // New group flow: members are picked from existing contacts (searchable), not typed.
     @State private var selectedMemberAddresses: Set<String> = []
-    @State private var memberSearchText = ""
     @State private var membersExpanded = false
-    @State private var contactsExpanded = false
+    /// The group's Address Book: a full-screen multi-select of saved addresses.
+    @State private var showGroupAddressBook = false
     // Group photo picked at creation time. The group does not exist yet, so the compressed JPEG
     // is held here and pushed with `setGroupPhoto` once `createGroup` returns an id.
     @State private var groupPhotoPickerItem: PhotosPickerItem?
@@ -61,7 +53,6 @@ struct AddContactView: View {
     @State private var isCreatingGroup = false
     @State private var showCreateGroupConfirm = false
     @State private var scanningGroupRowID: UUID?
-    @State private var contactPickerRowID: UUID?
     /// The one member "card" currently expanded for editing (text field + Import/Paste/Scan +
     /// Add Address) - every other entry shows collapsed (name/address + a remove button only).
     /// Tapping a collapsed entry re-expands it; committing the expanded one via "Add Address"
@@ -295,8 +286,6 @@ struct AddContactView: View {
                          : "They'll get your first message as a Message Request. Turn on Private Chat if you'd rather leave no link between you on chain.")
                 }
 
-                pickerContactsSection
-
                 }
 
                 if let error, isGroupMode {
@@ -366,7 +355,7 @@ struct AddContactView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showAddressBookPicker) {
+            .fullScreenCover(isPresented: $showAddressBookPicker) {
                 AddressBookPickerSheet { entry in
                     addressInput = entry.address
                     resolvedAddress = nil
@@ -376,21 +365,20 @@ struct AddContactView: View {
                     isValidAddress = contactsManager.isValidKaspaAddress(entry.address)
                 }
             }
-            .sheet(isPresented: Binding(
-                get: { contactPickerRowID != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        contactPickerRowID = nil
+            .fullScreenCover(isPresented: $showGroupAddressBook) {
+                // Ticks show who is already in; the result replaces the Address Book part of the
+                // roster, so unticking someone takes them out again.
+                AddressBookPickerSheet(
+                    preselected: selectedMemberAddresses,
+                    excluding: WalletManager.shared.currentWallet?.publicAddress
+                ) { picked in
+                    let bookAddresses = Set(AddressBookManager.shared.entries.map { AddressBookManager.normalize($0.address) })
+                    var members = selectedMemberAddresses.filter { !bookAddresses.contains(AddressBookManager.normalize($0)) }
+                    for address in picked.map(\.address) where members.count < Self.maxGroupMembers {
+                        members.insert(address)
                     }
-                }
-            )) {
-                if let rowID = contactPickerRowID {
-                    AddressBookPickerSheet { entry in
-                        guard let index = groupAddressEntries.firstIndex(where: { $0.id == rowID }) else { return }
-                        groupAddressEntries[index].text = entry.address
-                        resolveGroupAddress(id: rowID, input: entry.address)
-                        contactPickerRowID = nil
-                    }
+                    selectedMemberAddresses = members
+                    if !members.isEmpty { membersExpanded = true }
                 }
             }
         }
@@ -421,204 +409,6 @@ struct AddContactView: View {
     }
 
     // MARK: - Contacts picker
-
-    /// One person you can start a chat with: someone already in your address book, or someone
-    /// from your KaPosts follow graph, or both.
-    private struct PickerContact: Identifiable, Equatable {
-        let address: String
-        let isContact: Bool
-        let youFollow: Bool
-        let followsYou: Bool
-        var id: String { address }
-
-        /// Second line of the row. The follow relationship when there is one, since that is the
-        /// thing you would not otherwise know; the address for someone you simply have a chat
-        /// with, where the name above it is already the useful part.
-        var subtitle: String {
-            if youFollow && followsYou { return "You follow each other" }
-            if youFollow { return "You follow them" }
-            if followsYou { return "Follows you" }
-            return Contact.generateDefaultAlias(from: address)
-        }
-    }
-
-    /// Everyone you could plausibly want to message: your existing chats plus both directions of
-    /// your KaPosts follow graph. A chat you had months ago is buried far down the chat list, so
-    /// it belongs here next to the people you follow.
-    @ViewBuilder
-    private var pickerContactsSection: some View {
-        if isLoadingPickerContacts || !pickerContacts.isEmpty {
-            Section {
-                if pickerContacts.isEmpty {
-                    HStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
-                        Text("Loading contacts...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                } else {
-                    if isSearchingPickerContacts {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundColor(.secondary)
-                            TextField("Search contacts", text: $pickerSearchText)
-                                .autocapitalization(.none)
-                                .autocorrectionDisabled()
-                            if !pickerSearchText.isEmpty {
-                                Button {
-                                    pickerSearchText = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    if filteredPickerContacts.isEmpty {
-                        Text("No matches")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(filteredPickerContacts) { connection in
-                            Button {
-                                addressInput = connection.address
-                                handleInputChange(connection.address)
-                            } label: {
-                                pickerContactRow(connection)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            } header: {
-                HStack {
-                    Text("Contacts")
-                    Spacer()
-                    if !pickerContacts.isEmpty {
-                        Button {
-                            isSearchingPickerContacts.toggle()
-                            if !isSearchingPickerContacts { pickerSearchText = "" }
-                        } label: {
-                            Image(systemName: isSearchingPickerContacts ? "xmark" : "magnifyingglass")
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(isSearchingPickerContacts ? "Close search" : "Search contacts")
-                    }
-                }
-            } footer: {
-                Text("Your chats and the people you follow on KaPosts. Tap one to fill in their address.")
-            }
-            .task { await loadPickerContacts() }
-        }
-    }
-
-    /// The rows actually shown: everything, or what the search box matches by name or address.
-    private var filteredPickerContacts: [PickerContact] {
-        let query = pickerSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard isSearchingPickerContacts, !query.isEmpty else { return pickerContacts }
-        return pickerContacts.filter {
-            contactsManager.displayName(for: $0.address).lowercased().contains(query)
-                || $0.address.lowercased().contains(query)
-        }
-    }
-
-    private func pickerContactRow(_ connection: PickerContact) -> some View {
-        HStack(spacing: 12) {
-            KNSAvatarView(
-                avatarURLString: knsService.profileCache[connection.address]?.avatarURL,
-                fallbackText: contactsManager.displayName(for: connection.address),
-                size: 36,
-                contactAddress: connection.address
-            )
-            VStack(alignment: .leading, spacing: 2) {
-                Text(contactsManager.displayName(for: connection.address))
-                    .font(.subheadline.weight(.medium))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                Text(connection.subtitle)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            Spacer(minLength: 0)
-            if effectiveAddress.trimmingCharacters(in: .whitespacesAndNewlines) == connection.address {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-            }
-        }
-        .contentShape(Rectangle())
-    }
-
-    /// The address book first, so the list is useful on the first frame, then both follow lists
-    /// for our own K identity merged in (along with the locally-stored follows the indexer may
-    /// not have caught up on). Only our own address is dropped.
-    private func loadPickerContacts() async {
-        guard !didLoadPickerContacts else { return }
-        didLoadPickerContacts = true
-
-        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
-        let known = Set(contactsManager.activeContacts.map(\.address)).subtracting([myAddress])
-        pickerContacts = sortedPickerContacts(known, known: known, youFollow: [], followsYou: [])
-        isLoadingPickerContacts = false
-
-        var youFollow = KaPostsFollowStore.shared.following
-        var followsYou: Set<String> = []
-
-        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
-            for wantFollowers in [false, true] {
-                var cursor: String?
-                var pagesLeft = 5 // 500 accounts per direction, far beyond any real follow list
-                while pagesLeft > 0 {
-                    pagesLeft -= 1
-                    guard let result = try? await KaPostsAPIClient.shared.fetchFollowList(
-                        ofPubkey: pubkey, followers: wantFollowers, limit: 100, before: cursor
-                    ) else { break }
-                    for user in result.users {
-                        guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: user.userPublicKey) else { continue }
-                        if wantFollowers {
-                            followsYou.insert(address)
-                        } else {
-                            youFollow.insert(address)
-                        }
-                    }
-                    guard result.pagination?.hasMore == true,
-                          let next = result.pagination?.nextCursor else { break }
-                    cursor = next
-                }
-            }
-        }
-
-        let addresses = known.union(youFollow).union(followsYou).subtracting([myAddress])
-
-        pickerContacts = sortedPickerContacts(addresses, known: known, youFollow: youFollow, followsYou: followsYou)
-
-        guard !addresses.isEmpty else { return }
-        await knsService.refreshProfilesIfNeeded(for: Array(addresses))
-        // Re-publish now that domains have landed: the rows name and sort by them.
-        pickerContacts = sortedPickerContacts(addresses, known: known, youFollow: youFollow, followsYou: followsYou)
-    }
-
-    private func sortedPickerContacts(
-        _ addresses: Set<String>,
-        known: Set<String>,
-        youFollow: Set<String>,
-        followsYou: Set<String>
-    ) -> [PickerContact] {
-        addresses
-            .map {
-                PickerContact(
-                    address: $0,
-                    isContact: known.contains($0),
-                    youFollow: youFollow.contains($0),
-                    followsYou: followsYou.contains($0)
-                )
-            }
-            .sorted {
-                contactsManager.displayName(for: $0.address)
-                    .localizedCaseInsensitiveCompare(contactsManager.displayName(for: $1.address)) == .orderedAscending
-            }
-    }
 
     private func handleInputChange(_ input: String) {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -810,8 +600,8 @@ struct AddContactView: View {
 
         groupMemberPickerSection
 
-        // Last, under the people you can add in one tap: the fallback for everyone else. Reuses
-        // the existing resolve / Import / Paste / Scan machinery on a single entry.
+        // How members are added: several at once from the Address Book, or anyone by address,
+        // domain, paste or QR on a single entry.
         Section {
             ForEach($groupAddressEntries) { $entry in
                 VStack(alignment: .leading, spacing: 10) {
@@ -834,7 +624,7 @@ struct AddContactView: View {
 
                     HStack {
                         Button {
-                            contactPickerRowID = entry.id
+                            showGroupAddressBook = true
                         } label: {
                             Label("Address Book", systemImage: "book.closed")
                         }
@@ -873,28 +663,26 @@ struct AddContactView: View {
                 .padding(.vertical, 4)
             }
         } header: {
-            Text("Not in your contacts?")
+            Text("Add Members")
         } footer: {
-            Text("Add anyone by Kaspa address or KNS domain.")
+            Text("Pick people from your Address Book, or add anyone by Kaspa address or domain.")
         }
     }
 
-    /// Everyone you could add in one tap: your existing chats plus both directions of your
-    /// KaPosts follow graph, the same set the create-chat screen offers. Selected people ride
-    /// above the list as removable chips so a long list never hides who is already in.
+    /// Who is in the group so far, as a collapsed drawer of removable rows. People are added
+    /// from the Address Book or by address in the section below.
     @ViewBuilder
     private var groupMemberPickerSection: some View {
         Section {
-            Text("Add contacts to the group. You control the membership as the group admin.")
+            Text("Add people to the group. You control the membership as the group admin.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            // Two collapsed drawers rather than a chips row over an open list. Either one can run
-            // to dozens of rows, and with both showing at once the address field below them was
-            // somewhere you had to go looking for. Same shape and wording as the desktop client.
+            // A collapsed drawer: the roster can run to dozens of rows, and open it would push the
+            // address field below out of sight.
             DisclosureGroup(isExpanded: $membersExpanded) {
                 if selectedMemberAddresses.isEmpty {
-                    Text("No members added yet. Open Contacts below to add people.")
+                    Text("No members added yet. Add people from your Address Book or by address below.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
@@ -934,131 +722,13 @@ struct AddContactView: View {
                 Text(selectedMemberAddresses.isEmpty ? "Members" : "Members (\(selectedMemberAddresses.count))")
                     .font(.headline)
             }
-
-            DisclosureGroup(isExpanded: $contactsExpanded) {
-                TextField("Search name or address", text: $memberSearchText)
-                    .autocapitalization(.none)
-                    .autocorrectionDisabled()
-
-                // Computed once per body, not once per use.
-                let candidates = groupCandidates
-                if candidates.isEmpty {
-                    Text(memberSearchText.isEmpty
-                         ? "Nobody to suggest yet. Add someone by address below."
-                         : "No matches.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(candidates) { candidate in
-                        Button {
-                            toggleGroupMember(candidate.address)
-                        } label: {
-                            HStack(spacing: 12) {
-                                KNSAvatarView(
-                                    avatarURLString: knsService.profileCache[candidate.address]?.avatarURL,
-                                    fallbackText: candidate.name,
-                                    size: 40,
-                                    contactAddress: candidate.address
-                                )
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(candidate.name)
-                                        .foregroundColor(.primary)
-                                        .lineLimit(1)
-                                    Text(Contact.generateDefaultAlias(from: candidate.address))
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer(minLength: 0)
-                                if selectedMemberAddresses.contains(candidate.address) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                            // A plain Button hit-tests its rendered content, so the gap between
-                            // the name and the checkmark was dead space - the row looked tappable
-                            // along its whole width but only the text actually was.
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            } label: {
-                Text("Contacts").font(.headline)
-            }
         }
-        // The 1:1 screen's loader only runs in its own section, which never renders in group
-        // mode - without this the follow graph would be missing here. Guarded internally, so
-        // whichever section renders first does the work and the other is a no-op.
-        .task { await loadPickerContacts() }
-        // Rebuilt only when the inputs change, never per render.
-        .task(id: groupCandidateFingerprint) { rebuildGroupCandidates() }
-        // The 5s foreground contact sweep is a backstop for delivery, not something worth
-        // competing with a picker for the main actor - and this screen is modal, so nothing it
-        // would refresh is even on screen. It restarts on dismiss (and `startPolling` restarts
-        // it anyway on the next app-active), so pausing it here can only delay a sweep, never
-        // skip delivery: the subscription, push and the catch-up sync all still run.
-        .onAppear {
-            chatService.stopForegroundContactSweep()
-        }
-        .onDisappear { chatService.startForegroundContactSweep() }
     }
 
-    /// The roster, sorted by name: the selection itself, not a filtered view of the candidates.
-    ///
-    /// Reading it off `groupCandidates` would make members disappear from Members while the search
-    /// box is narrowing that list, and anyone added by raw address or KNS domain was never in it.
+    /// The roster, sorted by name.
     private var sortedSelectedMembers: [String] {
         selectedMemberAddresses.sorted {
             memberDisplayName($0).localizedCaseInsensitiveCompare(memberDisplayName($1)) == .orderedAscending
-        }
-    }
-
-    /// One candidate row, with its name resolved ONCE.
-    ///
-    /// The list used to be a computed property that rebuilt a Set union and then sorted it with a
-    /// `localizedCaseInsensitiveCompare` of two freshly-resolved display names per comparison -
-    /// O(n log n) name lookups - and SwiftUI re-ran the whole thing on every body evaluation, twice
-    /// (once for `isEmpty`, once for the `ForEach`). With a few hundred people that is what made
-    /// the screen crawl.
-    struct GroupCandidate: Identifiable, Equatable {
-        let address: String
-        let name: String
-        /// Lowercased once, for the search filter.
-        let searchKey: String
-        var id: String { address }
-    }
-
-    /// Rebuilt only when the inputs actually change (see the `.task(id:)` in the picker section),
-    /// never per render.
-    @State private var groupCandidateCache: [GroupCandidate] = []
-
-    /// Cheap fingerprint of everything `rebuildGroupCandidates` reads.
-    private var groupCandidateFingerprint: String {
-        "\(contactsManager.activeContacts.count)|\(pickerContacts.count)|\(knsService.profileCache.count)"
-    }
-
-    private func rebuildGroupCandidates() {
-        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
-        var addresses = Set(contactsManager.activeContacts.map(\.address))
-        addresses.formUnion(pickerContacts.map(\.address))
-        addresses.remove(myAddress)
-
-        groupCandidateCache = addresses
-            .map { address in
-                let name = memberDisplayName(address)
-                return GroupCandidate(address: address, name: name, searchKey: name.lowercased())
-            }
-            .sorted { $0.searchKey < $1.searchKey }
-    }
-
-    /// The cached list, filtered by the search box. Filtering is a plain substring test over
-    /// names resolved once, so typing does not re-resolve anything.
-    private var groupCandidates: [GroupCandidate] {
-        let query = memberSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return groupCandidateCache }
-        return groupCandidateCache.filter {
-            $0.searchKey.contains(query) || $0.address.lowercased().contains(query)
         }
     }
 
@@ -1096,14 +766,6 @@ struct AddContactView: View {
         contactsManager.displayName(for: address)
     }
 
-
-    private func toggleGroupMember(_ address: String) {
-        if selectedMemberAddresses.contains(address) {
-            selectedMemberAddresses.remove(address)
-        } else if selectedMemberAddresses.count < Self.maxGroupMembers {
-            selectedMemberAddresses.insert(address)
-        }
-    }
 
     /// Matches the single-contact flow's `canAdd` trust model exactly: a resolved KNS domain is
     /// trusted outright (the KNS API is the source of truth for it), only a raw typed/scanned/

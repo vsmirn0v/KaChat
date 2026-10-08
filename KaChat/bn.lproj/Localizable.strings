@@ -1477,3 +1477,10 @@
 /* Chat row: Address Book tile */
 "Save this address with a name you'll recognize." = "এই ঠিকানাটি চেনা নামে সংরক্ষণ করুন।";
 "Edit or remove this saved address." = "এই সংরক্ষিত ঠিকানাটি সম্পাদনা করুন বা সরান।";
+
+/* New Chat / New Group: Address Book picker */
+"Add (%lld)" = "যোগ করুন (%lld)";
+"Add Members" = "সদস্য যোগ করুন";
+"Pick people from your Address Book, or add anyone by Kaspa address or domain." = "আপনার ঠিকানা বই থেকে লোক বেছে নিন, অথবা Kaspa ঠিকানা বা ডোমেইন দিয়ে যে কাউকে যোগ করুন।";
+"Add people to the group. You control the membership as the group admin." = "গ্রুপে লোক যোগ করুন। গ্রুপ অ্যাডমিন হিসেবে সদস্যপদ আপনার নিয়ন্ত্রণে।";
+"No members added yet. Add people from your Address Book or by address below." = "এখনো কোনো সদস্য যোগ হয়নি। নিচে ঠিকানা বই থেকে বা ঠিকানা দিয়ে লোক যোগ করুন।";

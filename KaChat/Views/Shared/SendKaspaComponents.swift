@@ -103,7 +103,7 @@ struct SendRecipientCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(sendKaspaGlass(cornerRadius: 20))
-        .sheet(isPresented: $showAddressBook) {
+        .fullScreenCover(isPresented: $showAddressBook) {
             AddressBookPickerSheet { entry in input = entry.address }
         }
     }

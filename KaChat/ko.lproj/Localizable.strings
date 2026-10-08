@@ -1477,3 +1477,10 @@
 /* Chat row: Address Book tile */
 "Save this address with a name you'll recognize." = "이 주소를 알아보기 쉬운 이름으로 저장합니다.";
 "Edit or remove this saved address." = "저장한 이 주소를 편집하거나 제거합니다.";
+
+/* New Chat / New Group: Address Book picker */
+"Add (%lld)" = "추가 (%lld)";
+"Add Members" = "멤버 추가";
+"Pick people from your Address Book, or add anyone by Kaspa address or domain." = "주소록에서 사람을 고르거나, Kaspa 주소나 도메인으로 누구든 추가하세요.";
+"Add people to the group. You control the membership as the group admin." = "그룹에 사람을 추가하세요. 그룹 관리자로서 멤버를 관리합니다.";
+"No members added yet. Add people from your Address Book or by address below." = "아직 멤버가 없습니다. 아래에서 주소록이나 주소로 추가하세요.";

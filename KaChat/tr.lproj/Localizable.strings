@@ -1477,3 +1477,10 @@
 /* Chat row: Address Book tile */
 "Save this address with a name you'll recognize." = "Bu adresi tanıyacağın bir adla kaydet.";
 "Edit or remove this saved address." = "Kayıtlı bu adresi düzenle veya kaldır.";
+
+/* New Chat / New Group: Address Book picker */
+"Add (%lld)" = "Ekle (%lld)";
+"Add Members" = "Üye Ekle";
+"Pick people from your Address Book, or add anyone by Kaspa address or domain." = "Adres defterinden kişi seç ya da herkesi Kaspa adresi veya alan adıyla ekle.";
+"Add people to the group. You control the membership as the group admin." = "Gruba kişi ekle. Grup yöneticisi olarak üyeliği sen yönetirsin.";
+"No members added yet. Add people from your Address Book or by address below." = "Henüz üye yok. Aşağıdan adres defterinden veya adresle kişi ekle.";

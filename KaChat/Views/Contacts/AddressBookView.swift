@@ -32,7 +32,9 @@ struct AddressBookView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
-                    .searchable(text: $search, prompt: Text("Search names and addresses"))
+                    // Always showing: hidden until you pull the list down, it read as pull-to-refresh.
+                    .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always),
+                                prompt: Text("Search names and addresses"))
                 }
             }
             .navigationTitle("Address Book")
@@ -446,13 +448,45 @@ struct AddressBookEntryEditor: View {
     }
 }
 
-/// Pick a saved address (Send screens, Add Contact, New Group).
+/// Pick from the Address Book, full screen: one address (New Chat, the Send screens), or several
+/// at once with ticks (New Group).
 struct AddressBookPickerSheet: View {
-    let onSelect: (AddressBookEntry) -> Void
+    private enum Mode {
+        case single((AddressBookEntry) -> Void)
+        case multiple((Set<String>), ([AddressBookEntry]) -> Void)
+    }
+
+    private let mode: Mode
+    /// Never offered (your own address, in a group).
+    private let excluding: String?
+
+    /// One address: tapping a row picks it and closes.
+    init(onSelect: @escaping (AddressBookEntry) -> Void) {
+        mode = .single(onSelect)
+        excluding = nil
+    }
+
+    /// Several: rows tick on and off (starting from `preselected`); Add hands back every ticked
+    /// entry.
+    init(preselected: Set<String>, excluding: String? = nil, onDone: @escaping ([AddressBookEntry]) -> Void) {
+        mode = .multiple(Set(preselected.map(AddressBookManager.normalize)), onDone)
+        self.excluding = excluding.map(AddressBookManager.normalize)
+    }
 
     @ObservedObject private var book = AddressBookManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var search = ""
+    @State private var ticked: Set<String> = []
+    @State private var seeded = false
+
+    private var isMultiple: Bool {
+        if case .multiple = mode { return true }
+        return false
+    }
+
+    private var shown: [AddressBookEntry] {
+        book.search(search).filter { AddressBookManager.normalize($0.address) != excluding }
+    }
 
     var body: some View {
         NavigationStack {
@@ -472,17 +506,29 @@ struct AddressBookPickerSheet: View {
                     .padding(32)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(book.search(search)) { entry in
+                    List(shown) { entry in
                         Button {
-                            onSelect(entry)
-                            dismiss()
+                            tap(entry)
                         } label: {
-                            AddressBookRow(entry: entry)
+                            HStack {
+                                AddressBookRow(entry: entry)
+                                Spacer(minLength: 8)
+                                if isMultiple {
+                                    Image(systemName: ticked.contains(AddressBookManager.normalize(entry.address))
+                                          ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3)
+                                        .foregroundColor(ticked.contains(AddressBookManager.normalize(entry.address))
+                                                         ? .accentColor : .secondary)
+                                }
+                            }
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                     .listStyle(.insetGrouped)
-                    .searchable(text: $search, prompt: Text("Search names and addresses"))
+                    // Always showing: hidden until you pull the list down, it read as pull-to-refresh.
+                    .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always),
+                                prompt: Text("Search names and addresses"))
                 }
             }
             .navigationTitle("Address Book")
@@ -491,8 +537,37 @@ struct AddressBookPickerSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                if case .multiple(_, let onDone) = mode {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            onDone(book.entries.filter { ticked.contains(AddressBookManager.normalize($0.address)) })
+                            dismiss()
+                        } label: {
+                            Text(ticked.isEmpty ? "Done" : "Add (\(ticked.count))")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                guard !seeded else { return }
+                seeded = true
+                if case .multiple(let preselected, _) = mode {
+                    let saved = Set(book.entries.map { AddressBookManager.normalize($0.address) })
+                    ticked = preselected.intersection(saved)
+                }
             }
         }
-        .presentationDetents([.medium, .large])
+    }
+
+    private func tap(_ entry: AddressBookEntry) {
+        switch mode {
+        case .single(let onSelect):
+            onSelect(entry)
+            dismiss()
+        case .multiple:
+            let key = AddressBookManager.normalize(entry.address)
+            if ticked.contains(key) { ticked.remove(key) } else { ticked.insert(key) }
+        }
     }
 }

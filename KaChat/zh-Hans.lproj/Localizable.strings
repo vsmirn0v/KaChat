@@ -1477,3 +1477,10 @@
 /* Chat row: Address Book tile */
 "Save this address with a name you'll recognize." = "用你认得出的名字保存这个地址。";
 "Edit or remove this saved address." = "编辑或移除这个已保存的地址。";
+
+/* New Chat / New Group: Address Book picker */
+"Add (%lld)" = "添加（%lld）";
+"Add Members" = "添加成员";
+"Pick people from your Address Book, or add anyone by Kaspa address or domain." = "从地址簿中选择，或通过 Kaspa 地址或域名添加任何人。";
+"Add people to the group. You control the membership as the group admin." = "向群组添加成员。作为群组管理员，由你管理成员。";
+"No members added yet. Add people from your Address Book or by address below." = "还没有成员。请在下方从地址簿或通过地址添加。";

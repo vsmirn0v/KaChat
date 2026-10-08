@@ -1477,3 +1477,10 @@
 /* Chat row: Address Book tile */
 "Save this address with a name you'll recognize." = "Lưu địa chỉ này với một cái tên dễ nhận ra.";
 "Edit or remove this saved address." = "Sửa hoặc gỡ địa chỉ đã lưu này.";
+
+/* New Chat / New Group: Address Book picker */
+"Add (%lld)" = "Thêm (%lld)";
+"Add Members" = "Thêm thành viên";
+"Pick people from your Address Book, or add anyone by Kaspa address or domain." = "Chọn người từ sổ địa chỉ, hoặc thêm bất kỳ ai bằng địa chỉ Kaspa hay tên miền.";
+"Add people to the group. You control the membership as the group admin." = "Thêm người vào nhóm. Là quản trị viên, bạn quản lý thành viên.";
+"No members added yet. Add people from your Address Book or by address below." = "Chưa có thành viên. Thêm người từ sổ địa chỉ hoặc bằng địa chỉ bên dưới.";
