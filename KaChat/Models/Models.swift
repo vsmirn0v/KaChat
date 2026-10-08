@@ -179,16 +179,10 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var notificationModeOverride: ContactNotificationMode?
     var hasSentOutgoingMessage: Bool
     var photoAutoDisplayOverride: PhotoAutoDisplayMode?
-    // Local-only enrichment from iOS/macOS system contacts.
-    var systemContactId: String?
-    /// Avatar source choice for linked system contacts: nil/false = the Contacts-app photo
-    /// wins (the default whenever one exists); true = the user chose the KNS avatar in Chat
-    /// Info. Optional so contacts stored before this field decode cleanly.
-    var preferKNSAvatar: Bool?
-    var systemDisplayNameSnapshot: String?
-    var systemContactLinkSource: SystemContactLinkSource?
-    var systemMatchConfidence: Double?
-    var systemLastSyncedAt: Date?
+    /// The name of the phone contact this contact was linked to before KaChat stopped using the
+    /// phone's Contacts (2026-10-08). Read from old data only, never written back: the Address
+    /// Book migration (`AddressBookManager.migrateLinkedNames`) moves it into the Address Book.
+    var legacyLinkedName: String?
     /// True once you have allowed calls with this contact - the prompt behind the call button
     /// ("Enable calls and video calls with X?") or Chat Info's switch. Off by default: nobody
     /// can ring you, or ask your Nextcloud to host a call, until you say so for them.
@@ -209,12 +203,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         notificationModeOverride: ContactNotificationMode? = nil,
         hasSentOutgoingMessage: Bool = false,
         photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil,
-        systemContactId: String? = nil,
-        preferKNSAvatar: Bool? = nil,
-        systemDisplayNameSnapshot: String? = nil,
-        systemContactLinkSource: SystemContactLinkSource? = nil,
-        systemMatchConfidence: Double? = nil,
-        systemLastSyncedAt: Date? = nil,
         backupPhoto: String? = nil
     ) {
         self.id = id
@@ -226,12 +214,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         self.notificationModeOverride = notificationModeOverride
         self.hasSentOutgoingMessage = hasSentOutgoingMessage
         self.photoAutoDisplayOverride = photoAutoDisplayOverride
-        self.systemContactId = systemContactId
-        self.preferKNSAvatar = preferKNSAvatar
-        self.systemDisplayNameSnapshot = systemDisplayNameSnapshot
-        self.systemContactLinkSource = systemContactLinkSource
-        self.systemMatchConfidence = systemMatchConfidence
-        self.systemLastSyncedAt = systemLastSyncedAt
         self.backupPhoto = backupPhoto
     }
 
@@ -246,11 +228,9 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         case notificationsMuted // Legacy key migrated into notificationModeOverride
         case hasSentOutgoingMessage
         case photoAutoDisplayOverride
+        // Legacy phone-contact link, decoded once for the Address Book migration, never encoded.
         case systemContactId
         case systemDisplayNameSnapshot
-        case systemContactLinkSource
-        case systemMatchConfidence
-        case systemLastSyncedAt
         case backupPhoto
         case callsEnabled
     }
@@ -272,11 +252,11 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         }
         hasSentOutgoingMessage = try container.decodeIfPresent(Bool.self, forKey: .hasSentOutgoingMessage) ?? false
         photoAutoDisplayOverride = try container.decodeIfPresent(PhotoAutoDisplayMode.self, forKey: .photoAutoDisplayOverride)
-        systemContactId = try container.decodeIfPresent(String.self, forKey: .systemContactId)
-        systemDisplayNameSnapshot = try container.decodeIfPresent(String.self, forKey: .systemDisplayNameSnapshot)
-        systemContactLinkSource = try container.decodeIfPresent(SystemContactLinkSource.self, forKey: .systemContactLinkSource)
-        systemMatchConfidence = try container.decodeIfPresent(Double.self, forKey: .systemMatchConfidence)
-        systemLastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .systemLastSyncedAt)
+        if (try? container.decodeIfPresent(String.self, forKey: .systemContactId)) != nil,
+           let linked = (try? container.decodeIfPresent(String.self, forKey: .systemDisplayNameSnapshot)) ?? nil,
+           !linked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            legacyLinkedName = linked
+        }
         backupPhoto = try container.decodeIfPresent(String.self, forKey: .backupPhoto)
         callsEnabled = try container.decodeIfPresent(Bool.self, forKey: .callsEnabled)
     }
@@ -292,11 +272,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(notificationModeOverride, forKey: .notificationModeOverride)
         try container.encode(hasSentOutgoingMessage, forKey: .hasSentOutgoingMessage)
         try container.encodeIfPresent(photoAutoDisplayOverride, forKey: .photoAutoDisplayOverride)
-        try container.encodeIfPresent(systemContactId, forKey: .systemContactId)
-        try container.encodeIfPresent(systemDisplayNameSnapshot, forKey: .systemDisplayNameSnapshot)
-        try container.encodeIfPresent(systemContactLinkSource, forKey: .systemContactLinkSource)
-        try container.encodeIfPresent(systemMatchConfidence, forKey: .systemMatchConfidence)
-        try container.encodeIfPresent(systemLastSyncedAt, forKey: .systemLastSyncedAt)
         try container.encodeIfPresent(backupPhoto, forKey: .backupPhoto)
         try container.encodeIfPresent(callsEnabled, forKey: .callsEnabled)
     }
@@ -326,25 +301,24 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     }
 }
 
-enum SystemContactLinkSource: String, Codable, Hashable {
-    case matched
-    case manual
-    case autoCreated
-}
+/// One saved Kaspa address in the Address Book (Kaspa Hub > Address Book). Kept per wallet,
+/// on this device and in the chat backup - never in the phone's Contacts.
+struct AddressBookEntry: Codable, Identifiable, Equatable, Hashable {
+    var id: UUID
+    var address: String
+    var name: String
+    var note: String
+    var createdAt: Date
+    var updatedAt: Date
 
-struct SystemContactCandidate: Identifiable, Equatable {
-    var id: String { "\(contactIdentifier)|\(address)" }
-    let contactIdentifier: String
-    let displayName: String
-    let address: String
-    let sourceHint: String?
-    let isAutoCreated: Bool
-}
-
-struct SystemContactLinkTarget: Identifiable, Equatable {
-    var id: String { contactIdentifier }
-    let contactIdentifier: String
-    let displayName: String
+    init(id: UUID = UUID(), address: String, name: String, note: String = "", createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.id = id
+        self.address = address
+        self.name = name
+        self.note = note
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
 }
 
 // MARK: - Message Models
@@ -1997,6 +1971,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     /// KaChat Stats (5.2) - Kaspa Hub > KaChat Stats: how many transactions KaChat has put on
     /// Kaspa, by kind, as the indexers count them (STATS_INDEXER.md).
     case kachatStats
+    /// Address Book (2026-10-08) - Kaspa Hub > Address Book: saved Kaspa addresses with names,
+    /// per wallet, kept in KaChat (it replaced syncing with the phone's Contacts).
+    case addressBook
     /// The container the other feature tabs live in when they are not in the dock themselves -
     /// see `ecosystemSections(from:)`. Displayed as "Kaspa Hub"; the case name and its raw
     /// value stay `ecosystem` because the raw value is PERSISTED in `tabOrder`, so renaming it
@@ -2025,6 +2002,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .chess: return "Chess"
         case .kachatNames: return ".kachat"
         case .kachatStats: return "Stats"
+        case .addressBook: return "Address Book"
         case .ecosystem: return "Kaspa Hub"
         case .more: return "More"
         }
@@ -2045,6 +2023,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         // is only the fallback for anything that has not been taught about it.
         case .kachatNames: return "at"
         case .kachatStats: return "chart.bar.xaxis"
+        case .addressBook: return "book.closed"
         // Kaspa Hub wears the Kaspa mark itself, not an SF Symbol - see `usesKaspaLogo`.
         case .ecosystem: return "circle.hexagongrid"
         case .more: return "plus.circle"
@@ -2085,6 +2064,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .chess: return 11
         case .kachatNames: return 12
         case .kachatStats: return 13
+        case .addressBook: return 14
         case .ecosystem: return 10
         }
     }
@@ -2101,20 +2081,20 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     static let pinnedToDock: [AppTab] = [.ecosystem, .profile]
 
     /// Tabs the user can place. Excludes the Hub (pinned) and the retired "+ More".
-    static let assignable: [AppTab] = [.chats, .portfolio, .coldStorage, .swap, .kaposts, .apps, .chess, .kachatNames, .kachatStats]
+    static let assignable: [AppTab] = [.chats, .portfolio, .coldStorage, .swap, .kaposts, .apps, .chess, .kachatNames, .kachatStats, .addressBook]
 
     /// Ecosystem takes the dock slot Swap used to hold, so a default install shows exactly the
     /// five the dock can fit - Portfolio, Storage, Chats, Ecosystem, Profile - with Swap, KaPosts,
     /// Public Chats and the websites list still ENABLED but living inside Ecosystem rather than
     /// competing for a dock slot.
-    static let defaultOrder: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile, .kachatNames, .kachatStats, .swap, .kaposts, .publicChats, .apps, .chess]
+    static let defaultOrder: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile, .addressBook, .kachatNames, .kachatStats, .swap, .kaposts, .publicChats, .apps, .chess]
 
     /// What a fresh install starts with: the three that were asked for, in that order, plus the
     /// two that fill the dock to its cap. Everything else starts in Kaspa Hub.
     static let defaultDock: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile]
 
     /// The rest, in the order the Hub grid shows them until the user rearranges it.
-    static let defaultHub: [AppTab] = [.kachatNames, .kachatStats, .kaposts, .swap, .apps]
+    static let defaultHub: [AppTab] = [.addressBook, .kachatNames, .kachatStats, .kaposts, .swap, .apps]
 
     /// Slots the user can actually fill: the cap minus the pinned tabs.
     static var assignableDockSlots: Int { maxDockItems - pinnedToDock.count }
@@ -2166,6 +2146,8 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .kachatNames: return !settings.childModeEnabled
         // Read-only numbers; nothing in it to keep from Simple Mode.
         case .kachatStats: return true
+        // Your own saved addresses; nothing in it to keep from Simple Mode.
+        case .addressBook: return true
         case .ecosystem: return !settings.hideEcosystemTab
         // "+ More" is retired from the dock entirely (Customize Dock lives in Settings now) -
         // hard-hidden regardless of what an old saved blob says.
@@ -2304,7 +2286,6 @@ struct AppSettings: Codable {
     var messageRetention: MessageRetention
     var networkType: NetworkType
     var autoAddContacts: Bool
-    var syncSystemContacts: Bool
     var notificationMode: NotificationMode
     var notificationPermissionRequested: Bool
     var incomingNotificationSoundEnabled: Bool
@@ -2552,7 +2533,6 @@ struct AppSettings: Codable {
             messageRetention: .forever,
             networkType: .mainnet,
             autoAddContacts: true,
-            syncSystemContacts: true,
             notificationMode: .remotePush,
             notificationPermissionRequested: false,
             incomingNotificationSoundEnabled: true,
@@ -2618,7 +2598,6 @@ struct AppSettings: Codable {
         case messageRetention
         case networkType
         case autoAddContacts
-        case syncSystemContacts
         case notificationMode
         case notificationPermissionRequested
         case incomingNotificationSoundEnabled
@@ -2686,7 +2665,6 @@ struct AppSettings: Codable {
         messageRetention: MessageRetention,
         networkType: NetworkType,
         autoAddContacts: Bool,
-        syncSystemContacts: Bool,
         notificationMode: NotificationMode,
         notificationPermissionRequested: Bool = false,
         incomingNotificationSoundEnabled: Bool = true,
@@ -2743,7 +2721,6 @@ struct AppSettings: Codable {
         self.networkType = networkType
         // Auto-add contacts is always enabled.
         self.autoAddContacts = true
-        self.syncSystemContacts = syncSystemContacts
         self.notificationMode = notificationMode
         self.notificationPermissionRequested = notificationPermissionRequested
         self.incomingNotificationSoundEnabled = incomingNotificationSoundEnabled
@@ -2805,7 +2782,6 @@ struct AppSettings: Codable {
         networkType = try container.decodeIfPresent(NetworkType.self, forKey: .networkType) ?? .mainnet
         // Ignore persisted value and keep this feature always enabled.
         autoAddContacts = true
-        syncSystemContacts = try container.decodeIfPresent(Bool.self, forKey: .syncSystemContacts) ?? true
         if let storedModeRaw = try container.decodeIfPresent(String.self, forKey: .notificationMode) {
             switch storedModeRaw {
             case NotificationMode.disabled.rawValue:
@@ -2972,7 +2948,6 @@ struct AppSettings: Codable {
         try container.encode(networkType, forKey: .networkType)
         // Persist as enabled for forward/backward compatibility.
         try container.encode(true, forKey: .autoAddContacts)
-        try container.encode(syncSystemContacts, forKey: .syncSystemContacts)
         try container.encode(notificationMode, forKey: .notificationMode)
         try container.encode(notificationPermissionRequested, forKey: .notificationPermissionRequested)
         try container.encode(incomingNotificationSoundEnabled, forKey: .incomingNotificationSoundEnabled)

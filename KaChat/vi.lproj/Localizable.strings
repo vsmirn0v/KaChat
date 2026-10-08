@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "Không có tên .kachat nào như vậy.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Đã hết hạn. Tên vẫn trỏ đến chủ sở hữu cho đến khi hết thời gian ân hạn, và chủ sở hữu vẫn có thể gia hạn.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Đã hết hạn - hãy gia hạn để giữ. Cho đến khi hết thời gian ân hạn, tên vẫn trỏ đến bạn và không ai khác có thể lấy.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Sổ địa chỉ";
+"Add to Address Book" = "Thêm vào sổ địa chỉ";
+"Search names and addresses" = "Tìm tên và địa chỉ";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Lưu các địa chỉ Kaspa bạn hay dùng với một cái tên dễ nhận ra. Chúng nằm trong KaChat, chỉ cho ví này, và không bao giờ vào danh bạ điện thoại của bạn.";
+"Copied" = "Đã sao chép";
+"Share Address" = "Chia sẻ địa chỉ";
+"Edit" = "Sửa";
+"Delete from Address Book" = "Xóa khỏi sổ địa chỉ";
+"Delete %@ from your Address Book?" = "Xóa %@ khỏi sổ địa chỉ?";
+"Not in your Address Book" = "Không có trong sổ địa chỉ";
+"Note (optional)" = "Ghi chú (tùy chọn)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Lưu trong KaChat chỉ cho ví này. Không bao giờ được thêm vào danh bạ điện thoại.";
+"Remove from Address Book" = "Gỡ khỏi sổ địa chỉ";
+"Edit Address" = "Sửa địa chỉ";
+"Add addresses in Kaspa Hub > Address Book." = "Thêm địa chỉ trong Kaspa Hub > Sổ địa chỉ.";
+"Open a wallet first." = "Hãy mở một ví trước.";
+"Enter a name." = "Nhập tên.";
+"Enter a valid Kaspa address." = "Nhập một địa chỉ Kaspa hợp lệ.";
+"Saved to Address Book." = "Đã lưu vào sổ địa chỉ.";
+"Removed from Address Book." = "Đã gỡ khỏi sổ địa chỉ.";

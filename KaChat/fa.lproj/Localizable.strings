@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "هیچ نام ‎.kachat‎ با این نام وجود ندارد.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "منقضی شده. تا پایان دوره مهلت همچنان به مالک خود اشاره می‌کند و مالک هنوز می‌تواند آن را تمدید کند.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "منقضی شده - برای نگه داشتن آن را تمدید کنید. تا پایان دوره مهلت همچنان به شما اشاره می‌کند و هیچ‌کس دیگری نمی‌تواند آن را بگیرد.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "دفترچه نشانی";
+"Add to Address Book" = "افزودن به دفترچه نشانی";
+"Search names and addresses" = "جستجوی نام‌ها و نشانی‌ها";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "نشانی‌های Kaspa که استفاده می‌کنید را با نامی که می‌شناسید ذخیره کنید. آن‌ها در KaChat می‌مانند، فقط برای این کیف پول، و هرگز به مخاطبین گوشی شما نمی‌روند.";
+"Copied" = "کپی شد";
+"Share Address" = "اشتراک‌گذاری نشانی";
+"Edit" = "ویرایش";
+"Delete from Address Book" = "حذف از دفترچه نشانی";
+"Delete %@ from your Address Book?" = "%@ از دفترچه نشانی حذف شود؟";
+"Not in your Address Book" = "در دفترچه نشانی شما نیست";
+"Note (optional)" = "یادداشت (اختیاری)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "فقط برای این کیف پول در KaChat ذخیره می‌شود. هرگز به مخاطبین گوشی شما اضافه نمی‌شود.";
+"Remove from Address Book" = "برداشتن از دفترچه نشانی";
+"Edit Address" = "ویرایش نشانی";
+"Add addresses in Kaspa Hub > Address Book." = "نشانی‌ها را در Kaspa Hub > دفترچه نشانی اضافه کنید.";
+"Open a wallet first." = "ابتدا یک کیف پول باز کنید.";
+"Enter a name." = "یک نام وارد کنید.";
+"Enter a valid Kaspa address." = "یک نشانی معتبر Kaspa وارد کنید.";
+"Saved to Address Book." = "در دفترچه نشانی ذخیره شد.";
+"Removed from Address Book." = "از دفترچه نشانی برداشته شد.";

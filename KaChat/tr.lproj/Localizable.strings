@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "Bu adla bir .kachat adı yok.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Süresi doldu. Ek süre bitene kadar hâlâ sahibine çözümlenir ve sahibi hâlâ yenileyebilir.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Süresi doldu - korumak için yenileyin. Ek süre bitene kadar hâlâ size çözümlenir ve başka kimse alamaz.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Adres Defteri";
+"Add to Address Book" = "Adres Defterine Ekle";
+"Search names and addresses" = "Ad ve adres ara";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Kullandığın Kaspa adreslerini tanıyacağın bir adla kaydet. KaChat'te, yalnızca bu cüzdan için kalırlar ve telefonunun Kişiler'ine asla girmezler.";
+"Copied" = "Kopyalandı";
+"Share Address" = "Adresi Paylaş";
+"Edit" = "Düzenle";
+"Delete from Address Book" = "Adres Defterinden Sil";
+"Delete %@ from your Address Book?" = "%@ adres defterinden silinsin mi?";
+"Not in your Address Book" = "Adres defterinde yok";
+"Note (optional)" = "Not (isteğe bağlı)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Yalnızca bu cüzdan için KaChat'te kaydedilir. Telefonunun Kişiler'ine asla eklenmez.";
+"Remove from Address Book" = "Adres Defterinden Kaldır";
+"Edit Address" = "Adresi Düzenle";
+"Add addresses in Kaspa Hub > Address Book." = "Adresleri Kaspa Hub > Adres Defteri'nden ekle.";
+"Open a wallet first." = "Önce bir cüzdan aç.";
+"Enter a name." = "Bir ad gir.";
+"Enter a valid Kaspa address." = "Geçerli bir Kaspa adresi gir.";
+"Saved to Address Book." = "Adres defterine kaydedildi.";
+"Removed from Address Book." = "Adres defterinden kaldırıldı.";

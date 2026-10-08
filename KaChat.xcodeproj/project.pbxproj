@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AB0B00042E8F000100000001 /* AddressBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0B00032E8F000100000001 /* AddressBookView.swift */; };
+		AB0B00022E8F000100000001 /* AddressBookManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0B00012E8F000100000001 /* AddressBookManager.swift */; };
 		KCM0002B000000000000001 /* KachatNamesLiveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCM0002A000000000000001 /* KachatNamesLiveViews.swift */; };
 		KCNM00000200030001000000 /* KachatNamesActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000200030000000000 /* KachatNamesActions.swift */; };
 		KCNM00000200020001000000 /* KachatNamesRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = KCNM00000200020000000000 /* KachatNamesRegistry.swift */; };
@@ -282,6 +284,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AB0B00032E8F000100000001 /* AddressBookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBookView.swift; sourceTree = "<group>"; };
+		AB0B00012E8F000100000001 /* AddressBookManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBookManager.swift; sourceTree = "<group>"; };
 		KCM0002A000000000000001 /* KachatNamesLiveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesLiveViews.swift; sourceTree = "<group>"; };
 		KCNM00000200030000000000 /* KachatNamesActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesActions.swift; sourceTree = "<group>"; };
 		KCNM00000200020000000000 /* KachatNamesRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KachatNamesRegistry.swift; sourceTree = "<group>"; };
@@ -737,6 +741,7 @@
 				E81000082D4C000100000005 /* KeychainService.swift */,
 				E810000A2D4C000100000006 /* KaChatAPIClient.swift */,
 				E810000C2D4C000100000007 /* ContactsManager.swift */,
+				AB0B00012E8F000100000001 /* AddressBookManager.swift */,
 				E810000E2D4C000100000008 /* ChatService.swift */,
 				CSEX00010001000000000001 /* ChatService+PushAndSync.swift */,
 				CSEX00010001000000000002 /* ChatService+UtxoProcessing.swift */,
@@ -930,6 +935,7 @@
 			children = (
 				E810001A2D4C00010000000E /* ContactsView.swift */,
 				E81000322D4C00010000001A /* AddContactView.swift */,
+				AB0B00032E8F000100000001 /* AddressBookView.swift */,
 				SA0001A0000000000000001 /* ManageAddressesView.swift */,
 				KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */,
 				KSG0001A000000000000001 /* KachatSetupGuideView.swift */,
@@ -1340,6 +1346,7 @@
 				E81000092D4C000100000005 /* KeychainService.swift in Sources */,
 				E810000B2D4C000100000006 /* KaChatAPIClient.swift in Sources */,
 				E810000D2D4C000100000007 /* ContactsManager.swift in Sources */,
+				AB0B00022E8F000100000001 /* AddressBookManager.swift in Sources */,
 				E810000F2D4C000100000008 /* ChatService.swift in Sources */,
 				CSEX00010001000100000001 /* ChatService+PushAndSync.swift in Sources */,
 				CSEX00010001000100000002 /* ChatService+UtxoProcessing.swift in Sources */,
@@ -1467,6 +1474,7 @@
 				IMGP00010001000100000001 /* ImagePrep.swift in Sources */,
 				FEESHIM0001000100000002 /* FeeShimmerOverlay.swift in Sources */,
 				E81000332D4C00010000001A /* AddContactView.swift in Sources */,
+				AB0B00042E8F000100000001 /* AddressBookView.swift in Sources */,
 				E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */,
 				QRBV00010001000100000001 /* QuickReactionBarView.swift in Sources */,
 				ERPK00010001000100000001 /* EmojiReactionPicker.swift in Sources */,

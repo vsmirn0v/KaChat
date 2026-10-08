@@ -73,16 +73,10 @@ struct KaChatApp: App {
                     if #available(iOS 16.0, macCatalyst 16.0, *) {
                         KaChatShortcutsProvider.updateAppShortcutParameters()
                     }
-                    if walletManager.currentWallet != nil {
-                        Task {
-                            await contactsManager.bootstrapSystemContactsIfNeeded()
-                        }
-                    }
                 }
                 .onChange(of: walletManager.currentWallet?.publicAddress) { newValue in
                     guard newValue != nil else { return }
                     Task {
-                        await contactsManager.bootstrapSystemContactsIfNeeded()
                         await processPendingOutboundShareIfNeeded()
                     }
                     if let pending = pendingIntentCall {
@@ -158,18 +152,13 @@ struct KaChatApp: App {
     }
 
     /// The Intents extension resolved whom to call and handed over; the activity carries the
-    /// KaChat address (or the linked system contact) and whether video was asked for.
+    /// KaChat address and whether video was asked for.
     private func handleStartCallActivity(_ activity: NSUserActivity) {
         let info = activity.userInfo ?? [:]
         let intent = activity.interaction?.intent as? INStartCallIntent
         let person = intent?.contacts?.first
         let video = (info["video"] as? Bool) ?? (intent?.callCapability == .videoCall)
-        var address = (info["address"] as? String) ?? person?.customIdentifier ?? person?.personHandle?.value
-        if address == nil || contactsManager.getContact(byAddress: address ?? "") == nil,
-           let systemId = (info["systemContactId"] as? String) ?? person?.contactIdentifier,
-           let linked = contactsManager.contacts.first(where: { $0.systemContactId == systemId }) {
-            address = linked.address
-        }
+        let address = (info["address"] as? String) ?? person?.customIdentifier ?? person?.personHandle?.value
         guard let address else { return }
         if walletManager.currentWallet == nil {
             pendingIntentCall = (address, video)
@@ -284,11 +273,6 @@ struct KaChatApp: App {
                         try? await Task.sleep(nanoseconds: coldStartGraceNanos)
                     }
                     await NodePoolService.shared.reconnectStaleConnections()
-                }
-            }
-            if walletManager.currentWallet != nil {
-                Task {
-                    await contactsManager.bootstrapSystemContactsIfNeeded()
                 }
             }
             // Process any messages decrypted by notification extension

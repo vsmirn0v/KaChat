@@ -65,9 +65,6 @@ struct SettingsView: View {
                 settingsCategoryRow("Chats", icon: "bubble.left.and.bubble.right", tint: .accentColor) {
                     chatsPage
                 }
-                settingsCategoryRow("Contacts", icon: "person.2", tint: .accentColor) {
-                    contactsPage
-                }
                 settingsCategoryRow("Storage", icon: "internaldrive", tint: .accentColor) {
                     storagePage
                 }
@@ -250,25 +247,6 @@ struct SettingsView: View {
 
         }
         .navigationTitle("Chats")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var contactsPage: some View {
-        Form {
-            Section("Contacts") {
-                    Toggle("Sync system contacts", isOn: Binding(
-                        get: { settingsViewModel.settings.syncSystemContacts },
-                        set: { enabled in
-                            handleSystemContactsSyncToggle(enabled)
-                        }
-                    ))
-
-                    Text("Uses your device contacts to match and enrich Kaspa contacts.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-        }
-        .navigationTitle("Contacts")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -549,24 +527,6 @@ struct SettingsView: View {
         }
     }
 
-
-    private func handleSystemContactsSyncToggle(_ enabled: Bool) {
-        settingsViewModel.settings.syncSystemContacts = enabled
-        settingsViewModel.saveSettings()
-
-        guard enabled else { return }
-
-        Task {
-            let granted = await contactsManager.requestSystemContactsAccess()
-            if !granted {
-                await MainActor.run {
-                    settingsViewModel.settings.syncSystemContacts = false
-                    settingsViewModel.saveSettings()
-                    showToast("Contacts permission denied. Sync disabled.", style: .error)
-                }
-            }
-        }
-    }
 
     private func showToast(_ message: String, style: ToastStyle = .success) {
         let token = UUID()

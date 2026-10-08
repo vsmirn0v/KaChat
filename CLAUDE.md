@@ -50,7 +50,8 @@ The app uses MVVM architecture with global singleton services injected via Swift
 | `KasiaAPIClient` | REST HTTP client for Kasia Indexer |
 | `KeychainService` | Device-specific Secure Enclave credential storage |
 | `MessageStore` | Core Data message persistence, device-local, one SQLite store per wallet |
-| `ContactsManager` | Address book persistence, KNS domain integration |
+| `ContactsManager` | Chat contacts (per wallet): names, deletion tombstones, KNS domain integration. KaChat no longer reads or writes the phone's Contacts (removed 2026-10-08; no `NSContactsUsageDescription`) |
+| `AddressBookManager` | The Address Book (Kaspa Hub > Address Book, `AddressBookView.swift`): saved Kaspa addresses with a name and note, per wallet, on device and in the chat backup (`addressBook` / `addressBookDeleted`, NEXTCLOUD_SYNC.md §5). A saved name is the display-name fallback after a name you gave the chat. It replaced phone-Contacts sync, which wrote Kaspa addresses into people's iCloud/Google contacts |
 | `KNSService` | Kaspa Name Service API client for domain resolution |
 | `KasiaTransactionBuilder` | Constructs signed Kaspa transactions |
 | `ChessTournamentService` | Chess tournaments: watches `#chess-arena` through `PublicChatService`, reduces it with `ChessTournamentEngine` (pure, deterministic - the indexer ports it), sends create/join/move/resign/claim/chat as broadcast transactions. Views in `Views/Chess/` |
@@ -266,7 +267,7 @@ KaChat/
 └── Utilities/        # CryptoUtils, KasiaCipher (ECIES, in KaChatCipher.swift), Bech32, ...
 ```
 
-Companion targets at the repo root: `KaChatNotificationService/` (push decryption extension), `KaChatShareExtension/` (share sheet), `KaChatWidgets/` (home screen widgets), `KaChatIntents/` (Intents extension: `INStartCallIntent` so the Contacts app, Siri and Recents can "call with KaChat"; it resolves against `call_contacts` in the App Group and hands the call to the app).
+Companion targets at the repo root: `KaChatNotificationService/` (push decryption extension), `KaChatShareExtension/` (share sheet), `KaChatWidgets/` (home screen widgets), `KaChatIntents/` (Intents extension: `INStartCallIntent` so Siri and Recents can "call with KaChat"; it resolves against `call_contacts` in the App Group by KaChat address or name, and hands the call to the app).
 
 ## Key Dependencies
 

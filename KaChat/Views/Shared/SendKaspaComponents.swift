@@ -31,6 +31,9 @@ struct SendRecipientCard: View {
     let isValidAddress: Bool
     let onScan: () -> Void
 
+    @ObservedObject private var addressBook = AddressBookManager.shared
+    @State private var showAddressBook = false
+
     private var trimmed: String { input.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
@@ -74,8 +77,24 @@ struct SendRecipientCard: View {
                     .buttonStyle(.plain)
                     .foregroundColor(.accentColor)
                     .accessibilityLabel(Text("Scan QR"))
+                    if !addressBook.entries.isEmpty {
+                        Button {
+                            showAddressBook = true
+                        } label: {
+                            Image(systemName: "book.closed")
+                                .font(.body.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.accentColor)
+                        .accessibilityLabel(Text("Address Book"))
+                    }
                 }
                 AddressResolutionCard(address: resolvedAddress ?? (isValidAddress ? trimmed : nil), domain: resolvedName)
+                if let saved = addressBook.entry(for: resolvedAddress ?? trimmed) {
+                    Label(saved.name, systemImage: "book.closed.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                }
                 if !trimmed.isEmpty {
                     statusLine
                 }
@@ -84,6 +103,9 @@ struct SendRecipientCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(sendKaspaGlass(cornerRadius: 20))
+        .sheet(isPresented: $showAddressBook) {
+            AddressBookPickerSheet { entry in input = entry.address }
+        }
     }
 
     @ViewBuilder

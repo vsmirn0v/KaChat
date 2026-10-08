@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "没有这个名称的 .kachat 名称。";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "已过期。在宽限期结束前，它仍解析到其所有者，所有者仍可续期。";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "已过期 - 续期以保留它。在宽限期结束前，它仍解析到你，其他人无法获取。";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "地址簿";
+"Add to Address Book" = "添加到地址簿";
+"Search names and addresses" = "搜索名称和地址";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "用你认得出的名字保存常用的 Kaspa 地址。它们只保存在 KaChat 中，仅限这个钱包，绝不会进入手机通讯录。";
+"Copied" = "已复制";
+"Share Address" = "分享地址";
+"Edit" = "编辑";
+"Delete from Address Book" = "从地址簿删除";
+"Delete %@ from your Address Book?" = "要从地址簿删除 %@ 吗？";
+"Not in your Address Book" = "不在你的地址簿中";
+"Note (optional)" = "备注（可选）";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "仅为这个钱包保存在 KaChat 中。绝不会添加到手机通讯录。";
+"Remove from Address Book" = "从地址簿移除";
+"Edit Address" = "编辑地址";
+"Add addresses in Kaspa Hub > Address Book." = "在 Kaspa Hub > 地址簿 中添加地址。";
+"Open a wallet first." = "请先打开一个钱包。";
+"Enter a name." = "请输入名称。";
+"Enter a valid Kaspa address." = "请输入有效的 Kaspa 地址。";
+"Saved to Address Book." = "已保存到地址簿。";
+"Removed from Address Book." = "已从地址簿移除。";

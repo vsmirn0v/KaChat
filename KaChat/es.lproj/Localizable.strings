@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "No hay ningún nombre .kachat con ese nombre.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Caducado. Sigue resolviendo a su propietario hasta que termine el periodo de gracia, y el propietario aún puede renovarlo.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Caducado: renuévalo para conservarlo. Hasta que termine el periodo de gracia sigue resolviendo a ti y nadie más puede quedárselo.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Libreta de direcciones";
+"Add to Address Book" = "Añadir a la libreta de direcciones";
+"Search names and addresses" = "Buscar nombres y direcciones";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Guarda las direcciones de Kaspa que usas con un nombre que reconozcas. Se quedan en KaChat, solo para esta cartera, y nunca van a los contactos de tu teléfono.";
+"Copied" = "Copiado";
+"Share Address" = "Compartir dirección";
+"Edit" = "Editar";
+"Delete from Address Book" = "Eliminar de la libreta de direcciones";
+"Delete %@ from your Address Book?" = "¿Eliminar a %@ de tu libreta de direcciones?";
+"Not in your Address Book" = "No está en tu libreta de direcciones";
+"Note (optional)" = "Nota (opcional)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Guardado en KaChat solo para esta cartera. Nunca se añade a los contactos de tu teléfono.";
+"Remove from Address Book" = "Quitar de la libreta de direcciones";
+"Edit Address" = "Editar dirección";
+"Add addresses in Kaspa Hub > Address Book." = "Añade direcciones en Kaspa Hub > Libreta de direcciones.";
+"Open a wallet first." = "Abre primero una cartera.";
+"Enter a name." = "Escribe un nombre.";
+"Enter a valid Kaspa address." = "Escribe una dirección de Kaspa válida.";
+"Saved to Address Book." = "Guardado en la libreta de direcciones.";
+"Removed from Address Book." = "Quitado de la libreta de direcciones.";

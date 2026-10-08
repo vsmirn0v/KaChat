@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "इस नाम का कोई .kachat नाम नहीं है।";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "समाप्त हो गया। ग्रेस अवधि समाप्त होने तक यह अभी भी अपने मालिक के पते पर रिज़ॉल्व होता है, और मालिक अभी भी इसे नवीनीकृत कर सकता है।";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "समाप्त हो गया - इसे रखने के लिए नवीनीकृत करें। ग्रेस अवधि समाप्त होने तक यह अभी भी आपके पते पर रिज़ॉल्व होता है और कोई और इसे नहीं ले सकता।";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "एड्रेस बुक";
+"Add to Address Book" = "एड्रेस बुक में जोड़ें";
+"Search names and addresses" = "नाम और पते खोजें";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "जिन Kaspa पतों का आप उपयोग करते हैं, उन्हें पहचाने जाने वाले नाम से सहेजें। वे KaChat में रहते हैं, सिर्फ़ इस वॉलेट के लिए, और कभी आपके फ़ोन के संपर्कों में नहीं जाते।";
+"Copied" = "कॉपी हो गया";
+"Share Address" = "पता साझा करें";
+"Edit" = "संपादित करें";
+"Delete from Address Book" = "एड्रेस बुक से हटाएँ";
+"Delete %@ from your Address Book?" = "%@ को अपनी एड्रेस बुक से हटाएँ?";
+"Not in your Address Book" = "आपकी एड्रेस बुक में नहीं है";
+"Note (optional)" = "नोट (वैकल्पिक)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "सिर्फ़ इस वॉलेट के लिए KaChat में सहेजा गया। कभी आपके फ़ोन के संपर्कों में नहीं जोड़ा जाता।";
+"Remove from Address Book" = "एड्रेस बुक से हटाएँ";
+"Edit Address" = "पता संपादित करें";
+"Add addresses in Kaspa Hub > Address Book." = "Kaspa Hub > एड्रेस बुक में पते जोड़ें।";
+"Open a wallet first." = "पहले एक वॉलेट खोलें।";
+"Enter a name." = "एक नाम दर्ज करें।";
+"Enter a valid Kaspa address." = "एक मान्य Kaspa पता दर्ज करें।";
+"Saved to Address Book." = "एड्रेस बुक में सहेजा गया।";
+"Removed from Address Book." = "एड्रेस बुक से हटाया गया।";

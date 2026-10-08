@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "その名前の.kachatネームはありません。";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "期限切れです。猶予期間が終わるまでは引き続き所有者のアドレスに解決され、所有者はまだ更新できます。";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "期限切れです - 保持するには更新してください。猶予期間が終わるまでは引き続きあなたのアドレスに解決され、他の人は取得できません。";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "アドレス帳";
+"Add to Address Book" = "アドレス帳に追加";
+"Search names and addresses" = "名前とアドレスを検索";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "よく使うKaspaアドレスを、分かりやすい名前で保存できます。KaChatの中だけに、このウォレット専用で保存され、電話の連絡先には一切入りません。";
+"Copied" = "コピーしました";
+"Share Address" = "アドレスを共有";
+"Edit" = "編集";
+"Delete from Address Book" = "アドレス帳から削除";
+"Delete %@ from your Address Book?" = "%@をアドレス帳から削除しますか？";
+"Not in your Address Book" = "アドレス帳にありません";
+"Note (optional)" = "メモ（任意）";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "このウォレット専用にKaChatに保存されます。電話の連絡先には追加されません。";
+"Remove from Address Book" = "アドレス帳から削除";
+"Edit Address" = "アドレスを編集";
+"Add addresses in Kaspa Hub > Address Book." = "Kaspa Hub > アドレス帳でアドレスを追加できます。";
+"Open a wallet first." = "先にウォレットを開いてください。";
+"Enter a name." = "名前を入力してください。";
+"Enter a valid Kaspa address." = "有効なKaspaアドレスを入力してください。";
+"Saved to Address Book." = "アドレス帳に保存しました。";
+"Removed from Address Book." = "アドレス帳から削除しました。";

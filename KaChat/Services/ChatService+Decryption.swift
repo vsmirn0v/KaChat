@@ -342,6 +342,10 @@ extension ChatService {
         // user deleted. A restore - local file, Nextcloud, or any other transport - must
         // never resurrect them, even on a fresh install with no local tombstones.
         let deletedContactAddresses: [String]?
+        // Address Book (optional; older archives omit it): this wallet's saved addresses, and
+        // the deleted ones so a merge or restore never brings them back. NEXTCLOUD_SYNC.md.
+        var addressBook: [AddressBookEntry]? = nil
+        var addressBookDeleted: [AddressBookTombstone]? = nil
     }
 
     struct ChatHistoryArchiveConversation: Codable {

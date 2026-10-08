@@ -318,6 +318,8 @@ struct MainTabView: View {
             KachatMarketView()
         case .kachatStats:
             KaChatStatsView()
+        case .addressBook:
+            AddressBookView()
         case .apps:
             NavigationStack {
                 ProfileAppsView()

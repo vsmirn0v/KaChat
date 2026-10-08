@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "এই নামে কোনো .kachat নাম নেই।";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "মেয়াদ শেষ। গ্রেস পিরিয়ড শেষ না হওয়া পর্যন্ত এটি এখনও মালিকের ঠিকানায় রিজলভ হয়, এবং মালিক এখনও এটি নবায়ন করতে পারেন।";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "মেয়াদ শেষ - রাখতে নবায়ন করুন। গ্রেস পিরিয়ড শেষ না হওয়া পর্যন্ত এটি এখনও আপনার ঠিকানায় রিজলভ হয় এবং অন্য কেউ এটি নিতে পারবে না।";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "ঠিকানা বই";
+"Add to Address Book" = "ঠিকানা বইয়ে যোগ করুন";
+"Search names and addresses" = "নাম ও ঠিকানা খুঁজুন";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "আপনি যে Kaspa ঠিকানাগুলো ব্যবহার করেন সেগুলো চেনা নামে সংরক্ষণ করুন। এগুলো KaChat-এ থাকে, শুধু এই ওয়ালেটের জন্য, এবং কখনো আপনার ফোনের কন্টাক্টসে যায় না।";
+"Copied" = "কপি হয়েছে";
+"Share Address" = "ঠিকানা শেয়ার করুন";
+"Edit" = "সম্পাদনা";
+"Delete from Address Book" = "ঠিকানা বই থেকে মুছুন";
+"Delete %@ from your Address Book?" = "ঠিকানা বই থেকে %@ মুছবেন?";
+"Not in your Address Book" = "আপনার ঠিকানা বইয়ে নেই";
+"Note (optional)" = "নোট (ঐচ্ছিক)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "শুধু এই ওয়ালেটের জন্য KaChat-এ সংরক্ষিত। কখনো আপনার ফোনের কন্টাক্টসে যোগ হয় না।";
+"Remove from Address Book" = "ঠিকানা বই থেকে সরান";
+"Edit Address" = "ঠিকানা সম্পাদনা";
+"Add addresses in Kaspa Hub > Address Book." = "Kaspa Hub > ঠিকানা বই থেকে ঠিকানা যোগ করুন।";
+"Open a wallet first." = "প্রথমে একটি ওয়ালেট খুলুন।";
+"Enter a name." = "একটি নাম লিখুন।";
+"Enter a valid Kaspa address." = "একটি বৈধ Kaspa ঠিকানা লিখুন।";
+"Saved to Address Book." = "ঠিকানা বইয়ে সংরক্ষিত।";
+"Removed from Address Book." = "ঠিকানা বই থেকে সরানো হয়েছে।";

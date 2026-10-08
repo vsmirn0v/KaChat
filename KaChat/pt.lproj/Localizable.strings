@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "Nenhum nome .kachat com esse nome.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Expirado. Continua a apontar para o proprietário até o fim do período de carência, e o proprietário ainda pode renová-lo.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Expirado - renove para mantê-lo. Até o fim do período de carência ele continua apontando para você e ninguém mais pode pegá-lo.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Livro de endereços";
+"Add to Address Book" = "Adicionar ao livro de endereços";
+"Search names and addresses" = "Buscar nomes e endereços";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Salve os endereços Kaspa que você usa com um nome que você reconheça. Eles ficam no KaChat, só para esta carteira, e nunca vão para os contatos do seu telefone.";
+"Copied" = "Copiado";
+"Share Address" = "Compartilhar endereço";
+"Edit" = "Editar";
+"Delete from Address Book" = "Excluir do livro de endereços";
+"Delete %@ from your Address Book?" = "Excluir %@ do seu livro de endereços?";
+"Not in your Address Book" = "Não está no seu livro de endereços";
+"Note (optional)" = "Nota (opcional)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Salvo no KaChat só para esta carteira. Nunca é adicionado aos contatos do seu telefone.";
+"Remove from Address Book" = "Remover do livro de endereços";
+"Edit Address" = "Editar endereço";
+"Add addresses in Kaspa Hub > Address Book." = "Adicione endereços em Kaspa Hub > Livro de endereços.";
+"Open a wallet first." = "Abra uma carteira primeiro.";
+"Enter a name." = "Digite um nome.";
+"Enter a valid Kaspa address." = "Digite um endereço Kaspa válido.";
+"Saved to Address Book." = "Salvo no livro de endereços.";
+"Removed from Address Book." = "Removido do livro de endereços.";

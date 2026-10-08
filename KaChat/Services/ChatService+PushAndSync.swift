@@ -124,15 +124,10 @@ extension ChatService {
             let inMemory = conversations.first(where: { $0.contact.address == contactAddress })
             let contact = contactsManager.getContact(byAddress: contactAddress)
             let alias = contact?.alias ?? inMemory?.contact.alias
-            // Carry a cross-platform contact photo: a photo restored from another device wins,
-            // else render the (cached) linked system-contact photo to a small JPEG so it travels
-            // in the shared backup. Best-effort - an uncached system photo is simply omitted.
+            // Carry a cross-platform contact photo (one restored from another device).
             var contactPhoto: String? = nil
             if let stored = contact?.backupPhoto, !stored.isEmpty {
                 contactPhoto = stored
-            } else if let contact, let image = SystemContactAvatarStore.shared.rawImage(for: contact),
-                      let data = image.jpegData(compressionQuality: 0.7) {
-                contactPhoto = data.base64EncodedString()
             }
             return ChatHistoryArchiveConversation(
                 conversationId: meta?.id ?? inMemory?.id,
@@ -155,7 +150,9 @@ extension ChatService {
             walletAddress: WalletManager.shared.currentWallet?.publicAddress,
             conversations: exportedConversations,
             groups: archivedGroups,
-            deletedContactAddresses: contactsManager.deletedAddressSnapshot
+            deletedContactAddresses: contactsManager.deletedAddressSnapshot,
+            addressBook: AddressBookManager.shared.archiveEntries,
+            addressBookDeleted: AddressBookManager.shared.archiveTombstones
         )
 
         // Encode off the main actor: pretty-printed + sorted-keys over a multi-MB archive is
@@ -222,6 +219,16 @@ extension ChatService {
         }.value
         guard archive.schemaVersion == chatHistoryArchiveVersion else {
             throw ChatHistoryArchiveError.unsupportedVersion(archive.schemaVersion)
+        }
+
+        // The Address Book is per wallet: only this wallet's archive (or an unstamped one) fills it.
+        let archiveWallet = (archive.walletAddress ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let currentWallet = (WalletManager.shared.currentWallet?.publicAddress ?? "").lowercased()
+        if archiveWallet.isEmpty || archiveWallet == currentWallet {
+            AddressBookManager.shared.importFromArchive(
+                entries: archive.addressBook ?? [],
+                tombstones: archive.addressBookDeleted ?? []
+            )
         }
 
         progress?(.preparing)
@@ -1379,6 +1386,32 @@ extension ChatService {
         return 0
     }
 
+    /// The two sides' `addressBook` / `addressBookDeleted`, merged and re-encoded as JSON objects
+    /// in the archive's own date format (ISO 8601). An unreadable side counts as empty.
+    private nonisolated static func mergeArchiveAddressBooks(
+        local: [String: Any], remote: [String: Any]
+    ) -> (entries: [Any], deleted: [Any]) {
+        func decode<T: Decodable>(_ side: [String: Any], _ key: String, as: T.Type) -> [T] {
+            let raw = jsonArray(side, key)
+            guard !raw.isEmpty, let data = try? JSONSerialization.data(withJSONObject: raw) else { return [] }
+            let iso = JSONDecoder()
+            iso.dateDecodingStrategy = .iso8601
+            return (try? iso.decode([T].self, from: data)) ?? (try? JSONDecoder().decode([T].self, from: data)) ?? []
+        }
+        func encode<T: Encodable>(_ values: [T]) -> [Any] {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            guard let data = try? encoder.encode(values),
+                  let objects = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return [] }
+            return objects
+        }
+        let merged = AddressBookManager.merge(
+            entries: [decode(local, "addressBook", as: AddressBookEntry.self), decode(remote, "addressBook", as: AddressBookEntry.self)],
+            tombstones: [decode(local, "addressBookDeleted", as: AddressBookTombstone.self), decode(remote, "addressBookDeleted", as: AddressBookTombstone.self)]
+        )
+        return (encode(merged.entries), encode(merged.tombstones))
+    }
+
     private nonisolated static func jsonArray(_ dict: [String: Any], _ key: String) -> [Any] {
         dict[key] as? [Any] ?? []
     }
@@ -1715,6 +1748,19 @@ extension ChatService {
             result.removeValue(forKey: "deletedContactAddresses")
         } else {
             result["deletedContactAddresses"] = tombstones.sorted()
+        }
+
+        // Address Book: per address the newest edit or deletion wins (AddressBookManager.merge).
+        let book = mergeArchiveAddressBooks(local: local, remote: remote)
+        if book.entries.isEmpty {
+            result.removeValue(forKey: "addressBook")
+        } else {
+            result["addressBook"] = book.entries
+        }
+        if book.deleted.isEmpty {
+            result.removeValue(forKey: "addressBookDeleted")
+        } else {
+            result["addressBookDeleted"] = book.deleted
         }
 
         return try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])

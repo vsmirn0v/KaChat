@@ -1263,7 +1263,7 @@ final class CallService: ObservableObject {
             nameComponents: nil,
             displayName: ContactsManager.shared.displayName(for: contact),
             image: nil,
-            contactIdentifier: contact.systemContactId,
+            contactIdentifier: nil,
             customIdentifier: contact.address
         )
         let intent = INStartCallIntent(

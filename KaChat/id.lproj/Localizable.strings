@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "Tidak ada nama .kachat dengan nama itu.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Kedaluwarsa. Nama ini masih mengarah ke pemiliknya sampai masa tenggang berakhir, dan pemilik masih bisa memperpanjangnya.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Kedaluwarsa - perpanjang untuk mempertahankannya. Sampai masa tenggang berakhir, nama ini masih mengarah ke Anda dan tidak ada orang lain yang bisa mengambilnya.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Buku Alamat";
+"Add to Address Book" = "Tambahkan ke Buku Alamat";
+"Search names and addresses" = "Cari nama dan alamat";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Simpan alamat Kaspa yang Anda pakai dengan nama yang mudah dikenali. Alamat itu tetap di KaChat, hanya untuk dompet ini, dan tidak pernah masuk ke Kontak ponsel Anda.";
+"Copied" = "Disalin";
+"Share Address" = "Bagikan Alamat";
+"Edit" = "Edit";
+"Delete from Address Book" = "Hapus dari Buku Alamat";
+"Delete %@ from your Address Book?" = "Hapus %@ dari Buku Alamat Anda?";
+"Not in your Address Book" = "Tidak ada di Buku Alamat Anda";
+"Note (optional)" = "Catatan (opsional)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Disimpan di KaChat hanya untuk dompet ini. Tidak pernah ditambahkan ke Kontak ponsel Anda.";
+"Remove from Address Book" = "Hapus dari Buku Alamat";
+"Edit Address" = "Edit Alamat";
+"Add addresses in Kaspa Hub > Address Book." = "Tambahkan alamat di Kaspa Hub > Buku Alamat.";
+"Open a wallet first." = "Buka dompet terlebih dahulu.";
+"Enter a name." = "Masukkan nama.";
+"Enter a valid Kaspa address." = "Masukkan alamat Kaspa yang valid.";
+"Saved to Address Book." = "Disimpan ke Buku Alamat.";
+"Removed from Address Book." = "Dihapus dari Buku Alamat.";

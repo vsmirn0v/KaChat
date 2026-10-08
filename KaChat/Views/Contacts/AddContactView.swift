@@ -42,8 +42,7 @@ struct AddContactView: View {
     @State private var isSearchingPickerContacts = false
     @State private var pickerSearchText = ""
     @State private var showQRScanner = false
-    @State private var showSystemContactPicker = false
-    @State private var pendingSystemContactLinkTarget: SystemContactLinkTarget?
+    @State private var showAddressBookPicker = false
 
     // Group chat mode
     @State private var isGroupMode = false
@@ -254,9 +253,9 @@ struct AddContactView: View {
 
                     HStack {
                         Button {
-                            showSystemContactPicker = true
+                            showAddressBookPicker = true
                         } label: {
-                            Label("Import", systemImage: "person.crop.circle.badge.plus")
+                            Label("Address Book", systemImage: "book.closed")
                         }
 
                         Spacer()
@@ -298,22 +297,6 @@ struct AddContactView: View {
 
                 pickerContactsSection
 
-                if let pendingSystemContactLinkTarget = pendingSystemContactLinkTarget {
-                    Section {
-                        HStack {
-                            Image(systemName: "person.crop.circle.badge.checkmark")
-                                .foregroundColor(.secondary)
-                            Text(pendingSystemContactLinkTarget.displayName)
-                        }
-                        Button("Clear Link", role: .destructive) {
-                            self.pendingSystemContactLinkTarget = nil
-                        }
-                    } header: {
-                        Text("System Contact Link")
-                    } footer: {
-                        Text("This contact will be linked after it is created. You still need to enter a Kaspa address or KNS domain.")
-                    }
-                }
                 }
 
                 if let error, isGroupMode {
@@ -383,26 +366,15 @@ struct AddContactView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showSystemContactPicker) {
-                SystemContactPickerSheet(
-                    title: "Import from Contacts",
-                    onSelect: { selection in
-                        switch selection {
-                        case .withAddress(let candidate):
-                            addressInput = candidate.address
-                            resolvedAddress = nil
-                            resolvedDomain = nil
-                            knsError = nil
-                            isResolvingKNS = false
-                            isValidAddress = contactsManager.isValidKaspaAddress(candidate.address)
-                            pendingSystemContactLinkTarget = nil
-                        case .nameOnly(let target):
-                            // The link itself carries the address-book name (see
-                            // `linkContactToSystemContact`); nothing is prefilled here.
-                            pendingSystemContactLinkTarget = target
-                        }
-                    }
-                )
+            .sheet(isPresented: $showAddressBookPicker) {
+                AddressBookPickerSheet { entry in
+                    addressInput = entry.address
+                    resolvedAddress = nil
+                    resolvedDomain = nil
+                    knsError = nil
+                    isResolvingKNS = false
+                    isValidAddress = contactsManager.isValidKaspaAddress(entry.address)
+                }
             }
             .sheet(isPresented: Binding(
                 get: { contactPickerRowID != nil },
@@ -413,13 +385,12 @@ struct AddContactView: View {
                 }
             )) {
                 if let rowID = contactPickerRowID {
-                    SystemContactPickerSheet(
-                        title: "Import from Contacts",
-                        onSelect: { selection in
-                            handleGroupContactSelection(selection, rowID: rowID)
-                            contactPickerRowID = nil
-                        }
-                    )
+                    AddressBookPickerSheet { entry in
+                        guard let index = groupAddressEntries.firstIndex(where: { $0.id == rowID }) else { return }
+                        groupAddressEntries[index].text = entry.address
+                        resolveGroupAddress(id: rowID, input: entry.address)
+                        contactPickerRowID = nil
+                    }
                 }
             }
         }
@@ -790,16 +761,6 @@ struct AddContactView: View {
                 }
             }
 
-            if let pendingSystemContactLinkTarget {
-                Task {
-                    try? await contactsManager.linkContactToSystemContact(
-                        contact,
-                        target: pendingSystemContactLinkTarget,
-                        updateAlias: false
-                    )
-                }
-            }
-
             if let onAdd = onAdd {
                 onAdd(contact)
             }
@@ -875,7 +836,7 @@ struct AddContactView: View {
                         Button {
                             contactPickerRowID = entry.id
                         } label: {
-                            Label("Import", systemImage: "person.crop.circle.badge.plus")
+                            Label("Address Book", systemImage: "book.closed")
                         }
 
                         Spacer()
@@ -1348,19 +1309,6 @@ struct AddContactView: View {
         guard let index = groupAddressEntries.firstIndex(where: { $0.id == rowID }) else { return }
         groupAddressEntries[index].text = scannedAddress
         resolveGroupAddress(id: rowID, input: scannedAddress)
-    }
-
-    private func handleGroupContactSelection(_ selection: SystemContactImportSelection, rowID: UUID) {
-        guard let index = groupAddressEntries.firstIndex(where: { $0.id == rowID }) else { return }
-        switch selection {
-        case .withAddress(let candidate):
-            groupAddressEntries[index].text = candidate.address
-            resolveGroupAddress(id: rowID, input: candidate.address)
-        case .nameOnly(let target):
-            // No linking-for-later here (unlike the single-contact flow) - a group member needs
-            // a real address up front, so just surface why nothing was filled in.
-            error = "\(target.displayName) doesn't have a saved Kaspa address."
-        }
     }
 
     private var canCreateGroup: Bool {

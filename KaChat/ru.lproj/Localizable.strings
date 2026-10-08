@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "Нет имени .kachat с таким названием.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Истекло. До конца льготного периода имя по-прежнему указывает на владельца, и владелец ещё может его продлить.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Истекло - продлите, чтобы сохранить. До конца льготного периода имя по-прежнему указывает на вас, и никто другой не может его занять.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Адресная книга";
+"Add to Address Book" = "Добавить в адресную книгу";
+"Search names and addresses" = "Поиск по именам и адресам";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Сохраняйте адреса Kaspa, которыми пользуетесь, под понятными именами. Они хранятся в KaChat, только для этого кошелька, и никогда не попадают в контакты телефона.";
+"Copied" = "Скопировано";
+"Share Address" = "Поделиться адресом";
+"Edit" = "Изменить";
+"Delete from Address Book" = "Удалить из адресной книги";
+"Delete %@ from your Address Book?" = "Удалить %@ из адресной книги?";
+"Not in your Address Book" = "Нет в вашей адресной книге";
+"Note (optional)" = "Заметка (необязательно)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Хранится в KaChat только для этого кошелька. Никогда не добавляется в контакты телефона.";
+"Remove from Address Book" = "Убрать из адресной книги";
+"Edit Address" = "Изменить адрес";
+"Add addresses in Kaspa Hub > Address Book." = "Добавляйте адреса в Kaspa Hub > Адресная книга.";
+"Open a wallet first." = "Сначала откройте кошелёк.";
+"Enter a name." = "Введите имя.";
+"Enter a valid Kaspa address." = "Введите правильный адрес Kaspa.";
+"Saved to Address Book." = "Сохранено в адресной книге.";
+"Removed from Address Book." = "Удалено из адресной книги.";

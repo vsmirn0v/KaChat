@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "Nessun nome .kachat con questo nome.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Scaduto. Continua a risolversi al suo proprietario fino alla fine del periodo di grazia, e il proprietario può ancora rinnovarlo.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Scaduto - rinnovalo per tenerlo. Fino alla fine del periodo di grazia continua a risolversi a te e nessun altro può prenderlo.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Rubrica indirizzi";
+"Add to Address Book" = "Aggiungi alla rubrica";
+"Search names and addresses" = "Cerca nomi e indirizzi";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Salva gli indirizzi Kaspa che usi con un nome che riconosci. Restano in KaChat, solo per questo wallet, e non finiscono mai nei contatti del telefono.";
+"Copied" = "Copiato";
+"Share Address" = "Condividi indirizzo";
+"Edit" = "Modifica";
+"Delete from Address Book" = "Elimina dalla rubrica";
+"Delete %@ from your Address Book?" = "Eliminare %@ dalla rubrica?";
+"Not in your Address Book" = "Non è nella tua rubrica";
+"Note (optional)" = "Nota (facoltativa)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Salvato in KaChat solo per questo wallet. Mai aggiunto ai contatti del telefono.";
+"Remove from Address Book" = "Rimuovi dalla rubrica";
+"Edit Address" = "Modifica indirizzo";
+"Add addresses in Kaspa Hub > Address Book." = "Aggiungi indirizzi in Kaspa Hub > Rubrica indirizzi.";
+"Open a wallet first." = "Apri prima un wallet.";
+"Enter a name." = "Inserisci un nome.";
+"Enter a valid Kaspa address." = "Inserisci un indirizzo Kaspa valido.";
+"Saved to Address Book." = "Salvato nella rubrica.";
+"Removed from Address Book." = "Rimosso dalla rubrica.";

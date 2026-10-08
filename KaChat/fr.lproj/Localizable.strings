@@ -1441,3 +1441,25 @@
 "No .kachat name by that name." = "Aucun nom .kachat de ce nom.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Expiré. Il pointe toujours vers son propriétaire jusqu'à la fin de la période de grâce, et le propriétaire peut encore le renouveler.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Expiré - renouvelez-le pour le garder. Jusqu'à la fin de la période de grâce, il pointe toujours vers vous et personne d'autre ne peut le prendre.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Carnet d'adresses";
+"Add to Address Book" = "Ajouter au carnet d'adresses";
+"Search names and addresses" = "Rechercher des noms et des adresses";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Enregistrez les adresses Kaspa que vous utilisez sous un nom que vous reconnaîtrez. Elles restent dans KaChat, pour ce portefeuille uniquement, et ne vont jamais dans les contacts de votre téléphone.";
+"Copied" = "Copié";
+"Share Address" = "Partager l'adresse";
+"Edit" = "Modifier";
+"Delete from Address Book" = "Supprimer du carnet d'adresses";
+"Delete %@ from your Address Book?" = "Supprimer %@ de votre carnet d'adresses ?";
+"Not in your Address Book" = "Absent de votre carnet d'adresses";
+"Note (optional)" = "Note (facultatif)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Enregistré dans KaChat pour ce portefeuille uniquement. Jamais ajouté aux contacts de votre téléphone.";
+"Remove from Address Book" = "Retirer du carnet d'adresses";
+"Edit Address" = "Modifier l'adresse";
+"Add addresses in Kaspa Hub > Address Book." = "Ajoutez des adresses dans Kaspa Hub > Carnet d'adresses.";
+"Open a wallet first." = "Ouvrez d'abord un portefeuille.";
+"Enter a name." = "Saisissez un nom.";
+"Enter a valid Kaspa address." = "Saisissez une adresse Kaspa valide.";
+"Saved to Address Book." = "Enregistré dans le carnet d'adresses.";
+"Removed from Address Book." = "Retiré du carnet d'adresses.";

@@ -2,24 +2,22 @@ import CryptoKit
 import Foundation
 import ImageIO
 import SwiftUI
-import Contacts
 import UIKit
 
 /// The one avatar view in the app. Resolution order, applied here so no call site ever
-/// re-implements it: KNS avatar -> linked device-contact photo -> person glyph.
+/// re-implements it: KNS / `.kachat` avatar -> the photo carried in the chat backup -> person
+/// glyph. (KaChat no longer reads the phone's Contacts, so there is no Contacts-app photo.)
 ///
 /// Pass `contactAddress` wherever the avatar stands for a person with a Kaspa address (chat
 /// rows, chat header, chat info, message bubbles, group member lists, pickers, share targets,
-/// KaPosts authors) and the device-contact photo layer comes for free - see
-/// `SystemContactAvatarStore` for the cache and for the `preferKNSAvatar` override.
+/// KaPosts authors).
 struct KNSAvatarView: View {
     let avatarURLString: String?
     let fallbackText: String
     var size: CGFloat = 44
-    /// Caller-resolved image that wins over everything else (rare; the device-contact photo
-    /// does NOT need this - use `contactAddress`).
+    /// Caller-resolved image that wins over everything else (rare).
     var overrideImage: UIImage? = nil
-    /// Kaspa address this avatar represents; enables the device-contact photo layer.
+    /// Kaspa address this avatar represents: its `.kachat` avatar and its backup photo.
     var contactAddress: String? = nil
 
     @State private var loadedImage: UIImage?
@@ -37,24 +35,6 @@ struct KNSAvatarView: View {
         let link = kachatRegistry.cachedIdentity(for: contactAddress)?.profile?.avatar
         return socialImages.profile(for: link)?.avatar
     }
-    /// Observed so an avatar re-renders when its contact's photo lands from the lazy CN fetch.
-    /// The store only publishes when a photo is decoded (once per linked contact per session,
-    /// disk-cached afterwards), so this costs nothing on scroll.
-    @ObservedObject private var contactAvatars = SystemContactAvatarStore.shared
-
-    /// The Contacts-app photo for `contactAddress`, if any. Asking for it is what kicks off the
-    /// (off-main-thread, cached) fetch, so it's read on every body pass.
-    private var deviceContactPhoto: UIImage? {
-        guard overrideImage == nil, contactAddress != nil else { return nil }
-        return contactAvatars.photo(forAddress: contactAddress)
-    }
-
-    /// Only when the user explicitly chose "Contacts Photo" for this contact does the device
-    /// photo jump ahead of the KNS avatar.
-    private var deviceContactPhotoWinsOverKNS: Bool {
-        contactAvatars.prefersContactPhotoOverKNS(forAddress: contactAddress)
-    }
-
     /// Decoded cache so a base64 backup photo is turned into a UIImage once, not on every
     /// body pass while scrolling. Keyed by CONTACT ADDRESS, not the base64 itself: the old
     /// key allocated and hashed a multi-KB NSString from the photo blob on every body pass,
@@ -66,8 +46,7 @@ struct KNSAvatarView: View {
         return cache
     }()
     /// The cross-platform backup photo (base64 JPEG on the Contact), decoded lazily. Only the
-    /// final fallback before the glyph, so it is evaluated only for contacts with no device or
-    /// KNS photo.
+    /// final fallback before the glyph, so it is evaluated only for contacts with no KNS photo.
     private var backupPhotoImage: UIImage? {
         guard overrideImage == nil, let contactAddress,
               let base64 = ContactsManager.shared.getContact(byAddress: contactAddress)?.backupPhoto,
@@ -81,19 +60,12 @@ struct KNSAvatarView: View {
 
     var body: some View {
         Group {
-            let devicePhoto = deviceContactPhoto
-            if let resolved = overrideImage ?? (deviceContactPhotoWinsOverKNS ? devicePhoto : nil) {
+            if let resolved = overrideImage {
                 Image(uiImage: resolved)
                     .resizable()
                     .scaledToFill()
             } else if let loadedImage {
                 Image(uiImage: loadedImage)
-                    .resizable()
-                    .scaledToFill()
-            } else if let devicePhoto {
-                // No KNS avatar (or it hasn't loaded/failed): the device-contact photo is the
-                // fallback, ahead of the glyph.
-                Image(uiImage: devicePhoto)
                     .resizable()
                     .scaledToFill()
             } else if let backupPhoto = backupPhotoImage {
@@ -272,11 +244,8 @@ struct KNSAvatarFullscreenView: View {
     let avatarURLString: String?
     let fallbackText: String
     var title: String = "Avatar"
-    /// Linked iOS contact id: enables "add this KNS avatar as their photo in the Contacts
-    /// app" from the top bar.
-    var systemContactId: String? = nil
-    /// Kaspa address behind this avatar, so the placeholder falls back to their device-contact
-    /// photo (same order as everywhere else) while/if the KNS image isn't available.
+    /// Kaspa address behind this avatar, so the placeholder falls back the same way as
+    /// everywhere else while/if the KNS image isn't available.
     var contactAddress: String? = nil
 
     @Environment(\.dismiss) private var dismiss
@@ -284,7 +253,6 @@ struct KNSAvatarFullscreenView: View {
     @State private var isLoading = false
     @State private var showShareSheet = false
     @State private var lastLoadedIdentity: String?
-    @State private var contactSaveMessage: String?
 
     private var avatarURL: URL? {
         KNSProfileLinkBuilder.websiteURL(from: avatarURLString)
@@ -349,22 +317,6 @@ struct KNSAvatarFullscreenView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if systemContactId != nil {
-                    Button {
-                        saveAvatarToSystemContact()
-                    } label: {
-                        Image(systemName: "person.crop.circle.badge.plus")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .frame(width: 36, height: 36)
-                            .background(Color.white.opacity(0.18))
-                            .clipShape(Circle())
-                    }
-                    .disabled(loadedImage == nil)
-                    .opacity(loadedImage == nil ? 0.45 : 1)
-                    .accessibilityLabel("Add as contact photo in Contacts")
-                }
-
                 Button {
                     showShareSheet = true
                 } label: {
@@ -381,18 +333,6 @@ struct KNSAvatarFullscreenView: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
         }
-        .overlay(alignment: .bottom) {
-            if let contactSaveMessage {
-                Text(contactSaveMessage)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color.white.opacity(0.18)))
-                    .padding(.bottom, 30)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
         .task(id: avatarURL?.absoluteString) {
             await loadRemoteAvatarIfNeeded()
         }
@@ -402,48 +342,6 @@ struct KNSAvatarFullscreenView: View {
             } else {
                 KNSAvatarShareSheet(activityItems: shareItems)
             }
-        }
-    }
-
-    /// Writes the loaded KNS avatar into the linked contact's card in the iOS Contacts app,
-    /// then refreshes the in-app cache so KaChat's own avatar reflects it immediately.
-    private func saveAvatarToSystemContact() {
-        guard let systemContactId,
-              let image = loadedImage,
-              let data = image.jpegData(compressionQuality: 0.9) else { return }
-        guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
-            showContactSaveMessage("Contacts access isn't granted.")
-            return
-        }
-        Task.detached(priority: .userInitiated) {
-            let store = CNContactStore()
-            do {
-                let keys = [CNContactImageDataKey as CNKeyDescriptor]
-                let cnContact = try store.unifiedContact(withIdentifier: systemContactId, keysToFetch: keys)
-                guard let mutable = cnContact.mutableCopy() as? CNMutableContact else {
-                    throw CocoaError(.featureUnsupported)
-                }
-                mutable.imageData = data
-                let saveRequest = CNSaveRequest()
-                saveRequest.update(mutable)
-                try store.execute(saveRequest)
-                await MainActor.run {
-                    SystemContactAvatarStore.shared.storeImage(image, data: data, forSystemContactId: systemContactId)
-                    showContactSaveMessage("Saved as their photo in Contacts.")
-                }
-            } catch {
-                await MainActor.run {
-                    showContactSaveMessage("Couldn't update Contacts.")
-                }
-            }
-        }
-    }
-
-    @MainActor
-    private func showContactSaveMessage(_ message: String) {
-        withAnimation(.easeOut(duration: 0.2)) { contactSaveMessage = message }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeIn(duration: 0.2)) { contactSaveMessage = nil }
         }
     }
 

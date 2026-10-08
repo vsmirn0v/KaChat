@@ -101,6 +101,16 @@ history, except by an explicit chat deletion (tombstones, §5).
 - **Phantoms are dropped:** messages with a blank or `pending_…` txId never reached the chain.
 - **Deletion tombstones** are the union of both sides. A tombstoned conversation is left out of
   the merged file, so a chat deleted on one device stays deleted.
+- **Address Book** (iOS since 2026-10-08; optional top-level keys, older archives omit them). It
+  replaced syncing with the phone's Contacts, and it is per wallet like the rest of the file.
+  - `addressBook`: an array of `{id, address, name, note, createdAt, updatedAt}`. `id` is a UUID,
+    `address` is the lowercased Kaspa address with no `?query`, and the dates are ISO 8601.
+  - `addressBookDeleted`: an array of `{address, deletedAt}`.
+  - Merge per address: the newest `updatedAt` of either side's entries, unless a tombstone's
+    `deletedAt` is at or after it. Then it's deleted and only the tombstone is kept.
+  - A restore applies only to the archive's own wallet (or an unstamped archive).
+  - In the app, a saved name is how that address is shown when the chat contact has no name of
+    its own. The contact's `contactAlias` is unchanged.
 - **Keys this client doesn't model** are carried through untouched, so a newer client's fields
   survive an older client's write.
 - The merged archive is normalised to the strictest shape every platform's decoder accepts

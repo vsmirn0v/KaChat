@@ -14,12 +14,11 @@ final class IntentHandler: INExtension {
 }
 
 final class StartCallIntentHandler: NSObject, INStartCallIntentHandling {
-    /// What the app wrote for us: every contact with calls enabled, with the Contacts-app
-    /// identifier it is linked to, if any (`SharedDataManager.syncCallContactsForIntents`).
+    /// What the app wrote for us: every contact with calls enabled, by KaChat address and name
+    /// (`SharedDataManager.syncCallContactsForIntents`). KaChat doesn't use the phone's Contacts.
     private struct CallContact: Decodable {
         let address: String
         let name: String
-        let systemContactId: String?
     }
 
     private static let appGroupIdentifier = "group.com.kachat.app"
@@ -40,13 +39,13 @@ final class StartCallIntentHandler: NSObject, INStartCallIntentHandling {
             nameComponents: nil,
             displayName: contact.name,
             image: nil,
-            contactIdentifier: contact.systemContactId,
+            contactIdentifier: nil,
             customIdentifier: contact.address
         )
     }
 
-    /// The Contacts app names a person by their Contacts identifier; Siri by a spoken name;
-    /// a Recents entry or our own donation by the KaChat address in `customIdentifier`.
+    /// Siri names a person by a spoken name; a Recents entry or our own donation by the KaChat
+    /// address in `customIdentifier`.
     private func matches(_ person: INPerson, in contacts: [CallContact]) -> [CallContact] {
         if let custom = person.customIdentifier, !custom.isEmpty,
            let exact = contacts.first(where: { $0.address == custom }) {
@@ -55,10 +54,6 @@ final class StartCallIntentHandler: NSObject, INStartCallIntentHandling {
         if let value = person.personHandle?.value, !value.isEmpty,
            let exact = contacts.first(where: { $0.address == value }) {
             return [exact]
-        }
-        if let systemId = person.contactIdentifier, !systemId.isEmpty {
-            let linked = contacts.filter { $0.systemContactId == systemId }
-            if !linked.isEmpty { return linked }
         }
         let spoken = person.displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !spoken.isEmpty else { return [] }
@@ -106,9 +101,6 @@ final class StartCallIntentHandler: NSObject, INStartCallIntentHandling {
         var info: [String: Any] = ["video": intent.callCapability == .videoCall]
         if let address = intent.contacts?.first?.customIdentifier ?? intent.contacts?.first?.personHandle?.value {
             info["address"] = address
-        }
-        if let systemId = intent.contacts?.first?.contactIdentifier {
-            info["systemContactId"] = systemId
         }
         activity.userInfo = info
         completion(INStartCallIntentResponse(code: .continueInApp, userActivity: activity))

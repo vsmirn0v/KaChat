@@ -12,7 +12,7 @@ struct ChatInfoView: View {
     @State private var revealedSendingAlias: String?
 
     @EnvironmentObject var contactsManager: ContactsManager
-    @ObservedObject private var contactAvatars = SystemContactAvatarStore.shared
+    @ObservedObject private var addressBook = AddressBookManager.shared
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
@@ -30,17 +30,13 @@ struct ChatInfoView: View {
     @State private var activeSheet: InfoSheet?
 
     private enum InfoSheet: String, Identifiable {
-        case address, domains, kachatNames, aliases, systemContact, notifications, photos, calls, info
+        case address, domains, kachatNames, aliases, addressBook, notifications, photos, calls, info
         var id: String { rawValue }
     }
     @State private var photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil
     @State private var showAvatarPreview = false
     @State private var moreInfoExpanded = false
     @State private var isBioExpanded = false
-    @State private var showSystemContactLinkPicker = false
-    @State private var linkedSystemContactId: String?
-    @State private var linkedSystemContactName: String?
-    @State private var linkedSystemContactSource: SystemContactLinkSource?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -53,12 +49,6 @@ struct ChatInfoView: View {
     @State private var knsDomainsLoaded = false
     @FocusState private var isEditing: Bool
     private let qrContext = CIContext()
-
-    /// True when the contact is linked to a user-visible system contact (manual or matched), not an auto-created shadow.
-    private var hasUserVisibleLink: Bool {
-        guard linkedSystemContactId != nil else { return false }
-        return linkedSystemContactSource == .manual || linkedSystemContactSource == .matched
-    }
 
     /// Describes what "Automatic" currently resolves to for this contact, so the picker
     /// label reflects the smart default (trusted contacts show, untrusted ones hide).
@@ -271,25 +261,6 @@ struct ChatInfoView: View {
                     }
                     .padding(.vertical, 8)
 
-                    // Both avatar sources exist (linked Contacts-app photo AND a KNS avatar):
-                    // let the user pick which one represents this contact. The KNS avatar is the
-                    // default (see SystemContactAvatarStore's resolution order); the choice
-                    // persists per contact.
-                    if usesKNSProfile, contactAvatars.rawImage(for: contact) != nil,
-                       knsProfileInfo?.avatarURL != nil {
-                        Picker("Avatar", selection: Binding(
-                            get: { contact.preferKNSAvatar ?? true },
-                            set: { preferKNS in
-                                contact.preferKNSAvatar = preferKNS
-                                contactsManager.updateContact(contact)
-                            }
-                        )) {
-                            Text("Contacts Photo").tag(false)
-                            Text("KNS Avatar").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                    }
-
                     if usesKNSProfile, !knsDomains.isEmpty {
                         // Same DisclosureGroup used by the user's own Profile view's KNS card
                         // (ContactsView.knsProfileCard) - native chevron/expand behavior, teal
@@ -386,7 +357,7 @@ struct ChatInfoView: View {
                         .disabled(kachatNames.isEmpty)
                     }
 
-                    // Per-contact settings: the chat's aliases, the Contacts-app link,
+                    // Per-contact settings: the chat's aliases, the Address Book entry,
                     // notification/photo/call choices and message stats. None of them has
                     // anything to act on in your own User Info.
                     if !isSelf {
@@ -396,9 +367,9 @@ struct ChatInfoView: View {
                         ) { activeSheet = .aliases }
 
                         infoCard(
-                            "System Contact",
-                            systemImage: "person.crop.circle"
-                        ) { activeSheet = .systemContact }
+                            addressBook.entry(for: contact.address) == nil ? localized("Add to Address Book") : localized("Address Book"),
+                            systemImage: addressBook.entry(for: contact.address) == nil ? "book.closed" : "book.closed.fill"
+                        ) { activeSheet = .addressBook }
 
                         infoCard(
                             "Notifications",
@@ -431,7 +402,18 @@ struct ChatInfoView: View {
                 case .domains: domainsSheet
                 case .kachatNames: kachatNamesSheet
                 case .aliases: aliasesSheet
-                case .systemContact: systemContactSheet
+                case .addressBook:
+                    AddressBookEntryEditor(
+                        address: contact.address,
+                        suggestedName: contact.assignedName ?? contactsManager.displayName(for: contact)
+                    ) { result in
+                        switch result {
+                        case .saved: showToast(localized("Saved to Address Book."))
+                        case .removed: showToast(localized("Removed from Address Book."))
+                        }
+                    }
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
                 case .notifications: notificationsSheet
                 case .photos: photosSheet
                 case .calls: callsSheet
@@ -445,7 +427,6 @@ struct ChatInfoView: View {
                     avatarURLString: usesKNSProfile ? knsProfileInfo?.avatarURL : kachatAvatar,
                     fallbackText: contactsManager.displayName(for: contact),
                     title: contactsManager.displayName(for: contact),
-                    systemContactId: contact.systemContactId,
                     contactAddress: contact.address
                 )
             }
@@ -473,9 +454,6 @@ struct ChatInfoView: View {
                 editedAlias = contact.assignedName ?? ""
                 notificationModeOverride = contact.notificationModeOverride
                 photoAutoDisplayOverride = contact.photoAutoDisplayOverride
-                linkedSystemContactId = contact.systemContactId
-                linkedSystemContactName = contact.systemDisplayNameSnapshot
-                linkedSystemContactSource = contact.systemContactLinkSource
                 // Already cached? Show the domains immediately rather than a spinner.
                 if knsInfo != nil { knsDomainsLoaded = true }
             }
@@ -659,106 +637,6 @@ struct ChatInfoView: View {
             }
             .navigationTitle("Aliases")
             .navigationBarTitleDisplayMode(.inline)
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-    }
-
-    private var systemContactSheet: some View {
-        NavigationStack {
-            Form {
-                Section("System Contact") {
-                    if hasUserVisibleLink, let linkedSystemContactName, !linkedSystemContactName.isEmpty {
-                        HStack {
-                            Text("Linked")
-                            Spacer()
-                            Text(linkedSystemContactName)
-                                .foregroundColor(.secondary)
-                        }
-                    } else {
-                        Text("Not linked")
-                            .foregroundColor(.secondary)
-                    }
-
-                    if contact.systemContactId == nil {
-                        // Replaces the old "autocreate" setting: one tap creates a dedicated
-                        // entry in the iOS Contacts app for this contact and links it.
-                        Button {
-                            Task {
-                                if let updated = await contactsManager.createSystemContact(for: contact) {
-                                    contact = updated
-                                    linkedSystemContactId = updated.systemContactId
-                                    linkedSystemContactName = updated.systemDisplayNameSnapshot
-                                    linkedSystemContactSource = updated.systemContactLinkSource
-                                    showToast(localized("Contact created in Contacts app."))
-                                } else {
-                                    showToast(localized("Couldn't create the contact. Check Contacts access."))
-                                }
-                            }
-                        } label: {
-                            Label("Create System Contact", systemImage: "person.badge.plus")
-                        }
-                    }
-
-                    Button {
-                        showSystemContactLinkPicker = true
-                    } label: {
-                        Label("Link from Contacts", systemImage: "person.crop.circle.badge.plus")
-                    }
-
-                    if hasUserVisibleLink {
-                        Button(role: .destructive) {
-                            contactsManager.unlinkSystemContact(contact)
-                            linkedSystemContactId = nil
-                            linkedSystemContactName = nil
-                            linkedSystemContactSource = nil
-                            var updatedContact = contact
-                            updatedContact.systemContactId = nil
-                            updatedContact.systemDisplayNameSnapshot = nil
-                            updatedContact.systemContactLinkSource = nil
-                            contact = updatedContact
-                            showToast(localized("System contact unlinked."))
-                        } label: {
-                            Label("Unlink", systemImage: "minus.circle")
-                        }
-                    }
-                }
-            }
-            .navigationTitle("System Contact")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .sheet(isPresented: $showSystemContactLinkPicker) {
-            SystemContactLinkPickerSheet(
-                title: "Link System Contact",
-                onSelect: { target in
-                    Task {
-                        do {
-                            try await contactsManager.linkContactToSystemContact(
-                                contact,
-                                target: target,
-                                updateAlias: false
-                            )
-                            await MainActor.run {
-                                linkedSystemContactId = target.contactIdentifier
-                                linkedSystemContactName = target.displayName
-                                linkedSystemContactSource = .manual
-                                editedAlias = target.displayName
-                                var updatedContact = contact
-                                updatedContact.systemContactId = target.contactIdentifier
-                                updatedContact.systemDisplayNameSnapshot = target.displayName
-                                updatedContact.systemContactLinkSource = .manual
-                                updatedContact.alias = target.displayName
-                                contact = updatedContact
-                                showToast(localizedFormat("Linked to %@.", target.displayName))
-                            }
-                        } catch {
-                            await MainActor.run {
-                                showToast(localized("Failed to link system contact."), style: .error)
-                            }
-                        }
-                    }
-                }
-            )
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -1015,9 +893,6 @@ struct ChatInfoView: View {
             : trimmedAlias
         updatedContact.notificationModeOverride = notificationModeOverride
         updatedContact.photoAutoDisplayOverride = photoAutoDisplayOverride
-        updatedContact.systemContactId = linkedSystemContactId
-        updatedContact.systemDisplayNameSnapshot = linkedSystemContactName
-        updatedContact.systemContactLinkSource = linkedSystemContactSource
         contactsManager.updateContact(updatedContact)
         contact = updatedContact
     }

@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "해당 이름의 .kachat 이름이 없습니다.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "만료되었습니다. 유예 기간이 끝날 때까지 여전히 소유자 주소로 연결되며, 소유자는 아직 갱신할 수 있습니다.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "만료되었습니다 - 유지하려면 갱신하세요. 유예 기간이 끝날 때까지 여전히 내 주소로 연결되며 다른 사람은 가져갈 수 없습니다.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "주소록";
+"Add to Address Book" = "주소록에 추가";
+"Search names and addresses" = "이름과 주소 검색";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "자주 쓰는 Kaspa 주소를 알아보기 쉬운 이름으로 저장하세요. KaChat 안에만, 이 지갑 전용으로 저장되며 휴대폰 연락처에는 절대 들어가지 않습니다.";
+"Copied" = "복사됨";
+"Share Address" = "주소 공유";
+"Edit" = "편집";
+"Delete from Address Book" = "주소록에서 삭제";
+"Delete %@ from your Address Book?" = "주소록에서 %@ 님을 삭제할까요?";
+"Not in your Address Book" = "주소록에 없음";
+"Note (optional)" = "메모 (선택)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "이 지갑 전용으로 KaChat에 저장됩니다. 휴대폰 연락처에는 추가되지 않습니다.";
+"Remove from Address Book" = "주소록에서 제거";
+"Edit Address" = "주소 편집";
+"Add addresses in Kaspa Hub > Address Book." = "Kaspa Hub > 주소록에서 주소를 추가하세요.";
+"Open a wallet first." = "먼저 지갑을 여세요.";
+"Enter a name." = "이름을 입력하세요.";
+"Enter a valid Kaspa address." = "올바른 Kaspa 주소를 입력하세요.";
+"Saved to Address Book." = "주소록에 저장했습니다.";
+"Removed from Address Book." = "주소록에서 제거했습니다.";

@@ -1387,3 +1387,25 @@
 "No .kachat name by that name." = "Kein .kachat-Name mit diesem Namen.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Abgelaufen. Bis zum Ende der Kulanzfrist wird er weiterhin zum Inhaber aufgelöst, und der Inhaber kann ihn noch verlängern.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Abgelaufen - verlängere ihn, um ihn zu behalten. Bis zum Ende der Kulanzfrist wird er weiterhin zu dir aufgelöst, und niemand sonst kann ihn nehmen.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Adressbuch";
+"Add to Address Book" = "Zum Adressbuch hinzufügen";
+"Search names and addresses" = "Namen und Adressen suchen";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Speichere die Kaspa-Adressen, die du nutzt, unter einem Namen, den du wiedererkennst. Sie bleiben in KaChat, nur für diese Wallet, und landen nie in den Kontakten deines Telefons.";
+"Copied" = "Kopiert";
+"Share Address" = "Adresse teilen";
+"Edit" = "Bearbeiten";
+"Delete from Address Book" = "Aus dem Adressbuch löschen";
+"Delete %@ from your Address Book?" = "%@ aus deinem Adressbuch löschen?";
+"Not in your Address Book" = "Nicht in deinem Adressbuch";
+"Note (optional)" = "Notiz (optional)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Nur für diese Wallet in KaChat gespeichert. Wird nie zu den Kontakten deines Telefons hinzugefügt.";
+"Remove from Address Book" = "Aus dem Adressbuch entfernen";
+"Edit Address" = "Adresse bearbeiten";
+"Add addresses in Kaspa Hub > Address Book." = "Füge Adressen unter Kaspa Hub > Adressbuch hinzu.";
+"Open a wallet first." = "Öffne zuerst eine Wallet.";
+"Enter a name." = "Gib einen Namen ein.";
+"Enter a valid Kaspa address." = "Gib eine gültige Kaspa-Adresse ein.";
+"Saved to Address Book." = "Im Adressbuch gespeichert.";
+"Removed from Address Book." = "Aus dem Adressbuch entfernt.";

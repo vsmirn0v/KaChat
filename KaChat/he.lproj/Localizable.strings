@@ -1440,3 +1440,25 @@
 "No .kachat name by that name." = "אין שם ‎.kachat‎ בשם הזה.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "פג תוקף. השם עדיין מפנה לבעלים עד שתקופת החסד מסתיימת, והבעלים עדיין יכול לחדש אותו.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "פג תוקף - חדש כדי לשמור עליו. עד שתקופת החסד מסתיימת הוא עדיין מפנה אליך ואף אחד אחר לא יכול לקחת אותו.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "פנקס כתובות";
+"Add to Address Book" = "הוספה לפנקס הכתובות";
+"Search names and addresses" = "חיפוש שמות וכתובות";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "שמרו את כתובות ה-Kaspa שבהן אתם משתמשים בשם שתזהו. הן נשארות ב-KaChat, רק עבור הארנק הזה, ולעולם לא נכנסות לאנשי הקשר בטלפון.";
+"Copied" = "הועתק";
+"Share Address" = "שיתוף כתובת";
+"Edit" = "עריכה";
+"Delete from Address Book" = "מחיקה מפנקס הכתובות";
+"Delete %@ from your Address Book?" = "למחוק את %@ מפנקס הכתובות?";
+"Not in your Address Book" = "לא בפנקס הכתובות שלך";
+"Note (optional)" = "הערה (רשות)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "נשמר ב-KaChat עבור הארנק הזה בלבד. לעולם לא נוסף לאנשי הקשר בטלפון.";
+"Remove from Address Book" = "הסרה מפנקס הכתובות";
+"Edit Address" = "עריכת כתובת";
+"Add addresses in Kaspa Hub > Address Book." = "הוסיפו כתובות ב-Kaspa Hub > פנקס כתובות.";
+"Open a wallet first." = "פתחו קודם ארנק.";
+"Enter a name." = "הזינו שם.";
+"Enter a valid Kaspa address." = "הזינו כתובת Kaspa תקינה.";
+"Saved to Address Book." = "נשמר בפנקס הכתובות.";
+"Removed from Address Book." = "הוסר מפנקס הכתובות.";

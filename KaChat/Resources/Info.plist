@@ -28,8 +28,6 @@
 	     which sentence Apple showed depended on merge precedence nobody had written down. -->
 	<key>NSCameraUsageDescription</key>
 	<string>KaChat uses the camera for video calls, to scan QR codes when adding contacts, and to take photos to send in a chat.</string>
-	<key>NSContactsUsageDescription</key>
-	<string>KaChat uses Contacts to import Kaspa addresses and link names from your address book.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>KaChat uses the microphone for voice and video calls and to record audio messages.</string>
 	<key>NSLocalNetworkUsageDescription</key>

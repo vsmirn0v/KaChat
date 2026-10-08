@@ -1441,3 +1441,25 @@
 "No .kachat name by that name." = "No .kachat name by that name.";
 "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it." = "Expired. It still resolves to its owner until the grace period ends, and the owner can still renew it.";
 "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it." = "Expired - renew to keep it. Until the grace period ends it still resolves to you and nobody else can take it.";
+
+/* Address Book (replaces syncing with the phone's Contacts) */
+"Address Book" = "Address Book";
+"Add to Address Book" = "Add to Address Book";
+"Search names and addresses" = "Search names and addresses";
+"Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts." = "Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts.";
+"Copied" = "Copied";
+"Share Address" = "Share Address";
+"Edit" = "Edit";
+"Delete from Address Book" = "Delete from Address Book";
+"Delete %@ from your Address Book?" = "Delete %@ from your Address Book?";
+"Not in your Address Book" = "Not in your Address Book";
+"Note (optional)" = "Note (optional)";
+"Saved in KaChat for this wallet only. Never added to your phone's Contacts." = "Saved in KaChat for this wallet only. Never added to your phone's Contacts.";
+"Remove from Address Book" = "Remove from Address Book";
+"Edit Address" = "Edit Address";
+"Add addresses in Kaspa Hub > Address Book." = "Add addresses in Kaspa Hub > Address Book.";
+"Open a wallet first." = "Open a wallet first.";
+"Enter a name." = "Enter a name.";
+"Enter a valid Kaspa address." = "Enter a valid Kaspa address.";
+"Saved to Address Book." = "Saved to Address Book.";
+"Removed from Address Book." = "Removed from Address Book.";
