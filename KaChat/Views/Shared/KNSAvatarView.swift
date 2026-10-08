@@ -19,6 +19,9 @@ struct KNSAvatarView: View {
     var overrideImage: UIImage? = nil
     /// Kaspa address this avatar represents: its `.kachat` avatar and its backup photo.
     var contactAddress: String? = nil
+    /// False shows only what the address set as its own avatar (the Address Book), never a photo
+    /// carried in the chat backup for the chat contact.
+    var includeBackupPhoto: Bool = true
 
     @State private var loadedImage: UIImage?
     @State private var isLoading = false
@@ -48,7 +51,7 @@ struct KNSAvatarView: View {
     /// The cross-platform backup photo (base64 JPEG on the Contact), decoded lazily. Only the
     /// final fallback before the glyph, so it is evaluated only for contacts with no KNS photo.
     private var backupPhotoImage: UIImage? {
-        guard overrideImage == nil, let contactAddress,
+        guard includeBackupPhoto, overrideImage == nil, let contactAddress,
               let base64 = ContactsManager.shared.getContact(byAddress: contactAddress)?.backupPhoto,
               !base64.isEmpty else { return nil }
         let key = contactAddress as NSString

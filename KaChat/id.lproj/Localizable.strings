@@ -1462,3 +1462,14 @@
 "Enter a valid Kaspa address." = "Masukkan alamat Kaspa yang valid.";
 "Saved to Address Book." = "Disimpan ke Buku Alamat.";
 "Removed from Address Book." = "Dihapus dari Buku Alamat.";
+
+/* Address Book photos */
+"Change Photo" = "Ganti Foto";
+"Remove Photo" = "Hapus Foto";
+"Couldn't use that photo." = "Foto itu tidak bisa digunakan.";
+"Without a photo of your own, this shows the avatar they set on their profile." = "Tanpa foto pilihan Anda, di sini tampil avatar yang mereka pasang di profilnya.";
+"Address Book Photos" = "Foto Buku Alamat";
+"Remove Address Book Photos" = "Hapus Foto Buku Alamat";
+"Remove Address Book Photos?" = "Hapus foto Buku Alamat?";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "Foto yang Anda tetapkan untuk alamat tersimpan, untuk semua dompet di perangkat ini. Foto tetap ada sampai Anda menghapusnya, dan disertakan dalam cadangan obrolan.";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "Membebaskan %@. Alamat tersimpan tetap memakai namanya dan menampilkan avatar yang dipasang pemiliknya.";

@@ -1,4 +1,6 @@
+import CryptoKit
 import Foundation
+import UIKit
 
 /// A deleted Address Book entry, kept so a backup merge from another device never brings it back.
 struct AddressBookTombstone: Codable, Equatable, Hashable {
@@ -18,12 +20,19 @@ struct AddressBookTombstone: Codable, Equatable, Hashable {
 ///
 /// A saved name is also how KaChat shows that address when you haven't named the chat contact
 /// yourself (`ContactsManager.displayName`).
+///
+/// An entry's picture is either a photo you assign to it, or else exactly the avatar that address
+/// set on its own profile (`AddressBookAvatar`). Assigned photos are your data, not cache: they live
+/// in Application Support/AddressBookPhotos/<wallet>/ (never purged by the system), travel in the
+/// backup as `photo`, and Settings > Storage shows the space they take and can remove them.
 @MainActor
 final class AddressBookManager: ObservableObject {
     static let shared = AddressBookManager()
 
     /// Sorted by name.
     @Published private(set) var entries: [AddressBookEntry] = []
+    /// Bumped whenever an assigned photo changes, so pictures re-read it.
+    @Published private(set) var photoVersion = 0
     /// Normalized address -> when it was deleted.
     private var deleted: [String: Date] = [:]
     private var byAddress: [String: Int] = [:]
@@ -34,7 +43,11 @@ final class AddressBookManager: ObservableObject {
     private static let deletedKeyPrefix = "kachat_address_book_deleted_wallet_"
     private static let migratedKeyPrefix = "kachat_address_book_migrated_v1_wallet_"
 
-    private init() {}
+    private let photoCache = NSCache<NSString, UIImage>()
+
+    private init() {
+        photoCache.countLimit = 200
+    }
 
     // MARK: - Wallet
 
@@ -57,6 +70,8 @@ final class AddressBookManager: ObservableObject {
         deleted = Dictionary(tombstones.map { (Self.normalize($0.address), $0.deletedAt) }, uniquingKeysWith: max)
         entries = Self.sorted(stored)
         rebuildIndex()
+        photoCache.removeAllObjects()
+        photoVersion &+= 1
         migrateLinkedNames(from: ContactsManager.shared.contacts)
     }
 
@@ -112,9 +127,17 @@ final class AddressBookManager: ObservableObject {
         }
     }
 
+    /// What a save does to the entry's assigned photo.
+    enum PhotoChange: Equatable {
+        case unchanged
+        /// JPEG data, already scaled down (`preparedPhoto(from:)`)
+        case set(Data)
+        case removed
+    }
+
     /// Adds `address`, or updates its entry when it is already saved.
     @discardableResult
-    func save(address: String, name: String, note: String = "") throws -> AddressBookEntry {
+    func save(address: String, name: String, note: String = "", photo: PhotoChange = .unchanged) throws -> AddressBookEntry {
         guard walletAddress != nil else { throw SaveError.noWallet }
         let address = Self.normalize(address)
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -132,6 +155,11 @@ final class AddressBookManager: ObservableObject {
             entries.append(saved)
         }
         deleted[address] = nil
+        switch photo {
+        case .unchanged: break
+        case .set(let data): writePhoto(data, for: address)
+        case .removed: deletePhoto(for: address)
+        }
         entries = Self.sorted(entries)
         rebuildIndex()
         persist()
@@ -144,15 +172,140 @@ final class AddressBookManager: ObservableObject {
         guard let i = byAddress[address] else { return }
         entries.remove(at: i)
         deleted[address] = Date()
+        deletePhoto(for: address)
         rebuildIndex()
         persist()
         didChange()
     }
 
+    // MARK: - Assigned photos
+
+    /// The photo you assigned to `address`, if any.
+    func photo(for address: String?) -> UIImage? {
+        guard let address, let url = photoURL(for: Self.normalize(address)) else { return nil }
+        let key = url.path as NSString
+        if let cached = photoCache.object(forKey: key) { return cached }
+        guard let image = UIImage(contentsOfFile: url.path) else { return nil }
+        photoCache.setObject(image, forKey: key)
+        return image
+    }
+
+    func hasPhoto(for address: String?) -> Bool {
+        guard let address, let url = photoURL(for: Self.normalize(address)) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// A picked image as the JPEG an entry keeps: at most 384 px on its longer side (an avatar is
+    /// never drawn bigger), quality 0.8 - tens of KB, so the backup stays small.
+    nonisolated static func preparedPhoto(from image: UIImage) -> Data? {
+        let maxSide: CGFloat = 384
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        let scale = min(1, maxSide / max(size.width, size.height))
+        let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let scaled = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        return scaled.jpegData(compressionQuality: 0.8)
+    }
+
+    /// Space the assigned photos of every wallet on this device take (Settings > Storage).
+    nonisolated static func photosBytesOnDevice() -> Int64 {
+        guard let root = photosRoot,
+              let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in walker {
+            total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return total
+    }
+
+    /// Settings > Storage > Remove: deletes the assigned photos of every wallet on this device.
+    /// Each affected entry counts as edited, so the removal also reaches the backup instead of the
+    /// photo coming back from it.
+    func removeAllPhotos() {
+        let now = Date()
+        let wallets = defaults.dictionaryRepresentation().keys
+            .filter { $0.hasPrefix(Self.entriesKeyPrefix) }
+            .map { String($0.dropFirst(Self.entriesKeyPrefix.count)) }
+        for wallet in wallets {
+            if wallet == walletAddress {
+                for i in entries.indices where hasPhoto(for: entries[i].address) {
+                    entries[i].updatedAt = now
+                }
+                persist()
+                continue
+            }
+            let key = Self.entriesKeyPrefix + wallet
+            guard var stored = defaults.data(forKey: key)
+                .flatMap({ try? JSONDecoder().decode([AddressBookEntry].self, from: $0) }) else { continue }
+            let dir = Self.photosDirectory(wallet: wallet)
+            for i in stored.indices {
+                if let dir, FileManager.default.fileExists(atPath: dir.appendingPathComponent(Self.photoFileName(stored[i].address)).path) {
+                    stored[i].updatedAt = now
+                }
+            }
+            if let data = try? JSONEncoder().encode(stored) { defaults.set(data, forKey: key) }
+        }
+        if let root = Self.photosRoot { try? FileManager.default.removeItem(at: root) }
+        photoCache.removeAllObjects()
+        photoVersion &+= 1
+        if walletAddress != nil { NextcloudService.shared.noteMessageActivity() }
+    }
+
+    private nonisolated static var photosRoot: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("AddressBookPhotos", isDirectory: true)
+    }
+
+    /// One folder per wallet, named by a hash of its address (no address in a file path).
+    private nonisolated static func photosDirectory(wallet: String) -> URL? {
+        photosRoot?.appendingPathComponent(hashName(wallet), isDirectory: true)
+    }
+
+    private nonisolated static func photoFileName(_ address: String) -> String {
+        hashName(normalize(address)) + ".jpg"
+    }
+
+    private nonisolated static func hashName(_ s: String) -> String {
+        SHA256.hash(data: Data(s.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func photoURL(for normalizedAddress: String) -> URL? {
+        guard let walletAddress else { return nil }
+        return Self.photosDirectory(wallet: walletAddress)?.appendingPathComponent(Self.photoFileName(normalizedAddress))
+    }
+
+    private func writePhoto(_ data: Data, for normalizedAddress: String) {
+        guard let url = photoURL(for: normalizedAddress) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+        photoCache.removeObject(forKey: url.path as NSString)
+        photoVersion &+= 1
+    }
+
+    private func deletePhoto(for normalizedAddress: String) {
+        guard let url = photoURL(for: normalizedAddress), FileManager.default.fileExists(atPath: url.path) else { return }
+        try? FileManager.default.removeItem(at: url)
+        photoCache.removeObject(forKey: url.path as NSString)
+        photoVersion &+= 1
+    }
+
     // MARK: - Backup
 
-    /// What the chat backup carries for this wallet.
-    var archiveEntries: [AddressBookEntry] { entries }
+    /// What the chat backup carries for this wallet: each entry with its assigned photo (base64
+    /// JPEG) attached.
+    var archiveEntries: [AddressBookEntry] {
+        entries.map { entry in
+            var e = entry
+            if let url = photoURL(for: Self.normalize(entry.address)), let data = try? Data(contentsOf: url) {
+                e.photo = data.base64EncodedString()
+            }
+            return e
+        }
+    }
     var archiveTombstones: [AddressBookTombstone] {
         deleted.map { AddressBookTombstone(address: $0.key, deletedAt: $0.value) }.sorted { $0.address < $1.address }
     }
@@ -161,10 +314,27 @@ final class AddressBookManager: ObservableObject {
     /// elsewhere comes back, one deleted after its last edit stays deleted.
     func importFromArchive(entries incoming: [AddressBookEntry], tombstones: [AddressBookTombstone]) {
         guard walletAddress != nil, !(incoming.isEmpty && tombstones.isEmpty) else { return }
+        let before = Dictionary(entries.map { (Self.normalize($0.address), $0) }, uniquingKeysWith: { a, _ in a })
         let merged = Self.merge(
             entries: [entries, incoming], tombstones: [archiveTombstones, tombstones]
         )
-        entries = Self.sorted(merged.entries)
+        // The winning entry decides the photo: one that came with a photo writes it; an incoming
+        // winner without one removes ours (it was removed where that edit was made).
+        var kept: [AddressBookEntry] = []
+        for var e in merged.entries {
+            let address = Self.normalize(e.address)
+            if let base64 = e.photo, let data = Data(base64Encoded: base64) {
+                writePhoto(data, for: address)
+            } else if let local = before[address], local.updatedAt < e.updatedAt {
+                deletePhoto(for: address)
+            } else if before[address] == nil {
+                deletePhoto(for: address)
+            }
+            e.photo = nil
+            kept.append(e)
+        }
+        for t in merged.tombstones { deletePhoto(for: Self.normalize(t.address)) }
+        entries = Self.sorted(kept)
         deleted = Dictionary(merged.tombstones.map { ($0.address, $0.deletedAt) }, uniquingKeysWith: max)
         rebuildIndex()
         persist()

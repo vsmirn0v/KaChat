@@ -1462,3 +1462,14 @@
 "Enter a valid Kaspa address." = "올바른 Kaspa 주소를 입력하세요.";
 "Saved to Address Book." = "주소록에 저장했습니다.";
 "Removed from Address Book." = "주소록에서 제거했습니다.";
+
+/* Address Book photos */
+"Change Photo" = "사진 변경";
+"Remove Photo" = "사진 제거";
+"Couldn't use that photo." = "그 사진을 사용할 수 없습니다.";
+"Without a photo of your own, this shows the avatar they set on their profile." = "직접 지정한 사진이 없으면 그 사람이 프로필에 설정한 아바타가 표시됩니다.";
+"Address Book Photos" = "주소록 사진";
+"Remove Address Book Photos" = "주소록 사진 제거";
+"Remove Address Book Photos?" = "주소록 사진을 제거할까요?";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "저장한 주소에 지정한 사진으로, 이 기기의 모든 지갑에 해당합니다. 직접 제거할 때까지 유지되며 채팅 백업에 포함됩니다.";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "%@ 확보됩니다. 저장한 주소의 이름은 유지되고, 대신 주인이 설정한 아바타가 표시됩니다.";

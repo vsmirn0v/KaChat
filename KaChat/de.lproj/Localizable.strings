@@ -1409,3 +1409,14 @@
 "Enter a valid Kaspa address." = "Gib eine gültige Kaspa-Adresse ein.";
 "Saved to Address Book." = "Im Adressbuch gespeichert.";
 "Removed from Address Book." = "Aus dem Adressbuch entfernt.";
+
+/* Address Book photos */
+"Change Photo" = "Foto ändern";
+"Remove Photo" = "Foto entfernen";
+"Couldn't use that photo." = "Dieses Foto ließ sich nicht verwenden.";
+"Without a photo of your own, this shows the avatar they set on their profile." = "Ohne eigenes Foto siehst du hier den Avatar, den die Person in ihrem Profil festgelegt hat.";
+"Address Book Photos" = "Adressbuch-Fotos";
+"Remove Address Book Photos" = "Adressbuch-Fotos entfernen";
+"Remove Address Book Photos?" = "Adressbuch-Fotos entfernen?";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "Fotos, die du gespeicherten Adressen zugewiesen hast, für alle Wallets auf diesem Gerät. Sie bleiben, bis du sie entfernst, und sind in deinem Chat-Backup enthalten.";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "Gibt %@ frei. Gespeicherte Adressen behalten ihre Namen und zeigen stattdessen den Avatar, den ihr Inhaber festgelegt hat.";

@@ -1462,3 +1462,14 @@
 "Enter a valid Kaspa address." = "Введите правильный адрес Kaspa.";
 "Saved to Address Book." = "Сохранено в адресной книге.";
 "Removed from Address Book." = "Удалено из адресной книги.";
+
+/* Address Book photos */
+"Change Photo" = "Изменить фото";
+"Remove Photo" = "Убрать фото";
+"Couldn't use that photo." = "Не удалось использовать это фото.";
+"Without a photo of your own, this shows the avatar they set on their profile." = "Без вашего фото здесь показывается аватар, который владелец указал в своём профиле.";
+"Address Book Photos" = "Фото адресной книги";
+"Remove Address Book Photos" = "Убрать фото адресной книги";
+"Remove Address Book Photos?" = "Убрать фото адресной книги?";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "Фото, которые вы назначили сохранённым адресам, для всех кошельков на этом устройстве. Они хранятся, пока вы их не уберёте, и входят в резервную копию чатов.";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "Освободит %@. Сохранённые адреса сохранят имена и будут показывать аватар, указанный владельцем.";

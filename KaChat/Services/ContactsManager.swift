@@ -72,6 +72,7 @@ final class ContactsManager: ObservableObject {
 
     private init() {
         contacts = []
+        Task.detached(priority: .utility) { CacheManager.removeRetiredContactPhotos() }
     }
 
     var activeContacts: [Contact] {

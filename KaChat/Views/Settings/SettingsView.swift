@@ -33,6 +33,9 @@ struct SettingsView: View {
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
     @State private var messageStoreSize = "Unknown"
+    /// Settings > Storage > Address Book Photos: bytes on this device, nil while measuring.
+    @State private var addressBookPhotoBytes: Int64?
+    @State private var confirmRemoveAddressBookPhotos = false
     @State private var chatHistoryArchiveURL: URL?
     @State private var showChatHistoryShareSheet = false
     @State private var showChatHistoryImporter = false
@@ -275,6 +278,47 @@ struct SettingsView: View {
                 Text("How long messages are kept on this device, and how much space they use. Applies before any cloud storage.")
             }
 
+            // Your own data, not cache: photos you assigned in the Address Book. Kept apart from
+            // Cache, whose "clear" must never delete anything you'd miss.
+            Section {
+                HStack {
+                    Label("Address Book Photos", systemImage: "book.closed")
+                    Spacer()
+                    if let bytes = addressBookPhotoBytes {
+                        Text(CacheManager.formatted(bytes))
+                            .monospacedDigit()
+                            .foregroundColor(.secondary)
+                    } else {
+                        ProgressView()
+                    }
+                }
+                if (addressBookPhotoBytes ?? 0) > 0 {
+                    Button(role: .destructive) {
+                        confirmRemoveAddressBookPhotos = true
+                    } label: {
+                        Text("Remove Address Book Photos")
+                            .foregroundColor(.red)
+                    }
+                }
+            } footer: {
+                Text("Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup.")
+            }
+            .task { await refreshAddressBookPhotoBytes() }
+            .sheet(isPresented: $confirmRemoveAddressBookPhotos) {
+                ConfirmActionSheet(
+                    title: AppLocalization.string("Remove Address Book Photos?"),
+                    confirmTitle: AppLocalization.string("Remove"),
+                    confirmSubtitle: String(
+                        format: AppLocalization.string("Frees %@. Saved addresses keep their names; they show the avatar their owner set instead."),
+                        CacheManager.formatted(addressBookPhotoBytes ?? 0)
+                    ),
+                    confirmSystemImage: "trash"
+                ) {
+                    AddressBookManager.shared.removeAllPhotos()
+                    Task { await refreshAddressBookPhotoBytes() }
+                }
+            }
+
             Section {
                 settingsCategoryRow("Cache", icon: "trash", tint: .accentColor) {
                     CacheSettingsPage()
@@ -297,6 +341,12 @@ struct SettingsView: View {
         }
         .navigationTitle("Storage")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func refreshAddressBookPhotoBytes() async {
+        addressBookPhotoBytes = await Task.detached(priority: .utility) {
+            AddressBookManager.photosBytesOnDevice()
+        }.value
     }
 
     private var nextcloudStoragePage: some View {

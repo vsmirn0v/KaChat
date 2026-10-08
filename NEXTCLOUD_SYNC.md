@@ -103,8 +103,13 @@ history, except by an explicit chat deletion (tombstones, §5).
   the merged file, so a chat deleted on one device stays deleted.
 - **Address Book** (iOS since 2026-10-08; optional top-level keys, older archives omit them). It
   replaced syncing with the phone's Contacts, and it is per wallet like the rest of the file.
-  - `addressBook`: an array of `{id, address, name, note, createdAt, updatedAt}`. `id` is a UUID,
-    `address` is the lowercased Kaspa address with no `?query`, and the dates are ISO 8601.
+  - `addressBook`: an array of `{id, address, name, note, createdAt, updatedAt, photo?}`. `id` is a
+    UUID, `address` is the lowercased Kaspa address with no `?query`, and the dates are ISO 8601.
+    `photo` is the photo the user assigned to the entry, as a base64 JPEG (at most 384 px, quality
+    0.8). It's absent when the entry shows the avatar the address set on its own profile.
+  - The winning entry decides the photo: a photo it carries replaces the local one; if it has none
+    and it's newer than the local entry, the local photo is removed. On a device, photos are files
+    and not part of the stored entry.
   - `addressBookDeleted`: an array of `{address, deletedAt}`.
   - Merge per address: the newest `updatedAt` of either side's entries, unless a tombstone's
     `deletedAt` is at or after it. Then it's deleted and only the tombstone is kept.

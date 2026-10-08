@@ -1462,3 +1462,14 @@
 "Enter a valid Kaspa address." = "Nhập một địa chỉ Kaspa hợp lệ.";
 "Saved to Address Book." = "Đã lưu vào sổ địa chỉ.";
 "Removed from Address Book." = "Đã gỡ khỏi sổ địa chỉ.";
+
+/* Address Book photos */
+"Change Photo" = "Đổi ảnh";
+"Remove Photo" = "Gỡ ảnh";
+"Couldn't use that photo." = "Không dùng được ảnh đó.";
+"Without a photo of your own, this shows the avatar they set on their profile." = "Nếu bạn không đặt ảnh, nơi này hiển thị ảnh đại diện mà họ đặt trên hồ sơ.";
+"Address Book Photos" = "Ảnh sổ địa chỉ";
+"Remove Address Book Photos" = "Gỡ ảnh sổ địa chỉ";
+"Remove Address Book Photos?" = "Gỡ ảnh sổ địa chỉ?";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "Ảnh bạn gán cho các địa chỉ đã lưu, cho mọi ví trên thiết bị này. Ảnh được giữ cho đến khi bạn gỡ và có trong bản sao lưu trò chuyện.";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "Giải phóng %@. Các địa chỉ đã lưu vẫn giữ tên và sẽ hiển thị ảnh đại diện do chủ sở hữu đặt.";

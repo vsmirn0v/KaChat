@@ -1462,3 +1462,14 @@
 "Enter a valid Kaspa address." = "Inserisci un indirizzo Kaspa valido.";
 "Saved to Address Book." = "Salvato nella rubrica.";
 "Removed from Address Book." = "Rimosso dalla rubrica.";
+
+/* Address Book photos */
+"Change Photo" = "Cambia foto";
+"Remove Photo" = "Rimuovi foto";
+"Couldn't use that photo." = "Impossibile usare quella foto.";
+"Without a photo of your own, this shows the avatar they set on their profile." = "Senza una tua foto, qui vedi l'avatar impostato nel suo profilo.";
+"Address Book Photos" = "Foto della rubrica";
+"Remove Address Book Photos" = "Rimuovi le foto della rubrica";
+"Remove Address Book Photos?" = "Rimuovere le foto della rubrica?";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "Le foto che hai assegnato agli indirizzi salvati, per tutti i wallet su questo dispositivo. Restano finché non le rimuovi e sono incluse nel backup delle chat.";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "Libera %@. Gli indirizzi salvati mantengono il nome e mostrano invece l'avatar scelto dal proprietario.";

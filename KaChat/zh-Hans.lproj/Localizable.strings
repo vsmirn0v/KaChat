@@ -1462,3 +1462,14 @@
 "Enter a valid Kaspa address." = "请输入有效的 Kaspa 地址。";
 "Saved to Address Book." = "已保存到地址簿。";
 "Removed from Address Book." = "已从地址簿移除。";
+
+/* Address Book photos */
+"Change Photo" = "更换照片";
+"Remove Photo" = "移除照片";
+"Couldn't use that photo." = "无法使用这张照片。";
+"Without a photo of your own, this shows the avatar they set on their profile." = "没有你自己设定的照片时，这里显示对方在个人资料中设置的头像。";
+"Address Book Photos" = "地址簿照片";
+"Remove Address Book Photos" = "移除地址簿照片";
+"Remove Address Book Photos?" = "要移除地址簿照片吗？";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "你为已保存地址指定的照片，涵盖这台设备上的所有钱包。在你移除前会一直保留，并包含在聊天备份中。";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "将释放 %@。已保存的地址保留名称，改为显示其所有者设置的头像。";

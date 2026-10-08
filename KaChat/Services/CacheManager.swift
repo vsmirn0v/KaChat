@@ -13,7 +13,6 @@ final class CacheManager: ObservableObject {
 
     enum Category: String, CaseIterable, Identifiable {
         case profiles
-        case contactPhotos
         case webResponses
         case temporaryFiles
 
@@ -22,7 +21,6 @@ final class CacheManager: ObservableObject {
         var title: String {
             switch self {
             case .profiles: return AppLocalization.string("Profiles")
-            case .contactPhotos: return AppLocalization.string("Contact Photos")
             case .webResponses: return AppLocalization.string("Web Responses")
             case .temporaryFiles: return AppLocalization.string("Temporary Files")
             }
@@ -32,8 +30,6 @@ final class CacheManager: ObservableObject {
             switch self {
             case .profiles:
                 return AppLocalization.string("Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them.")
-            case .contactPhotos:
-                return AppLocalization.string("Photos copied from your device address book. Re-read from Contacts.")
             case .webResponses:
                 return AppLocalization.string("Link previews and API responses held by the system's network cache.")
             case .temporaryFiles:
@@ -44,7 +40,6 @@ final class CacheManager: ObservableObject {
         var systemImage: String {
             switch self {
             case .profiles: return "person.crop.square"
-            case .contactPhotos: return "person.2"
             case .webResponses: return "globe"
             case .temporaryFiles: return "doc"
             }
@@ -58,14 +53,21 @@ final class CacheManager: ObservableObject {
 
     private init() {}
 
+    /// Phone-Contacts photos KaChat cached before it stopped using the phone's Contacts
+    /// (2026-10-08). Nothing reads them any more; removed once, at launch.
+    nonisolated static func removeRetiredContactPhotos() {
+        let flag = "kachat_retired_contact_photos_removed_v1"
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        if let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent("ContactAvatars", isDirectory: true))
+        }
+        UserDefaults.standard.set(true, forKey: flag)
+    }
+
     // MARK: - Locations
 
     private var cachesRoot: URL? {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-    }
-
-    private var applicationSupportRoot: URL? {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
     }
 
     /// The directories a category owns. `webResponses` has none - URLCache does not expose its
@@ -76,8 +78,6 @@ final class CacheManager: ObservableObject {
             // the avatar and banner images, and the profile records and lookups (KachatProfileCache)
             return [cachesRoot?.appendingPathComponent("KNSProfileImages", isDirectory: true),
                     cachesRoot?.appendingPathComponent("KachatProfiles", isDirectory: true)].compactMap { $0 }
-        case .contactPhotos:
-            return [applicationSupportRoot?.appendingPathComponent("ContactAvatars", isDirectory: true)].compactMap { $0 }
         case .webResponses:
             return []
         case .temporaryFiles:
@@ -141,8 +141,6 @@ final class CacheManager: ObservableObject {
             // The in-memory half has to go too, or the screen keeps showing what was just
             // deleted from disk until the app is relaunched.
             await resetProfilesInMemory()
-        case .contactPhotos:
-            await emptyDirectories(directories(for: category))
         case .temporaryFiles:
             await emptyDirectories(directories(for: category))
         }

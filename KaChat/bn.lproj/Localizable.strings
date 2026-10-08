@@ -1462,3 +1462,14 @@
 "Enter a valid Kaspa address." = "একটি বৈধ Kaspa ঠিকানা লিখুন।";
 "Saved to Address Book." = "ঠিকানা বইয়ে সংরক্ষিত।";
 "Removed from Address Book." = "ঠিকানা বই থেকে সরানো হয়েছে।";
+
+/* Address Book photos */
+"Change Photo" = "ছবি বদলান";
+"Remove Photo" = "ছবি সরান";
+"Couldn't use that photo." = "ওই ছবিটি ব্যবহার করা গেল না।";
+"Without a photo of your own, this shows the avatar they set on their profile." = "আপনার নিজের কোনো ছবি না থাকলে, এখানে তাদের প্রোফাইলে সেট করা অবতার দেখায়।";
+"Address Book Photos" = "ঠিকানা বইয়ের ছবি";
+"Remove Address Book Photos" = "ঠিকানা বইয়ের ছবি সরান";
+"Remove Address Book Photos?" = "ঠিকানা বইয়ের ছবি সরাবেন?";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "সংরক্ষিত ঠিকানাগুলোর জন্য আপনার দেওয়া ছবি, এই ডিভাইসের সব ওয়ালেটের জন্য। আপনি না সরানো পর্যন্ত থাকে, এবং আপনার চ্যাট ব্যাকআপে অন্তর্ভুক্ত থাকে।";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "%@ খালি হবে। সংরক্ষিত ঠিকানাগুলোর নাম থাকবে; বদলে মালিকের সেট করা অবতার দেখাবে।";

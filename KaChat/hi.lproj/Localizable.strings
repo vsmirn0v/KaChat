@@ -1462,3 +1462,14 @@
 "Enter a valid Kaspa address." = "एक मान्य Kaspa पता दर्ज करें।";
 "Saved to Address Book." = "एड्रेस बुक में सहेजा गया।";
 "Removed from Address Book." = "एड्रेस बुक से हटाया गया।";
+
+/* Address Book photos */
+"Change Photo" = "फ़ोटो बदलें";
+"Remove Photo" = "फ़ोटो हटाएँ";
+"Couldn't use that photo." = "वह फ़ोटो इस्तेमाल नहीं हो सकी।";
+"Without a photo of your own, this shows the avatar they set on their profile." = "आपकी अपनी फ़ोटो न होने पर, यहाँ वह अवतार दिखता है जो उन्होंने अपनी प्रोफ़ाइल पर लगाया है।";
+"Address Book Photos" = "एड्रेस बुक फ़ोटो";
+"Remove Address Book Photos" = "एड्रेस बुक फ़ोटो हटाएँ";
+"Remove Address Book Photos?" = "एड्रेस बुक फ़ोटो हटाएँ?";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "सहेजे गए पतों को आपकी दी हुई फ़ोटो, इस डिवाइस के सभी वॉलेट के लिए। आप हटाएँ तब तक रहती हैं, और आपके चैट बैकअप में शामिल होती हैं।";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "%@ खाली होगा। सहेजे गए पतों के नाम बने रहेंगे; बदले में उनके मालिक का लगाया अवतार दिखेगा।";

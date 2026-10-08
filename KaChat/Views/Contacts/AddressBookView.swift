@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -81,13 +82,37 @@ struct AddressBookView: View {
     }
 }
 
+/// An Address Book picture: the photo you assigned to the entry, else exactly the avatar the
+/// address set on its own profile, else the person glyph. Never a photo carried for a chat contact.
+struct AddressBookAvatar: View {
+    let address: String
+    var size: CGFloat = 44
+    /// The editor's not-yet-saved choice: a new photo, or `.some(nil)` for "removed".
+    var pending: UIImage?? = nil
+
+    @ObservedObject private var book = AddressBookManager.shared
+
+    var body: some View {
+        let _ = book.photoVersion
+        let assigned: UIImage? = pending ?? book.photo(for: address)
+        KNSAvatarView(
+            avatarURLString: nil,
+            fallbackText: "",
+            size: size,
+            overrideImage: assigned,
+            contactAddress: address,
+            includeBackupPhoto: false
+        )
+    }
+}
+
 /// One saved address in a list: avatar, name, short address.
 struct AddressBookRow: View {
     let entry: AddressBookEntry
 
     var body: some View {
         HStack(spacing: 12) {
-            KNSAvatarView(avatarURLString: nil, fallbackText: entry.name, size: 38, contactAddress: entry.address)
+            AddressBookAvatar(address: entry.address, size: 38)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: entry.name)
                     .font(.body.weight(.semibold))
@@ -125,7 +150,7 @@ struct AddressBookEntryDetail: View {
                 List {
                     Section {
                         VStack(spacing: 10) {
-                            KNSAvatarView(avatarURLString: nil, fallbackText: entry.name, size: 76, contactAddress: entry.address)
+                            AddressBookAvatar(address: entry.address, size: 76)
                             Text(verbatim: entry.name)
                                 .font(.title3.weight(.semibold))
                                 .multilineTextAlignment(.center)
@@ -252,13 +277,51 @@ struct AddressBookEntryEditor: View {
     @State private var error: String?
     @State private var showScanner = false
     @State private var loaded = false
+    @State private var photoItem: PhotosPickerItem?
+    /// nil: keep what is saved; .some(image): use this photo; .some(nil): remove the photo.
+    @State private var pendingPhoto: UIImage?? = nil
+    @State private var pendingPhotoData: Data?
 
+    private var showsAssignedPhoto: Bool {
+        switch pendingPhoto {
+        case .some(.some): return true
+        case .some(.none): return false
+        case .none: return book.hasPhoto(for: address ?? addressInput)
+        }
+    }
     private var existing: AddressBookEntry? { book.entry(for: address ?? addressInput) }
     private var effectiveAddress: String { AddressBookManager.normalize(address ?? addressInput) }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    VStack(spacing: 12) {
+                        AddressBookAvatar(address: effectiveAddress, size: 84, pending: pendingPhoto)
+                        HStack(spacing: 20) {
+                            PhotosPicker(selection: $photoItem, matching: .images) {
+                                Label(showsAssignedPhoto ? LocalizedStringKey("Change Photo") : LocalizedStringKey("Choose Photo"),
+                                      systemImage: "photo")
+                            }
+                            if showsAssignedPhoto {
+                                Button(role: .destructive) {
+                                    pendingPhoto = .some(nil)
+                                    pendingPhotoData = nil
+                                    photoItem = nil
+                                } label: {
+                                    Label("Remove Photo", systemImage: "trash")
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.subheadline)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                } footer: {
+                    Text("Without a photo of your own, this shows the avatar they set on their profile.")
+                }
+
                 Section("Name") {
                     TextField("Name", text: $name)
                         .textInputAutocapitalization(.words)
@@ -339,6 +402,20 @@ struct AddressBookEntryEditor: View {
                     showScanner = false
                 }
             }
+            .onChange(of: photoItem) { item in
+                guard let item else { return }
+                Task {
+                    guard let data = try? await item.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data),
+                          let prepared = AddressBookManager.preparedPhoto(from: image),
+                          let shown = UIImage(data: prepared) else {
+                        error = AppLocalization.string("Couldn't use that photo.")
+                        return
+                    }
+                    pendingPhoto = .some(shown)
+                    pendingPhotoData = prepared
+                }
+            }
             .onAppear {
                 guard !loaded else { return }
                 loaded = true
@@ -354,7 +431,13 @@ struct AddressBookEntryEditor: View {
 
     private func save() {
         do {
-            try book.save(address: effectiveAddress, name: name, note: note)
+            let photo: AddressBookManager.PhotoChange
+            switch pendingPhoto {
+            case .none: photo = .unchanged
+            case .some(.none): photo = .removed
+            case .some(.some): photo = pendingPhotoData.map { .set($0) } ?? .unchanged
+            }
+            try book.save(address: effectiveAddress, name: name, note: note, photo: photo)
             onDone(.saved)
             dismiss()
         } catch {

@@ -310,6 +310,9 @@ struct AddressBookEntry: Codable, Identifiable, Equatable, Hashable {
     var note: String
     var createdAt: Date
     var updatedAt: Date
+    /// The assigned photo as base64 JPEG - only in the backup archive. In the app it is a file
+    /// (`AddressBookManager.photo(for:)`), so this stays nil everywhere else.
+    var photo: String? = nil
 
     init(id: UUID = UUID(), address: String, name: String, note: String = "", createdAt: Date = Date(), updatedAt: Date = Date()) {
         self.id = id

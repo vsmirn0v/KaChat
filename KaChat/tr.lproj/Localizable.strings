@@ -1462,3 +1462,14 @@
 "Enter a valid Kaspa address." = "Geçerli bir Kaspa adresi gir.";
 "Saved to Address Book." = "Adres defterine kaydedildi.";
 "Removed from Address Book." = "Adres defterinden kaldırıldı.";
+
+/* Address Book photos */
+"Change Photo" = "Fotoğrafı Değiştir";
+"Remove Photo" = "Fotoğrafı Kaldır";
+"Couldn't use that photo." = "Bu fotoğraf kullanılamadı.";
+"Without a photo of your own, this shows the avatar they set on their profile." = "Kendi fotoğrafın yoksa burada kişinin profilinde ayarladığı avatar görünür.";
+"Address Book Photos" = "Adres Defteri Fotoğrafları";
+"Remove Address Book Photos" = "Adres Defteri Fotoğraflarını Kaldır";
+"Remove Address Book Photos?" = "Adres defteri fotoğrafları kaldırılsın mı?";
+"Photos you assigned to saved addresses, for every wallet on this device. They're kept until you remove them, and they're included in your chat backup." = "Kayıtlı adreslere atadığın fotoğraflar, bu cihazdaki tüm cüzdanlar için. Sen kaldırana kadar kalırlar ve sohbet yedeğine dahildirler.";
+"Frees %@. Saved addresses keep their names; they show the avatar their owner set instead." = "%@ boşaltır. Kayıtlı adresler adlarını korur ve onun yerine sahibinin ayarladığı avatarı gösterir.";
