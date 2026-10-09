@@ -29,23 +29,6 @@ extension KaspaUnit {
     static func signed(_ delta: Int64) -> String {
         delta >= 0 ? "+\(amount(UInt64(delta)))" : "-\(amount(delta.magnitude))"
     }
-
-    /// "12.5" or "12,5" (KAS) -> sompi; nil for anything else or more than 8 decimals.
-    static func parseSompi(_ text: String) -> UInt64? {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
-        guard !t.isEmpty else { return nil }
-        let parts = t.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count <= 2, let whole = UInt64(parts[0].isEmpty ? "0" : String(parts[0])) else { return nil }
-        var frac: UInt64 = 0
-        if parts.count == 2 {
-            let f = String(parts[1])
-            guard f.count <= 8, f.allSatisfy(\.isNumber) else { return nil }
-            frac = UInt64(f.padding(toLength: 8, withPad: "0", startingAt: 0)) ?? 0
-        }
-        let (w, o) = whole.multipliedReportingOverflow(by: 100_000_000)
-        guard !o else { return nil }
-        return w + frac
-    }
 }
 
 // MARK: - Shared pieces
@@ -1732,7 +1715,7 @@ struct KachatTxSheet<Inputs: View>: View {
                     onCommit: {
                         isEditingFee = false
                         feeTouched = true
-                        if let sompi = KaspaUnit.parseSompi(customFeeText), sompi > 0 { customFee = sompi }
+                        if let sompi = KaspaUnit.sompi(fromUserText: customFeeText), sompi > 0 { customFee = sompi }
                     },
                     showsCoinControl: false
                 )
@@ -2695,7 +2678,7 @@ struct KachatLiveOfferSheet: View {
     @State private var days = 3
     @State private var virtualDaa: UInt64?
 
-    private var amount: UInt64? { KaspaUnit.parseSompi(amountText).flatMap { $0 > 0 ? $0 : nil } }
+    private var amount: UInt64? { KaspaUnit.sompi(fromUserText: amountText).flatMap { $0 > 0 ? $0 : nil } }
     private var refundAfter: UInt64? { virtualDaa.map { $0 + UInt64(days) * 86_400 * KachatLive.daaPerSecond } }
 
     private var operation: KachatNamesActions.Operation? {
@@ -2718,6 +2701,10 @@ struct KachatLiveOfferSheet: View {
                 HStack {
                     TextField("0", text: $amountText)
                         .keyboardType(.decimalPad)
+                        .onChange(of: amountText) { v in
+                            let clean = KaspaUnit.sanitizeAmountInput(v)
+                            if clean != v { amountText = clean }
+                        }
                         .font(.title2.weight(.semibold))
                     Text(verbatim: KaspaUnit.symbol).foregroundColor(.secondary)
                 }
@@ -2906,7 +2893,7 @@ struct KachatListSheet: View {
     let info: KachatNames.NameInfo
     @State private var priceText = ""
 
-    private var price: UInt64? { KaspaUnit.parseSompi(priceText).flatMap { $0 > 0 ? $0 : nil } }
+    private var price: UInt64? { KaspaUnit.sompi(fromUserText: priceText).flatMap { $0 > 0 ? $0 : nil } }
 
     var body: some View {
         KachatTxSheet(
@@ -2920,6 +2907,10 @@ struct KachatListSheet: View {
                 HStack {
                     TextField("0", text: $priceText)
                         .keyboardType(.decimalPad)
+                        .onChange(of: priceText) { v in
+                            let clean = KaspaUnit.sanitizeAmountInput(v)
+                            if clean != v { priceText = clean }
+                        }
                         .font(.title2.weight(.semibold))
                     Text(verbatim: KaspaUnit.symbol).foregroundColor(.secondary)
                 }
