@@ -268,7 +268,11 @@ extension ChatService {
             // archive itself carries (covers restoring onto a fresh install).
             if contactsManager.isAddressDeleted(contactAddress) || archivedTombstones.contains(contactAddress) { continue }
 
-            var importedMessages = archivedConversation.messages.filter { !$0.txId.isEmpty }
+            // a chat reopened after a deletion keeps what came before it deleted (its floor)
+            var importedMessages = archivedConversation.messages.filter {
+                !$0.txId.isEmpty
+                    && !contactsManager.isDeletedAsOf(contactAddress, txId: $0.txId, blockTime: Int64($0.blockTime))
+            }
             guard !importedMessages.isEmpty else { continue }
             importedMessages = Self.dedupeMessages(importedMessages)
 

@@ -86,15 +86,18 @@ final class ContactsManager: ObservableObject {
         deletedAddresses.contains(address)
     }
 
-    /// Drops the tombstone entirely - the conversation is live again.
+    /// Lifts the tombstone - the conversation is live again - but keeps the deletion instant as
+    /// a history floor.
     ///
     /// Called when a handshake that post-dates the deletion is accepted: the other side has
     /// re-initiated contact and we let it through, so every later message from them must land
-    /// normally rather than hitting the tombstone again.
+    /// normally rather than hitting the tombstone again. What came BEFORE the deletion stays
+    /// deleted: re-fetching it brought back the old chat, your own old messages included, and
+    /// those made the new request look like a chat you had already accepted - it skipped
+    /// Message Requests (`isDeletedAsOf` still suppresses below the floor). A deliberate add
+    /// (`addContact`) clears the floor too.
     func clearDeletionTombstone(_ address: String) {
         guard deletedAddresses.remove(address) != nil else { return }
-        deletedAtByAddress.removeValue(forKey: address)
-        deletedTxIdsByAddress.removeValue(forKey: address)
         saveDeletedAddresses()
     }
 
@@ -114,8 +117,10 @@ final class ContactsManager: ObservableObject {
     /// `blockTime` of 0/nil means "no time in hand" and is treated as pre-deletion, i.e. still
     /// suppressed - the conservative choice, since that is the re-serve case.
     func isDeletedAsOf(_ address: String, txId: String?, blockTime: Int64?) -> Bool {
-        guard deletedAddresses.contains(address) else { return false }
-        guard let blockTime, blockTime > 0, let deletedAt = deletedAtByAddress[address] else { return true }
+        let tombstoned = deletedAddresses.contains(address)
+        // a chat reopened after a deletion keeps its deletion instant as a floor
+        guard tombstoned || deletedAtByAddress[address] != nil else { return false }
+        guard let blockTime, blockTime > 0, let deletedAt = deletedAtByAddress[address] else { return tombstoned }
         if blockTime < deletedAt { return true }
         // Same instant as the deletion: suppress only what was already ours then. See
         // `deletedTxIdsByAddress` for why time alone is not enough.
@@ -437,7 +442,8 @@ final class ContactsManager: ObservableObject {
         // A deliberate (non-auto) add explicitly un-does a prior permanent delete's tombstone -
         // the block on auto-recreation is only meant to stop silent resurrection from incoming
         // activity, not to stop the user from choosing to message this address again.
-        if !isAutoAdded, deletedAddresses.remove(address) != nil {
+        if !isAutoAdded, deletedAddresses.contains(address) || deletedAtByAddress[address] != nil {
+            deletedAddresses.remove(address)
             deletedAtByAddress.removeValue(forKey: address)
             deletedTxIdsByAddress.removeValue(forKey: address)
             saveDeletedAddresses()
@@ -511,6 +517,9 @@ final class ContactsManager: ObservableObject {
             conversationMessages.filter { Int64($0.blockTime) == deletedAt }.map(\.txId).filter { !$0.isEmpty }
         )
         saveDeletedAddresses()
+        // A deleted chat is no longer one you accepted: if they start a new one, it's a Message
+        // Request like any stranger's.
+        ChatService.shared.forgetChatAcceptance(contact.address)
         // The contact leaves the list immediately; the store delete runs off the main thread. The
         // `deletedAtByAddress` marker above is what keeps the old history from being re-fetched
         // in the meantime, so nothing depends on the delete having finished first.

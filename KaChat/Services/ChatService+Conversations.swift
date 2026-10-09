@@ -3805,6 +3805,18 @@ extension ChatService {
         clearDeclined(address)
     }
 
+    /// Deleting a chat forgets that it was accepted (or Private): a new chat from that person,
+    /// after the deletion, lands in Message Requests. A block stays as it was.
+    func forgetChatAcceptance(_ address: String) {
+        let key = address.lowercased()
+        let state = chatRequestState()
+        guard state.accepted.contains(key) || state.privateChats.contains(key) else { return }
+        updateChatRequests {
+            $0.accepted.remove(key)
+            $0.privateChats.remove(key)
+        }
+    }
+
     /// Reject: their messages are deleted from this device and the address is blocked - ignored
     /// by discovery, fetching and notifications until the user writes to them.
     func rejectChat(_ contact: Contact) {
