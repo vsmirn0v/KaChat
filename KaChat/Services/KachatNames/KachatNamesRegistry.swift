@@ -71,6 +71,13 @@ final class KachatNamesRegistry: ObservableObject {
     @discardableResult
     func prepare(forceSourceCheck: Bool = false) async throws -> KachatNames.Manifest {
         let m = try await service.loadManifest()
+        // a source picked on the other network (its indexer) is never this one's
+        if preparedNetwork != m.network {
+            source = nil
+            chainState = nil
+            cacheNetwork = nil
+            preparedNetwork = m.network
+        }
         if source == nil || forceSourceCheck {
             let chosen = await chooseSource(m)
             if let was = source, was != chosen {
@@ -85,8 +92,12 @@ final class KachatNamesRegistry: ObservableObject {
         return m
     }
 
+    /// The network `prepare` last ran for.
+    private var preparedNetwork: String?
+
     /// Forget everything in memory (network switch, logout).
     func reset() {
+        preparedNetwork = nil
         source = nil
         chainState = nil
         cacheNetwork = nil
@@ -701,12 +712,12 @@ final class KachatNamesRegistry: ObservableObject {
 
     nonisolated static func address(of xonly: Data) -> String? {
         guard xonly.count == 32 else { return nil }
-        return KaspaAddress(hrp: "kaspatest", type: .pubKey, payload: xonly).address
+        return KaspaAddress(hrp: KachatNamesService.addressPrefix, type: .pubKey, payload: xonly).address
     }
 
-    /// The x-only key of a `kaspatest:` Schnorr address.
+    /// The x-only key of a Schnorr address on the network the app runs on.
     nonisolated static func keyOf(_ address: String) -> Data? {
-        guard let a = KaspaAddress(address: address.lowercased()), a.hrp == "kaspatest", a.type == .pubKey, a.payload.count == 32 else { return nil }
+        guard let a = KaspaAddress(address: address.lowercased()), a.hrp == KachatNamesService.addressPrefix, a.type == .pubKey, a.payload.count == 32 else { return nil }
         return a.payload
     }
 
@@ -751,19 +762,19 @@ final class KachatNamesRegistry: ObservableObject {
 
     // MARK: - Cache files (Application Support/KachatNames/<network>/)
 
-    private static func directory(network: String = KachatNames.Manifest.supportedNetwork) -> URL? {
+    private static func directory(network: String = KachatNamesService.networkName) -> URL? {
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         let dir = base.appendingPathComponent("KachatNames", isDirectory: true).appendingPathComponent(network, isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
-    static func readFile(_ name: String, network: String = KachatNames.Manifest.supportedNetwork) -> Data? {
+    static func readFile(_ name: String, network: String = KachatNamesService.networkName) -> Data? {
         guard let dir = directory(network: network) else { return nil }
         return try? Data(contentsOf: dir.appendingPathComponent(name))
     }
 
-    static func writeFile(_ name: String, _ data: Data, network: String = KachatNames.Manifest.supportedNetwork) {
+    static func writeFile(_ name: String, _ data: Data, network: String = KachatNamesService.networkName) {
         guard let dir = directory(network: network) else { return }
         try? data.write(to: dir.appendingPathComponent(name), options: .atomic)
     }
@@ -771,7 +782,7 @@ final class KachatNamesRegistry: ObservableObject {
     /// The cache folder an address's own profile lives in: its network's (testnet keeps the
     /// registry's folder, so profiles saved before mainnet profiles existed are still found).
     private static func profileNetwork(_ address: String) -> String {
-        NetworkType(address: address) == .mainnet ? "mainnet" : KachatNames.Manifest.supportedNetwork
+        NetworkType(address: address) == .mainnet ? "mainnet" : "testnet-10"
     }
 
     static func walletSuffix(_ address: String) -> String {

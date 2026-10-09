@@ -1570,3 +1570,11 @@
 
 /* Your Domains card: when a .kachat name's grace period ends */
 "Grace ends %@" = "תקופת החסד מסתיימת %@";
+
+/* .kachat on mainnet */
+"The .kachat registry is being upgraded. Names open here again once the new registry is live." = "מרשם .kachat משודרג. השמות יחזרו לכאן ברגע שהמרשם החדש יהיה פעיל.";
+"No wallet is open." = "אין ארנק פתוח.";
+"Not a Schnorr address on this network." = "זו לא כתובת Schnorr ברשת הזו.";
+"Live on Mainnet: names, prices and payments here are real KAS." = "פעיל ב-Mainnet: השמות, המחירים והתשלומים כאן ב-KAS אמיתי.";
+"Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "פעיל ב-Testnet: השמות, המחירים והתשלומים כאן ב-TKAS ב-testnet-10. שמות Mainnet פעילים ב-Mainnet.";
+"Live on Mainnet" = "פעיל ב-Mainnet";

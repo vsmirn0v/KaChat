@@ -1571,3 +1571,11 @@
 
 /* Your Domains card: when a .kachat name's grace period ends */
 "Grace ends %@" = "Grâce jusqu’au %@";
+
+/* .kachat on mainnet */
+"The .kachat registry is being upgraded. Names open here again once the new registry is live." = "Le registre .kachat est en cours de mise à niveau. Les noms reviennent ici dès que le nouveau registre est en ligne.";
+"No wallet is open." = "Aucun portefeuille ouvert.";
+"Not a Schnorr address on this network." = "Ce n’est pas une adresse Schnorr de ce réseau.";
+"Live on Mainnet: names, prices and payments here are real KAS." = "En ligne sur Mainnet : ici, les noms, prix et paiements sont en vrais KAS.";
+"Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "En ligne sur Testnet : ici, les noms, prix et paiements utilisent des TKAS sur testnet-10. Les noms Mainnet sont en ligne sur Mainnet.";
+"Live on Mainnet" = "En ligne sur Mainnet";

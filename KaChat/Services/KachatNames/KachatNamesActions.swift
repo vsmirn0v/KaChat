@@ -114,7 +114,7 @@ final class KachatNamesActions: ObservableObject {
 
         var errorDescription: String? {
             switch self {
-            case .noWallet: return AppLocalization.string("No testnet wallet is open.")
+            case .noWallet: return AppLocalization.string("No wallet is open.")
             case .keyMismatch: return AppLocalization.string("This wallet's key does not match its address.")
             case .invalidKey(let what): return String(format: AppLocalization.string("%@ is not a valid key (not on the secp256k1 curve)."), what)
             case .noSalt: return AppLocalization.string("The secret for this registration is missing on this device.")
@@ -165,10 +165,10 @@ final class KachatNamesActions: ObservableObject {
         let me: Data
     }
 
-    /// The current wallet's testnet address, key and x-only key (they must agree).
+    /// The current wallet's address on this network, its key and x-only key (they must agree).
     func signer() throws -> Signer {
         try service.requireLaunched()
-        guard let address = WalletManager.shared.currentWallet?.publicAddress.lowercased(), address.hasPrefix("kaspatest:"),
+        guard let address = WalletManager.shared.currentWallet?.publicAddress.lowercased(), address.hasPrefix(KachatNamesService.addressPrefix + ":"),
               let key = WalletManager.shared.getPrivateKey() else { throw ActionError.noWallet }
         let me = try KachatNamesService.xonlyKey(privateKey: key)
         guard KachatNamesRegistry.keyOf(address) == me else { throw ActionError.keyMismatch }
@@ -232,7 +232,7 @@ final class KachatNamesActions: ObservableObject {
         }
         if let owner = heldBy, case .spending(let index, let address)? = ownAddress(of: owner) {
             try service.requireLaunched()
-            guard address.lowercased().hasPrefix("kaspatest:"), NetworkType.isOnActiveNetwork(address) else {
+            guard address.lowercased().hasPrefix(KachatNamesService.addressPrefix + ":"), NetworkType.isOnActiveNetwork(address) else {
                 throw KachatNamesService.ServiceError.wrongAddressNetwork
             }
             guard let key = WalletManager.shared.spendingPrivateKey(at: index) else { throw ActionError.noWallet }
@@ -642,7 +642,7 @@ final class KachatNamesActions: ObservableObject {
         }
     }
 
-    /// The `kaspatest:` address of a P2PK output script (`<32-byte key> OP_CHECKSIG`).
+    /// The address (this network's prefix) of a P2PK output script (`<32-byte key> OP_CHECKSIG`).
     private static func p2pkAddress(script: Data) -> String? {
         let b = [UInt8](script)
         guard b.count == 34, b[0] == 0x20, b[33] == 0xac else { return nil }

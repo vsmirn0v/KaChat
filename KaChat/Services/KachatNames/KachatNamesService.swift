@@ -8,10 +8,10 @@ import Security
 /// Schnorr signing with the wallet key (P256K, SIGHASH_ALL over the version-1 sighash), the
 /// protowire conversion with the Toccata fields, and submission through `NodePoolService`.
 ///
-/// Transactions are testnet-10 only: every entry point refuses unless `AppSettings.networkType ==
-/// .testnet`, and the manifest itself must be for testnet-10. The mainnet registry stays off until
-/// the contracts are audited - but the .kachat UI and identity are on for every network (see
-/// `isEnabled` / `isLaunched`).
+/// Names run on testnet-10 and, since the mainnet v1 launch on 2026-10-09, on mainnet: each network
+/// has its own bundled manifest (`Resources/kachat-names-<network>.json`), its own pinned templates
+/// and price tables (`KachatNames.Manifest`), and its own address prefix (`addressPrefix`). The
+/// manifest in use always matches the network the app runs on (`networkName`).
 ///
 /// The flow every action follows (`KachatNamesActions`): `loadManifest()`, read the records it
 /// needs (`KachatNamesRegistry`: the indexer's `/names/...` or the chain walker), confirm them with
@@ -30,7 +30,10 @@ final class KachatNamesService: ObservableObject {
 
     /// Why the bundled manifest was refused. The bundle can't change while the app runs, so it
     /// is not read and verified again on every call (until `resetManifest`).
-    private var bundleFailure: Error?
+    private var bundleFailure: Error? {
+        didSet { bundleFailureNetwork = bundleFailure == nil ? nil : Self.networkName }
+    }
+    private var bundleFailureNetwork: String?
 
     enum ServiceError: LocalizedError {
         case testnetOnly
@@ -48,12 +51,12 @@ final class KachatNamesService: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .registryUpgrading:
-                return AppLocalization.string("The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live.")
-            case .testnetOnly: return ".kachat names run on Testnet only for now"
+                return AppLocalization.string("The .kachat registry is being upgraded. Names open here again once the new registry is live.")
+            case .testnetOnly: return AppLocalization.string(".kachat names aren't live on this network yet")
             case .wrongAddressNetwork: return AppLocalization.string("This address is on a different network than the app.")
             case .noManifest(let why): return "No .kachat registry manifest: \(why)"
             case .dryRunManifest: return "The .kachat manifest is from a dry run; that registry does not exist"
-            case .wrongNodeNetwork(let n): return "The node is on \(n), not testnet-10"
+            case .wrongNodeNetwork(let n): return "The node is on \(n), not \(KachatNamesService.networkName)"
             case .keyMismatch: return "The signing key is not the key the transaction was built for"
             case .notOnChain(let what): return "\(what) is not on chain (or not with the registry covenant id)"
             case .badProfile(let why): return "Profile: \(why)"
@@ -73,8 +76,15 @@ final class KachatNamesService: ObservableObject {
     /// guards are kept, unreachable, as a switch-back.
     nonisolated static var isEnabled: Bool { true }
     /// Whether this network has a live registry the app reads and transacts with (lookups,
-    /// listings, registrations, resolving typed names): testnet-10 only for now.
-    nonisolated static var isLaunched: Bool { AppSettings.load().networkType == .testnet }
+    /// listings, registrations, resolving typed names): testnet-10, and mainnet since 2026-10-09.
+    nonisolated static var isLaunched: Bool { KachatNames.Manifest.supportedNetworks.contains(networkName) }
+
+    /// The manifest network name of the network the app runs on.
+    nonisolated static var networkName: String { AppSettings.load().networkType == .mainnet ? "mainnet" : "testnet-10" }
+
+    /// The address prefix of the network the app runs on: names, owners and registry outputs are
+    /// shown and parsed with it.
+    nonisolated static var addressPrefix: String { AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest" }
     /// Address profiles (`kchat:1:profile:`) work on every network: a profile is a plain
     /// self-send from the chatting address, with no registry behind it, so mainnet can save and
     /// read them before its registry launches. Only the primary name needs the registry.
@@ -87,7 +97,7 @@ final class KachatNamesService: ObservableObject {
     }
 
     /// The gate on every registry read and write: the network the app runs on has a live
-    /// registry (`isLaunched`, testnet-10 for now). `isEnabled` only turns the UI on.
+    /// registry (`isLaunched`). `isEnabled` only turns the UI on.
     func requireLaunched() throws {
         guard Self.isLaunched else { throw ServiceError.testnetOnly }
     }
@@ -98,6 +108,14 @@ final class KachatNamesService: ObservableObject {
     /// ships one, else the indexer's `GET /names/manifest`. Cached once verified.
     func loadManifest(allowDryRun: Bool = false) async throws -> KachatNames.Manifest {
         try requireLaunched()
+        // the network switched: the other network's manifest (and the registry read from it) go
+        if let m = manifest, m.network != Self.networkName {
+            resetManifest()
+            KachatNamesRegistry.shared.reset()
+        } else if manifest == nil, bundleFailureNetwork != Self.networkName {
+            bundleFailure = nil
+            registryUpgrading = false
+        }
         if let m = manifest, allowDryRun || !m.isDryRun {
             return m
         }
@@ -137,13 +155,13 @@ final class KachatNamesService: ObservableObject {
     }
 
     private func manifestData() async throws -> (Data, String) {
-        if let url = Bundle.main.url(forResource: KachatNames.Manifest.bundleResource, withExtension: "json"),
+        if let url = Bundle.main.url(forResource: KachatNames.Manifest.bundleResource(network: Self.networkName), withExtension: "json"),
            let data = try? Data(contentsOf: url) {
             return (data, "bundle")
         }
         let base = AppSettings.load().indexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else {
-            throw ServiceError.noManifest("none in the app and no indexer is configured for Testnet")
+            throw ServiceError.noManifest("none in the app and no indexer is configured")
         }
         let trimmed = base.hasSuffix("/") ? String(base.dropLast()) : base
         guard let url = URL(string: trimmed + "/names/manifest") else {
@@ -174,7 +192,7 @@ final class KachatNamesService: ObservableObject {
     func environment(privateKey: Data, feerate: Double = KachatNames.minFeerate) async throws -> KachatNames.Env {
         try requireLaunched()
         let dag = try await NodePoolService.shared.currentDagPoint()
-        guard dag.networkName.hasSuffix("testnet-10") else {
+        guard dag.networkName.hasSuffix(Self.networkName) else {
             throw ServiceError.wrongNodeNetwork(dag.networkName)
         }
         return KachatNames.Env(
@@ -217,11 +235,11 @@ final class KachatNamesService: ObservableObject {
         )
     }
 
-    /// The `kaspatest:` P2SH address of a P2SH script (`OP_BLAKE2B <hash> OP_EQUAL`).
+    /// The P2SH address (this network's prefix) of a P2SH script (`OP_BLAKE2B <hash> OP_EQUAL`).
     nonisolated static func p2shAddress(script: Data) -> String? {
         let b = [UInt8](script)
         guard b.count == 35, b[0] == 0xaa, b[1] == 0x20, b[34] == 0x87 else { return nil }
-        return KaspaAddress(hrp: "kaspatest", type: .scriptHash, payload: Data(b[2..<34])).address
+        return KaspaAddress(hrp: addressPrefix, type: .scriptHash, payload: Data(b[2..<34])).address
     }
 
     /// The live UTXO at `outpoint` holding `script` (a gap, name or offer), read from a node with

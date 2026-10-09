@@ -247,10 +247,15 @@ func runManifest(_ v: J, _ r: Report) -> KN.Manifest {
     j2["artifacts"] = arts
     let bad2 = try! KN.Manifest.decode(JSONSerialization.data(withJSONObject: j2))
     r.check((try? bad2.verify()) == nil, "manifest with a tampered gap suffix verified")
+    // relabelled to the OTHER network, a manifest is refused (pins and prices are per network)
     var j3 = v["manifest"] as! J
-    j3["network"] = "mainnet"
+    j3["network"] = m.network == "mainnet" ? "testnet-10" : "mainnet"
     let bad3 = try! KN.Manifest.decode(JSONSerialization.data(withJSONObject: j3))
-    r.check((try? bad3.verify()) == nil, "mainnet manifest verified")
+    r.check((try? bad3.verify()) == nil, "a manifest relabelled to the other network verified")
+    var j4 = v["manifest"] as! J
+    j4["network"] = "testnet-11"
+    let bad4 = try! KN.Manifest.decode(JSONSerialization.data(withJSONObject: j4))
+    r.check((try? bad4.verify()) == nil, "a manifest for an unsupported network verified")
     return m
 }
 
@@ -285,7 +290,8 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
             let role = KN.BudgetRole(rawValue: s(i["role"]))!
             let measured = UInt16(u64(i["computeBudget"]))
             r.check(measured <= table[role], "\(label): measured budget \(measured) > recommended for \(role)")
-            r.eq(UInt64(table[role]), u64(recommended[role.rawValue]), "recommended table \(role.rawValue)")
+            // never below the vectors' table (a pre-audit v4 set asks less than the audited code)
+            r.check(UInt64(table[role]) >= u64(recommended[role.rawValue]), "recommended table \(role.rawValue): \(table[role]) < \(u64(recommended[role.rawValue]))")
             budgets[role] = measured
         }
         let env = KN.Env(me: hx(env0["me"]), blockDaa: u64(env0["blockDaa"]), blockTimeMs: u64(env0["blockTimeMs"]), wallMs: i64(env0["wallMs"]), feerate: (env0["feerate"] as! NSNumber).doubleValue, budgets: budgets)
@@ -299,7 +305,10 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
                 plan = try b.commit(env: env, wallet: wallet, name: s(args["name"]), salt: hx(args["salt"]))
             case "register":
                 plan = try b.register(env: env, wallet: wallet, gap: gapRec(rec["gap"]), commit: commitRec(rec["commit"]), years: i64(args["years"]), now: i64(args["now"]))
-                r.eq(KN.Builder.registerNow(env: env), i64(args["now"]) + (label.contains("lapse") ? 55 * 3_600_000 : 0), "\(label): registerNow")
+                // the lapse step is backdated on purpose (by a network's clock), so only the others
+                if !label.contains("lapse") {
+                    r.eq(KN.Builder.registerNow(env: env), i64(args["now"]), "\(label): registerNow")
+                }
             case "extend":
                 let n = nameRec(rec["name"])
                 r.check(i64(args["years"]) <= m.params.extendableYears(n.fields), "\(label): extendableYears covers the step")
@@ -428,9 +437,11 @@ func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
     r.eq(KN.safeFeerate(1e300), KN.maxFeerate, "1e300 fee rate -> the ceiling")
     r.eq(KN.safeFeerate(500), 500, "a normal fee rate is kept")
     let y = p.periodMs
-    r.eq(y, 86_400_000, "periodMs from the manifest (24 hours)")
-    r.eq(p.renewWindowMs, 7_200_000, "renewWindowMs from the manifest (2 hours)")
-    r.eq(p.graceMs, 21_600_000, "graceMs from the manifest (6 hours)")
+    // testnet-10: the day clock; mainnet: the year clock (90-day grace, 30-day window)
+    let mainnet = (v["manifest"] as! J)["network"] as? String == "mainnet"
+    r.eq(y, mainnet ? 31_536_000_000 : 86_400_000, "periodMs from the manifest")
+    r.eq(p.renewWindowMs, mainnet ? 2_592_000_000 : 7_200_000, "renewWindowMs from the manifest")
+    r.eq(p.graceMs, mainnet ? 7_776_000_000 : 21_600_000, "graceMs from the manifest")
     r.eq(i64(v["renewWindowMs"]), p.renewWindowMs, "renewWindowMs matches the vectors")
     let start: Int64 = 2_000_000_000_000
     r.eq(p.extendableYears(periodStart: start, expiresAt: start + y), 1, "1-period registration: extend by 1")
@@ -447,10 +458,10 @@ func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
     r.eq(f.withPrice(5).periodStart, start, "list keeps periodStart")
     r.eq(try? KN.Codec.decodeNameState(f.encoded), f, "126-byte state round trip")
     r.check((try? KN.Codec.decodeNameState(f.encoded.prefix(117))) == nil, "a 117-byte (v1) state is refused")
-    // a 2-period name: the window opens 2 hours before its expiry
+    // a 2-period name: the window opens renewWindowMs before its expiry
     let f2 = KN.NameFields(name: "alice", owner: Data(repeating: 7, count: 32), price: 0, periodStart: start, expiresAt: start + 2 * y)
     let opens = p.renewOpens(expiresAt: f2.expiresAt)
-    r.eq(opens, f2.expiresAt - 7_200_000, "renew opens 2 hours before expiry")
+    r.eq(opens, f2.expiresAt - p.renewWindowMs, "renew opens renewWindowMs before expiry")
     let before = KN.Env(me: f.owner, blockDaa: 1, blockTimeMs: UInt64(opens - 60_000), wallMs: opens + 60_000)
     r.check(!KN.Builder.renewWindowOpen(env: before, params: p, expiresAt: f2.expiresAt), "window closed while the median time is before the opening")
     r.eq(KN.Builder.renewLockTime(env: before, params: p, expiresAt: f2.expiresAt), opens, "lock time never before the opening")
@@ -489,7 +500,7 @@ func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
     let roles = KN.BudgetRole.allCases.filter { m.registryVersion >= 5 || $0 != .gapImport }
     r.eq(Set(recommended.keys), Set(roles.map(\.rawValue)), "budget roles = recommendedBudgets keys")
     for role in roles {
-        r.eq(UInt64(table[role]), u64(recommended[role.rawValue]), "recommended budget \(role.rawValue)")
+        r.check(UInt64(table[role]) >= u64(recommended[role.rawValue]), "recommended budget \(role.rawValue): \(table[role]) < \(u64(recommended[role.rawValue]))")
     }
     if m.registryVersion >= 5, let rules = v["migrationRules"] as? J {
         // registry v5: register is refused before the migration deadline, built at and after it
@@ -536,11 +547,12 @@ func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
         r.check((error as? KN.Failure)?.isOutdatedRegistry == true, "a manifest without registryVersion 4 is the outdated registry: \(error)")
     }
     // the bundled manifest: either a verified v4 one, or an earlier one the app shows as "setting up"
-    if let bundled = try? Data(contentsOf: URL(fileURLWithPath: "KaChat/Resources/kachat-names-testnet-10.json")) {
+    for file in ["kachat-names-testnet-10", "kachat-names-mainnet"] {
+    if let bundled = try? Data(contentsOf: URL(fileURLWithPath: "KaChat/Resources/\(file).json")) {
         do {
             let bm = try KN.Manifest.decode(bundled)
             try bm.verify()
-            print("bundled manifest: registry v\(bm.registryVersion), verified")
+            print("bundled manifest \(bm.network): registry v\(bm.registryVersion), verified")
             // a deployed registry has every template pinned, so an indexer may serve it too
             if KN.Manifest.deployedTemplateHashes[KN.hex(bm.registryCovenantId)] != nil {
                 r.check((try? bm.verify(source: .indexer)) != nil, "the deployed bundled manifest verifies as indexer-served")
@@ -549,6 +561,15 @@ func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
             r.check((error as? KN.Failure)?.isOutdatedRegistry == true, "the bundled manifest neither verifies nor is an outdated one: \(error)")
             print("bundled manifest: a registry version this app doesn't build for - the app shows .kachat as setting up")
         }
+    } else if file == "kachat-names-mainnet" {
+        r.check(false, "no bundled mainnet manifest")
+    }
+    }
+    // a testnet manifest relabelled mainnet is refused: mainnet pins and prices are its own
+    var relabelled = v["manifest"] as! J
+    relabelled["network"] = (relabelled["network"] as? String) == "mainnet" ? "testnet-10" : "mainnet"
+    if let mm = try? KN.Manifest.decode(JSONSerialization.data(withJSONObject: relabelled)) {
+        r.check((try? mm.verify()) == nil, "a testnet manifest relabelled mainnet verified")
     }
 }
 

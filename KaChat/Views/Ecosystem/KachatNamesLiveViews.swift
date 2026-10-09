@@ -223,14 +223,17 @@ extension View {
     func kachatGlass(cornerRadius: CGFloat = 16) -> some View { modifier(KachatGlass(cornerRadius: cornerRadius)) }
 }
 
+/// "Testnet", on testnet only: mainnet's names are the real ones and need no label.
 struct KachatTestnetBadge: View {
     var body: some View {
-        Text("Testnet")
-            .font(.caption.weight(.bold))
-            .foregroundColor(.orange)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(Capsule().fill(Color.orange.opacity(0.15)))
+        if KachatNamesService.networkName != "mainnet" {
+            Text("Testnet")
+                .font(.caption.weight(.bold))
+                .foregroundColor(.orange)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(Color.orange.opacity(0.15)))
+        }
     }
 }
 
@@ -2971,7 +2974,7 @@ struct KachatTransferSheet: View {
             ) {
                 // The Send screens' recipient field: Paste, Scan QR and the Address Book beside it.
                 HStack(spacing: 14) {
-                    TextField("kaspatest:... or domain", text: $input)
+                    TextField(LocalizedStringKey(KachatNamesService.addressPrefix == "kaspa" ? "kaspa:qr... or domain" : "kaspatest:... or domain"), text: $input)
                         .font(.system(.subheadline, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -3057,7 +3060,7 @@ struct KachatTransferSheet: View {
         guard !t.isEmpty else { return }
         if t.hasPrefix("kaspatest:") || t.hasPrefix("kaspa:") {
             guard let key = KachatNamesRegistry.keyOf(t) else {
-                resolveError = "Not a testnet Schnorr address."
+                resolveError = "Not a Schnorr address on this network."
                 return
             }
             guard (try? KachatNamesActions.validateKey(key, "")) != nil else {
@@ -3127,7 +3130,7 @@ struct KachatLiveDomainsTab: View {
                             .foregroundColor(.accentColor)
                         Text("Setting up")
                             .font(.headline)
-                        Text("The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live.")
+                        Text("The .kachat registry is being upgraded. Names open here again once the new registry is live.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)

@@ -188,7 +188,7 @@ func runWalker(_ v: J, _ r: Report) {
     let alphaRegister = (e2e[lead + 3]["args"] as! J)
     r.eq(alpha?.periodStart, i64(alphaRegister["now"]), "alpha-tn: periodStart = register's now, kept by extend, transfer, list and buy")
     r.eq(alpha?.expiresAt, i64(alphaRegister["now"]) + 2 * m.params.periodMs, "alpha-tn: registered for 1 period, extended by 1")
-    r.eq(m.params.periodMs, 86_400_000, "testnet vectors run the 24-hour clock")
+    r.eq(m.params.periodMs, m.network == "mainnet" ? 31_536_000_000 : 86_400_000, "the vectors run their network's clock")
     // applying again changes nothing
     let snapshot = state
     for (i, st) in e2e.enumerated() { _ = try? state.apply(view(st, at: Int64(1_000 + i)), manifest: m) }
@@ -632,11 +632,12 @@ func runREST(_ r: Report) {
 }
 
 /// Read-only walk of the live testnet-10 registry through the REST API.
-func runLive() async -> Bool {
-    let base = "https://api-tn10.kaspa.org"
+func runLive(mainnet: Bool = false) async -> Bool {
+    let base = mainnet ? "https://api.kaspa.org" : "https://api-tn10.kaspa.org"
+    let hrp = mainnet ? "kaspa" : "kaspatest"
     let m: KN.Manifest
     do {
-        m = try KN.Manifest.decode(Data(contentsOf: URL(fileURLWithPath: "KaChat/Resources/kachat-names-testnet-10.json")))
+        m = try KN.Manifest.decode(Data(contentsOf: URL(fileURLWithPath: "KaChat/Resources/kachat-names-\(mainnet ? "mainnet" : "testnet-10").json")))
         try m.verify()
     } catch {
         // the bundled manifest stays an earlier registry's until the v3 genesis: nothing live to walk yet
@@ -652,7 +653,7 @@ func runLive() async -> Bool {
     do {
         let report = try await state.walk(
             manifest: m,
-            address: { KaspaAddress.address(fromScriptPublicKey: $0, hrp: "kaspatest") },
+            address: { KaspaAddress.address(fromScriptPublicKey: $0, hrp: hrp) },
             live: { addresses in
                 var out = Set<String>()
                 for a in addresses {
@@ -668,7 +669,7 @@ func runLive() async -> Bool {
             }
         )
         try state.checkInvariants()
-        print("live TN10 registry \(KN.hex(m.registryCovenantId).prefix(16))...: \(report.rounds) round(s), \(report.applied.count) transaction(s) walked, \(state.gaps.count) gap(s), \(state.names.count) name(s), unresolved \(report.unresolved.count)")
+        print("live \(mainnet ? "mainnet" : "TN10") registry \(KN.hex(m.registryCovenantId).prefix(16))...: \(report.rounds) round(s), \(report.applied.count) transaction(s) walked, \(state.gaps.count) gap(s), \(state.names.count) name(s), unresolved \(report.unresolved.count)")
         for g in state.gaps { print("  gap \(g.lo.prefix(8))..-\(g.hi.prefix(8)).. at \(g.txid.prefix(16)):\(g.index)") }
         for n in state.names { print("  name \(n.name).kachat owner \(n.owner.prefix(16)).. price \(n.price) expires \(n.expiresAt) at \(n.txid.prefix(16)):\(n.index)") }
         for e in state.events { print("  event \(e.op) \(e.name ?? "?") \(e.txId.prefix(16))") }
@@ -702,6 +703,7 @@ struct KachatNamesRegistryTest {
         for f in r.failures.prefix(40) { print("  FAIL " + f) }
         var ok = r.fail == 0
         if args.contains("--live") { ok = await runLive() && ok }
+        if args.contains("--live-mainnet") { ok = await runLive(mainnet: true) && ok }
         if !ok { exit(1) }
         print("OK")
     }

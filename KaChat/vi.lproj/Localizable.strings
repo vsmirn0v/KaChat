@@ -1570,3 +1570,11 @@
 
 /* Your Domains card: when a .kachat name's grace period ends */
 "Grace ends %@" = "Hết ân hạn %@";
+
+/* .kachat on mainnet */
+"The .kachat registry is being upgraded. Names open here again once the new registry is live." = "Sổ đăng ký .kachat đang được nâng cấp. Tên sẽ mở lại ở đây khi sổ đăng ký mới hoạt động.";
+"No wallet is open." = "Chưa mở ví nào.";
+"Not a Schnorr address on this network." = "Không phải địa chỉ Schnorr trên mạng này.";
+"Live on Mainnet: names, prices and payments here are real KAS." = "Đang chạy trên Mainnet: tên, giá và thanh toán ở đây là KAS thật.";
+"Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "Đang chạy trên Testnet: tên, giá và thanh toán ở đây dùng TKAS trên testnet-10. Tên Mainnet đang chạy trên Mainnet.";
+"Live on Mainnet" = "Đang chạy trên Mainnet";

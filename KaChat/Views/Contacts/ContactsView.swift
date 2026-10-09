@@ -2798,7 +2798,7 @@ private struct KNSDomainsListView: View {
             case .k, .kaspa:
                 serviceNameList(selectedTLD)
             case .kachat:
-                // Live on testnet (the testnet-10 registry); mainnet keeps "coming".
+                // Live on both networks (testnet-10, and mainnet since 2026-10-09).
                 if KachatNamesService.isEnabled {
                     KachatLiveDomainsTab(walletAddress: walletAddress)
                 } else {

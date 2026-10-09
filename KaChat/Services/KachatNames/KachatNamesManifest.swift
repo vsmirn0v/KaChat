@@ -115,8 +115,12 @@ extension KachatNames {
     /// (registry v4: no price covenant). `verify()` must pass before anything
     /// trusts it.
     struct Manifest {
-        static let supportedNetwork = "testnet-10"
-        static let bundleResource = "kachat-names-testnet-10"
+        /// The networks with a live registry: testnet-10, and mainnet since its launch on
+        /// 2026-10-09 ("mainnet v1", kachat-domains docs/MAINNET.md).
+        static let supportedNetworks: Set<String> = ["testnet-10", "mainnet"]
+
+        /// The manifest the app ships for a network (`Resources/<this>.json`).
+        static func bundleResource(network: String) -> String { "kachat-names-\(network)" }
 
         /// Registry versions this app builds for: v4, and v5 (v4 plus `import` from a migration
         /// snapshot, kachat-domains docs/REGISTRY_V5.md).
@@ -131,7 +135,19 @@ extension KachatNames {
         /// template is pinned only a bundled manifest is trusted (`verify(source:)`), never one an
         /// indexer serves - an unpinned offer template could hold buyers' funds in a script the
         /// indexer controls (IOS-059).
-        static let pinnedTemplateHashes: [Int: [String: String]] = [
+        static let pinnedTemplateHashes: [String: [Int: [String: String]]] = [
+            "testnet-10": testnetPins,
+            // mainnet v1 (2026-10-09): the v4 contracts under params/mainnet.json - yearly
+            // periods, 90-day grace, 30-day renewal window (kachat-domains artifacts/mainnet)
+            "mainnet": [
+                4: [
+                    "KachatGap": "d70afe60686842b92ec8b4f6da34eb20462f0a98c26922de62b82ae65cfc1d4f",
+                    "KachatName": "259e0250a2bba8587a74b2ad366c45916565593db6eb44c3751dacba943f19d6"
+                ]
+            ]
+        ]
+
+        private static let testnetPins: [Int: [String: String]] = [
             4: [
                 "KachatGap": "9f057f406361583eb2b94956825f86a2d8cc47d3c8800f05855a3e75b39d8bf5",
                 "KachatName": "c263a8c2cb4bdfac3234675114fc3ce4ba5a1d26c12e887c3d3b2ca89460b56b"
@@ -143,16 +159,27 @@ extension KachatNames {
             ]
         ]
 
-        /// The price tables the pinned gap and name bake (kachat-domains params/testnet10.json): a
-        /// manifest whose params say otherwise would show and charge prices the contracts don't.
-        static let pinnedRegisterPrices: [UInt64] = [4_000_000_000, 2_000_000_000, 1_000_000_000, 250_000_000, 35_000_000]
-        static let pinnedRenewPrices: [UInt64] = [1_000_000_000, 500_000_000, 250_000_000, 62_500_000, 8_750_000]
+        /// The price tables the pinned gap and name bake, per network (kachat-domains
+        /// params/<network>.json): a manifest whose params say otherwise would show and charge
+        /// prices the contracts don't. Testnet is mainnet / 100.
+        static let pinnedRegisterPrices: [String: [UInt64]] = [
+            "testnet-10": [4_000_000_000, 2_000_000_000, 1_000_000_000, 250_000_000, 35_000_000],
+            "mainnet": [400_000_000_000, 200_000_000_000, 100_000_000_000, 25_000_000_000, 3_500_000_000]
+        ]
+        static let pinnedRenewPrices: [String: [UInt64]] = [
+            "testnet-10": [1_000_000_000, 500_000_000, 250_000_000, 62_500_000, 8_750_000],
+            "mainnet": [100_000_000_000, 50_000_000_000, 25_000_000_000, 6_250_000_000, 875_000_000]
+        ]
 
         /// The per-deployment builds (the offer; on v5 also the gap) each deployed registry was
         /// launched with, by registry covenant id. A manifest for one of these registries must
         /// carry exactly this; any other registry (a dry run, the test vectors) has no such pin, so
         /// only a bundled manifest of it is trusted.
         static let deployedTemplateHashes: [String: [String: String]] = [
+            // mainnet v1, 2026-10-09 20:39 UTC: genesis a0281841..90ff
+            "348bd2c81170f267a2a7039cbf3a6f275e80b189d6c956183ea73ff3ffde75a4": [
+                "KachatOffer": "7e7f2461f475f7196eabd9fca2f945fbf660c27d40b7f65e2c6a9dc2c0ae63e4"
+            ],
             // testnet-10 registry v5 on the audited contracts, 2026-10-09: genesis b6223f0f..e24f,
             // imports the drill registry fdc403f5..571d (snapshot of 6 names); offerMaxFee 0.1 KAS
             "1283f749506c454488a6b7264197658ed1c12051f1887905c4396243a89fbfa2": [
@@ -315,17 +342,21 @@ extension KachatNames {
         // MARK: Verification
 
         /// Checks everything the app relies on (KACHAT_NAMES_INDEXER.md B2, kachat-domains
-        /// `manifest::load`): testnet-10 only; every template's hash recomputed from its prefix and
+        /// `manifest::load`): a network with a live registry, and a version this app has pins
+        /// for there; every template's hash recomputed from its prefix and
         /// suffix and equal to the pinned build where pinned (an indexer-served manifest needs every
         /// hash pinned); every dispatch tag present; the gap baked for this name template, the
         /// offer for this registry id and name template; both price tables complete and in range;
         /// the genesis output is the genesis gap `(00..00, ff..ff)` worth `gapValue`; and
         /// `registryCovenantId == covenant_id(genesis outpoint, [(0, genesis gap)])`.
         func verify(source: Source = .bundle) throws {
-            guard network == Self.supportedNetwork else {
-                throw Failure("manifest is for \(network); only \(Self.supportedNetwork) is enabled (mainnet waits for an audit)")
+            guard Self.supportedNetworks.contains(network) else {
+                throw Failure("manifest is for \(network), which has no .kachat registry in this app")
             }
-            let pins = (Self.pinnedTemplateHashes[registryVersion] ?? [:])
+            guard let versionPins = Self.pinnedTemplateHashes[network]?[registryVersion] else {
+                throw Failure("manifest: registry v\(registryVersion) isn't pinned for \(network) in this app")
+            }
+            let pins = versionPins
                 .merging(Self.deployedTemplateHashes[hex(registryCovenantId)] ?? [:]) { pinned, _ in pinned }
             for t in [gap, name, offer] {
                 guard Codec.templateHash(prefix: t.prefix, suffix: t.suffix) == t.templateHash else {
@@ -359,7 +390,7 @@ extension KachatNames {
                   params.renewWindowMs > 0, params.renewWindowMs <= params.periodMs else {
                 throw Failure("manifest: params out of range")
             }
-            guard params.registerPrices == Self.pinnedRegisterPrices, params.renewPrices == Self.pinnedRenewPrices else {
+            guard params.registerPrices == Self.pinnedRegisterPrices[network], params.renewPrices == Self.pinnedRenewPrices[network] else {
                 throw Failure("manifest: the price tables are not the ones the pinned gap and name bake")
             }
             guard genesisState.lo == zero32, genesisState.hi == ff32 else { throw Failure("manifest: genesis gap is not (00..00, ff..ff)") }

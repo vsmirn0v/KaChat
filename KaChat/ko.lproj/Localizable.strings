@@ -1570,3 +1570,11 @@
 
 /* Your Domains card: when a .kachat name's grace period ends */
 "Grace ends %@" = "유예 기간 종료 %@";
+
+/* .kachat on mainnet */
+"The .kachat registry is being upgraded. Names open here again once the new registry is live." = ".kachat 레지스트리를 업그레이드하는 중입니다. 새 레지스트리가 가동되면 여기서 이름을 다시 쓸 수 있습니다.";
+"No wallet is open." = "열린 지갑이 없습니다.";
+"Not a Schnorr address on this network." = "이 네트워크의 Schnorr 주소가 아닙니다.";
+"Live on Mainnet: names, prices and payments here are real KAS." = "Mainnet 가동 중: 여기의 이름, 가격, 결제는 실제 KAS입니다.";
+"Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "Testnet 가동 중: 여기의 이름, 가격, 결제는 testnet-10의 TKAS를 사용합니다. Mainnet 이름은 Mainnet에서 가동 중입니다.";
+"Live on Mainnet" = "Mainnet 가동 중";

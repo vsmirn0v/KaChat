@@ -30,13 +30,16 @@ extension KachatNames {
     /// engine, so it commits a fixed budget per entry that covers every case (README "Cost per
     /// operation"; the vector generator checks every measured budget fits this table, the
     /// vectors' `recommendedBudgets`). An input that needs more than it committed fails, so these
-    /// only ever err on the side of a slightly higher fee (100 grams per unit). Registry v4.
+    /// only ever err on the side of a slightly higher fee (100 grams per unit). Registry v4 on the
+    /// audited contracts (mainnet, kachat-domains a99afeb); the pre-audit v4 needed 8 / 4.
     struct Budgets: Equatable {
         var table: [BudgetRole: UInt16]
 
         static let recommended = Budgets(table: [
             .p2pk: 10, .commit: 10,
-            .gapRegister: 8, .gapMerge: 4, .gapAbsorbed: 0, .gapImport: 0,
+            // the audited v4 contracts (mainnet v1): audit C2's fee loop reads every input's
+            // covenant id - register up to 92,048 script units (9), merge 50,084 (5)
+            .gapRegister: 9, .gapMerge: 5, .gapAbsorbed: 0, .gapImport: 0,
             .nameTransfer: 12, .nameList: 12, .nameBuy: 2, .nameExtend: 2, .nameRenew: 2, .nameRelease: 10, .nameReclaim: 0,
             .offerAccept: 17, .offerDecline: 10, .offerWithdraw: 10, .offerRefund: 0
         ])
@@ -324,8 +327,10 @@ extension KachatNames {
             return out
         }
 
-        private static func kas(_ sompi: UInt64) -> String {
-            String(format: "%llu.%08llu TKAS", sompi / sompiPerKas, sompi % sompiPerKas)
+        /// An amount in a plan's description, in this registry's unit (KAS on mainnet, TKAS on
+        /// testnet) - the CLI's wording, which the vectors compare.
+        private func kas(_ sompi: UInt64) -> String {
+            String(format: "%llu.%08llu %@", sompi / sompiPerKas, sompi % sompiPerKas, manifest.network == "mainnet" ? "KAS" : "TKAS")
         }
 
         private func finish(_ draftIn: Draft, wallet: [Utxo], fee: FeeMode, env: Env) throws -> Plan {
@@ -352,8 +357,8 @@ extension KachatNames {
                         let all = wallet.filter { !used.contains($0.outpoint) }.reduce(UInt64(0)) { $0 + $1.entry.amount }
                         let bound = slots < wallet.count ? " (at most \(slots) funding inputs fit)" : ""
                         throw Failure(
-                            "\(d.op): insufficient funds: need \(Builder.kas(required - fixedIn)) more (outputs \(Builder.kas(fixedOut)) + price "
-                                + "\(Builder.kas(d.priceFee)) + network fee ~\(Builder.kas(est))), \(Builder.kas(all)) spendable\(bound)"
+                            "\(d.op): insufficient funds: need \(kas(required - fixedIn)) more (outputs \(kas(fixedOut)) + price "
+                                + "\(kas(d.priceFee)) + network fee ~\(kas(est))), \(kas(all)) spendable\(bound)"
                         )
                     }
                     var inputs = d.inputs
@@ -370,7 +375,7 @@ extension KachatNames {
                     let feeNow = Mass.networkFee(tx, feerate: env.feerate)
                     if feeNow <= est {
                         if !withChange && change > 0 {
-                            d.notes.append("no change output: the \(Builder.kas(change)) left over goes to the miner")
+                            d.notes.append("no change output: the \(kas(change)) left over goes to the miner")
                         }
                         last = (inputs, outputs, change, withChange)
                         break
@@ -390,11 +395,11 @@ extension KachatNames {
                 let (tx, _) = assemble(d.inputs, d.outputs, lockTime: d.lockTime, payload: d.payload, env: env)
                 let f = Mass.networkFee(tx, feerate: env.feerate)
                 if let cap = cap, f > cap {
-                    throw Failure("\(d.op): network fee \(Builder.kas(f)) exceeds the contract's maxFee \(Builder.kas(cap))")
+                    throw Failure("\(d.op): network fee \(kas(f)) exceeds the contract's maxFee \(kas(cap))")
                 }
                 guard totalIn >= taken + f else { throw Failure("\(d.op): inputs do not cover the outputs and the fee") }
                 let v = totalIn - taken - f
-                guard v >= floor else { throw Failure("\(d.op): output \(index) would be only \(Builder.kas(v))") }
+                guard v >= floor else { throw Failure("\(d.op): output \(index) would be only \(kas(v))") }
                 d.outputs[index].output.value = v
                 networkFee = f
             }
@@ -416,7 +421,7 @@ extension KachatNames {
 
         private func checkLive(_ label: String, _ utxo: Utxo, value: UInt64, covenant: Data?) throws {
             guard utxo.entry.amount == value else {
-                throw Failure("\(label): live UTXO holds \(Builder.kas(utxo.entry.amount)), not \(Builder.kas(value))")
+                throw Failure("\(label): live UTXO holds \(kas(utxo.entry.amount)), not \(kas(value))")
             }
             guard utxo.entry.covenantId == covenant else { throw Failure("\(label): live UTXO has the wrong covenant id") }
         }
@@ -606,7 +611,7 @@ extension KachatNames {
             )
             d.priceFee = price
             d.notes = [
-                "extension price \(Builder.kas(price)) left as miner fee",
+                "extension price \(kas(price)) left as miner fee",
                 "expiresAt \(f.expiresAt) -> \(nf.expiresAt); periodStart \(f.periodStart) kept (at most \(params.maxYears) periods past it)"
             ]
             d.payload = Codec.namePayload(op: "extend", name: n.name)
@@ -636,7 +641,7 @@ extension KachatNames {
             d.lockTime = UInt64(lock)
             d.priceFee = price
             d.notes = [
-                "renewal price \(Builder.kas(price)) left as miner fee",
+                "renewal price \(kas(price)) left as miner fee",
                 "new period: periodStart \(f.periodStart) -> \(nf.periodStart) (the old expiry), expiresAt -> \(nf.expiresAt)",
                 "lock time \(lock) >= window opening expiresAt - renewWindowMs = \(opens)"
             ]
@@ -667,7 +672,7 @@ extension KachatNames {
             try checkLive(n.name, n.utxo, value: params.bond, covenant: registryId)
             guard price <= maxListPrice else { throw Failure("price above the supply") }
             var d = Draft(
-                op: price == 0 ? "delist \(n.name)" : "list \(n.name) at \(Builder.kas(price))",
+                op: price == 0 ? "delist \(n.name)" : "list \(n.name) at \(kas(price))",
                 inputs: [try nameInput(n, "list", [.int(Int64(price)), .signature], role: .nameList, label: "name list (owner sig)")],
                 outputs: [PlannedOutput(output: nameOutput(n.fields.withPrice(Int64(price))), label: "name \(n.name)")]
             )
@@ -684,7 +689,7 @@ extension KachatNames {
             try checkLive(n.name, n.utxo, value: params.bond, covenant: registryId)
             guard n.fields.price > 0 else { throw Failure("\(n.name) is not listed") }
             var d = Draft(
-                op: "buy \(n.name) for \(Builder.kas(UInt64(n.fields.price)))",
+                op: "buy \(n.name) for \(kas(UInt64(n.fields.price)))",
                 inputs: [try nameInput(n, "buy", [.bytes(env.me)], role: .nameBuy, label: "name buy(me)")],
                 outputs: [
                     PlannedOutput(output: nameOutput(n.fields.withOwner(env.me)), label: "name \(n.name)"),
@@ -711,7 +716,7 @@ extension KachatNames {
             guard refundAfter < lockTimeThreshold else { throw Failure("refundAfter is a DAA score") }
             let fields = OfferFields(key: Codec.key(name), buyer: env.me, seller: target.fields.owner, refundAfter: Int64(refundAfter))
             let out = TxOutput(value: amount, script: manifest.offer.script(fields.encoded))
-            var d = Draft(op: "offer \(Builder.kas(amount)) on \(name)", inputs: [], outputs: [PlannedOutput(output: out, label: "offer P2SH")])
+            var d = Draft(op: "offer \(kas(amount)) on \(name)", inputs: [], outputs: [PlannedOutput(output: out, label: "offer P2SH")])
             if target.fields.price > 0, UInt64(target.fields.price) <= amount {
                 d.notes.append("\(name) is listed at or below this offer: buying it may be cheaper")
             }
@@ -732,7 +737,7 @@ extension KachatNames {
             try checkLive("offer", o.utxo, value: o.value, covenant: nil)
             guard o.fields.key == n.fields.key else { throw Failure("that offer is for another name") }
             var d = Draft(
-                op: "accept offer \(Builder.kas(o.value)) on \(n.name)",
+                op: "accept offer \(kas(o.value)) on \(n.name)",
                 inputs: [
                     try nameInput(n, "transfer", [.bytes(o.fields.buyer), .signature], role: .nameTransfer, label: "name transfer(buyer) (owner sig)"),
                     try offerInput(o, "accept", [.int(0), .signature], role: .offerAccept, label: "offer accept(0) (seller sig)")
@@ -752,7 +757,7 @@ extension KachatNames {
             guard o.fields.seller == env.me else { throw Failure("only the seller can decline this offer") }
             try checkLive("offer", o.utxo, value: o.value, covenant: nil)
             let d = Draft(
-                op: "decline offer \(Builder.kas(o.value))",
+                op: "decline offer \(kas(o.value))",
                 inputs: [try offerInput(o, "decline", [.signature], role: .offerDecline, label: "offer decline (seller sig)")],
                 outputs: [PlannedOutput(output: TxOutput(value: 0, script: Codec.p2pkScript(o.fields.buyer)), label: "back to the buyer")]
             )
@@ -764,7 +769,7 @@ extension KachatNames {
             guard o.fields.buyer == env.me else { throw Failure("only the buyer can withdraw this offer") }
             try checkLive("offer", o.utxo, value: o.value, covenant: nil)
             let d = Draft(
-                op: "withdraw offer \(Builder.kas(o.value))",
+                op: "withdraw offer \(kas(o.value))",
                 inputs: [try offerInput(o, "withdraw", [.signature], role: .offerWithdraw, label: "offer withdraw (buyer sig)")],
                 outputs: [PlannedOutput(output: TxOutput(value: 0, script: Codec.p2pkScript(o.fields.buyer)), label: "back to the buyer")]
             )
@@ -775,7 +780,7 @@ extension KachatNames {
         func refundOffer(env: Env, offer o: OfferRecord) throws -> Plan {
             try checkLive("offer", o.utxo, value: o.value, covenant: nil)
             var d = Draft(
-                op: "refund offer \(Builder.kas(o.value))",
+                op: "refund offer \(kas(o.value))",
                 inputs: [try offerInput(o, "refund", [], role: .offerRefund, label: "offer refund()")],
                 outputs: [PlannedOutput(output: TxOutput(value: 0, script: Codec.p2pkScript(o.fields.buyer)), label: "refund to the buyer")]
             )

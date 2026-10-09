@@ -2214,13 +2214,13 @@ struct ConnectionSettingsView: View {
                 Text("KaChat Names (.kachat)")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                // Read through the chat indexer above when it serves this network's names, else
+                // straight from the chain (KachatNamesRegistry).
                 if settingsViewModel.settings.networkType == .testnet {
-                    // The testnet-10 registry: read through the chat indexer above when it serves
-                    // names, else straight from the chain (KachatNamesRegistry).
                     Text("Live on Testnet (testnet-10 registry)")
                         .foregroundColor(.secondary)
                 } else {
-                    Text("Coming soon")
+                    Text("Live on Mainnet")
                         .foregroundColor(.secondary)
                 }
             }

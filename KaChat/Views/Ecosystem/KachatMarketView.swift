@@ -173,7 +173,7 @@ struct KachatMarketView: View {
                     KachatTestnetBadge()
                     settingUpPill
                 }
-                Text("The .kachat registry on Testnet is being upgraded. Names open here again once the new registry is live.")
+                Text("The .kachat registry is being upgraded. Names open here again once the new registry is live.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -405,8 +405,10 @@ struct KachatMarketView: View {
                         detail: "No middleman and no escrow account: Kaspa's own rules enforce every sale."
                     )
                 } footer: {
-                    if live.isLive {
-                        Text("Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names come after an audit.")
+                    if live.isLive, KachatNamesService.networkName == "mainnet" {
+                        Text("Live on Mainnet: names, prices and payments here are real KAS.")
+                    } else if live.isLive {
+                        Text("Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet.")
                     } else {
                         Text("Nothing here is live yet.")
                     }
