@@ -388,7 +388,17 @@ final class PublicChatStore {
                 // Newest first so the limit keeps the newest; flipped back to oldest-first below.
                 request.sortDescriptors = [NSSortDescriptor(key: "blockTime", ascending: false)]
                 if let newestLimit { request.fetchLimit = newestLimit }
-                let rows = (try? context.fetch(request)) ?? []
+                let fetched = (try? context.fetch(request)) ?? []
+                // One row per txid. Two inserts racing on separate background contexts (the block
+                // scan and the room's indexer fetch) can each find the id missing and both write
+                // it; a room holding the same id twice broke the LazyVStack's layout into a big
+                // blank gap between messages. The extra copies are deleted here.
+                var seen = Set<String>()
+                var rows: [CDPublicChatMessage] = []
+                for row in fetched {
+                    if seen.insert(row.id).inserted { rows.append(row) } else { context.delete(row) }
+                }
+                if context.hasChanges { try? context.save() }
                 let result = rows
                     .filter { !hidden.contains($0.senderAddress) }
                     .map { row in

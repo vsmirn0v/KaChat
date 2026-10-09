@@ -975,7 +975,13 @@ final class PublicChatService: ObservableObject {
         // Off the main actor: up to 400 rows, each a codec sniff, on every reload - and a
         // room's first backfill reloads once per history page.
         let fresh = await Task.detached(priority: .userInitiated) {
-            rows.filter { MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil }
+            // and never two rows with one id: the room's list is keyed by it, and a duplicate
+            // left a blank gap in it (the store also deletes duplicates on read)
+            var seen = Set<String>()
+            return rows.filter {
+                seen.insert($0.id).inserted
+                    && MessageReactionCodec.parse($0.content) == nil && MessageEditCodec.parse($0.content) == nil
+            }
         }.value
         guard messageLoadGeneration[channel] == generation else { return }
         // Only actually publish when the content changed: `@Published` fires on every
