@@ -1992,8 +1992,8 @@ struct KaPostsView: View {
     /// present at a time, so the profile waits for the dismissal animation.
     private func openMentionProfile(domain: String) {
         Task {
-            guard let resolution = await KNSService.shared.resolveDomain(domain) else { return }
-            let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: resolution.ownerAddress)
+            guard let address = await Self.mentionAddress(domain) else { return }
+            let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: address)
             let hadSheetUp = detailTarget != nil || quoteComposerTarget != nil
                 || threadQuoteComposerTarget != nil || profileQuoteComposerTarget != nil
                 || menuQuoteComposerTarget != nil || replyComposerTarget != nil
@@ -2018,6 +2018,31 @@ struct KaPostsView: View {
     }
 
     /// The bare @domain tokens in `text`, in order, deduped.
+    /// The owner address of an @mention token, on every name service with .kachat first: the
+    /// ending typed ("@bob.kas" is the .kas name), else .kachat, .kas, .k, .kaspa.
+    static func mentionAddress(_ token: String) async -> String? {
+        let results = await NameServicesClient.shared.resolveEverywhere(token)
+        return NameServicesClient.primary(of: results, typed: token)?.address
+    }
+
+    /// The @mention tokens in `text`, each with the ending it was typed with (unlike
+    /// `mentionDomains`, which drops ".kas").
+    static func mentionTokens(in text: String) -> [String] {
+        let ns = text as NSString
+        guard let regex = try? NSRegularExpression(
+            pattern: "(^|[\\s(\\[{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)",
+            options: [.caseInsensitive]
+        ) else { return [] }
+        var seen = Set<String>()
+        var out: [String] = []
+        regex.enumerateMatches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+            guard let match = match, match.numberOfRanges >= 3 else { return }
+            let token = ns.substring(with: match.range(at: 2)).lowercased()
+            if !token.isEmpty, seen.insert(token).inserted { out.append(token) }
+        }
+        return out
+    }
+
     static func mentionDomains(in text: String) -> [String] {
         let ns = text as NSString
         guard let regex = try? NSRegularExpression(
@@ -2044,19 +2069,21 @@ struct KaPostsView: View {
         // "**@alice.kas**" hides the mention behind the bold markers: the reader would see a
         // highlighted, tappable mention (the cell renders the same rendered text) while the
         // signed mentions array went out empty and @alice was never notified.
-        let domains = Self.mentionDomains(in: KaPostsMarkdown.render(text).text)
-        guard !domains.isEmpty else { return [] }
-        var byDomain: [String: String] = [:]
-        for candidate in mentionCandidates() { byDomain[candidate.domain] = candidate.pubkey }
+        let tokens = Self.mentionTokens(in: KaPostsMarkdown.render(text).text)
+        guard !tokens.isEmpty else { return [] }
+        // contacts' .kas names resolve from the local cache - only for a token typed as .kas
+        var byKasName: [String: String] = [:]
+        for candidate in mentionCandidates() { byKasName[candidate.domain] = candidate.pubkey }
         var found = Set<String>()
         var out: [String] = []
-        for domain in domains {
-            if let pubkey = byDomain[domain] {
+        for token in tokens {
+            if token.hasSuffix(".kas"), let pubkey = byKasName[String(token.dropLast(4))] {
                 if found.insert(pubkey).inserted { out.append(pubkey) }
                 continue
             }
-            if let resolution = await KNSService.shared.resolveDomain(domain),
-               let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: resolution.ownerAddress),
+            // everyone else on every service, .kachat first
+            if let address = await Self.mentionAddress(token),
+               let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: address),
                found.insert(pubkey).inserted {
                 out.append(pubkey)
             }
@@ -5846,8 +5873,9 @@ private struct KaPostCellView: View {
                 let tokenLength = domainRange.length + 1
                 guard tokenStart >= 0,
                       let stringRange = Range(NSRange(location: tokenStart, length: tokenLength), in: text) else { continue }
-                var domain = nsText.substring(with: domainRange).lowercased()
-                if domain.hasSuffix(".kas") { domain = String(domain.dropLast(4)) }
+                // the whole token, ending included: "@bob.kas" stays a .kas mention, "@bob" and
+                // "@bob.kachat" resolve .kachat first (KaPostsView.mentionAddress)
+                let domain = nsText.substring(with: domainRange).lowercased()
                 let startOffset = text.distance(from: text.startIndex, to: stringRange.lowerBound)
                 let length = text.distance(from: stringRange.lowerBound, to: stringRange.upperBound)
                 let start = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
@@ -6512,9 +6540,19 @@ private struct KaPostMentionSuggestionBar: View {
             out.append(KaPostsView.fullKasName(bare))
         }
         out.sort()
-        if let extra = resolvedAnyDomain, !seen.contains(KaPostsView.bareKasName(extra)),
-           query.isEmpty || KaPostsView.bareKasName(extra).hasPrefix(query) {
-            out.append(KaPostsView.fullKasName(extra))
+        // contacts' .kachat names come first
+        var kachat: [String] = []
+        for contact in ContactsManager.shared.activeContacts {
+            guard let label = KachatNamesRegistry.shared.cachedIdentity(for: contact.address)?.label,
+                  query.isEmpty || label.hasPrefix(query) else { continue }
+            let full = "\(label).kachat"
+            if !kachat.contains(full) { kachat.append(full) }
+        }
+        out = kachat.sorted() + out
+        // a live-resolved name matching the query (any service, .kachat first) rides along
+        if let extra = resolvedAnyDomain, !out.contains(extra),
+           query.isEmpty || extra.hasPrefix(query) {
+            out.append(extra)
         }
         return out
     }
@@ -6574,9 +6612,11 @@ private struct KaPostMentionSuggestionBar: View {
             guard let query = mentionQuery, query.count >= 2 else { return }
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
-            guard let resolution = await KNSService.shared.resolveDomain(query) else { return }
+            // anyone with a name on any service, .kachat first
+            let results = await NameServicesClient.shared.resolveEverywhere(query)
+            guard let resolution = NameServicesClient.primary(of: results, typed: query) else { return }
             guard !Task.isCancelled, mentionQuery == query else { return }
-            resolvedAnyDomain = KaPostsView.fullKasName(resolution.domain)
+            resolvedAnyDomain = resolution.display
         }
     }
 }
@@ -6863,9 +6903,11 @@ private struct KaPostComposerView: View {
             guard let query = mentionQuery, query.count >= 2 else { return }
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
-            guard let resolution = await KNSService.shared.resolveDomain(query) else { return }
+            // anyone with a name on any service, .kachat first
+            let results = await NameServicesClient.shared.resolveEverywhere(query)
+            guard let resolution = NameServicesClient.primary(of: results, typed: query) else { return }
             guard !Task.isCancelled, mentionQuery == query else { return }
-            resolvedAnyDomain = KaPostsView.fullKasName(resolution.domain)
+            resolvedAnyDomain = resolution.display
         }
         .onChange(of: text) { newValue in
             // Hard cap at the limit, X-style.
@@ -7308,9 +7350,19 @@ private struct KaPostComposerMentionBar: View {
         }
         out.sort()
         // Live-resolved non-contact domain matching the current query rides along at the end.
-        if let extra = resolvedAnyDomain, !seen.contains(KaPostsView.bareKasName(extra)),
-           query.isEmpty || KaPostsView.bareKasName(extra).hasPrefix(query) {
-            out.append(KaPostsView.fullKasName(extra))
+        // contacts' .kachat names come first
+        var kachat: [String] = []
+        for contact in ContactsManager.shared.activeContacts {
+            guard let label = KachatNamesRegistry.shared.cachedIdentity(for: contact.address)?.label,
+                  query.isEmpty || label.hasPrefix(query) else { continue }
+            let full = "\(label).kachat"
+            if !kachat.contains(full) { kachat.append(full) }
+        }
+        out = kachat.sorted() + out
+        // a live-resolved name matching the query (any service, .kachat first) rides along
+        if let extra = resolvedAnyDomain, !out.contains(extra),
+           query.isEmpty || extra.hasPrefix(query) {
+            out.append(extra)
         }
         return out
     }
