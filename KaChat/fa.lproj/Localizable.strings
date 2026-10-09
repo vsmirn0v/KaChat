@@ -1567,3 +1567,6 @@
 
 /* Nextcloud sync carries portfolios */
 "Your Address Book and portfolios are in the same backup and sync between your devices the same way." = "دفترچه نشانی و پرتفوهای شما در همین پشتیبان هستند و به همین شکل بین دستگاه‌هایتان همگام می‌شوند.";
+
+/* Your Domains card: when a .kachat name's grace period ends */
+"Grace ends %@" = "پایان مهلت %@";

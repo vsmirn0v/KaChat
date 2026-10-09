@@ -1514,3 +1514,6 @@
 
 /* Nextcloud sync carries portfolios */
 "Your Address Book and portfolios are in the same backup and sync between your devices the same way." = "Dein Adressbuch und deine Portfolios sind im selben Backup und werden genauso zwischen deinen Geräten synchronisiert.";
+
+/* Your Domains card: when a .kachat name's grace period ends */
+"Grace ends %@" = "Kulanz endet %@";

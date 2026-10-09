@@ -2997,6 +2997,8 @@ struct KNSDomainCard: View {
 struct DomainNameCardView: View {
     let title: String
     var badge: String? = nil
+    /// A small line in the bottom-right corner (Your Domains > .kachat: when it expires).
+    var footnote: String? = nil
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -3021,6 +3023,16 @@ struct DomainNameCardView: View {
                     .padding(.vertical, 4)
                     .background(Capsule().fill(Color.black.opacity(0.35)))
                     .padding(10)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let footnote {
+                Text(verbatim: footnote)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(.black.opacity(0.65))
+                    .lineLimit(1)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 10)
             }
         }
     }

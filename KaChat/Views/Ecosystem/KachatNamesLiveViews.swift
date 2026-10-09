@@ -3150,7 +3150,8 @@ struct KachatLiveDomainsTab: View {
                             NavigationLink {
                                 KachatListingDetailView(info: n)
                             } label: {
-                                DomainNameCardView(title: n.display, badge: Self.badge(for: n, graceMs: registry.graceMs))
+                                DomainNameCardView(title: n.display, badge: Self.badge(for: n, graceMs: registry.graceMs),
+                                                   footnote: Self.expiryLine(for: n, graceMs: registry.graceMs))
                             }
                             .buttonStyle(.plain)
                         }
@@ -3206,6 +3207,16 @@ struct KachatLiveDomainsTab: View {
 
     /// The card badge for a name: Listed, or Expired (in grace). Shared with the per-address
     /// lists (`KachatAddressLiveNamesList`); neither lists lapsed names (`heldNames`).
+    /// The card's bottom-right corner: when the name expires - or, once it has, when its grace
+    /// period ends (renew before then to keep it).
+    static func expiryLine(for n: KachatNames.NameInfo, graceMs: Int64) -> String? {
+        switch n.status(graceMs: graceMs) {
+        case .active: return String(format: AppLocalization.string("Expires %@"), KachatLive.day(n.expiresAt))
+        case .grace: return String(format: AppLocalization.string("Grace ends %@"), KachatLive.day(n.expiresAt + graceMs))
+        case .lapsed: return nil
+        }
+    }
+
     static func badge(for n: KachatNames.NameInfo, graceMs: Int64) -> String? {
         switch n.status(graceMs: graceMs) {
         case .active: return n.isListed ? AppLocalization.string("Listed") : nil
