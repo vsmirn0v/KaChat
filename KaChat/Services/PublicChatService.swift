@@ -1501,13 +1501,16 @@ final class PublicChatService: ObservableObject {
 
     private nonisolated static let blockScanQueue = DispatchQueue(label: "com.kachat.broadcastBlockScan", qos: .utility)
 
-    /// One fully-parsed public chat candidate from a scanned block.
+    /// One fully-parsed public chat candidate from a scanned block. `senderAddress` is what
+    /// output 0 claims until `verifiedAuthors` has checked input 0 spends from it (XP-012).
     struct BlockScanHit {
         let channel: String
         let txId: String
         let senderAddress: String
         let content: String
         let blockTime: Int64
+        var inputTxId: String = ""
+        var inputIndex: UInt32 = 0
     }
 
     /// OFF-MAIN block scan over the stream's once-parsed `ScannedBlock` (the old path decoded
@@ -1528,10 +1531,61 @@ final class PublicChatService: ObservableObject {
                 txId: tx.txId,
                 senderAddress: senderAddress,
                 content: parsed.content,
-                blockTime: tx.blockTime
+                blockTime: tx.blockTime,
+                inputTxId: tx.firstInputTxId,
+                inputIndex: tx.firstInputIndex
             ))
         }
         return hits
+    }
+
+    /// XP-012: a public chat payload carries no signature, so its author is whoever signed the
+    /// transaction. A post is kept only when the address its input 0 spends from is the address
+    /// output 0 pays (the rule Desktop uses); otherwise anyone could post, edit messages and play
+    /// chess as any address by paying them output 0. Input 0's address comes from a recent payload
+    /// transaction's outputs (a poster's previous post) or else the REST API; a post whose input
+    /// can't be resolved is dropped.
+    private nonisolated static func verifiedAuthors(_ hits: [BlockScanHit], hrp: String) async -> [BlockScanHit] {
+        await withTaskGroup(of: BlockScanHit?.self) { group in
+            for hit in hits {
+                group.addTask {
+                    guard !hit.inputTxId.isEmpty,
+                          let spentFrom = await inputAddress(txId: hit.inputTxId, index: hit.inputIndex, hrp: hrp),
+                          spentFrom.lowercased() == hit.senderAddress.lowercased() else {
+                        AppLog.log("[PublicChat] dropped %@: input 0 is not the posting address", hit.txId)
+                        return nil
+                    }
+                    return hit
+                }
+            }
+            var kept: [BlockScanHit] = []
+            for await hit in group { if let hit { kept.append(hit) } }
+            return kept
+        }
+    }
+
+    /// The address an outpoint pays: from the recent-output cache, else the REST API (the
+    /// previous transaction is older than the post, so it is indexed; retried briefly).
+    private nonisolated static func inputAddress(txId: String, index: UInt32, hrp: String) async -> String? {
+        if let script = RecentOutputScripts.shared.script(txId: txId, index: index),
+           let data = CryptoUtils.hexToData(script) {
+            return KaspaAddress.address(fromScriptPublicKey: data, hrp: hrp)
+        }
+        let base = AppSettings.load().kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: "\(base.hasSuffix("/") ? String(base.dropLast()) : base)/transactions/\(txId)?inputs=false&outputs=true&resolve_previous_outpoints=no") else { return nil }
+        for attempt in 0..<3 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            guard let (data, response) = try? await URLSession.shared.data(from: url),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let outputs = j["outputs"] as? [[String: Any]] else { continue }
+            let output = outputs.first { ($0["index"] as? NSNumber)?.uint32Value == index } ?? (Int(index) < outputs.count ? outputs[Int(index)] : nil)
+            if let address = output?["script_public_key_address"] as? String { return address }
+            if let script = output?["script_public_key"] as? String, let data = CryptoUtils.hexToData(script) {
+                return KaspaAddress.address(fromScriptPublicKey: data, hrp: hrp)
+            }
+        }
+        return nil
     }
 
     private func startScanning() {
@@ -1541,8 +1595,11 @@ final class PublicChatService: ObservableObject {
                     let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
                     let hits = Self.extractPublicChatHits(block, hrp: hrp)
                     guard !hits.isEmpty else { return }
-                    Task { @MainActor in
-                        await self?.processPublicChatHits(hits)
+                    Task {
+                        // only posts whose input 0 spends from the posting address (XP-012)
+                        let verified = await Self.verifiedAuthors(hits, hrp: hrp)
+                        guard !verified.isEmpty else { return }
+                        await self?.processPublicChatHits(verified)
                     }
                 }
             }

@@ -142,9 +142,13 @@ struct ScannedBlock: Sendable {
         let blockTime: Int64
         /// Hex, as the node sends it.
         let payloadHex: String
-        /// Hex of the first output's script public key - the sender's address for payloads
-        /// that carry none (public chats, group control).
+        /// Hex of the first output's script public key - the address a payload with no sender
+        /// field claims (public chats, group control). Only trustworthy once input 0 is shown to
+        /// spend from that same address (XP-012, `PublicChatService.verifiedAuthors`).
         let firstOutputScriptHex: String
+        /// Input 0's previous outpoint: the coin that was spent, whose address is the real sender.
+        let firstInputTxId: String
+        let firstInputIndex: UInt32
     }
     let transactions: [Transaction]
 
@@ -153,15 +157,51 @@ struct ScannedBlock: Sendable {
         for tx in notification.block.transactions where !tx.payload.isEmpty {
             let txId = tx.verboseData.transactionID
             guard !txId.isEmpty else { continue }
+            let input = tx.inputs.first?.previousOutpoint
             kept.append(Transaction(
                 txId: txId,
                 // From a node found through peer gossip: clamp, never trap on a value past Int64.
                 blockTime: Int64(clamping: tx.verboseData.blockTime),
                 payloadHex: tx.payload,
-                firstOutputScriptHex: tx.outputs.first?.scriptPublicKey.scriptPublicKey ?? ""
+                firstOutputScriptHex: tx.outputs.first?.scriptPublicKey.scriptPublicKey ?? "",
+                firstInputTxId: input?.transactionID ?? "",
+                firstInputIndex: input?.index ?? 0
             ))
+            // Remembered so a later payload that spends this one's change (a poster's next post)
+            // can be attributed without a lookup.
+            RecentOutputScripts.shared.record(txId: txId, scripts: tx.outputs.map { $0.scriptPublicKey.scriptPublicKey })
         }
         transactions = kept
+    }
+}
+
+/// The output scripts of recent payload transactions, by outpoint, so the sender of a public
+/// chat post that spends one (input 0) is known without asking the REST API (XP-012). Bounded:
+/// the oldest are forgotten first.
+final class RecentOutputScripts: @unchecked Sendable {
+    static let shared = RecentOutputScripts()
+    private let lock = NSLock()
+    private var scripts: [String: String] = [:]
+    private var order: [String] = []
+    private let capacity = 20_000
+
+    func record(txId: String, scripts outputScripts: [String]) {
+        lock.lock(); defer { lock.unlock() }
+        for (i, script) in outputScripts.enumerated() where !script.isEmpty {
+            let key = "\(txId.lowercased()):\(i)"
+            if scripts[key] == nil { order.append(key) }
+            scripts[key] = script
+        }
+        if order.count > capacity {
+            let drop = order.count - capacity
+            for key in order.prefix(drop) { scripts[key] = nil }
+            order.removeFirst(drop)
+        }
+    }
+
+    func script(txId: String, index: UInt32) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return scripts["\(txId.lowercased()):\(index)"]
     }
 }
 
