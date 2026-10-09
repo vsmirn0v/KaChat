@@ -71,9 +71,17 @@ struct ProfileView: View {
     @State private var showSettings = false
     @State private var showNotifCenter = false
     @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
-    /// Donate: the Send screen, addressed to KaChat's .kachat name
+    /// Donate: the Send screen, addressed to KaChat's donation address
     @State private var showDonateSheet = false
     private static let donateName = "kachat.kachat"
+    /// The address Donate pays, pinned (IOS-067): a name is first-come, so resolving
+    /// `kachat.kachat` would pay whoever registered it. This is the address `kachat.kas` has
+    /// always paid; on testnet the same key's `kaspatest:` form. The Send screen shows the
+    /// address's own .kachat name once the project registers `kachat` to it.
+    private static let donationAddressMainnet = "kaspa:qzy7da4589avjwmmnqfvkhp5p8p268gc7rvr9lg2xxpuhj75sy8kgdqmpd2fu"
+    private static var donationAddress: String {
+        KaspaAddress.onActiveNetwork(donationAddressMainnet) ?? donationAddressMainnet
+    }
     @State private var showOpenSourceLicenses = false
     @State private var showLogoutConfirmation = false
     @State private var showWelcomeGuideReplay = false
@@ -298,12 +306,12 @@ struct ProfileView: View {
                     WithdrawKaspaView(fromAddress: wallet.publicAddress, availableBalanceSompi: wallet.balanceSompi)
                 }
             }
-            // Donate goes straight to Send with KaChat's name filled in: it resolves like any
-            // typed name (.kachat first, the others under Other domains), no chat opened
+            // Donate goes straight to Send with KaChat's pinned donation address filled in - an
+            // address, not a name anyone could register (IOS-067) - no chat opened
             .sheet(isPresented: $showDonateSheet) {
                 if let wallet = walletManager.currentWallet {
                     WithdrawKaspaView(fromAddress: wallet.publicAddress, availableBalanceSompi: wallet.balanceSompi,
-                                      prefillAddress: Self.donateName)
+                                      prefillAddress: Self.donationAddress)
                 }
             }
             .sheet(isPresented: $showSpendingAddressWithdraw) {
