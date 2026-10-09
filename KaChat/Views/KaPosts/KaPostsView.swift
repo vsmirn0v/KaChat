@@ -208,6 +208,9 @@ struct KaPostsView: View {
         var remoteId: String? = nil
         /// Author's K pubkey (needed for Phase B write targeting); nil for local session posts.
         var posterPubkey: String? = nil
+        /// The pubkeys the author signed as this post's mentions: who each @token meant when it
+        /// was written - a tap opens one of these (IOS-068), not whoever owns the name today.
+        var mentionedPubkeys: [String] = []
         var likes: Int = 0
         var dislikes: Int = 0
         var reposts: Int = 0
@@ -681,9 +684,12 @@ struct KaPostsView: View {
         // Every other link keeps the system behavior.
         .environment(\.openURL, OpenURLAction { url in
             guard url.scheme == "kachat-mention" else { return .systemAction }
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             let domain = url.host ?? url.absoluteString
                 .replacingOccurrences(of: "kachat-mention://", with: "")
-            openMentionProfile(domain: domain)
+            let signed = components?.queryItems?.first { $0.name == "pk" }?.value?
+                .split(separator: ",").map(String.init) ?? []
+            openMentionProfile(domain: domain, signed: signed)
             return .handled
         })
         .task {
@@ -1514,6 +1520,7 @@ struct KaPostsView: View {
         mapped.parentRemoteId = post.parentPostId
         mapped.remoteId = post.id
         mapped.posterPubkey = post.userPublicKey
+        mapped.mentionedPubkeys = post.mentionedPubkeys ?? []
         mapped.likes = post.upVotesCount ?? 0
         mapped.remoteReplyCount = post.repliesCount ?? 0
         mapped.dislikes = post.downVotesCount ?? 0
@@ -1990,9 +1997,9 @@ struct KaPostsView: View {
     /// Works for ANY KNS domain, contact or not (the pubkey derives from the owner address).
     /// Any sheet currently up (thread detail, etc.) is dismissed first - only one sheet can
     /// present at a time, so the profile waits for the dismissal animation.
-    private func openMentionProfile(domain: String) {
+    private func openMentionProfile(domain: String, signed: [String] = []) {
         Task {
-            guard let address = await Self.mentionAddress(domain) else { return }
+            guard let address = await Self.mentionAddress(domain, signed: signed) else { return }
             let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: address)
             let hadSheetUp = detailTarget != nil || quoteComposerTarget != nil
                 || threadQuoteComposerTarget != nil || profileQuoteComposerTarget != nil
@@ -2018,11 +2025,29 @@ struct KaPostsView: View {
     }
 
     /// The bare @domain tokens in `text`, in order, deduped.
-    /// The owner address of an @mention token, on every name service with .kachat first: the
-    /// ending typed ("@bob.kas" is the .kas name), else .kachat only (the others wait under Other domains).
-    static func mentionAddress(_ token: String) async -> String? {
+    /// The owner address of an @mention token. Mentions have their own rule (IOS-068/069), not
+    /// the address fields' .kachat-only one:
+    /// - with the post's signed mentions (`signed`), the answer whose owner the author signed -
+    ///   who the token meant when it was written, whoever holds the name today;
+    /// - otherwise the ending typed ("@bob.kas" is the .kas name), else .kachat, else .kas - the
+    ///   meaning every post from before .kachat was written with.
+    static func mentionAddress(_ token: String, signed: [String] = []) async -> String? {
         let results = await NameServicesClient.shared.resolveEverywhere(token)
-        return NameServicesClient.primary(of: results, typed: token)?.address
+        if !signed.isEmpty {
+            let keys = Set(signed.map { $0.lowercased() })
+            let typed = NameServiceTLD.splitTypedName(token).tld
+            let ordered = results.filter { $0.tld == typed } + results.filter { $0.tld != typed }
+            if let match = ordered.first(where: { r in
+                guard let address = r.address, let pk = KaPostsAPIClient.kapostPubkey(fromAddress: address) else { return false }
+                return keys.contains(pk.lowercased())
+            }) {
+                return match.address
+            }
+        }
+        if let primary = NameServicesClient.primary(of: results, typed: token) { return primary.address }
+        // a bare token with no .kachat answer: the .kas name it meant before .kachat existed
+        guard NameServiceTLD.splitTypedName(token).tld == nil else { return nil }
+        return results.first { $0.tld == .kas && $0.address != nil }?.address
     }
 
     /// The @mention tokens in `text`, each with the ending it was typed with (unlike
@@ -5417,7 +5442,13 @@ private struct KaPostCellView: View {
                         // @mention taps open the profile directly - the Copy/Open dialog
                         // (showing a raw kachat-mention:// string) is only for real URLs.
                         if url.scheme == "kachat-mention" {
-                            parentOpenURL(url)
+                            // the post's signed mentions ride along, so the tap opens who the
+                            // author meant (IOS-068)
+                            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                            if !post.mentionedPubkeys.isEmpty {
+                                components?.queryItems = [URLQueryItem(name: "pk", value: post.mentionedPubkeys.joined(separator: ","))]
+                            }
+                            parentOpenURL(components?.url ?? url)
                             return .handled
                         }
                         tappedLinkURL = url
@@ -6612,9 +6643,10 @@ private struct KaPostMentionSuggestionBar: View {
             guard let query = mentionQuery, query.count >= 2 else { return }
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
-            // anyone with a name on any service, .kachat first
+            // anyone with a name: .kachat first, else the .kas name (the mention rule, IOS-069)
             let results = await NameServicesClient.shared.resolveEverywhere(query)
-            guard let resolution = NameServicesClient.primary(of: results, typed: query) else { return }
+            guard let resolution = NameServicesClient.primary(of: results, typed: query)
+                    ?? results.first(where: { $0.tld == .kas && $0.address != nil }) else { return }
             guard !Task.isCancelled, mentionQuery == query else { return }
             resolvedAnyDomain = resolution.display
         }
@@ -6903,9 +6935,10 @@ private struct KaPostComposerView: View {
             guard let query = mentionQuery, query.count >= 2 else { return }
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
-            // anyone with a name on any service, .kachat first
+            // anyone with a name: .kachat first, else the .kas name (the mention rule, IOS-069)
             let results = await NameServicesClient.shared.resolveEverywhere(query)
-            guard let resolution = NameServicesClient.primary(of: results, typed: query) else { return }
+            guard let resolution = NameServicesClient.primary(of: results, typed: query)
+                    ?? results.first(where: { $0.tld == .kas && $0.address != nil }) else { return }
             guard !Task.isCancelled, mentionQuery == query else { return }
             resolvedAnyDomain = resolution.display
         }
