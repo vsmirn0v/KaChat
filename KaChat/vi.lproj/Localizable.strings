@@ -1561,3 +1561,6 @@
 "%lld of your .kachat domains expired" = "%lld tên miền .kachat của bạn đã hết hạn";
 "Renew %@ before its grace period ends on %@ to keep it." = "Gia hạn %@ trước khi thời gian ân hạn kết thúc vào %@ để giữ nó.";
 "Renew them before their grace periods end to keep them." = "Gia hạn chúng trước khi thời gian ân hạn kết thúc để giữ chúng.";
+
+/* Bare names resolve to .kachat only */
+".kachat names aren't live on this network yet" = "Tên .kachat chưa hoạt động trên mạng này";

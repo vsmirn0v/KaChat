@@ -3416,7 +3416,7 @@ private struct AddGroupMembersView: View {
     }
 
     /// Resolves a typed name in the background on every service, .kachat first (the ending
-    /// typed, else .kachat, .kas, .k, .kaspa). Anything that is already an address, or too short
+    /// typed, else .kachat only (the others wait under Other domains)). Anything that is already an address, or too short
     /// to be a name, is left alone.
     private func resolveTypedDomain() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -3448,8 +3448,7 @@ private struct AddGroupMembersView: View {
                 } else if !candidates.isEmpty {
                     // it matched contacts by name: not a failed lookup
                 } else {
-                    let explicit = NameServiceTLD.splitTypedName(query).tld
-                    domainNotFound = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
+                    domainNotFound = NameServicesClient.notFoundMessage(typed: query, results: results)
                 }
             }
         }

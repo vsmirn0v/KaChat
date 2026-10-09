@@ -151,9 +151,9 @@ struct NameResolution: Identifiable, Equatable {
 }
 
 extension NameServiceTLD {
-    /// The order a bare name ("bob") is tried in: KaChat's own .kachat always first, then KNS,
-    /// dotk and Kaspa Names. The first that resolves is the answer; the rest are offered as
-    /// "Other domains".
+    /// The order the services are listed in: KaChat's own .kachat always first, then KNS, dotk
+    /// and Kaspa Names. A bare name ("bob") resolves to .kachat only (`primary`); the rest are
+    /// offered as "Other domains", never picked on their own.
     static let resolutionOrder: [NameServiceTLD] = [.kachat, .kas, .k, .kaspa]
 
     /// Splits typed input into its label and the ending the person typed, if any. Longest endings
@@ -393,12 +393,22 @@ final class NameServicesClient: ObservableObject {
     }
 
     /// The answer a typed name gets: the service the person named, if they typed an ending, else
-    /// the first in `resolutionOrder` that resolves.
+    /// .kachat - and only .kachat. A bare name never falls through to another service on its
+    /// own: what it is on .kas, .k or .kaspa waits under "Other domains" for the person to pick
+    /// (`OtherDomainsDropdown`, which opens by itself when .kachat has nothing).
     static func primary(of results: [NameResolution], typed input: String) -> NameResolution? {
-        if let explicit = NameServiceTLD.splitTypedName(input).tld {
-            return results.first { $0.tld == explicit && $0.address != nil }
+        let wanted = NameServiceTLD.splitTypedName(input).tld ?? .kachat
+        return results.first { $0.tld == wanted && $0.address != nil }
+    }
+
+    /// Why a typed name has no answer: the ending typed found nothing, or (a bare name) there is
+    /// no such .kachat name - or no .kachat registry on this network yet.
+    static func notFoundMessage(typed input: String, results: [NameResolution]) -> String {
+        let wanted = NameServiceTLD.splitTypedName(input).tld ?? .kachat
+        if wanted == .kachat, results.contains(where: { $0.tld == .kachat && $0.notLive }) || !NameServiceTLD.kachat.isLive {
+            return String(localized: ".kachat names aren't live on this network yet")
         }
-        return results.first { $0.address != nil }
+        return String(localized: "No \(wanted.suffix) domain found")
     }
 
     /// `.kachat`: the registry's owner of a name that is active or in its grace period - an owner

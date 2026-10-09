@@ -1561,3 +1561,6 @@
 "%lld of your .kachat domains expired" = "Истёк срок действия доменов .kachat: %lld";
 "Renew %@ before its grace period ends on %@ to keep it." = "Продлите %@ до окончания льготного периода %@, чтобы сохранить его.";
 "Renew them before their grace periods end to keep them." = "Продлите их до окончания льготных периодов, чтобы сохранить.";
+
+/* Bare names resolve to .kachat only */
+".kachat names aren't live on this network yet" = "Имена .kachat в этой сети пока не работают";

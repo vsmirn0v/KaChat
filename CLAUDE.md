@@ -95,8 +95,9 @@ their `.kas` domain. What KNS still does:
 
 **Features:**
 - Resolve a typed name (e.g., `alice.kas`) to an address in any address field
-  (`NameServicesClient.resolveEverywhere` - `.kachat` first, the others under "Other domains",
-  `OtherDomainsDropdown`); KaPosts @mentions too (`KaPostsView.mentionAddress`: "@bob" and
+  (`NameServicesClient.resolveEverywhere`; a bare name resolves to `.kachat` ONLY - never
+  falling through to another service on its own - and the others wait under "Other domains",
+  `OtherDomainsDropdown`, for the person to pick; a typed ending resolves on that service); KaPosts @mentions too (`KaPostsView.mentionAddress`: "@bob" and
   "@bob.kachat" are .kachat first, "@bob.kas" stays the .kas name)
 - Your Domains: list, transfer, set primary and customize the profile of your OWN `.kas` names
   (reads `fetchInfo`/`domainCache` directly, never through the identity gate)

@@ -399,9 +399,8 @@ struct AddContactView: View {
         }
     }
 
-    /// Looks the name up on every service at once. The chat goes to the priority answer - the
-    /// ending the person typed, else .kachat, then .kas, .k, .kaspa - and the others are listed
-    /// under "Other domains" to pick instead.
+    /// Looks the name up on every service at once. The chat goes to the ending the person typed,
+    /// else to the .kachat name only; the others are listed under "Other domains" to pick instead.
     private func resolveName(_ typed: String) {
         isResolvingKNS = true
 
@@ -422,8 +421,7 @@ struct AddContactView: View {
                     resolvedDomain = nil
                     // Deliberately does NOT set a name. A contact is only ever named when the
                     // user types one; display falls through to the domain on its own.
-                    let explicit = NameServiceTLD.splitTypedName(typed).tld
-                    knsError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
+                    knsError = NameServicesClient.notFoundMessage(typed: typed, results: results)
                 }
             }
         }
@@ -844,7 +842,7 @@ struct AddContactView: View {
                   groupAddressEntries[currentIndex].trimmedText == trimmed else {
                 return
             }
-            // Same priority as a 1:1 chat: the typed ending, else .kachat, .kas, .k, .kaspa.
+            // Same priority as a 1:1 chat: the typed ending, else .kachat only (the others wait under Other domains).
             let results = await NameServicesClient.shared.resolveEverywhere(trimmed)
             await MainActor.run {
                 guard let i = groupAddressEntries.firstIndex(where: { $0.id == id }),
@@ -856,8 +854,7 @@ struct AddContactView: View {
                     groupAddressEntries[i].resolvedDomain = resolution.display
                     groupAddressEntries[i].selectedTLD = resolution.tld
                 } else {
-                    let explicit = NameServiceTLD.splitTypedName(trimmed).tld
-                    groupAddressEntries[i].knsError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
+                    groupAddressEntries[i].knsError = NameServicesClient.notFoundMessage(typed: trimmed, results: results)
                 }
             }
         }

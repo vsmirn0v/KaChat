@@ -1562,3 +1562,6 @@
 "%lld of your .kachat domains expired" = "%lld of your .kachat domains expired";
 "Renew %@ before its grace period ends on %@ to keep it." = "Renew %@ before its grace period ends on %@ to keep it.";
 "Renew them before their grace periods end to keep them." = "Renew them before their grace periods end to keep them.";
+
+/* Bare names resolve to .kachat only */
+".kachat names aren't live on this network yet" = ".kachat names aren't live on this network yet";

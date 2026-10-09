@@ -3741,7 +3741,7 @@ struct KNSDomainSendView: View {
                 return
             }
 
-            // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa
+            // Every name service, in priority: the ending typed, else .kachat only (the others wait under Other domains)
             // (see NameServicesClient). The resolved line names which one answered; the others
             // are offered under "Other domains".
             let results = await NameServicesClient.shared.resolveEverywhere(domain)
@@ -3755,8 +3755,7 @@ struct KNSDomainSendView: View {
                     resolvedAddress = nil
                     resolvedDomain = nil
                     selectedTLD = nil
-                    let explicit = NameServiceTLD.splitTypedName(domain).tld
-                    knsError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
+                    knsError = NameServicesClient.notFoundMessage(typed: domain, results: results)
                 }
             }
         }
@@ -4979,7 +4978,7 @@ struct WithdrawKaspaView: View {
                 return
             }
 
-            // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa
+            // Every name service, in priority: the ending typed, else .kachat only (the others wait under Other domains)
             // (see NameServicesClient). The resolved line names which one answered; the others
             // are offered under "Other domains".
             let results = await NameServicesClient.shared.resolveEverywhere(domain)
@@ -4993,8 +4992,7 @@ struct WithdrawKaspaView: View {
                     resolvedAddress = nil
                     resolvedDomain = nil
                     selectedTLD = nil
-                    let explicit = NameServiceTLD.splitTypedName(domain).tld
-                    knsError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
+                    knsError = NameServicesClient.notFoundMessage(typed: domain, results: results)
                 }
             }
         }

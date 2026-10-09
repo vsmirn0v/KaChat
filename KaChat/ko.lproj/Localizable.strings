@@ -1561,3 +1561,6 @@
 "%lld of your .kachat domains expired" = ".kachat 도메인 %lld개가 만료되었습니다";
 "Renew %@ before its grace period ends on %@ to keep it." = "%@을(를) 유지하려면 유예 기간이 끝나는 %@ 전에 갱신하세요.";
 "Renew them before their grace periods end to keep them." = "유지하려면 유예 기간이 끝나기 전에 갱신하세요.";
+
+/* Bare names resolve to .kachat only */
+".kachat names aren't live on this network yet" = "이 네트워크에서는 아직 .kachat 이름을 사용할 수 없습니다";

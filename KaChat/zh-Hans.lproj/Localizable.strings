@@ -1561,3 +1561,6 @@
 "%lld of your .kachat domains expired" = "你有 %lld 个 .kachat 域名已过期";
 "Renew %@ before its grace period ends on %@ to keep it." = "请在 %2$@ 宽限期结束前续订 %1$@ 以保留它。";
 "Renew them before their grace periods end to keep them." = "请在宽限期结束前续订以保留它们。";
+
+/* Bare names resolve to .kachat only */
+".kachat names aren't live on this network yet" = ".kachat 名称尚未在此网络上线";

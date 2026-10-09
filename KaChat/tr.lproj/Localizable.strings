@@ -1561,3 +1561,6 @@
 "%lld of your .kachat domains expired" = ".kachat alan adlarınızdan %lld tanesinin süresi doldu";
 "Renew %@ before its grace period ends on %@ to keep it." = "%@ adını korumak için ek süresi %@ tarihinde bitmeden yenileyin.";
 "Renew them before their grace periods end to keep them." = "Korumak için ek süreleri bitmeden yenileyin.";
+
+/* Bare names resolve to .kachat only */
+".kachat names aren't live on this network yet" = ".kachat adları bu ağda henüz etkin değil";

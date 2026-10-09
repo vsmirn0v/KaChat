@@ -674,8 +674,7 @@ struct AddressBookEntryEditor: View {
             if let primary = NameServicesClient.primary(of: results, typed: typed) {
                 selectResolution(primary)
             } else {
-                let explicit = NameServiceTLD.splitTypedName(typed).tld
-                lookupError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
+                lookupError = NameServicesClient.notFoundMessage(typed: typed, results: results)
             }
         }
     }

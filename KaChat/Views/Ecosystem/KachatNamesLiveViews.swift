@@ -3067,7 +3067,7 @@ struct KachatTransferSheet: View {
             resolved = (t, key)
             return
         }
-        // a name on any service, .kachat first (the ending typed, else .kachat, .kas, .k, .kaspa)
+        // a name on any service, .kachat first (the ending typed, else .kachat only (the others wait under Other domains))
         guard NameServicesClient.looksLikeName(t) else {
             resolveError = "Enter an address or a domain."
             return
@@ -3080,7 +3080,7 @@ struct KachatTransferSheet: View {
         if let primary = NameServicesClient.primary(of: results, typed: t) {
             if !use(primary) { resolveError = "That name's address can't own a .kachat name." }
         } else {
-            resolveError = "No domain found by that name."
+            resolveError = LocalizedStringKey(NameServicesClient.notFoundMessage(typed: t, results: results))
         }
     }
 

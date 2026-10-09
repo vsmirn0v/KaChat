@@ -2019,7 +2019,7 @@ struct KaPostsView: View {
 
     /// The bare @domain tokens in `text`, in order, deduped.
     /// The owner address of an @mention token, on every name service with .kachat first: the
-    /// ending typed ("@bob.kas" is the .kas name), else .kachat, .kas, .k, .kaspa.
+    /// ending typed ("@bob.kas" is the .kas name), else .kachat only (the others wait under Other domains).
     static func mentionAddress(_ token: String) async -> String? {
         let results = await NameServicesClient.shared.resolveEverywhere(token)
         return NameServicesClient.primary(of: results, typed: token)?.address

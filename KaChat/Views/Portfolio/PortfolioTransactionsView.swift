@@ -666,6 +666,7 @@ private struct AddPortfolioAddressSheet: View {
     @State private var resolvedDomain: String?
     /// Every service's answer for a typed name and the one in use (`OtherDomainsDropdown`).
     @State private var nameResolutions: [NameResolution] = []
+    @State private var notFoundText = ""
     @State private var selectedTLD: NameServiceTLD?
     @State private var knsNotFound = false
 
@@ -807,7 +808,7 @@ private struct AddPortfolioAddressSheet: View {
                     .lineLimit(1)
             }
         } else if knsNotFound {
-            Text("Domain not found")
+            Text(verbatim: notFoundText)
                 .font(.caption)
                 .foregroundColor(.secondary)
         } else if looksLikeRawAddress {
@@ -851,7 +852,7 @@ private struct AddPortfolioAddressSheet: View {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard addressText.trimmingCharacters(in: .whitespacesAndNewlines) == domain else { return }
 
-            // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa.
+            // Every name service, in priority: the ending typed, else .kachat only (the others wait under Other domains).
             let results = await NameServicesClient.shared.resolveEverywhere(domain)
             let resolution = NameServicesClient.primary(of: results, typed: domain)
             await MainActor.run {
@@ -867,6 +868,7 @@ private struct AddPortfolioAddressSheet: View {
                 } else {
                     resolvedAddress = nil
                     resolvedDomain = nil
+                    notFoundText = NameServicesClient.notFoundMessage(typed: domain, results: results)
                     knsNotFound = true
                 }
                 isResolvingKNS = false

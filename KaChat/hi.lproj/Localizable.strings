@@ -1561,3 +1561,6 @@
 "%lld of your .kachat domains expired" = "आपके %lld .kachat डोमेन की अवधि समाप्त हो गई";
 "Renew %@ before its grace period ends on %@ to keep it." = "%@ को बनाए रखने के लिए %@ को ग्रेस अवधि खत्म होने से पहले नवीनीकृत करें।";
 "Renew them before their grace periods end to keep them." = "उन्हें बनाए रखने के लिए ग्रेस अवधि खत्म होने से पहले नवीनीकृत करें।";
+
+/* Bare names resolve to .kachat only */
+".kachat names aren't live on this network yet" = ".kachat नाम अभी इस नेटवर्क पर चालू नहीं हैं";
