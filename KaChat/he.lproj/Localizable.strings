@@ -1524,3 +1524,9 @@
 "This offer can't be accepted any more." = "לא ניתן עוד לקבל את ההצעה הזו.";
 "Only the name's owner can accept or decline this offer." = "רק בעל השם יכול לקבל או לדחות את ההצעה הזו.";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "הקישו על הצעה כדי לקבל או לדחות אותה. הצעות שפג תוקפן חוזרות לקונים.";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "כל הכתובות בקובץ הזה הן כתובות Mainnet. ‏KaChat נמצאת ב-Testnet.";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "כל הכתובות בקובץ הזה הן כתובות Testnet. ‏KaChat נמצאת ב-Mainnet.";
+"Skipped %lld from the other network." = "דולגו %lld מהרשת האחרת.";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "עמלת הרשת עלתה ל-%@ מאז שאישרת. לא נשלח דבר. בדוק את העמלה החדשה ואשר שוב.";

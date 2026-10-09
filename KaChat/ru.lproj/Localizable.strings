@@ -1524,3 +1524,9 @@
 "This offer can't be accepted any more." = "Это предложение больше нельзя принять.";
 "Only the name's owner can accept or decline this offer." = "Принять или отклонить это предложение может только владелец имени.";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Нажмите на предложение, чтобы принять или отклонить его. Истёкшие предложения возвращаются покупателям.";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "Все адреса в этом файле — адреса Mainnet. KaChat работает в Testnet.";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "Все адреса в этом файле — адреса Testnet. KaChat работает в Mainnet.";
+"Skipped %lld from the other network." = "Пропущено из другой сети: %lld.";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "С момента подтверждения комиссия сети выросла до %@. Ничего не отправлено. Проверьте новую комиссию и подтвердите снова.";

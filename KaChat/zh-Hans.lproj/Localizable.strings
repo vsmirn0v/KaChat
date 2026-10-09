@@ -1524,3 +1524,9 @@
 "This offer can't be accepted any more." = "此报价已无法接受。";
 "Only the name's owner can accept or decline this offer." = "只有该名称的所有者才能接受或拒绝此报价。";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "点按报价即可接受或拒绝。过期的报价会退回给买家。";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "该文件中的所有地址都是 Mainnet 地址。KaChat 当前在 Testnet。";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "该文件中的所有地址都是 Testnet 地址。KaChat 当前在 Mainnet。";
+"Skipped %lld from the other network." = "已跳过另一网络的 %lld 个地址。";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "确认后网络费用已涨到 %@。没有发送任何内容。请查看新费用并再次确认。";

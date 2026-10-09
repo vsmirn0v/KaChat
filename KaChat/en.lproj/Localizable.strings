@@ -1525,3 +1525,9 @@
 "This offer can't be accepted any more." = "This offer can't be accepted any more.";
 "Only the name's owner can accept or decline this offer." = "Only the name's owner can accept or decline this offer.";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Tap an offer to accept or decline it. Expired offers go back to their buyers.";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "Every address in that file is a Mainnet address. KaChat is on Testnet.";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "Every address in that file is a Testnet address. KaChat is on Mainnet.";
+"Skipped %lld from the other network." = "Skipped %lld from the other network.";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again.";

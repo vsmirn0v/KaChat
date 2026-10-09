@@ -1524,3 +1524,9 @@
 "This offer can't be accepted any more." = "এই অফার আর গ্রহণ করা যাবে না।";
 "Only the name's owner can accept or decline this offer." = "শুধু নামের মালিক এই অফার গ্রহণ বা প্রত্যাখ্যান করতে পারেন।";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "গ্রহণ বা প্রত্যাখ্যান করতে একটি অফারে ট্যাপ করুন। মেয়াদোত্তীর্ণ অফার ক্রেতার কাছে ফিরে যায়।";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "এই ফাইলের প্রতিটি ঠিকানা Mainnet-এর। KaChat এখন Testnet-এ।";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "এই ফাইলের প্রতিটি ঠিকানা Testnet-এর। KaChat এখন Mainnet-এ।";
+"Skipped %lld from the other network." = "অন্য নেটওয়ার্কের %lldটি বাদ দেওয়া হয়েছে।";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "আপনি নিশ্চিত করার পর নেটওয়ার্ক ফি বেড়ে %@ হয়েছে। কিছুই পাঠানো হয়নি। নতুন ফি দেখে আবার নিশ্চিত করুন।";

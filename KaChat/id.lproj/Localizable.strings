@@ -1524,3 +1524,9 @@
 "This offer can't be accepted any more." = "Penawaran ini tidak bisa diterima lagi.";
 "Only the name's owner can accept or decline this offer." = "Hanya pemilik nama yang bisa menerima atau menolak penawaran ini.";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Ketuk penawaran untuk menerima atau menolaknya. Penawaran yang kedaluwarsa kembali ke pembelinya.";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "Semua alamat dalam file itu adalah alamat Mainnet. KaChat ada di Testnet.";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "Semua alamat dalam file itu adalah alamat Testnet. KaChat ada di Mainnet.";
+"Skipped %lld from the other network." = "%lld dari jaringan lain dilewati.";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "Biaya jaringan naik menjadi %@ sejak Anda mengonfirmasi. Tidak ada yang dikirim. Periksa biaya baru dan konfirmasi lagi.";

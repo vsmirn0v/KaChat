@@ -1524,3 +1524,9 @@
 "This offer can't be accepted any more." = "این پیشنهاد دیگر قابل پذیرش نیست.";
 "Only the name's owner can accept or decline this offer." = "فقط مالک نام می‌تواند این پیشنهاد را بپذیرد یا رد کند.";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "برای پذیرش یا رد، روی یک پیشنهاد بزنید. پیشنهادهای منقضی‌شده به خریدارانشان برمی‌گردند.";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "همه نشانی‌های این فایل نشانی Mainnet هستند. KaChat روی Testnet است.";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "همه نشانی‌های این فایل نشانی Testnet هستند. KaChat روی Mainnet است.";
+"Skipped %lld from the other network." = "%lld مورد از شبکه دیگر رد شد.";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "کارمزد شبکه از زمان تأیید شما به %@ رسید. چیزی ارسال نشد. کارمزد جدید را ببینید و دوباره تأیید کنید.";

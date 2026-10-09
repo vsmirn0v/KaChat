@@ -1524,3 +1524,9 @@
 "This offer can't be accepted any more." = "이 제안은 더 이상 수락할 수 없습니다.";
 "Only the name's owner can accept or decline this offer." = "이 제안은 이름의 소유자만 수락하거나 거절할 수 있습니다.";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "제안을 탭해 수락하거나 거절하세요. 만료된 제안은 구매자에게 돌아갑니다.";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "이 파일의 모든 주소는 Mainnet 주소입니다. KaChat은 Testnet에 있습니다.";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "이 파일의 모든 주소는 Testnet 주소입니다. KaChat은 Mainnet에 있습니다.";
+"Skipped %lld from the other network." = "다른 네트워크의 %lld개를 건너뛰었습니다.";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "확인한 뒤 네트워크 수수료가 %@(으)로 올랐습니다. 아무것도 보내지 않았습니다. 새 수수료를 확인하고 다시 확인하세요.";

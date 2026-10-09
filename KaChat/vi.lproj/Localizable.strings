@@ -1524,3 +1524,9 @@
 "This offer can't be accepted any more." = "Không thể chấp nhận đề nghị này nữa.";
 "Only the name's owner can accept or decline this offer." = "Chỉ chủ sở hữu tên mới có thể chấp nhận hoặc từ chối đề nghị này.";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Chạm vào một đề nghị để chấp nhận hoặc từ chối. Đề nghị hết hạn sẽ trả lại người mua.";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "Mọi địa chỉ trong tệp đó đều là địa chỉ Mainnet. KaChat đang ở Testnet.";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "Mọi địa chỉ trong tệp đó đều là địa chỉ Testnet. KaChat đang ở Mainnet.";
+"Skipped %lld from the other network." = "Đã bỏ qua %lld địa chỉ của mạng khác.";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "Phí mạng đã tăng lên %@ kể từ khi bạn xác nhận. Chưa có gì được gửi. Hãy xem phí mới và xác nhận lại.";

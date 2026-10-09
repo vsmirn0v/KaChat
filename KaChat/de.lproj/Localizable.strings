@@ -1471,3 +1471,9 @@
 "This offer can't be accepted any more." = "Dieses Angebot kann nicht mehr angenommen werden.";
 "Only the name's owner can accept or decline this offer." = "Nur der Inhaber des Namens kann dieses Angebot annehmen oder ablehnen.";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Tippe auf ein Angebot, um es anzunehmen oder abzulehnen. Abgelaufene Angebote gehen an ihre Käufer zurück.";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "Alle Adressen in dieser Datei sind Mainnet-Adressen. KaChat ist im Testnet.";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "Alle Adressen in dieser Datei sind Testnet-Adressen. KaChat ist im Mainnet.";
+"Skipped %lld from the other network." = "%lld aus dem anderen Netzwerk übersprungen.";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "Die Netzwerkgebühr ist seit deiner Bestätigung auf %@ gestiegen. Es wurde nichts gesendet. Prüfe die neue Gebühr und bestätige erneut.";

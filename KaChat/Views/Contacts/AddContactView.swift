@@ -362,7 +362,7 @@ struct AddContactView: View {
                     resolvedDomain = nil
                     knsError = nil
                     isResolvingKNS = false
-                    isValidAddress = contactsManager.isValidKaspaAddress(entry.address)
+                    isValidAddress = KaspaAddress.isValidOnActiveNetwork(entry.address)
                 }
             }
             .fullScreenCover(isPresented: $showGroupAddressBook) {
@@ -374,7 +374,8 @@ struct AddContactView: View {
                 ) { picked in
                     let bookAddresses = Set(AddressBookManager.shared.entries.map { AddressBookManager.normalize($0.address) })
                     var members = selectedMemberAddresses.filter { !bookAddresses.contains(AddressBookManager.normalize($0)) }
-                    for address in picked.map(\.address) where members.count < Self.maxGroupMembers {
+                    for address in picked.map(\.address) where members.count < Self.maxGroupMembers
+                        && KaspaAddress.isValidOnActiveNetwork(address) {
                         members.insert(address)
                     }
                     selectedMemberAddresses = members

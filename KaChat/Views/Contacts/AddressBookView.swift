@@ -213,11 +213,13 @@ struct AddressBookView: View {
     private func runImport(_ data: Data) {
         do {
             let result = try book.importExport(data)
-            if result.added + result.updated == 0 {
-                showToast(AppLocalization.string("Already up to date. Every address in the file is saved."))
-            } else {
-                showToast(String(format: AppLocalization.string("Imported: %lld added, %lld updated."), result.added, result.updated))
+            var message = result.added + result.updated == 0
+                ? AppLocalization.string("Already up to date. Every address in the file is saved.")
+                : String(format: AppLocalization.string("Imported: %lld added, %lld updated."), result.added, result.updated)
+            if result.skipped > 0 {
+                message += " " + String(format: AppLocalization.string("Skipped %lld from the other network."), result.skipped)
             }
+            showToast(message)
         } catch {
             showToast(error.localizedDescription, style: .error)
         }
@@ -364,14 +366,17 @@ struct AddressBookEntryDetail: View {
                         } label: {
                             Label("Send KAS", systemImage: "paperplane")
                         }
-                        .disabled(walletManager.currentWallet == nil)
+                        .disabled(walletManager.currentWallet == nil || otherNetwork != nil)
                         if !isOwnAddress {
                             Button {
                                 openChat(with: entry.address)
                             } label: {
                                 Label("Message", systemImage: "bubble.left")
                             }
+                            .disabled(otherNetwork != nil)
                         }
+                    } footer: {
+                        if let otherNetwork { Text(verbatim: otherNetwork) }
                     }
 
                     Section {
@@ -422,8 +427,13 @@ struct AddressBookEntryDetail: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    /// Why this entry can't be paid or messaged here: it's the other network's address (saved
+    /// before IOS-063, or restored from a backup).
+    private var otherNetwork: String? { KaspaAddress.otherNetworkReason(address) }
+
     /// The same path KaPosts takes to open a chat from anywhere in the app.
     private func openChat(with address: String) {
+        guard KaspaAddress.isValidOnActiveNetwork(address) else { return }
         let contact = ContactsManager.shared.getOrCreateContact(address: address)
         _ = ChatService.shared.getOrCreateConversation(for: contact)
         ChatService.shared.pendingChatNavigation = contact.address
@@ -681,11 +691,20 @@ struct AddressBookPickerSheet: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List(shown) { entry in
+                        // the other network's address can't be chatted with or added to a group
+                        let otherNetwork = KaspaAddress.otherNetworkReason(entry.address)
                         Button {
                             tap(entry)
                         } label: {
                             HStack {
-                                AddressBookRow(entry: entry)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    AddressBookRow(entry: entry)
+                                    if let otherNetwork {
+                                        Text(verbatim: otherNetwork)
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+                                }
                                 Spacer(minLength: 8)
                                 if isMultiple {
                                     Image(systemName: ticked.contains(AddressBookManager.normalize(entry.address))
@@ -698,6 +717,8 @@ struct AddressBookPickerSheet: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .disabled(otherNetwork != nil)
+                        .opacity(otherNetwork != nil ? 0.5 : 1)
                     }
                     .listStyle(.insetGrouped)
                     // Always showing: hidden until you pull the list down, it read as pull-to-refresh.
@@ -714,7 +735,9 @@ struct AddressBookPickerSheet: View {
                 if case .multiple(_, let onDone) = mode {
                     ToolbarItem(placement: .confirmationAction) {
                         Button {
-                            onDone(book.entries.filter { ticked.contains(AddressBookManager.normalize($0.address)) })
+                            onDone(book.entries.filter {
+                                ticked.contains(AddressBookManager.normalize($0.address)) && KaspaAddress.isValidOnActiveNetwork($0.address)
+                            })
                             dismiss()
                         } label: {
                             Text(ticked.isEmpty ? "Done" : "Add (\(ticked.count))")
@@ -735,6 +758,7 @@ struct AddressBookPickerSheet: View {
     }
 
     private func tap(_ entry: AddressBookEntry) {
+        guard KaspaAddress.isValidOnActiveNetwork(entry.address) else { return }
         switch mode {
         case .single(let onSelect):
             onSelect(entry)

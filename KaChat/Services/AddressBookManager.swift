@@ -117,12 +117,15 @@ final class AddressBookManager: ObservableObject {
 
     enum SaveError: LocalizedError {
         case noWallet, emptyName, invalidAddress
+        /// A valid address of the network the app isn't on (`KaspaAddress.otherNetworkReason`).
+        case otherNetwork(String)
 
         var errorDescription: String? {
             switch self {
             case .noWallet: return AppLocalization.string("Open a wallet first.")
             case .emptyName: return AppLocalization.string("Enter a name.")
             case .invalidAddress: return AppLocalization.string("Enter a valid Kaspa address.")
+            case .otherNetwork(let reason): return reason
             }
         }
     }
@@ -142,7 +145,10 @@ final class AddressBookManager: ObservableObject {
         let address = Self.normalize(address)
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw SaveError.emptyName }
-        guard ContactsManager.shared.isValidKaspaAddress(address) else { throw SaveError.invalidAddress }
+        // the network the app runs on only: the other network's address is the same key on the
+        // other chain, a chat with it is never read and is dropped on the next launch (IOS-063)
+        if let reason = KaspaAddress.otherNetworkReason(address) { throw SaveError.otherNetwork(reason) }
+        guard KaspaAddress.isValidOnActiveNetwork(address) else { throw SaveError.invalidAddress }
         let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         let saved: AddressBookEntry
         if let i = byAddress[address] {
@@ -309,11 +315,16 @@ final class AddressBookManager: ObservableObject {
 
     enum ImportError: LocalizedError {
         case notAnAddressBook, empty
+        /// Every address in the file is the other network's.
+        case otherNetwork
 
         var errorDescription: String? {
             switch self {
             case .notAnAddressBook: return AppLocalization.string("That file isn't a KaChat Address Book export.")
             case .empty: return AppLocalization.string("That Address Book export has no addresses.")
+            case .otherNetwork: return AppLocalization.string(AppSettings.load().networkType == .testnet
+                ? "Every address in that file is a Mainnet address. KaChat is on Testnet."
+                : "Every address in that file is a Testnet address. KaChat is on Mainnet.")
             }
         }
     }
@@ -335,19 +346,23 @@ final class AddressBookManager: ObservableObject {
 
     /// Imports an export file into this wallet's book: an address not saved here is added (even
     /// one deleted since - importing is asking for it back); one already saved takes the file's
-    /// version only when that is newer. Photos come with their entry. Returns (added, updated).
+    /// version only when that is newer. Photos come with their entry. Addresses of the other
+    /// network are skipped (IOS-063). Returns (added, updated, skipped).
     @discardableResult
-    func importExport(_ data: Data) throws -> (added: Int, updated: Int) {
+    func importExport(_ data: Data) throws -> (added: Int, updated: Int, skipped: Int) {
         guard walletAddress != nil else { throw SaveError.noWallet }
         let iso = JSONDecoder()
         iso.dateDecodingStrategy = .iso8601
         guard let file = (try? iso.decode(ExportFile.self, from: data)) ?? (try? JSONDecoder().decode(ExportFile.self, from: data)),
               file.type == ExportFile.kind else { throw ImportError.notAnAddressBook }
-        let valid = file.entries.filter {
+        let named = file.entries.filter {
             !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && ContactsManager.shared.isValidKaspaAddress(Self.normalize($0.address))
         }
-        guard !valid.isEmpty else { throw ImportError.empty }
+        let valid = named.filter { KaspaAddress.isValidOnActiveNetwork(Self.normalize($0.address)) }
+        let skipped = named.count - valid.count
+        guard !named.isEmpty else { throw ImportError.empty }
+        guard !valid.isEmpty else { throw ImportError.otherNetwork }
         var added = 0, updated = 0
         for var incoming in valid {
             let address = Self.normalize(incoming.address)
@@ -374,7 +389,7 @@ final class AddressBookManager: ObservableObject {
         rebuildIndex()
         persist()
         if added + updated > 0 { didChange() }
-        return (added, updated)
+        return (added, updated, skipped)
     }
 
     // MARK: - Backup

@@ -1524,3 +1524,9 @@
 "This offer can't be accepted any more." = "Bu teklif artık kabul edilemez.";
 "Only the name's owner can accept or decline this offer." = "Bu teklifi yalnızca adın sahibi kabul edebilir veya reddedebilir.";
 "Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Kabul etmek veya reddetmek için bir teklife dokun. Süresi dolan teklifler alıcılarına geri döner.";
+
+/* Audit run 3: Address Book network checks, .kachat fee re-check */
+"Every address in that file is a Mainnet address. KaChat is on Testnet." = "Bu dosyadaki tüm adresler Mainnet adresi. KaChat Testnet'te.";
+"Every address in that file is a Testnet address. KaChat is on Mainnet." = "Bu dosyadaki tüm adresler Testnet adresi. KaChat Mainnet'te.";
+"Skipped %lld from the other network." = "Diğer ağdan %lld adres atlandı.";
+"The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "Onayladığınızdan beri ağ ücreti %@ değerine çıktı. Hiçbir şey gönderilmedi. Yeni ücreti kontrol edip tekrar onaylayın.";

@@ -410,6 +410,11 @@ final class ContactsManager: ObservableObject {
         guard isValidKaspaAddress(address) else {
             throw KasiaError.invalidAddress
         }
+        // A deliberate add is of the network the app runs on: a chat with the other network's
+        // address is never read and is dropped on the next launch (IOS-063).
+        guard isAutoAdded || KaspaAddress.isValidOnActiveNetwork(address) else {
+            throw KasiaError.invalidAddress
+        }
 
         // Never the account itself - there is no one to talk to. Another of the user's OWN
         // accounts is refused only for the auto-add paths: tipping or opening a KaPost written
