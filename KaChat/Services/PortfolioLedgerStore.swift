@@ -240,7 +240,54 @@ struct PortfolioSync: Equatable {
         return newest.values.sorted { ($0.kind.rawValue, $0.id) < ($1.kind.rawValue, $1.id) }
     }
 
+    /// Folds what two devices each made on their own before sync existed (IOS-073): portfolios
+    /// with the same name and no `updatedAt` become one (the oldest id stays), their rows and
+    /// fees move with them, and a row whose `(portfolio, sourceTxId)` is already there - the same
+    /// imported transaction - is dropped (the newest copy stays).
+    static func foldEquivalents(_ sides: [PortfolioSync]) -> [PortfolioSync] {
+        var keep: [String: Portfolio] = [:]
+        for p in sides.flatMap(\.portfolios) where p.updatedAt == nil {
+            if let have = keep[p.name], have.createdAt <= p.createdAt { continue }
+            keep[p.name] = p
+        }
+        var remap: [UUID: UUID] = [:]
+        for p in sides.flatMap(\.portfolios) where p.updatedAt == nil {
+            if let canonical = keep[p.name], canonical.id != p.id { remap[p.id] = canonical.id }
+        }
+        // per imported transaction, the copy that stays: the newest edit, ties by the smaller id
+        // (the same choice on every device, so the copies don't trade places back and forth)
+        var winner: [String: PortfolioTransaction] = [:]
+        for t in sides.flatMap(\.transactions) {
+            guard let source = t.sourceTxId, !source.isEmpty else { continue }
+            let key = "\((remap[t.portfolioId] ?? t.portfolioId).uuidString):\(source)"
+            if let have = winner[key] {
+                let a = have.updatedAt ?? .distantPast, b = t.updatedAt ?? .distantPast
+                if b > a || (b == a && t.id < have.id) { winner[key] = t }
+            } else {
+                winner[key] = t
+            }
+        }
+        return sides.map { side in
+            var copy = side
+            copy.portfolios = side.portfolios.filter { remap[$0.id] == nil }
+            copy.transactions = side.transactions.compactMap { t in
+                var moved = t
+                moved.portfolioId = remap[t.portfolioId] ?? t.portfolioId
+                guard let source = moved.sourceTxId, !source.isEmpty else { return moved }
+                let key = "\(moved.portfolioId.uuidString):\(source)"
+                return winner[key]?.id == t.id ? moved : nil
+            }
+            copy.fees = side.fees.map { f in
+                guard let target = remap[f.portfolioId] else { return f }
+                return PortfolioFeeRecord(txId: f.txId, portfolioId: target, sourceAddress: f.sourceAddress,
+                                          amountSompi: f.amountSompi, timestamp: f.timestamp, fiatValue: f.fiatValue)
+            }
+            return copy
+        }
+    }
+
     static func merge(_ sides: [PortfolioSync]) -> PortfolioSync {
+        let sides = foldEquivalents(sides)
         let tombstones = mergeTombstones(sides.map(\.tombstones))
         func deletedAt(_ kind: PortfolioTombstone.Kind, _ id: String) -> Date? {
             tombstones.first { $0.kind == kind && $0.id == id }?.deletedAt
