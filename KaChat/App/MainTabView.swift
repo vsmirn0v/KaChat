@@ -110,6 +110,10 @@ struct MainTabView: View {
             }
         }
         .tint(.accentColor)
+        // the bell has something unread: Profile's dock dot, from whichever tab is showing
+        .onReceive(notifCenter.objectWillChange) { _ in syncProfileDot() }
+        .onChange(of: selectedTab) { _ in syncProfileDot() }
+        .onChange(of: AppTab.visible(from: settingsViewModel.settings)) { _ in syncProfileDot() }
         // a .kachat registration in flight: its progress half sheet, back up after a relaunch
         .modifier(KachatRegistrationPresenter())
         .toast(message: nextcloudService.syncStatusToast)
@@ -121,6 +125,7 @@ struct MainTabView: View {
             }
             chatService.startPolling()
             preloadProfileResources()
+            syncProfileDot()
             // A notification tapped from a cold start routed before this view existed - replay
             // its tab switch now that there's something to switch.
             consumePendingNotificationRoute()
@@ -281,9 +286,14 @@ struct MainTabView: View {
     /// deciding to look now and deciding to look later, and the dock is where that decision
     /// gets made - a badge with a space in it was the dot, and the space was the whole design.
     private func dockBadge(for tab: AppTab) -> Text? {
-        let count = AppTabBadge.unreadCount(for: tab)
-        guard count > 0 else { return nil }
-        return Text(AppTabBadge.label(count))
+        AppTabBadge.dockLabel(for: tab).map { Text(verbatim: $0) }
+    }
+
+    /// Profile's dot, set on the tab bar item itself (`AppTabBadge.syncProfileDot`), after the
+    /// render that triggered it so it lands on the bar SwiftUI just updated.
+    private func syncProfileDot() {
+        let tabs = AppTab.visible(from: settingsViewModel.settings)
+        DispatchQueue.main.async { AppTabBadge.syncProfileDot(dockTabs: tabs) }
     }
 
     @ViewBuilder
