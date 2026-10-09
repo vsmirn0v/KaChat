@@ -1518,3 +1518,9 @@
 "Done. It shows in KaChat now." = "完了。KaChat に表示されています。";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "まだネットワークに取り込まれていません。届かなければ何も使われません。より速い手数料でもう一度お試しください。";
 "Tap the transaction to open it in the explorer." = "トランザクションをタップするとエクスプローラーで開きます。";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "期限まで";
+"This offer can't be accepted any more." = "このオファーはもう承諾できません。";
+"Only the name's owner can accept or decline this offer." = "このオファーを承諾・辞退できるのは名前の所有者だけです。";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "オファーをタップして承諾または辞退します。期限切れのオファーは買い手に戻ります。";

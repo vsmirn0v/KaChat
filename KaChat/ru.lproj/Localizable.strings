@@ -1518,3 +1518,9 @@
 "Done. It shows in KaChat now." = "Готово. Теперь это видно в KaChat.";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "Сеть её пока не приняла. Если она так и не пройдёт, ничего не потрачено - попробуйте снова с более быстрой комиссией.";
 "Tap the transaction to open it in the explorer." = "Нажмите на транзакцию, чтобы открыть её в обозревателе.";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "Истекает через";
+"This offer can't be accepted any more." = "Это предложение больше нельзя принять.";
+"Only the name's owner can accept or decline this offer." = "Принять или отклонить это предложение может только владелец имени.";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Нажмите на предложение, чтобы принять или отклонить его. Истёкшие предложения возвращаются покупателям.";

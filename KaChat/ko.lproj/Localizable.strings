@@ -1518,3 +1518,9 @@
 "Done. It shows in KaChat now." = "완료. 이제 KaChat에 표시됩니다.";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "네트워크가 아직 받지 않았습니다. 끝내 들어가지 않으면 아무것도 쓰이지 않습니다 - 더 빠른 수수료로 다시 시도하세요.";
 "Tap the transaction to open it in the explorer." = "트랜잭션을 탭하면 익스플로러에서 열립니다.";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "만료까지";
+"This offer can't be accepted any more." = "이 제안은 더 이상 수락할 수 없습니다.";
+"Only the name's owner can accept or decline this offer." = "이 제안은 이름의 소유자만 수락하거나 거절할 수 있습니다.";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "제안을 탭해 수락하거나 거절하세요. 만료된 제안은 구매자에게 돌아갑니다.";

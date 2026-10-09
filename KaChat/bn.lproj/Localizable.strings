@@ -1518,3 +1518,9 @@
 "Done. It shows in KaChat now." = "সম্পন্ন। এখন KaChat-এ দেখা যাচ্ছে।";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "নেটওয়ার্ক এখনো নেয়নি। কখনো না পৌঁছালে কিছুই খরচ হয়নি - দ্রুত ফি দিয়ে আবার চেষ্টা করুন।";
 "Tap the transaction to open it in the explorer." = "এক্সপ্লোরারে খুলতে লেনদেনে ট্যাপ করুন।";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "মেয়াদ শেষ হবে";
+"This offer can't be accepted any more." = "এই অফার আর গ্রহণ করা যাবে না।";
+"Only the name's owner can accept or decline this offer." = "শুধু নামের মালিক এই অফার গ্রহণ বা প্রত্যাখ্যান করতে পারেন।";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "গ্রহণ বা প্রত্যাখ্যান করতে একটি অফারে ট্যাপ করুন। মেয়াদোত্তীর্ণ অফার ক্রেতার কাছে ফিরে যায়।";

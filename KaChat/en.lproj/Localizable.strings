@@ -1519,3 +1519,9 @@
 "Done. It shows in KaChat now." = "Done. It shows in KaChat now.";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee.";
 "Tap the transaction to open it in the explorer." = "Tap the transaction to open it in the explorer.";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "Expires in";
+"This offer can't be accepted any more." = "This offer can't be accepted any more.";
+"Only the name's owner can accept or decline this offer." = "Only the name's owner can accept or decline this offer.";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Tap an offer to accept or decline it. Expired offers go back to their buyers.";

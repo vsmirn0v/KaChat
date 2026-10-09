@@ -1518,3 +1518,9 @@
 "Done. It shows in KaChat now." = "Selesai. Sekarang tampil di KaChat.";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "Jaringan belum menerimanya. Jika tidak pernah masuk, tidak ada yang terpakai - coba lagi dengan biaya lebih cepat.";
 "Tap the transaction to open it in the explorer." = "Ketuk transaksi untuk membukanya di explorer.";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "Berakhir dalam";
+"This offer can't be accepted any more." = "Penawaran ini tidak bisa diterima lagi.";
+"Only the name's owner can accept or decline this offer." = "Hanya pemilik nama yang bisa menerima atau menolak penawaran ini.";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Ketuk penawaran untuk menerima atau menolaknya. Penawaran yang kedaluwarsa kembali ke pembelinya.";

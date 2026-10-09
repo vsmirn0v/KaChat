@@ -1518,3 +1518,9 @@
 "Done. It shows in KaChat now." = "تم. تظهر في KaChat الآن.";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "لم تقبلها الشبكة بعد. لن يُنفق شيء إن لم تصل أبدًا - أعد المحاولة برسوم أسرع.";
 "Tap the transaction to open it in the explorer." = "اضغط المعاملة لفتحها في المستكشف.";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "ينتهي خلال";
+"This offer can't be accepted any more." = "لم يعد بالإمكان قبول هذا العرض.";
+"Only the name's owner can accept or decline this offer." = "مالك الاسم وحده يمكنه قبول هذا العرض أو رفضه.";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "اضغط عرضًا لقبوله أو رفضه. العروض المنتهية تعود إلى أصحابها.";

@@ -1518,3 +1518,9 @@
 "Done. It shows in KaChat now." = "Xong. Giờ đã hiển thị trong KaChat.";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "Mạng chưa nhận giao dịch. Nếu nó không bao giờ vào, không có gì bị tiêu - hãy thử lại với phí nhanh hơn.";
 "Tap the transaction to open it in the explorer." = "Chạm vào giao dịch để mở trong trình khám phá.";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "Hết hạn sau";
+"This offer can't be accepted any more." = "Không thể chấp nhận đề nghị này nữa.";
+"Only the name's owner can accept or decline this offer." = "Chỉ chủ sở hữu tên mới có thể chấp nhận hoặc từ chối đề nghị này.";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Chạm vào một đề nghị để chấp nhận hoặc từ chối. Đề nghị hết hạn sẽ trả lại người mua.";

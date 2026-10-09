@@ -1518,3 +1518,9 @@
 "Done. It shows in KaChat now." = "完成。现在已在 KaChat 中显示。";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "网络尚未接收。如果始终未上链，不会花费任何东西——请用更快的费用重试。";
 "Tap the transaction to open it in the explorer." = "点按交易可在浏览器中打开。";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "剩余时间";
+"This offer can't be accepted any more." = "此报价已无法接受。";
+"Only the name's owner can accept or decline this offer." = "只有该名称的所有者才能接受或拒绝此报价。";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "点按报价即可接受或拒绝。过期的报价会退回给买家。";

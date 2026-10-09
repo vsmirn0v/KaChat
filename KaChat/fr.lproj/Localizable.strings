@@ -1519,3 +1519,9 @@
 "Done. It shows in KaChat now." = "Terminé. C'est visible dans KaChat.";
 "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee." = "Le réseau ne l'a pas encore prise. Si elle n'arrive jamais, rien n'est dépensé - réessayez avec des frais plus rapides.";
 "Tap the transaction to open it in the explorer." = "Touchez la transaction pour l'ouvrir dans l'explorateur.";
+
+/* .kachat offers: tiles and half sheet */
+"Expires in" = "Expire dans";
+"This offer can't be accepted any more." = "Cette offre ne peut plus être acceptée.";
+"Only the name's owner can accept or decline this offer." = "Seul le propriétaire du nom peut accepter ou refuser cette offre.";
+"Tap an offer to accept or decline it. Expired offers go back to their buyers." = "Touchez une offre pour l'accepter ou la refuser. Les offres expirées retournent à leurs acheteurs.";

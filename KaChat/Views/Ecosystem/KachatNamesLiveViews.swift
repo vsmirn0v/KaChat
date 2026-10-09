@@ -1158,21 +1158,22 @@ struct KachatLiveAvailablePage: View {
 struct KachatMyOffersSection: View {
     let offers: [KachatNames.OfferInfo]
     @ObservedObject private var registry = KachatNamesRegistry.shared
-    @State private var offerAction: KachatOfferAction?
+    @State private var openOffer: KachatNames.OfferInfo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             KachatLiveSectionHeader(title: "My Offers", detail: "Offers you made. Withdraw one any time; once it expires it comes back to you on its own.")
-            VStack(spacing: 0) {
-                ForEach(Array(offers.enumerated()), id: \.element.id) { index, o in
-                    KachatOfferRow(offer: o, isBuyer: true, isOwner: false) { offerAction = $0 }
-                    if index < offers.count - 1 { Divider().padding(.leading, 50) }
+            KachatNameGrid {
+                ForEach(offers) { o in
+                    KachatOfferTile(state: KachatOfferState(offer: o, isBuyer: true, isOwner: false), showsName: true) {
+                        openOffer = o
+                    }
                 }
             }
-            .kachatGlass()
-            .padding(.horizontal, 16)
         }
-        .sheet(item: $offerAction) { action in action.sheet }
+        .sheet(item: $openOffer) { o in
+            KachatOfferDetailSheet(state: KachatOfferState(offer: o, isBuyer: true, isOwner: false))
+        }
     }
 }
 
@@ -1286,23 +1287,31 @@ struct KachatOfferAction: Identifiable {
 
     var id: String { "\(kind)-\(offer.id)" }
 
+    /// The action as its own sheet.
     @ViewBuilder @MainActor
     var sheet: some View {
+        form(embedded: false, onDone: { _ in })
+    }
+
+    /// The action's transaction screen; `embedded` pushes it inside the offer's half sheet
+    /// (`KachatOfferDetailSheet`), with Back instead of Cancel.
+    @ViewBuilder @MainActor
+    func form(embedded: Bool, onDone: @escaping (String) -> Void) -> some View {
         switch kind {
         case .withdraw:
             KachatTxSheet(
                 title: "Withdraw Offer", confirmTitle: "Withdraw",
                 authReason: KachatLive.authReason, doneTitle: "Offer withdrawn",
                 rows: [.init(title: "Offer", value: KaspaUnit.amount(offer.amount))],
-                operation: .withdraw(offer), operationKey: offer.id
-            )
+                operation: .withdraw(offer), operationKey: offer.id, onDone: onDone, embedded: embedded
+            ) { EmptyView() }
         case .refund:
             KachatTxSheet(
                 title: "Refund Offer", confirmTitle: "Refund",
                 authReason: KachatLive.authReason, doneTitle: "Offer refunded",
                 rows: [.init(title: "Offer", value: KaspaUnit.amount(offer.amount))],
-                operation: .refund(offer), operationKey: offer.id
-            )
+                operation: .refund(offer), operationKey: offer.id, onDone: onDone, embedded: embedded
+            ) { EmptyView() }
         case .accept:
             if let n = name {
                 KachatTxSheet(
@@ -1311,8 +1320,8 @@ struct KachatOfferAction: Identifiable {
                     warning: "The name goes to the buyer and the offer's amount comes to you, in one transaction. This can't be undone.",
                     rows: [.init(title: "Name", value: n.display), .init(title: "Offer", value: KaspaUnit.amount(offer.amount)),
                            .init(title: "Buyer", value: KachatNamesRegistry.address(of: offer.buyer).map(KachatNamesRegistry.shortAddress) ?? "")],
-                    operation: .accept(offer, name: n), operationKey: offer.id
-                )
+                    operation: .accept(offer, name: n), operationKey: offer.id, onDone: onDone, embedded: embedded
+                ) { EmptyView() }
             }
         case .decline:
             KachatTxSheet(
@@ -1321,37 +1330,41 @@ struct KachatOfferAction: Identifiable {
                 footer: "The offer goes back to the buyer. Its network fee comes out of the offer, so declining costs you nothing.",
                 rows: [.init(title: "Offer", value: KaspaUnit.amount(offer.amount)),
                        .init(title: "Buyer", value: KachatNamesRegistry.address(of: offer.buyer).map(KachatNamesRegistry.shortAddress) ?? "")],
-                operation: .decline(offer), operationKey: "decline-\(offer.id)"
-            )
+                operation: .decline(offer), operationKey: "decline-\(offer.id)", onDone: onDone, embedded: embedded
+            ) { EmptyView() }
         }
     }
 }
 
-struct KachatOfferRow: View {
+/// What an offer is and what this wallet can do with it - shared by its tile and its half sheet.
+struct KachatOfferState {
     let offer: KachatNames.OfferInfo
     let isBuyer: Bool
     let isOwner: Bool
-    let onAction: (KachatOfferAction) -> Void
     var name: KachatNames.NameInfo?
     /// Made before the name changed hands: never acceptable, and on its way back to the buyer.
     var declined = false
 
-    @ObservedObject private var actions = KachatNamesActions.shared
-
-    private var refundable: Bool { actions.virtualDaa.map { offer.refundable(atDaa: $0) } ?? false }
-    private var returning: Bool { actions.returningOffers.contains(offer.id) }
+    @MainActor private var actions: KachatNamesActions { KachatNamesActions.shared }
+    @MainActor var refundable: Bool { actions.virtualDaa.map { offer.refundable(atDaa: $0) } ?? false }
+    @MainActor var returning: Bool { actions.returningOffers.contains(offer.id) }
+    /// Declined and being pulled back by this app (the buyer's).
+    @MainActor var withdrawing: Bool { actions.withdrawingOffers.contains(offer.id) }
     /// The owner can take it: still inside its time (an expired one is on its way back), and the
     /// name itself still active - an expired name would reach the buyer only to be reclaimed.
-    private var acceptable: Bool { isOwner && !refundable && !declined && nameActive }
-    @MainActor private var nameActive: Bool {
+    @MainActor var acceptable: Bool { isOwner && !refundable && !declined && nameActive }
+    @MainActor var nameActive: Bool {
         guard let name else { return false }
         return name.status(graceMs: KachatNamesRegistry.shared.graceMs) == .active
     }
-    /// Declined and being pulled back by this app (the buyer's).
-    private var withdrawing: Bool { actions.withdrawingOffers.contains(offer.id) }
+    @MainActor var dimmed: Bool { refundable || declined || withdrawing }
+    /// Anyone may send an expired offer back; this app does it on its own for its own offers.
+    @MainActor var canRefund: Bool { refundable && !returning }
 
-    /// "Expires in 2d 4h", from the DAA score it becomes refundable at (10 per second).
-    private var expiresIn: String? {
+    var buyerAddress: String? { KachatNamesRegistry.address(of: offer.buyer) }
+
+    /// "2d 21h": how long until it can be refunded (10 DAA per second), nil once it can.
+    @MainActor var timeLeft: String? {
         guard let daa = actions.virtualDaa, !refundable else { return nil }
         let seconds = Double(UInt64(max(offer.refundAfter, 0)) - daa) / Double(KachatLive.daaPerSecond)
         let f = DateComponentsFormatter()
@@ -1359,76 +1372,206 @@ struct KachatOfferRow: View {
         f.unitsStyle = .abbreviated
         f.maximumUnitCount = 2
         f.calendar?.locale = AppLocalization.locale
-        guard let left = f.string(from: max(60, seconds)) else { return nil }
-        return String(format: AppLocalization.string("Expires in %@"), left)
+        return f.string(from: max(60, seconds))
     }
+
+    /// An expired or declined offer's state, in orange; nil for an open one.
+    @MainActor var statusText: LocalizedStringKey? {
+        if declined || withdrawing {
+            return isBuyer ? "Declined - the name changed hands, returning to you" : "Declined - made to an earlier owner"
+        }
+        if refundable {
+            return returning || isOwner
+                ? (isBuyer ? "Expired - returning to you" : "Expired - returning to the buyer")
+                : "Expired - refundable now"
+        }
+        return nil
+    }
+}
+
+/// One offer as a square tile: the amount, who made it, and when it expires. Tapping it opens
+/// its half sheet (`KachatOfferDetailSheet`) to accept, decline, withdraw or refund it.
+struct KachatOfferTile: View {
+    let state: KachatOfferState
+    /// The name it is for, on tiles shown away from that name's page (My Offers).
+    var showsName = false
+    let onTap: () -> Void
+    @ObservedObject private var actions = KachatNamesActions.shared
 
     var body: some View {
-        // A tap anywhere on the row opens the accept flow for the owner (a gesture, not a
-        // wrapping Button: the buttons inside keep their own taps).
-        content
-            .onTapGesture {
-                if acceptable { onAction(KachatOfferAction(kind: .accept, offer: offer, name: name)) }
-            }
-            .accessibilityAddTraits(acceptable ? .isButton : [])
-            .opacity(refundable || declined || withdrawing ? 0.6 : 1)
-    }
-
-    private var content: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "hand.raised").foregroundColor(.accentColor).frame(width: 24)
-            VStack(alignment: .leading, spacing: 3) {
-                if let n = offer.name {
-                    Text(verbatim: "\(n).kachat").font(.subheadline.weight(.semibold))
+        Button(action: onTap) {
+            VStack(spacing: 6) {
+                Spacer(minLength: 0)
+                Image(systemName: "hand.raised.fill")
+                    .foregroundColor(.accentColor)
+                Text(verbatim: KaspaUnit.amount(state.offer.amount))
+                    .font(.headline.weight(.bold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                if showsName, let n = state.offer.name {
+                    Text(verbatim: "\(n).kachat")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                        .lineLimit(1)
                 }
                 Group {
-                    if isBuyer {
+                    if state.isBuyer {
                         Text("Your offer")
-                    } else if let a = KachatNamesRegistry.address(of: offer.buyer) {
+                    } else if let a = state.buyerAddress {
                         Text(verbatim: KachatNamesRegistry.shortAddress(a))
                     }
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
-                if declined || withdrawing {
-                    Text(isBuyer ? LocalizedStringKey("Declined - the name changed hands, returning to you") : LocalizedStringKey("Declined - made to an earlier owner"))
-                        .font(.caption2).foregroundColor(.orange)
-                } else if refundable {
-                    Text(returning || isOwner
-                         ? (isBuyer ? LocalizedStringKey("Expired - returning to you") : LocalizedStringKey("Expired - returning to the buyer"))
-                         : LocalizedStringKey("Expired - refundable now"))
-                        .font(.caption2).foregroundColor(.orange)
-                } else if let expiresIn {
-                    Text(verbatim: expiresIn).font(.caption2).foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                if let status = state.statusText {
+                    Text(status)
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                } else if let left = state.timeLeft {
+                    Text(String(format: AppLocalization.string("Expires in %@"), left))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 8)
-            Text(verbatim: KaspaUnit.amount(offer.amount)).font(.subheadline.weight(.semibold))
-            if isBuyer {
-                Menu {
-                    Button("Withdraw") { onAction(KachatOfferAction(kind: .withdraw, offer: offer)) }
-                    if refundable {
-                        Button("Refund") { onAction(KachatOfferAction(kind: .refund, offer: offer)) }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 140)
+            .kachatGlass()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(state.dimmed ? 0.6 : 1)
+    }
+}
+
+/// An offer's half sheet: the amount, who made it and when it expires, and what this wallet can
+/// do - Accept or Decline (the name's owner), Withdraw or Refund (the buyer), Refund (anyone,
+/// once expired). Each opens its transaction inside this sheet; when it's sent the sheet closes.
+struct KachatOfferDetailSheet: View {
+    let state: KachatOfferState
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var actions = KachatNamesActions.shared
+    @State private var finished = false
+    @State private var copied = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(spacing: 6) {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.title2)
+                            .foregroundColor(.accentColor)
+                        Text(verbatim: KaspaUnit.amount(state.offer.amount))
+                            .font(.largeTitle.weight(.bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                        if let n = state.offer.name ?? state.name?.name {
+                            Text(verbatim: "\(n).kachat")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(.accentColor)
+                        }
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                    .padding(.top, 4)
+
+                    KachatCard {
+                        HStack {
+                            Text("From")
+                            Spacer()
+                            if state.isBuyer {
+                                Text("You").fontWeight(.semibold)
+                            } else if let a = state.buyerAddress {
+                                Button {
+                                    UIPasteboard.general.string = a
+                                    copied = true
+                                    Haptics.success()
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(verbatim: KachatNamesRegistry.shortAddress(a))
+                                            .font(.subheadline.monospaced())
+                                            .lineLimit(1)
+                                        Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.caption)
+                                    }
+                                    .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        if let left = state.timeLeft {
+                            HStack {
+                                Text("Expires in")
+                                Spacer()
+                                Text(verbatim: left).foregroundColor(.secondary)
+                            }
+                        }
+                        if let status = state.statusText {
+                            Text(status)
+                                .font(.footnote)
+                                .foregroundColor(.orange)
+                        }
+                    }
+
+                    actionButtons
                 }
-            } else if acceptable {
-                Menu {
-                    Button("Decline", role: .destructive) { onAction(KachatOfferAction(kind: .decline, offer: offer)) }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                .padding(16)
+            }
+            .navigationTitle("Offer")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+            }
+            // back from a sent action: the offer is settled, so the sheet closes
+            .onAppear { if finished { dismiss() } }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        VStack(spacing: 10) {
+            if state.acceptable {
+                actionLink("Accept", systemImage: "checkmark.circle", prominent: true, kind: .accept)
+                actionLink("Decline", systemImage: "xmark.circle", prominent: false, kind: .decline)
+            } else if state.isBuyer {
+                actionLink("Withdraw", systemImage: "arrow.uturn.backward.circle", prominent: !state.canRefund, kind: .withdraw)
+                if state.canRefund {
+                    actionLink("Refund", systemImage: "arrow.counterclockwise.circle", prominent: true, kind: .refund)
                 }
-                Button("Accept") { onAction(KachatOfferAction(kind: .accept, offer: offer, name: name)) }
-                    .buttonStyle(.borderedProminent)
-            } else if refundable, !returning {
-                Button("Refund") { onAction(KachatOfferAction(kind: .refund, offer: offer)) }
-                    .buttonStyle(.bordered)
+            } else if state.canRefund {
+                actionLink("Refund", systemImage: "arrow.counterclockwise.circle", prominent: true, kind: .refund)
+            } else if state.isOwner {
+                Text("This offer can't be accepted any more.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Only the name's owner can accept or decline this offer.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .contentShape(Rectangle())
+    }
+
+    private func actionLink(_ title: LocalizedStringKey, systemImage: String, prominent: Bool, kind: KachatOfferAction.Kind) -> some View {
+        NavigationLink {
+            KachatOfferAction(kind: kind, offer: state.offer, name: state.name)
+                .form(embedded: true) { _ in finished = true }
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    Capsule().fill(prominent ? Color.accentColor : Color.accentColor.opacity(0.15))
+                )
+                .foregroundColor(prominent ? .black : (kind == .decline ? .red : .accentColor))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -1975,7 +2118,8 @@ struct KachatLiveNameDetail: View {
     @State private var showManage = false
     @State private var pendingSheet: Sheet?
     @State private var pendingPrimary = false
-    @State private var offerAction: KachatOfferAction?
+    /// The offer whose half sheet is open (`KachatOfferDetailSheet`).
+    @State private var openOffer: KachatNames.OfferInfo?
     @State private var ownerLabel: String?
     @State private var offers: [KachatNames.OfferInfo] = []
     @State private var history: [KachatNames.Event] = []
@@ -2049,7 +2193,7 @@ struct KachatLiveNameDetail: View {
         }) {
             manageSheet
         }
-        .sheet(item: $offerAction) { action in action.sheet }
+        .sheet(item: $openOffer) { o in KachatOfferDetailSheet(state: offerState(o)) }
         .sheet(isPresented: $confirmPrimary) {
             KachatProfileSaveSheet(title: "Set as Primary", confirmTitle: "Set as Primary", doneTitle: "Primary name set",
                                    makeProfile: { await primaryProfile() })
@@ -2371,9 +2515,15 @@ struct KachatLiveNameDetail: View {
         }
     }
 
+    /// One offer on this name, as this wallet sees it.
+    private func offerState(_ o: KachatNames.OfferInfo) -> KachatOfferState {
+        KachatOfferState(offer: o, isBuyer: KachatLive.isMine(o.buyer), isOwner: canActAsOwner && registry.source?.isIndexer == true,
+                         name: info, declined: o.isDeclined(currentOwner: info.owner))
+    }
+
     private var offersSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            KachatLiveSectionHeader(title: "Offers", detail: canActAsOwner ? "Tap an offer to accept it. Expired offers go back to their buyers." : nil)
+            KachatLiveSectionHeader(title: "Offers", detail: canActAsOwner ? "Tap an offer to accept or decline it. Expired offers go back to their buyers." : nil)
             if offers.isEmpty {
                 Text("No open offers.")
                     .font(.subheadline)
@@ -2383,16 +2533,11 @@ struct KachatLiveNameDetail: View {
                     .kachatGlass()
                     .padding(.horizontal, 16)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(offers.enumerated()), id: \.element.id) { index, o in
-                        KachatOfferRow(offer: o, isBuyer: KachatLive.isMine(o.buyer), isOwner: canActAsOwner && registry.source?.isIndexer == true,
-                                       onAction: { offerAction = $0 }, name: info,
-                                       declined: o.isDeclined(currentOwner: info.owner))
-                        if index < offers.count - 1 { Divider().padding(.leading, 50) }
+                KachatNameGrid {
+                    ForEach(offers) { o in
+                        KachatOfferTile(state: offerState(o)) { openOffer = o }
                     }
                 }
-                .kachatGlass()
-                .padding(.horizontal, 16)
             }
             if registry.source == .chain {
                 Text("Offers from others appear once a names indexer is connected.")
