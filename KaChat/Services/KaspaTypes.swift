@@ -50,9 +50,26 @@ extension Sequence where Element == UTXO {
         }
         return total
     }
+
+    /// A node's or REST API's answer as the app may use it: no coin can hold more than Kaspa's
+    /// whole supply, and neither can all of them together. A response that breaks that is a
+    /// broken or hostile peer's, refused where it's decoded, so every plain `+` over UTXOs further
+    /// on (balances, contact sums, Max) stays far from UInt64.max (IOS-020).
+    func checkedFromNetwork() throws -> [UTXO] {
+        let list = Array(self)
+        guard list.allSatisfy({ $0.amount <= UTXO.maxSompi }),
+              let total = list.checkedTotalAmount, total <= UTXO.maxSompi else {
+            throw KasiaError.networkError("Invalid UTXO data: amount above the Kaspa supply")
+        }
+        return list
+    }
 }
 
 struct UTXO {
+    /// A little above Kaspa's 28.7 billion KAS supply, in sompi: more than any coin, or any set
+    /// of coins, can hold.
+    static let maxSompi: UInt64 = 29_000_000_000 * 100_000_000
+
     let address: String
     let outpoint: Outpoint
     let amount: UInt64
@@ -329,6 +346,12 @@ enum GrpcNotificationParser {
             )
         }
 
+        // more than the Kaspa supply is a broken or hostile node's (IOS-020)
+        let sum = (added + removed).reduce(into: (total: UInt64(0), overflow: false)) { acc, e in
+            let (next, o) = acc.total.addingReportingOverflow(e.amount)
+            acc = (next, acc.overflow || o)
+        }
+        guard !sum.overflow, sum.total <= UTXO.maxSompi * 2 else { return nil }
         return ParsedUtxosChangedNotification(added: added, removed: removed)
     }
 }

@@ -303,7 +303,7 @@ final class KaspaRPCRouter: ObservableObject {
                 throw KasiaError.networkError(utxoResponse.error.message)
             }
 
-            return utxoResponse.entries.compactMap { entry -> UTXO? in
+            return try utxoResponse.entries.compactMap { entry -> UTXO? in
                 guard entry.hasUtxoEntry, entry.hasOutpoint else { return nil }
 
                 let utxoEntry = entry.utxoEntry
@@ -323,7 +323,7 @@ final class KaspaRPCRouter: ObservableObject {
                     isCoinbase: utxoEntry.isCoinbase,
                     covenantId: utxoEntry.covenantID.isEmpty ? nil : utxoEntry.covenantID
                 )
-            }
+            }.checkedFromNetwork()
         }
     }
 
