@@ -1180,7 +1180,8 @@ final class KachatNamesActions: ObservableObject {
     /// Frees a lapsed old record of `p`'s name (a reclaim) and notes the gap it reopens.
     private func sendReclaim(of n: KachatNames.NameInfo, for p: KachatNames.PendingRegistration) async throws {
         let gaps = try await registry.exitGaps(for: n)
-        let txId = try await perform(.reclaim(n), fee: p.feeTier.flatMap(WithdrawFeeTier.init(rawValue:)).map { .tier($0) })
+        // sent with no fee shown, like the register: the chosen speed under the background cap (IOS-061)
+        let txId = try await perform(.reclaim(n), exactFeerate: await registrationFeerate(p))
         set(p) {
             $0.reclaimTxId = txId
             $0.reclaimLo = KachatNames.hex(gaps.below.lo)
