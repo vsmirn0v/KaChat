@@ -136,8 +136,10 @@ extension KachatNames {
                 "KachatGap": "9f057f406361583eb2b94956825f86a2d8cc47d3c8800f05855a3e75b39d8bf5",
                 "KachatName": "c263a8c2cb4bdfac3234675114fc3ce4ba5a1d26c12e887c3d3b2ca89460b56b"
             ],
+            // the audited contracts (kachat-domains fbd9cf2, audit C2: no other covenant's input
+            // shares the fee) - the name changed with them
             5: [
-                "KachatName": "c263a8c2cb4bdfac3234675114fc3ce4ba5a1d26c12e887c3d3b2ca89460b56b"
+                "KachatName": "9d4f91bfd7aea47f8529104d260dc7b80c673fe04e2595b21abe47209c39e0e8"
             ]
         ]
 
@@ -151,11 +153,11 @@ extension KachatNames {
         /// carry exactly this; any other registry (a dry run, the test vectors) has no such pin, so
         /// only a bundled manifest of it is trusted.
         static let deployedTemplateHashes: [String: [String: String]] = [
-            // testnet-10 registry v5, the migration drill of 2026-10-09: genesis 408682e6..dfda5,
-            // imports the day-clock v4 registry e6b72448..7f0d (snapshot of 6 names)
-            "fdc403f5ef76ea7c71dcb5305d09daf7ab7fd68dc1d274a314fc8ca9111e571d": [
-                "KachatGap": "afce97e05a6341ea7768252a264c65882b92105f8d7158a3ac63f68fbe1615cb",
-                "KachatOffer": "9d6e666481ea80e27565e68c01e6de51b32660d2f91368d9b80e4ee00b981d6d"
+            // testnet-10 registry v5 on the audited contracts, 2026-10-09: genesis b6223f0f..e24f,
+            // imports the drill registry fdc403f5..571d (snapshot of 6 names); offerMaxFee 0.1 KAS
+            "1283f749506c454488a6b7264197658ed1c12051f1887905c4396243a89fbfa2": [
+                "KachatGap": "9fe90632a60e8771f2b8ac5e4368d5f4a2990fb9e5ad0fa6f3771b6287ee4242",
+                "KachatOffer": "7cb988f2b608aa5575bed8455b006f4ce11b8c2ac09aae377d41b1f94c935100"
             ],
             // testnet-10 registry v4 on the day clock, 2026-10-07: genesis 5ffdd006..a777 (the
             // 10-minute deployment bff18554..0e2f before it is retired: its gap and name aren't pinned)

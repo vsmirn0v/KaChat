@@ -5,7 +5,8 @@
 > owner and paid period (unlisted). Only the gap changes (`contracts/v5/KachatGap.sil`, 7.7 kB,
 > new `import` entry, tag `aa4cc365`); the name and offer are v4's. `register` is refused until
 > `params.migration.deadlineMs`. The spec is `docs/REGISTRY_V5.md` in kachat-domains. The live
-> registry is the migration drill: genesis `408682e6…dfda5`, registry `fdc403f5…571d`, imported
+> registry runs the audited contracts (audit C2; kachat-domains e99bbac): genesis `b6223f0f…e24f`,
+> registry `1283f749…bfa2`, imported from the drill registry `fdc403f5…571d`, itself imported
 > from the day-clock v4 registry `e6b72448…7f0d` (6 names). In the app:
 >
 > - **Manifest:** `registryVersion` 4 or 5. A v5 manifest needs `params.migration`. The v5 gap is
@@ -460,7 +461,7 @@ screens run on the live registry. Mainnet is unchanged: mockups, "Coming soon", 
 
 | File | What |
 |---|---|
-| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled: registry v5 (`registryVersion: 5`) since 2026-10-09 (genesis `408682e6…dfda5`, registry `fdc403f5…571d`, imported from v4 `e6b72448…7f0d`; 24-hour periods, 6-hour grace, 2-hour renewal window) |
+| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled: registry v5 (`registryVersion: 5`) on the audited contracts since 2026-10-09 (genesis `b6223f0f…e24f`, registry `1283f749…bfa2`, imported from `fdc403f5…571d`; 24-hour periods, 6-hour grace, 2-hour renewal window, offer fee cap 0.1 KAS) |
 | `KaChat/Services/KachatNames/KachatNamesRegistryState.swift` | pure: status (B5), label rule, profile record, REST tx parser, indexer shapes, the walker state and its decoder (`apply`, a port of the CLI's `Registry::apply`), the walk loop |
 | `KaChat/Services/KachatNames/KachatNamesRegistry.swift` | `@MainActor` reads: lookup, by owner, listings, lapsed, offers, history, activity, exit gaps, identity; source = names indexer or chain walker; cache in Application Support |
 | `KaChat/Services/KachatNames/KachatNamesActions.swift` | `@MainActor` actions (extend, renew, transfer, list, buy, offer, withdraw, refund, accept, release, reclaim, profile), quotes, the resumable registration driver, cancel commit |
