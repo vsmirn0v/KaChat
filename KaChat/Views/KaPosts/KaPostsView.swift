@@ -2012,7 +2012,7 @@ struct KaPostsView: View {
             menuReplyComposerTarget = nil
             showComposer = false
             DispatchQueue.main.asyncAfter(deadline: .now() + (hadSheetUp ? 0.4 : 0)) {
-                kaPostsPresent { profileTarget = PosterProfileTarget(address: resolution.ownerAddress, pubkey: pubkey) }
+                kaPostsPresent { profileTarget = PosterProfileTarget(address: address, pubkey: pubkey) }
             }
         }
     }

@@ -1595,8 +1595,9 @@ final class PublicChatService: ObservableObject {
                     let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
                     let hits = Self.extractPublicChatHits(block, hrp: hrp)
                     guard !hits.isEmpty else { return }
-                    Task {
-                        // only posts whose input 0 spends from the posting address (XP-012)
+                    Task { @MainActor in
+                        // only posts whose input 0 spends from the posting address (XP-012);
+                        // verifiedAuthors is nonisolated, so the lookups run off the main actor
                         let verified = await Self.verifiedAuthors(hits, hrp: hrp)
                         guard !verified.isEmpty else { return }
                         await self?.processPublicChatHits(verified)
