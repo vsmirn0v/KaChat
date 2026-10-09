@@ -645,6 +645,22 @@ final class NodePoolService: ObservableObject {
         }
     }
 
+    /// `submitRpcTransaction` with the same lookup as `submitTransaction`: a failed submit of a
+    /// transaction the network already has (by its locally computed `expectedTxId`) is a send.
+    /// For the version-1 builders (`.kachat`), whose transactions aren't `KaspaRpcTransaction`s.
+    func submitRpcTransaction(_ rpcTransaction: Protowire_RpcTransaction, expectedTxId: String) async throws -> (txId: String, endpoint: String) {
+        do {
+            return try await submitRpcTransaction(rpcTransaction)
+        } catch {
+            if await isTransactionKnown(txId: expectedTxId) {
+                AppLog.log("[NodePool] submit of %@ reported \"%@\" but the network has it: treated as sent",
+                           String(expectedTxId.prefix(12)), error.localizedDescription)
+                return (txId: expectedTxId, endpoint: "already-known")
+            }
+            throw error
+        }
+    }
+
     private static func isOrphanRejection(_ error: Error) -> Bool {
         error.localizedDescription.lowercased().contains("orphan")
     }

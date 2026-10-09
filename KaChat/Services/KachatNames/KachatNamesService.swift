@@ -325,7 +325,9 @@ final class KachatNamesService: ObservableObject {
     func submit(_ tx: KachatNames.Tx) async throws -> String {
         try requireLaunched()
         let expected = tx.idHex
-        let (txId, endpoint) = try await NodePoolService.shared.submitRpcTransaction(Self.rpcTransaction(tx))
+        // a node can accept it while its answer is lost and a raced node rejects it: looked up
+        // by id before failing, so a retry never pays a price twice (IOS-014)
+        let (txId, endpoint) = try await NodePoolService.shared.submitRpcTransaction(Self.rpcTransaction(tx), expectedTxId: expected)
         AppLog.log("[KachatNames] submitted %@ via %@", txId, endpoint)
         guard txId.lowercased() == expected else { throw ServiceError.submitMismatch(expected: expected, got: txId) }
         // A name transaction moves KAS to contracts (commit, bond, offers): keep it out of the
