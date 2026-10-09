@@ -1505,8 +1505,9 @@ struct KachatBusyNetworkNotice: View {
 
 /// Every action's sheet, in the Send screens' style: what it does (a card), its inputs (cards),
 /// the network fee with Normal / Fast / Priority or a custom amount (and a notice when the
-/// network is busy), the cost, and slide to confirm - an extra warning for the destructive ones -
-/// then the device lock, then the transaction. Ends on a receipt that follows it into a block.
+/// network is busy), the cost, and slide to confirm - the destructive ones show their warning in
+/// red above it; the slide itself is the confirmation - then the device lock, then the
+/// transaction. Ends on a receipt that follows it into a block.
 struct KachatTxSheet<Inputs: View>: View {
     let title: LocalizedStringKey
     let confirmTitle: LocalizedStringKey
@@ -1530,7 +1531,6 @@ struct KachatTxSheet<Inputs: View>: View {
     @State private var planError: String?
     @State private var building = false
     @State private var sending = false
-    @State private var confirmWarning = false
     @State private var txId: String?
     @State private var done: KachatTxDone?
     @State private var sendError: String?
@@ -1631,8 +1631,10 @@ struct KachatTxSheet<Inputs: View>: View {
                 }
 
                 if txId == nil {
+                    // The slide is the confirmation: no second prompt, even for the destructive ones
+                    // (their warning is the red card above).
                     SendActionButton(title: confirmTitle, isBusy: sending, isEnabled: plan != nil && !building) {
-                        if warning != nil { confirmWarning = true } else { authorize() }
+                        authorize()
                     }
                     .padding(.top, 4)
                 }
@@ -1671,12 +1673,6 @@ struct KachatTxSheet<Inputs: View>: View {
             customFee = nil
         }
         .sheet(item: $done, onDismiss: { dismiss() }) { KachatTxDoneSheet(done: $0) }
-        .alert(Text(title), isPresented: $confirmWarning) {
-            Button(confirmTitle, role: .destructive) { authorize() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            if let warning { Text(warning) }
-        }
     }
 
     private func rebuild() async {
