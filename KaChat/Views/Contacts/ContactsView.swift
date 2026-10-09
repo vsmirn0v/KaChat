@@ -14,7 +14,7 @@ struct ProfileView: View {
     // whole Profile scroll recompute on ChatService's high-frequency sync churn (per-message
     // `conversations` mutations, per-RPC node-latency updates) for the first ~15s after login,
     // which was the scroll jank. The connection dot is its own small view with its own observation.
-    // Same reasoning for ContactsManager: its only use here is one call inside `donate()`, via
+    // Same reasoning for ContactsManager: it is only called into here, via
     // ContactsManager.shared, so observing it made every contact mutation (KNS sweeps, system
     // contact imports, alias edits) rebuild this whole scroll for nothing.
     @EnvironmentObject var settingsViewModel: SettingsViewModel
@@ -71,7 +71,9 @@ struct ProfileView: View {
     @State private var showSettings = false
     @State private var showNotifCenter = false
     @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
-    @State private var isResolvingDonateAddress = false
+    /// Donate: the Send screen, addressed to KaChat's .kachat name
+    @State private var showDonateSheet = false
+    private static let donateName = "kachat.kachat"
     @State private var showOpenSourceLicenses = false
     @State private var showLogoutConfirmation = false
     @State private var showWelcomeGuideReplay = false
@@ -294,6 +296,14 @@ struct ProfileView: View {
             .sheet(isPresented: $showWithdrawSheet) {
                 if let wallet = walletManager.currentWallet {
                     WithdrawKaspaView(fromAddress: wallet.publicAddress, availableBalanceSompi: wallet.balanceSompi)
+                }
+            }
+            // Donate goes straight to Send with KaChat's name filled in: it resolves like any
+            // typed name (.kachat first, the others under Other domains), no chat opened
+            .sheet(isPresented: $showDonateSheet) {
+                if let wallet = walletManager.currentWallet {
+                    WithdrawKaspaView(fromAddress: wallet.publicAddress, availableBalanceSompi: wallet.balanceSompi,
+                                      prefillAddress: Self.donateName)
                 }
             }
             .sheet(isPresented: $showSpendingAddressWithdraw) {
@@ -1444,26 +1454,19 @@ struct ProfileView: View {
 
                 Divider().padding(.leading, 16)
                 Button {
-                    Task {
-                        await donate()
-                    }
+                    showDonateSheet = true
                 } label: {
                     HStack {
                         Text("Donate")
                             .foregroundColor(.primary)
                         Spacer()
-                        if isResolvingDonateAddress {
-                            ProgressView()
-                        } else {
-                            Text("kachat.kas")
-                                .foregroundColor(.secondary)
-                        }
+                        Text(verbatim: Self.donateName)
+                            .foregroundColor(.secondary)
                     }
                     .padding(16)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(isResolvingDonateAddress)
 
                 Divider().padding(.leading, 16)
                 Button {
@@ -1521,27 +1524,6 @@ struct ProfileView: View {
                 Task { await walletManager.logout() }
             }
         }
-    }
-
-    /// Resolves the KNS domain "kachat.kas" to its owner address and jumps straight to that
-    /// chat in payment mode, ready to send - matches the Android client's About screen Donate row.
-    private func donate() async {
-        if isResolvingDonateAddress { return }
-        isResolvingDonateAddress = true
-        defer { isResolvingDonateAddress = false }
-
-        guard let resolution = await KNSService.shared.resolveDomain("kachat.kas") else {
-            showToast("Couldn't resolve kachat.kas. Please try again later.", style: .error)
-            return
-        }
-
-        let contact = ContactsManager.shared.getOrCreateContact(address: resolution.ownerAddress, alias: resolution.domain)
-        _ = ChatService.shared.getOrCreateConversation(for: contact)
-        NotificationCenter.default.post(
-            name: .openChat,
-            object: nil,
-            userInfo: ["contactAddress": contact.address, "paymentMode": true]
-        )
     }
 
     /// "5.0 (1)" through the beta cycle, plain "5.0" once the train is released. The build
