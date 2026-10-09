@@ -2771,6 +2771,9 @@ struct KachatTransferSheet: View {
     @State private var resolved: (address: String, key: Data)?
     @State private var resolveError: LocalizedStringKey?
     @State private var resolving = false
+    @State private var showScanner = false
+    @State private var showAddressBook = false
+    @ObservedObject private var addressBook = AddressBookManager.shared
 
     var body: some View {
         KachatTxSheet(
@@ -2784,10 +2787,44 @@ struct KachatTransferSheet: View {
                 title: "New owner",
                 footer: Text("A testnet address, or a .kachat name - it's resolved to the address shown.")
             ) {
-                TextField("kaspatest:... or name.kachat", text: $input)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                // The Send screens' recipient field: Paste, Scan QR and the Address Book beside it.
+                HStack(spacing: 14) {
+                    TextField("kaspatest:... or name.kachat", text: $input)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button {
+                        if let pasted = UIPasteboard.general.string {
+                            input = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    } label: {
+                        Image(systemName: "doc.on.clipboard").font(.body.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                    .accessibilityLabel(Text("Paste"))
+                    Button {
+                        showScanner = true
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder").font(.body.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                    .accessibilityLabel(Text("Scan QR"))
+                    Button {
+                        showAddressBook = true
+                    } label: {
+                        Image(systemName: "book.closed").font(.body.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                    .accessibilityLabel(Text("Address Book"))
+                }
+                if let saved = addressBook.entry(for: resolved?.address ?? input) {
+                    Label(saved.name, systemImage: "book.closed.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                }
                 if resolving {
                     ProgressView()
                 } else if let resolved {
@@ -2804,6 +2841,17 @@ struct KachatTransferSheet: View {
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
             await resolve()
+        }
+        .sheet(isPresented: $showScanner) {
+            QRScannerView { code in
+                var scanned = code.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let q = scanned.firstIndex(of: "?") { scanned = String(scanned[..<q]) }
+                input = scanned
+                showScanner = false
+            }
+        }
+        .fullScreenCover(isPresented: $showAddressBook) {
+            AddressBookPickerSheet { entry in input = entry.address }
         }
     }
 
