@@ -62,9 +62,11 @@ struct KaPostScheduledEntry: Codable, Identifiable, Equatable {
 
 /// Local, per-wallet record of scheduled posts, and the keeper of the coins they will spend.
 ///
-/// Every transaction builder in the app asks `filterReserved` before choosing inputs, so a
-/// coin a scheduled post depends on is never spent underneath it. The reservation lives as
-/// long as the entry is `scheduled`.
+/// Every transaction builder in the app asks `filterReserved` before choosing inputs (the chat
+/// builders, KaPosts, and `.kachat` through `KachatNamesService.fundingUtxos`), so a coin a
+/// scheduled post depends on is never spent underneath it. The reservation lives as long as the
+/// entry is `scheduled`; it's loaded for each wallet as the wallet loads
+/// (`ContactsManager.setActiveWalletAddress`).
 @MainActor
 final class KaPostsScheduledStore: ObservableObject {
     static let shared = KaPostsScheduledStore()
