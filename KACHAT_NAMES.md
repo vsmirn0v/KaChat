@@ -1,5 +1,13 @@
 # .kachat names - design (v1)
 
+> **Mainnet is live (2026-10-09, "mainnet v1").** Registry `348bd2c8…75a4`, genesis
+> `a0281841…90ff`: the audited registry v4 contracts under the mainnet params - yearly periods,
+> 90-day grace, 30-day renewal window, register 4000 / 2000 / 1000 / 250 / 35 KAS, renew 1000 /
+> 500 / 250 / 62.5 / 8.75 KAS a year, offer fee cap 0.1 KAS (kachat-domains docs/MAINNET.md). The
+> app bundles `Resources/kachat-names-mainnet.json` beside the testnet one, with pins and price
+> tables per network; mainnet vectors `KaChatTests/KachatNamesVectors-mainnet.json` (36/36
+> byte-identical). Launch guards in the app: C1 and C6 (MAINNET.md section 5).
+
 > **Registry v5 (2026-10-09) is what testnet-10 runs and the app bundles.** v5 is v4 plus
 > migration: a new registry imports a Merkle snapshot of the old one, so every name keeps its
 > owner and paid period (unlisted). Only the gap changes (`contracts/v5/KachatGap.sil`, 7.7 kB,
