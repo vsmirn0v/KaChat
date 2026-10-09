@@ -1,12 +1,25 @@
 # Indexer handoff: testnet-10 + `.kachat` names and profiles
 
-> **Registry v3 (2026-10-05, what the app builds now; testnet genesis pending):** prices move into
-> an on-chain price record (8 shards under their own covenant; register, extend and renew read
-> one), periods follow `periodMs` (10 minutes on testnet), offers carry the seller (108-byte state)
-> and there is a new `decline` entry. Every dispatch tag that matters changed. The full handoff is
-> `docs/KACHAT_NAMES_REGISTRY_V3.md` in the indexer repo; the spec is `docs/REGISTRY_V3.md` in
-> kachat-domains. Keep following v2 until the v3 manifest lands. Where this file still says v2
-> (fixed prices, the 75-byte offer, the 3-part marker), v3 supersedes it.
+> **Registry v4 (2026-10-07) is what the app builds and testnet-10 runs.** Genesis
+> `5ffdd006230bcba0ee52c3ce7b69fba2b9a4d489b57fee93e2b103eb1622a777`, registry
+> `e6b7244831004e1db928458bce570347317b50ff124c010d342d73a6c2017f0d`, scan from block
+> `f08cac7e…2161`, on the day clock (24-hour periods, 6-hour grace, 2-hour renewal window). The
+> spec is `docs/REGISTRY_V4.md` in kachat-domains; KACHAT_NAMES.md opens with the summary. What
+> an indexer needs from it:
+>
+> - **Fixed prices, two tables, no price record.** `KachatPrice`, its covenant, genesis, shards
+>   and authority are gone; nothing reads a shard. The gap bakes a register table and a renew
+>   table, the name bakes the renew table (sompi per period, by name length 1 / 2 / 3 / 4 / 5+).
+>   `register` charges `register(len) + renew(len) x (years - 1)`; `extend` and `renew` charge
+>   `renew(len) x years`. They are the manifest's `params.prices.register` / `params.prices.renew`.
+> - **Layouts:** register `[gap, commit, funding] -> [gap, gap, name, change]`; extend / renew
+>   `[name, funding] -> [name, change]`.
+> - **Kept from v3:** periods follow `periodMs`, the 108-byte offer state with the seller, the
+>   4-part offer marker and the `decline` entry.
+> - **Manifest:** `registryVersion: 4`, one genesis. Any other version is a different registry.
+>
+> Where this file still says v2 or v3 (the 75-byte offer, the 3-part marker, the price record),
+> v4 supersedes it.
 
 > **Registry v2 (2026-10-02):** names carry `periodStart` (126-byte state). There is a new
 > `extend` entry, and `renew` now opens 10 days before expiry and starts a new period. The
@@ -83,8 +96,9 @@ All of these are version-1 transactions (Toccata) with output covenant bindings.
 |---|---|---|---|
 | **Gap**: an unregistered interval `(lo, hi)` of the key space | P2SH of `KachatGap` | `gapValue` (1 KAS) | 66 B: `0x20 lo[32] 0x20 hi[32]` |
 | **Name**: one per registered name | P2SH of `KachatName` | `bond` (1 KAS) | 126 B (registry v2): `0x20 key[32] 0x20 name[32] 0x20 owner[32] 0x08 price[8] 0x08 periodStart[8] 0x08 expiresAt[8]` |
-| **Offer**: KAS a buyer locks for one name | P2SH of `KachatOffer` | the offer amount | 108 B (registry v3): `0x20 key[32] 0x20 buyer[32] 0x20 seller[32] 0x08 refundAfter[8]` (v2: 75 B, no seller) |
-| **Price shard** (registry v3): one of K = 8 | P2SH of `KachatPrice`, price covenant id | `priceValue` (1 KAS) | 87 B: `0x08 shard[8] 0x20 authority[32] 0x08 p1..p5[8 each]` |
+| **Offer**: KAS a buyer locks for one name | P2SH of `KachatOffer` | the offer amount | 108 B (registry v3 and v4): `0x20 key[32] 0x20 buyer[32] 0x20 seller[32] 0x08 refundAfter[8]` (v2: 75 B, no seller) |
+
+Registry v4 has no other UTXO kinds: the v3 price shards (`KachatPrice`) are gone.
 
 - **Key:** `key = blake3(name)`, where `name` is the ASCII bytes of the lowercase name without
   `.kachat`. Rules: `a-z 0-9 -`, 1-32 characters, no hyphen at either end.
@@ -115,16 +129,19 @@ All of these are version-1 transactions (Toccata) with output covenant bindings.
   - the genesis `txId` and the authorized output
   - each contract's template hash, prefix and suffix bytes, and its dispatch tags
   - a scan checkpoint
-  - the params: `bond`, `gapValue`, `tCommit` (600 DAA), `maxYears` (2), `graceMs` (10 days),
-    `prices` per length (registry v3: the price record's genesis prices, one table for
-    registering and renewing, per `periodMs`; mainnet 5+ chars 35 KAS, 4 = 250, 3 = 1000,
-    2 = 2000, 1 = 4000, testnet 1/100), `periodMs`, `renewWindowMs`, `priceShards`,
-    `priceValue`, and `offerMaxFee` (0.02 KAS)
-- **Testnet-10 is live: registry v2 (2026-10-02):**
-  - registry id `82f4315c8f7b3e0e76fc2f77466fe7651d2c1fac4e0b5810d4da878a9cfa0f89`
-  - genesis tx `e20325f70db06192b619e6ef161b45b4a24b3cde58b5d2b0188532395175a426`, accepted at
-    DAA 586,328,979
-  - The v1 registry `9444187f…7a51` is retired; don't follow it.
+  - the params (registry v4): `bond`, `gapValue`, `tCommit` (600 DAA), `maxYears` (2),
+    `periodMs`, `graceMs`, `renewWindowMs`, `offerMaxFee` (0.02 KAS), and `prices.register` /
+    `prices.renew`, sompi per period by length. Mainnet: register 5+ chars 35 KAS, 4 = 250,
+    3 = 1000, 2 = 2000, 1 = 4000; renew 8.75 / 62.5 / 250 / 500 / 1000 KAS a year. Testnet-10:
+    the same / 100 per 24-hour period, grace 6 hours, renewal window 2 hours (mainnet: a year,
+    90 days, 30 days). There is no `priceShards` or `priceValue`
+- **Testnet-10 is live: registry v4 (2026-10-07, day clock):**
+  - registry id `e6b7244831004e1db928458bce570347317b50ff124c010d342d73a6c2017f0d`
+  - genesis tx `5ffdd006230bcba0ee52c3ce7b69fba2b9a4d489b57fee93e2b103eb1622a777`, scan from
+    block `f08cac7e201efd9a068b5454c5edcdf186b1f9edde18161c0a6ee7f959722161`
+  - Earlier registries are retired; don't follow them: v4 on the 10-minute clock
+    `bff18554…0e2f`, v3 `90f56bd1…6d24`, v2 `82f4315c…0f89`, v1 `9444187f…7a51`. Their names
+    didn't carry over.
   - genesis gap at output 0 (`00..00`, `ff..ff`), 1 TKAS
   - The manifest is `manifests/kachat-names-testnet-10.json` in `kachat-domains`. Index from
     the genesis transaction forward; the manifest's `genesis.scanFrom` block is a safe starting

@@ -64,7 +64,7 @@ Decisions this rests on (from the user):
 
 | | |
 |---|---|
-| Prices by name length, **per period** (registry v3: one table for registering and renewing, held in the on-chain price record and adjustable; these are the mainnet genesis prices, testnet is 1/100) | 5+ chars **35 KAS**, 4 **250**, 3 **1000**, 2 **2000**, 1 **4000** |
+| Prices by name length, **per period** (registry v4: two fixed tables baked into the gap and name, register and renew; mainnet, testnet is 1/100) | Register: 5+ chars **35 KAS**, 4 **250**, 3 **1000**, 2 **2000**, 1 **4000**. Renew: 5+ **8.75**, 4 **62.5**, 3 **250**, 2 **500**, 1 **1000** |
 | Where the price goes | **Miners** - left as transaction fee. KaChat takes nothing. |
 | Characters | `a-z`, `0-9`, `-`; 1-32 characters; no hyphen at either end |
 | Marketplace fee | **None** - the buyer pays the seller the price, plus the network fee |
@@ -443,7 +443,7 @@ screens run on the live registry. Mainnet is unchanged: mockups, "Coming soon", 
 
 | File | What |
 |---|---|
-| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled: registry v3 since 2026-10-06 (price genesis `246d4cb6…e78b`, price covenant `4d7685c0…3338`; registry genesis `fa8b21d2…5940`, registry `90f56bd1…6d24`) |
+| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled: registry v4 (`registryVersion: 4`) on the day clock since 2026-10-07 (genesis `5ffdd006…a777`, registry `e6b72448…7f0d`; 24-hour periods, 6-hour grace, 2-hour renewal window) |
 | `KaChat/Services/KachatNames/KachatNamesRegistryState.swift` | pure: status (B5), label rule, profile record, REST tx parser, indexer shapes, the walker state and its decoder (`apply`, a port of the CLI's `Registry::apply`), the walk loop |
 | `KaChat/Services/KachatNames/KachatNamesRegistry.swift` | `@MainActor` reads: lookup, by owner, listings, lapsed, offers, history, activity, exit gaps, identity; source = names indexer or chain walker; cache in Application Support |
 | `KaChat/Services/KachatNames/KachatNamesActions.swift` | `@MainActor` actions (extend, renew, transfer, list, buy, offer, withdraw, refund, accept, release, reclaim, profile), quotes, the resumable registration driver, cancel commit |
