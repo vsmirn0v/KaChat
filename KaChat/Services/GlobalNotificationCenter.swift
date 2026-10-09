@@ -316,10 +316,17 @@ struct GlobalNotificationListView: View {
                 )
             }
         case .wallet:
-            // Receipts carry no target of their own - the wallet screen is the subject.
+            // A receipt opens the history of the address that got the Kaspa (chatting, spending
+            // or cold storage - MainTabView works out which), as a tapped banner does. Entries
+            // recorded before receipts carried their address fall back to the wallet screen.
             dismiss()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                NotificationCenter.default.post(name: .openPortfolio, object: nil)
+                if !target.isEmpty {
+                    OwnAddressRoute.pending = target
+                    NotificationCenter.default.post(name: .openOwnAddress, object: nil)
+                } else {
+                    NotificationCenter.default.post(name: .openPortfolio, object: nil)
+                }
             }
         case .kachat:
             // The name, the same way a tapped .kachat push opens it.

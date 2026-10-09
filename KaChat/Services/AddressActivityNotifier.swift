@@ -348,10 +348,13 @@ final class AddressActivityNotifier: ObservableObject {
         content.title = "Received \(Self.formatKas(total)) \(KaspaUnit.symbol)"
         content.body = bodyDescribing(addresses: hits.map { $0.address })
         content.threadIdentifier = Self.notificationThreadIdentifier
-        // One address: the tap opens that address's history. Several: the wallet tab, as before.
-        var info: [String: Any] = ["kind": kindKey(for: hits.first?.address ?? "")]
-        let unique = Set(hits.map { $0.address })
-        if unique.count == 1, let only = unique.first { info["address"] = only }
+        // The tap opens the history of the address that got the Kaspa - with several, the one
+        // that got the most (the body names them all).
+        var byAddress: [String: UInt64] = [:]
+        for hit in hits { byAddress[hit.address, default: 0] += hit.amount }
+        let opened = byAddress.max { $0.value < $1.value }?.key ?? hits.first?.address ?? ""
+        var info: [String: Any] = ["kind": kindKey(for: opened)]
+        if !opened.isEmpty { info["address"] = opened }
         content.userInfo = info
         applySoundPreference(to: content)
 
@@ -360,7 +363,8 @@ final class AddressActivityNotifier: ObservableObject {
         )
         // Also list it in the Profile notifications bell.
         Task { @MainActor in
-            GlobalNotificationCenter.shared.record(id: "wallet-\(dedupeKey)", source: .wallet, title: content.title, body: content.body, timestamp: Int64(Date().timeIntervalSince1970 * 1000), targetId: nil)
+            // the bell's entry opens the same address's history
+            GlobalNotificationCenter.shared.record(id: "wallet-\(dedupeKey)", source: .wallet, title: content.title, body: content.body, timestamp: Int64(Date().timeIntervalSince1970 * 1000), targetId: opened.isEmpty ? nil : opened)
         }
     }
 
@@ -378,7 +382,7 @@ final class AddressActivityNotifier: ObservableObject {
             UNNotificationRequest(identifier: balId, content: content, trigger: nil)
         )
         Task { @MainActor in
-            GlobalNotificationCenter.shared.record(id: "wallet-\(balId)", source: .wallet, title: content.title, body: content.body, timestamp: Int64(Date().timeIntervalSince1970 * 1000), targetId: nil)
+            GlobalNotificationCenter.shared.record(id: "wallet-\(balId)", source: .wallet, title: content.title, body: content.body, timestamp: Int64(Date().timeIntervalSince1970 * 1000), targetId: address)
         }
     }
 
