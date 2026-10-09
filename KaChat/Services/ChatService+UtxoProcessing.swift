@@ -19,9 +19,15 @@ extension ChatService {
 
         if let existingIndex = queuedUtxoNotifications.firstIndex(where: { !$0.txIds.isDisjoint(with: txIds) }) {
             let existing = queuedUtxoNotifications[existingIndex]
+            // one entry per outpoint: the same batch delivered twice must not count an output
+            // twice ("Received 10 KAS" for 5, IOS-071)
+            func unique(_ entries: [ParsedUtxoEntry]) -> [ParsedUtxoEntry] {
+                var seen = Set<String>()
+                return entries.filter { seen.insert("\($0.transactionId):\($0.outputIndex)").inserted }
+            }
             let merged = ParsedUtxosChangedNotification(
-                added: existing.parsed.added + parsed.added,
-                removed: existing.parsed.removed + parsed.removed
+                added: unique(existing.parsed.added + parsed.added),
+                removed: unique(existing.parsed.removed + parsed.removed)
             )
             let mergedTxIds = existing.txIds.union(txIds)
             queuedUtxoNotifications[existingIndex] = QueuedUtxoNotification(parsed: merged, txIds: mergedTxIds)

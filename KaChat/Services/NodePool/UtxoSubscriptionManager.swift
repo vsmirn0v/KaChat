@@ -114,10 +114,23 @@ final class UtxoSubscriptionManager: ObservableObject {
 
     // MARK: - Public API
 
+    /// The subscribe running now. Subscribes run one at a time (IOS-071): two interleaving at
+    /// the cleanup `await` both added a handler to the same connection, and only the last was
+    /// remembered, so every utxosChanged batch arrived twice from then on.
+    private var subscribeInFlight: Task<Void, Error>?
+
     /// Subscribe to UTXO changes for addresses
     /// Tries all capable nodes in pool in sequence, throws if all fail
     func subscribe(addresses: [String], excluding: Set<String> = []) async throws {
         guard !addresses.isEmpty else { return }
+        while let running = subscribeInFlight { _ = try? await running.value }
+        let task = Task { @MainActor in try await self.performSubscribe(addresses: addresses, excluding: excluding) }
+        subscribeInFlight = task
+        defer { if subscribeInFlight == task { subscribeInFlight = nil } }
+        try await task.value
+    }
+
+    private func performSubscribe(addresses: [String], excluding: Set<String>) async throws {
 
         // Clean up any existing subscription state before retrying
         if state != .disconnected {
@@ -399,6 +412,18 @@ final class UtxoSubscriptionManager: ObservableObject {
             isError: false
         )
 
+        // One handler per subscription (IOS-071): the old primary's handler goes first - on the
+        // same pooled connection (one node, a failover back to it) it would otherwise deliver
+        // every batch a second time; on another node, that connection is closed too.
+        if isPrimary, let old = primaryConnection {
+            if let oldId = primaryHandlerId { await old.removeNotificationHandler(oldId) }
+            primaryHandlerId = nil
+            if old !== conn {
+                await old.disconnect()
+                primaryConnection = nil
+            }
+        }
+
         // Add notification handler to connection
         let handlerId = await conn.addNotificationHandler { [weak self] type, data in
             Task { @MainActor in
@@ -663,44 +688,16 @@ final class UtxoSubscriptionManager: ObservableObject {
 
     // MARK: - State Resync
 
-    /// Resync UTXO state after failover
-    /// Fetches current UTXOs and compares with cached state
+    /// After a failover: what confirmed during the dead window is caught up by the consumers'
+    /// own catch-up (ChatService's debounced sync, AddressActivityNotifier's balance diff), as
+    /// when a subscription is re-armed. The node's current UTXO set used to be replayed as a
+    /// utxosChanged batch - every old coin arrived as newly "added" (the response's entries share
+    /// field 1 with `added`), firing "Received X KAS" for months-old funds and a REST fetch per
+    /// coin (IOS-070).
     private func resyncUtxoState() async {
-        guard let primary = primaryEndpoint, let conn = primaryConnection else { return }
-
-        AppLog.log("[UtxoSub] Resyncing UTXO state on %@", primary.key)
-
-        do {
-            // Fetch current UTXOs
-            var msg = Protowire_KaspadMessage()
-            var req = Protowire_GetUtxosByAddressesRequestMessage()
-            req.addresses = subscribedAddresses
-            msg.getUtxosByAddressesRequest = req
-
-            let response = try await conn.sendRequest(
-                msg,
-                type: .getUtxosByAddresses,
-                timeout: OperationClass.getUtxosByAddress.timeout
-            )
-
-            guard case .getUtxosByAddressesResponse(let utxoResponse) = response.payload else {
-                AppLog.log("[UtxoSub] Resync: invalid response type")
-                return
-            }
-
-            // Convert to notification format and dispatch
-            // This simulates receiving a "full state" notification
-            if let data = try? utxoResponse.serializedData() {
-                for handler in notificationHandlers.values {
-                    handler(.utxosChanged, data)
-                }
-            }
-
-            AppLog.log("[UtxoSub] Resync complete - %d UTXOs", utxoResponse.entries.count)
-
-        } catch {
-            AppLog.log("[UtxoSub] Resync failed: %@", error.localizedDescription)
-        }
+        guard let primary = primaryEndpoint else { return }
+        AppLog.log("[UtxoSub] Failover on %@: asking for a catch-up sync", primary.key)
+        NotificationCenter.default.post(name: .rpcSubscriptionsRestored, object: nil)
     }
 
     // MARK: - Standby Warmup

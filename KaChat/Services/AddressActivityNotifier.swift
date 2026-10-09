@@ -38,7 +38,13 @@ import UserNotifications
 @MainActor
 final class AddressActivityNotifier: ObservableObject {
     static let shared = AddressActivityNotifier()
-    private init() {}
+    private init() {
+        // A subscription restored after a failover: what arrived meanwhile is found by the
+        // balance diff (debounced), never by replaying the UTXO set as new (IOS-070).
+        NotificationCenter.default.addObserver(forName: .rpcSubscriptionsRestored, object: nil, queue: .main) { _ in
+            Task { @MainActor in await AddressActivityNotifier.shared.runCatchUpIfNeeded() }
+        }
+    }
 
     static let notificationThreadIdentifier = "address-activity"
 
