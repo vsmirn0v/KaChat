@@ -528,6 +528,7 @@ final class PortfolioViewModel: ObservableObject {
             return
         }
         transactions = PortfolioLedgerStore.load(walletAddress: normalizedAddress, defaultPortfolioId: defaultPortfolioId)
+        savedTransactions = transactions
         fees = PortfolioLedgerStore.loadFees(walletAddress: normalizedAddress)
         // Rows left unpriced by an import the app was killed/backgrounded during (or by an older
         // build with no backfill at all) resume pricing here.
@@ -1078,12 +1079,61 @@ final class PortfolioViewModel: ObservableObject {
         persist()
     }
 
+    /// The ledger as last saved, so a save can tell what changed (stamped) and what went.
+    private var savedTransactions: [PortfolioTransaction] = []
+
+    /// Saves the ledger: rows added or edited are stamped, rows gone are recorded as deleted, and
+    /// the Nextcloud backup is marked to upload (NEXTCLOUD_SYNC.md section 5, Portfolios).
     private func persist() {
+        let result = PortfolioLedgerStore.stamped(previous: savedTransactions, current: transactions, now: Date()) { $0.updatedAt = $1 }
+        if result.items != transactions { transactions = result.items }
+        PortfolioLedgerStore.recordDeletions(
+            result.removed.map { PortfolioTombstone(kind: .transaction, id: $0, deletedAt: Date()) },
+            walletAddress: activeWalletAddress
+        )
         PortfolioLedgerStore.save(transactions, walletAddress: activeWalletAddress)
+        let changed = savedTransactions != transactions
+        savedTransactions = transactions
+        if changed { NextcloudService.shared.noteMessageActivity() }
     }
 
     private func persistFees() {
         PortfolioLedgerStore.saveFees(fees, walletAddress: activeWalletAddress)
+        NextcloudService.shared.noteMessageActivity()
+    }
+
+    /// Re-reads this wallet's ledger after a Nextcloud restore wrote a merged one.
+    func reloadFromStore() {
+        guard let wallet = activeWalletAddress, let defaultId = PortfolioManager.shared.portfolios.first?.id else { return }
+        transactions = PortfolioLedgerStore.load(walletAddress: wallet, defaultPortfolioId: defaultId)
+        savedTransactions = transactions
+        fees = PortfolioLedgerStore.loadFees(walletAddress: wallet)
+        startPriceBackfillIfNeeded()
+    }
+
+    /// This wallet's portfolios as the Nextcloud backup carries them.
+    var syncState: PortfolioSync {
+        PortfolioSync(
+            portfolios: PortfolioManager.shared.portfolios,
+            transactions: transactions,
+            fees: fees,
+            tombstones: PortfolioLedgerStore.loadTombstones(walletAddress: activeWalletAddress)
+        )
+    }
+
+    /// A restore: merges the archive's portfolios into this wallet's (newest edit or deletion
+    /// wins per item) and reloads.
+    func importFromArchive(_ incoming: PortfolioSync) {
+        guard let wallet = activeWalletAddress, !incoming.isEmpty else { return }
+        let merged = PortfolioSync.merge([syncState, incoming])
+        // compared in the merge's own order, so an archive that adds nothing writes nothing
+        guard merged != PortfolioSync.merge([syncState]), !merged.portfolios.isEmpty else { return }
+        PortfolioLedgerStore.savePortfolios(merged.portfolios, walletAddress: wallet)
+        PortfolioLedgerStore.save(merged.transactions, walletAddress: wallet)
+        PortfolioLedgerStore.saveFees(merged.fees, walletAddress: wallet)
+        PortfolioLedgerStore.saveTombstones(merged.tombstones, walletAddress: wallet)
+        PortfolioManager.shared.reloadFromStore()
+        reloadFromStore()
     }
 
     /// A deleted portfolio's rows and fees, out of memory as well as off disk - otherwise the
@@ -1104,6 +1154,7 @@ final class PortfolioViewModel: ObservableObject {
         PortfolioLedgerStore.save([], walletAddress: activeWalletAddress)
         PortfolioLedgerStore.saveFees([], walletAddress: activeWalletAddress)
         transactions = []
+        savedTransactions = []
         fees = []
     }
 

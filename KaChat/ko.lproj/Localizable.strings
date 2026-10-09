@@ -1564,3 +1564,6 @@
 
 /* Bare names resolve to .kachat only */
 ".kachat names aren't live on this network yet" = "이 네트워크에서는 아직 .kachat 이름을 사용할 수 없습니다";
+
+/* Nextcloud sync carries portfolios */
+"Your Address Book and portfolios are in the same backup and sync between your devices the same way." = "주소록과 포트폴리오도 같은 백업에 포함되며 같은 방식으로 기기 간에 동기화됩니다.";

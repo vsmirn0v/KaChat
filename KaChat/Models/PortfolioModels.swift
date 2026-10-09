@@ -28,6 +28,10 @@ struct PortfolioTransaction: Identifiable, Codable, Equatable {
     var sourceAddress: String?
     /// The on-chain transaction id this row was derived from — nil for manual/CSV rows.
     var sourceTxId: String?
+    /// When this row was last added or changed on any device - how Nextcloud Automatic Sync
+    /// picks between two copies (NEXTCLOUD_SYNC.md section 5, Portfolios). Stamped when the row is
+    /// saved (`PortfolioLedgerStore.stamped`); nil for rows saved before sync existed.
+    var updatedAt: Date? = nil
 
     var amountKas: Double { Double(amountSompi) / 100_000_000.0 }
 
@@ -69,6 +73,7 @@ struct PortfolioTransaction: Identifiable, Codable, Equatable {
         portfolioId = try container.decodeIfPresent(UUID.self, forKey: .portfolioId) ?? UUID()
         sourceAddress = try container.decodeIfPresent(String.self, forKey: .sourceAddress)
         sourceTxId = try container.decodeIfPresent(String.self, forKey: .sourceTxId)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
     }
 }
 
@@ -159,6 +164,18 @@ struct Portfolio: Identifiable, Codable, Equatable {
     var name: String
     var sortOrder: Int
     let createdAt: Date
+    /// Last created, renamed or moved on any device (Nextcloud sync); nil for a list saved before
+    /// sync existed, and for the "Portfolio 1" a fresh wallet is seeded with until it is touched.
+    var updatedAt: Date? = nil
+}
+
+/// A portfolio or a transaction deleted on this wallet, carried in the Nextcloud backup so a
+/// merge or restore never brings it back (NEXTCLOUD_SYNC.md section 5, Portfolios).
+struct PortfolioTombstone: Codable, Equatable {
+    enum Kind: String, Codable { case portfolio, transaction }
+    let kind: Kind
+    let id: String
+    let deletedAt: Date
 }
 
 /// All-time P&L, not per-lot realized/unrealized — money still held (valued at the current

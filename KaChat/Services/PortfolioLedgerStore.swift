@@ -155,5 +155,138 @@ enum PortfolioLedgerStore {
         userDefaults.removeObject(forKey: portfoliosKey(forNormalizedWalletAddress: walletAddress))
         userDefaults.removeObject(forKey: activePortfolioKey(forNormalizedWalletAddress: walletAddress))
         userDefaults.removeObject(forKey: feesKey(forNormalizedWalletAddress: walletAddress))
+        userDefaults.removeObject(forKey: tombstonesKey(forNormalizedWalletAddress: walletAddress))
+    }
+
+    // MARK: - Nextcloud sync (NEXTCLOUD_SYNC.md section 5, Portfolios)
+
+    private static let tombstonesKeyPrefix = "kachat_portfolio_tombstones_"
+
+    private static func tombstonesKey(forNormalizedWalletAddress walletAddress: String) -> String {
+        "\(tombstonesKeyPrefix)\(sanitize(walletAddress))"
+    }
+
+    static func loadTombstones(walletAddress: String?, userDefaults: UserDefaults = .standard) -> [PortfolioTombstone] {
+        guard let walletAddress,
+              let data = userDefaults.data(forKey: tombstonesKey(forNormalizedWalletAddress: walletAddress)),
+              let decoded = try? JSONDecoder().decode([PortfolioTombstone].self, from: data) else { return [] }
+        return decoded
+    }
+
+    static func saveTombstones(_ tombstones: [PortfolioTombstone], walletAddress: String?, userDefaults: UserDefaults = .standard) {
+        guard let walletAddress, let data = try? JSONEncoder().encode(tombstones) else { return }
+        userDefaults.set(data, forKey: tombstonesKey(forNormalizedWalletAddress: walletAddress))
+    }
+
+    /// Adds deletions to this wallet's tombstones (the newest per item kept).
+    static func recordDeletions(_ new: [PortfolioTombstone], walletAddress: String?) {
+        guard !new.isEmpty else { return }
+        saveTombstones(PortfolioSync.mergeTombstones([loadTombstones(walletAddress: walletAddress), new]), walletAddress: walletAddress)
+    }
+
+    /// `current` as it will be saved: every item new since `previous`, or changed in anything
+    /// but its stamp, stamped `now`; and the ids `previous` had that `current` doesn't (deleted).
+    static func stamped<T: Identifiable & Equatable>(
+        previous: [T], current: [T], now: Date,
+        stamp: (inout T, Date?) -> Void
+    ) -> (items: [T], removed: [T.ID]) where T.ID: Hashable {
+        func unstamped(_ item: T) -> T { var copy = item; stamp(&copy, nil); return copy }
+        let before = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let items = current.map { item -> T in
+            if let old = before[item.id], unstamped(old) == unstamped(item) { return item }
+            var changed = item
+            stamp(&changed, now)
+            return changed
+        }
+        let kept = Set(current.map(\.id))
+        return (items, previous.map(\.id).filter { !kept.contains($0) })
+    }
+}
+
+/// One wallet's portfolios as Nextcloud Automatic Sync carries them, and how two copies merge.
+/// Pure: the archive merge and the restore both use it. Per item the newest `updatedAt` wins,
+/// unless a tombstone at or after it deletes it; a transaction or fee lives only while its
+/// portfolio does.
+struct PortfolioSync: Equatable {
+    var portfolios: [Portfolio] = []
+    var transactions: [PortfolioTransaction] = []
+    var fees: [PortfolioFeeRecord] = []
+    var tombstones: [PortfolioTombstone] = []
+
+    /// A wallet's untouched seed - "Portfolio 1", never edited, holding nothing. Every install
+    /// creates its own (each with its own id), so seeds are never synced: a device restoring the
+    /// real list drops its seed instead of showing two "Portfolio 1"s.
+    static func isPristineSeed(_ p: Portfolio, transactions: [PortfolioTransaction], fees: [PortfolioFeeRecord]) -> Bool {
+        p.updatedAt == nil && p.name == "Portfolio 1"
+            && !transactions.contains { $0.portfolioId == p.id } && !fees.contains { $0.portfolioId == p.id }
+    }
+
+    /// What this device uploads: everything but a pristine seed.
+    func forArchive() -> PortfolioSync {
+        var copy = self
+        copy.portfolios = portfolios.filter { !Self.isPristineSeed($0, transactions: transactions, fees: fees) }
+        return copy
+    }
+
+    var isEmpty: Bool { portfolios.isEmpty && transactions.isEmpty && fees.isEmpty && tombstones.isEmpty }
+
+    static func mergeTombstones(_ sides: [[PortfolioTombstone]]) -> [PortfolioTombstone] {
+        var newest: [String: PortfolioTombstone] = [:]
+        for t in sides.joined() {
+            let key = "\(t.kind.rawValue):\(t.id)"
+            if let have = newest[key], have.deletedAt >= t.deletedAt { continue }
+            newest[key] = t
+        }
+        return newest.values.sorted { ($0.kind.rawValue, $0.id) < ($1.kind.rawValue, $1.id) }
+    }
+
+    static func merge(_ sides: [PortfolioSync]) -> PortfolioSync {
+        let tombstones = mergeTombstones(sides.map(\.tombstones))
+        func deletedAt(_ kind: PortfolioTombstone.Kind, _ id: String) -> Date? {
+            tombstones.first { $0.kind == kind && $0.id == id }?.deletedAt
+        }
+        // portfolios: newest stamp per id, unless deleted at or after it
+        var portfolios: [UUID: Portfolio] = [:]
+        for p in sides.flatMap(\.portfolios) {
+            let stamp = p.updatedAt ?? p.createdAt
+            if let have = portfolios[p.id], (have.updatedAt ?? have.createdAt) >= stamp { continue }
+            portfolios[p.id] = p
+        }
+        portfolios = portfolios.filter { _, p in
+            guard let gone = deletedAt(.portfolio, p.id.uuidString) else { return true }
+            return gone < (p.updatedAt ?? p.createdAt)
+        }
+        var transactions: [String: PortfolioTransaction] = [:]
+        for t in sides.flatMap(\.transactions) {
+            let stamp = t.updatedAt ?? .distantPast
+            if let have = transactions[t.id], (have.updatedAt ?? .distantPast) >= stamp { continue }
+            transactions[t.id] = t
+        }
+        transactions = transactions.filter { _, t in
+            guard portfolios[t.portfolioId] != nil else { return false }
+            guard let gone = deletedAt(.transaction, t.id) else { return true }
+            return gone < (t.updatedAt ?? .distantPast)
+        }
+        var fees: [String: PortfolioFeeRecord] = [:]
+        for f in sides.flatMap(\.fees) where portfolios[f.portfolioId] != nil {
+            // a priced copy beats an unpriced one; otherwise either (they are the same fee)
+            if let have = fees[f.id], have.fiatValue != nil || f.fiatValue == nil { continue }
+            fees[f.id] = f
+        }
+        let txList = Array(transactions.values)
+        let feeList = Array(fees.values)
+        var list = Array(portfolios.values)
+        // a seed only while nothing else is there
+        if list.contains(where: { !isPristineSeed($0, transactions: txList, fees: feeList) }) {
+            list.removeAll { isPristineSeed($0, transactions: txList, fees: feeList) }
+        }
+        list.sort { $0.sortOrder == $1.sortOrder ? $0.createdAt < $1.createdAt : $0.sortOrder < $1.sortOrder }
+        for i in list.indices { list[i].sortOrder = i }
+        return PortfolioSync(
+            portfolios: list,
+            transactions: txList.sorted { $0.timestamp == $1.timestamp ? $0.id < $1.id : $0.timestamp < $1.timestamp },
+            fees: feeList.sorted { $0.id < $1.id },
+            tombstones: tombstones
+        )
     }
 }

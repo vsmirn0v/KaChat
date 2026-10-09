@@ -1564,3 +1564,6 @@
 
 /* Bare names resolve to .kachat only */
 ".kachat names aren't live on this network yet" = ".kachat नाम अभी इस नेटवर्क पर चालू नहीं हैं";
+
+/* Nextcloud sync carries portfolios */
+"Your Address Book and portfolios are in the same backup and sync between your devices the same way." = "आपकी एड्रेस बुक और पोर्टफ़ोलियो उसी बैकअप में हैं और आपके डिवाइसों के बीच उसी तरह सिंक होते हैं।";

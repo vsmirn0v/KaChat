@@ -117,6 +117,31 @@ history, except by an explicit chat deletion (tombstones, §5).
   - A restore applies only to the archive's own wallet (or an unstamped archive).
   - In the app, a saved name is how that address is shown when the chat contact has no name of
     its own. The contact's `contactAlias` is unchanged.
+- **Portfolios** (iOS since 2026-10-09; optional top-level keys, older archives omit them). Per
+  wallet like the rest of the file; a restore applies only to the archive's own wallet (or an
+  unstamped archive).
+  - `portfolios`: an array of `{id, name, sortOrder, createdAt, updatedAt?}` (`id` a UUID, dates
+    ISO 8601).
+  - `portfolioTransactions`: an array of ledger rows `{id, type: "buy"|"sell"|"transfer",
+    amountSompi, fiatValue, timestamp, notes?, portfolioId, sourceAddress?, sourceTxId?,
+    updatedAt?}`.
+  - `portfolioFees`: an array of `{txId, portfolioId, sourceAddress, amountSompi, timestamp,
+    fiatValue?}`.
+  - `portfolioDeleted`: an array of `{kind: "portfolio"|"transaction", id, deletedAt}`.
+  - `updatedAt` is stamped whenever a portfolio is created, renamed or moved and whenever a row
+    is added or edited. Merge per `id`: the newest `updatedAt` wins (a portfolio without one
+    counts as its `createdAt`, a row without one as the oldest possible), unless a tombstone's
+    `deletedAt` is at or after it. Tombstones are the union of both sides, the newest per item.
+  - A row or fee lives only while its portfolio does: deleting a portfolio takes its rows and
+    fees with it. Fees are merged by `portfolioId:txId`; a copy with a `fiatValue` beats one
+    without.
+  - Every install seeds its wallet with an empty "Portfolio 1". That seed is never uploaded
+    while it is untouched (no `updatedAt`, no rows or fees), and a device that receives other
+    portfolios drops its own untouched seed, so a second device never shows two
+    "Portfolio 1"s.
+  - After a merge the list is ordered by `sortOrder` (ties by `createdAt`) and renumbered
+    0, 1, 2... The active portfolio is per device and not synced.
+  - Portfolio edits mark the archive dirty like a message does (§6).
 - **Keys this client doesn't model** are carried through untouched, so a newer client's fields
   survive an older client's write.
 - The merged archive is normalised to the strictest shape every platform's decoder accepts

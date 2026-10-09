@@ -144,6 +144,7 @@ extension ChatService {
         // so group messages survive even if the indexer has pruned them. Import skips tombstoned
         // (deleted) groups so a restore never resurrects one.
         let archivedGroups = await GroupChatService.shared.archiveGroups()
+        let portfolioSync = PortfolioViewModel.shared.syncState.forArchive()
         let archive = ChatHistoryArchive(
             schemaVersion: chatHistoryArchiveVersion,
             exportedAt: Date(),
@@ -152,7 +153,11 @@ extension ChatService {
             groups: archivedGroups,
             deletedContactAddresses: contactsManager.deletedAddressSnapshot,
             addressBook: AddressBookManager.shared.archiveEntries,
-            addressBookDeleted: AddressBookManager.shared.archiveTombstones
+            addressBookDeleted: AddressBookManager.shared.archiveTombstones,
+            portfolios: portfolioSync.portfolios.isEmpty ? nil : portfolioSync.portfolios,
+            portfolioTransactions: portfolioSync.transactions.isEmpty ? nil : portfolioSync.transactions,
+            portfolioFees: portfolioSync.fees.isEmpty ? nil : portfolioSync.fees,
+            portfolioDeleted: portfolioSync.tombstones.isEmpty ? nil : portfolioSync.tombstones
         )
 
         // Encode off the main actor: pretty-printed + sorted-keys over a multi-MB archive is
@@ -229,6 +234,13 @@ extension ChatService {
                 entries: archive.addressBook ?? [],
                 tombstones: archive.addressBookDeleted ?? []
             )
+            // so are the portfolios
+            PortfolioViewModel.shared.importFromArchive(PortfolioSync(
+                portfolios: archive.portfolios ?? [],
+                transactions: archive.portfolioTransactions ?? [],
+                fees: archive.portfolioFees ?? [],
+                tombstones: archive.portfolioDeleted ?? []
+            ))
         }
 
         progress?(.preparing)
@@ -1416,6 +1428,40 @@ extension ChatService {
         return (encode(merged.entries), encode(merged.tombstones))
     }
 
+    /// The two sides' portfolio keys, merged (PortfolioSync.merge) and re-encoded as JSON objects
+    /// in the archive's date format. An unreadable side counts as empty.
+    private nonisolated static func mergeArchivePortfolios(local: [String: Any], remote: [String: Any]) -> [String: [Any]] {
+        func decode<T: Decodable>(_ side: [String: Any], _ key: String, as: T.Type) -> [T] {
+            let raw = jsonArray(side, key)
+            guard !raw.isEmpty, let data = try? JSONSerialization.data(withJSONObject: raw) else { return [] }
+            let iso = JSONDecoder()
+            iso.dateDecodingStrategy = .iso8601
+            return (try? iso.decode([T].self, from: data)) ?? (try? JSONDecoder().decode([T].self, from: data)) ?? []
+        }
+        func encode<T: Encodable>(_ values: [T]) -> [Any] {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            guard let data = try? encoder.encode(values),
+                  let objects = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return [] }
+            return objects
+        }
+        func side(_ dict: [String: Any]) -> PortfolioSync {
+            PortfolioSync(
+                portfolios: decode(dict, "portfolios", as: Portfolio.self),
+                transactions: decode(dict, "portfolioTransactions", as: PortfolioTransaction.self),
+                fees: decode(dict, "portfolioFees", as: PortfolioFeeRecord.self),
+                tombstones: decode(dict, "portfolioDeleted", as: PortfolioTombstone.self)
+            )
+        }
+        let merged = PortfolioSync.merge([side(local), side(remote)]).forArchive()
+        return [
+            "portfolios": encode(merged.portfolios),
+            "portfolioTransactions": encode(merged.transactions),
+            "portfolioFees": encode(merged.fees),
+            "portfolioDeleted": encode(merged.tombstones)
+        ]
+    }
+
     private nonisolated static func jsonArray(_ dict: [String: Any], _ key: String) -> [Any] {
         dict[key] as? [Any] ?? []
     }
@@ -1765,6 +1811,11 @@ extension ChatService {
             result.removeValue(forKey: "addressBookDeleted")
         } else {
             result["addressBookDeleted"] = book.deleted
+        }
+
+        // Portfolios: per item the newest edit or deletion wins (PortfolioSync.merge).
+        for (key, values) in mergeArchivePortfolios(local: local, remote: remote) {
+            if values.isEmpty { result.removeValue(forKey: key) } else { result[key] = values }
         }
 
         return try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])

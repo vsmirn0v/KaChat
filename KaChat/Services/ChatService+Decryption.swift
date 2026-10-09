@@ -346,6 +346,13 @@ extension ChatService {
         // the deleted ones so a merge or restore never brings them back. NEXTCLOUD_SYNC.md.
         var addressBook: [AddressBookEntry]? = nil
         var addressBookDeleted: [AddressBookTombstone]? = nil
+        // Portfolios (optional; older archives omit them): this wallet's portfolio list, ledger
+        // rows, recorded fees and deletions - per item the newest edit or deletion wins
+        // (PortfolioSync). NEXTCLOUD_SYNC.md section 5.
+        var portfolios: [Portfolio]? = nil
+        var portfolioTransactions: [PortfolioTransaction]? = nil
+        var portfolioFees: [PortfolioFeeRecord]? = nil
+        var portfolioDeleted: [PortfolioTombstone]? = nil
     }
 
     struct ChatHistoryArchiveConversation: Codable {
