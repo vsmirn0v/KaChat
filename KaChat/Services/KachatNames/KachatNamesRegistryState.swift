@@ -1188,7 +1188,8 @@ extension KachatNames.RegistryState {
 
     /// Moves the state forward to the chain's current registry. `live(addresses)` answers which
     /// of the outpoints ("txid:index") at those P2SH addresses are unspent (a node), and
-    /// `transactions(address)` the accepted transactions touching an address (the REST API).
+    /// `transactions(address, wanted)` the accepted transactions touching an address (the REST
+    /// API), at least those spending the `wanted` outpoints ("txid:index") when it has them.
     /// Each round: every tracked UTXO the node no longer has was spent; its spending transaction
     /// is found through its address and applied (`apply`, which decodes the spend and verifies
     /// every new state against its output's script); the new outputs are tracked next round.
@@ -1199,7 +1200,7 @@ extension KachatNames.RegistryState {
         maxRounds: Int = 64,
         address: (Data) -> String?,
         live: ([String]) async throws -> Set<String>,
-        transactions: (String) async throws -> [KachatNames.TxView]
+        transactions: (String, Set<String>) async throws -> [KachatNames.TxView]
     ) async throws -> WalkReport {
         var report = WalkReport()
         for _ in 0..<maxRounds {
@@ -1220,7 +1221,7 @@ extension KachatNames.RegistryState {
             var found = Set<String>()
             for a in Set(spent.map { $0.0 }).sorted() {
                 let wanted = Set(spent.filter { $0.0 == a }.map { $0.1 })
-                for tx in try await transactions(a) {
+                for tx in try await transactions(a, wanted) {
                     let spends = tx.inputs.map { "\(KachatNames.hex($0.outpoint.txid)):\($0.outpoint.index)" }.filter { wanted.contains($0) }
                     if !spends.isEmpty {
                         candidates[tx.idHex] = tx

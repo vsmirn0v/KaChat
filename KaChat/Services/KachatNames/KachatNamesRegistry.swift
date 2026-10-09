@@ -236,25 +236,43 @@ final class KachatNamesRegistry: ObservableObject {
                 }
                 return out
             },
-            transactions: { address in try await Self.restTransactions(address: address) }
+            transactions: { address, wanted in try await Self.restTransactions(address: address, spending: wanted) }
         )
     }
 
-    /// Accepted transactions touching `address`, newest first (kaspa-rest-server).
-    static func restTransactions(address: String) async throws -> [KachatNames.TxView] {
+    /// Accepted transactions touching `address`, newest first (kaspa-rest-server), paged until
+    /// every outpoint in `spending` has its spender, the history ends, or `restMaxPages` pages.
+    /// One page is not enough: 50 dust payments to a registry address would hide the spend that
+    /// moved it on, and the names behind it would never resolve (IOS-065).
+    static func restTransactions(address: String, spending wanted: Set<String>) async throws -> [KachatNames.TxView] {
         let base = AppSettings.load().kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: "\(base.hasSuffix("/") ? String(base.dropLast()) : base)/addresses/\(address)/full-transactions?limit=50&offset=0&resolve_previous_outpoints=no") else {
-            throw KachatNames.Failure("bad Kaspa REST API URL")
+        let root = base.hasSuffix("/") ? String(base.dropLast()) : base
+        var out: [KachatNames.TxView] = []
+        var missing = wanted
+        for page in 0..<restMaxPages {
+            guard let url = URL(string: "\(root)/addresses/\(address)/full-transactions?limit=\(restPageSize)&offset=\(page * restPageSize)&resolve_previous_outpoints=no") else {
+                throw KachatNames.Failure("bad Kaspa REST API URL")
+            }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 20
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                throw KachatNames.Failure("the Kaspa REST API answered \((response as? HTTPURLResponse)?.statusCode ?? 0) for \(address)")
+            }
+            guard let list = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { break }
+            let txs = try list.compactMap { try KachatNames.TxView.fromREST($0) }
+            out.append(contentsOf: txs)
+            for tx in txs {
+                for input in tx.inputs { missing.remove("\(KachatNames.hex(input.outpoint.txid)):\(input.outpoint.index)") }
+            }
+            if missing.isEmpty || list.count < restPageSize { break }
         }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 20
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw KachatNames.Failure("the Kaspa REST API answered \((response as? HTTPURLResponse)?.statusCode ?? 0) for \(address)")
-        }
-        guard let list = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
-        return try list.compactMap { try KachatNames.TxView.fromREST($0) }
+        return out
     }
+
+    static let restPageSize = 50
+    /// 1,000 transactions per address: past the newest dust anyone would pay to send
+    static let restMaxPages = 20
 
     /// Whether the REST API has seen `txId` accepted.
     static func isAccepted(txId: String) async -> Bool {

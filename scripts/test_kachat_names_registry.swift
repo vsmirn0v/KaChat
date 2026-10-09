@@ -256,7 +256,7 @@ func runWalk(_ v: J, _ r: Report) async {
                             && !(spentBy[op].map { visibleIds.contains($0) } ?? false)
                     }.keys)
                 },
-                transactions: { a in
+                transactions: { a, _ in
                     visible.reversed().filter { t in
                         t.outputs.contains { addr($0.script) == a } || t.inputs.contains { i in created["\(KN.hex(i.outpoint.txid)):\(i.outpoint.index)"].flatMap(addr) == a }
                     }
@@ -309,7 +309,7 @@ func runWalkOrders(_ v: J, _ r: Report) async {
                         && !(spentBy[op].map { visibleIds.contains($0) } ?? false)
                 }.keys)
             },
-            transactions: { a in
+            transactions: { a, _ in
                 order(visible.filter { t in
                     t.outputs.contains { addr($0.script) == a } || t.inputs.contains { i in created["\(KN.hex(i.outpoint.txid)):\(i.outpoint.index)"].flatMap(addr) == a }
                 })
@@ -634,7 +634,7 @@ func runLive() async -> Bool {
                 }
                 return out
             },
-            transactions: { a in
+            transactions: { a, _ in
                 try (try await get("/addresses/\(a)/full-transactions?limit=50&offset=0&resolve_previous_outpoints=no") as! [J]).compactMap { try KN.TxView.fromREST($0) }
             }
         )
