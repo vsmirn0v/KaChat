@@ -120,7 +120,7 @@ extension KachatNames {
     /// the source; the screens show them through `party`.
     struct Event: Codable, Identifiable, Equatable {
         var txId: String
-        /// register, transfer, list, delist, sale, extend, renew, release, reclaim, offer_accepted, offer
+        /// register, import (registry v5), transfer, list, delist, sale, extend, renew, release, reclaim, offer_accepted, offer
         var op: String
         var name: String?
         var at: Int64?
@@ -898,6 +898,24 @@ extension KachatNames {
                     predicted.append((UInt16(i), .gap(lo: hex(k), hi: g.hi)))
                     predicted.append((UInt16(i), .name(f, name: name)))
                     events.append(Event(txId: id, op: "register", name: name, at: tx.at, from: nil, to: hex(owner), price: nil, years: years))
+                case "import":
+                    // registry v5: a name from the predecessor's snapshot, with its owner and paid
+                    // period, unlisted. The same outputs as register; the contract checked the
+                    // Merkle proof and the owner's or sponsor's signature (REGISTRY_V5.md section 2).
+                    guard m.registryVersion >= 5 else { throw Failure("\(short): import on a registry v\(m.registryVersion) gap") }
+                    guard let nameBytes = sp.args.first else { throw Failure("\(short): import without a name") }
+                    let owner = try RegistryState.arg32(sp.args, 1)
+                    let periodStart = try RegistryState.argInt(sp.args, 2)
+                    let expiresAt = try RegistryState.argInt(sp.args, 3)
+                    let name = String(decoding: nameBytes, as: UTF8.self)
+                    let k = blake3(nameBytes)
+                    var padded = nameBytes.prefix(32)
+                    padded.append(Data(repeating: 0, count: 32 - padded.count))
+                    let f = NameFields(key: k, paddedName: Data(padded), owner: owner, price: 0, periodStart: periodStart, expiresAt: expiresAt)
+                    predicted.append((UInt16(i), .gap(lo: g.lo, hi: hex(k))))
+                    predicted.append((UInt16(i), .gap(lo: hex(k), hi: g.hi)))
+                    predicted.append((UInt16(i), .name(f, name: name)))
+                    events.append(Event(txId: id, op: "import", name: name, at: tx.at, from: nil, to: hex(owner), price: nil, years: nil))
                 case "merge":
                     guard let succ = gapIns.first(where: { $0.0 == 2 && $0.1.lo == g.hi })?.1 else {
                         throw Failure("\(short): merge without the tracked successor gap at input 2")

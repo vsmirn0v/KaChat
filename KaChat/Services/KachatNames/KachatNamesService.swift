@@ -109,11 +109,11 @@ final class KachatNamesService: ObservableObject {
             // an indexer-served manifest is trusted only when every template is pinned in the app
             try m.verify(source: source == "bundle" ? .bundle : .indexer)
         } catch {
-            // An earlier registry's manifest (the bundled one until the v3 genesis) is expected,
+            // A registry version this app doesn't build for (an earlier or a later one) is expected,
             // not an error: say "being upgraded", once, and stop re-reading the bundle.
             let refused: Error = Self.isRegistryUpgrading(error) ? ServiceError.registryUpgrading : error
             if Self.isRegistryUpgrading(error) {
-                if !registryUpgrading { AppLog.log("[KachatNames] the %@ manifest is an earlier registry; .kachat waits for the v3 genesis manifest", source) }
+                if !registryUpgrading { AppLog.log("[KachatNames] the %@ manifest is an earlier registry; .kachat waits for a registry v4 or v5 manifest", source) }
                 registryUpgrading = true
             }
             if source == "bundle" { bundleFailure = refused }
@@ -182,7 +182,9 @@ final class KachatNamesService: ObservableObject {
             blockDaa: dag.virtualDaaScore,
             blockTimeMs: dag.pastMedianTimeMs,
             wallMs: Int64(Date().timeIntervalSince1970 * 1000),
-            feerate: max(feerate, KachatNames.minFeerate)
+            feerate: max(feerate, KachatNames.minFeerate),
+            // the v5 gap is bigger and costs more script units per spend
+            budgets: .recommended(forRegistryVersion: (try? await loadManifest())?.registryVersion ?? 4)
         )
     }
 

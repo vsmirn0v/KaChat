@@ -58,6 +58,13 @@ extension KachatNames {
         /// sompi for every further period (extend, renew, registering past one period)
         let renewPrices: [UInt64]
         let offerMaxFee: UInt64
+        /// Registry v5: the predecessor snapshot this registry imports; nil on v4 (and on a v5
+        /// registry with no predecessor, whose root and deadline are 0).
+        var migration: Migration? = nil
+
+        /// `register` is refused while `now < migration.deadlineMs` (registry v5): the sponsor
+        /// imports every snapshot name first.
+        func registerOpen(atMs now: Int64) -> Bool { now >= (migration?.deadlineMs ?? 0) }
 
         // MARK: Prices (registry v4: KachatGap.priceFor, KachatName.renewPrice)
 
@@ -91,6 +98,17 @@ extension KachatNames {
         var expiresSoonMs: Int64 { max(renewWindowMs, min(30 * 86_400_000, periodMs / 12)) }
     }
 
+    /// Registry v5's `params.migration` (kachat-domains docs/REGISTRY_V5.md section 4): the old
+    /// registry's names, frozen in a Merkle snapshot the new gap imports. Baked into the v5 gap
+    /// (so its template hash is per deployment).
+    struct Migration: Equatable {
+        let predecessorRegistryId: Data
+        let root: Data
+        let deadlineMs: Int64
+        /// x-only key that may import for the snapshot owners (zero: owners only)
+        let sponsor: Data
+    }
+
     /// The deployment manifest `kachat-names-<network>.json` (written by the kachat-domains CLI's
     /// `genesis`, served by the indexer at `GET /names/manifest`): params, every contract's prefix,
     /// suffix, template hash and dispatch tags, the registry covenant id and the genesis binding
@@ -100,18 +118,27 @@ extension KachatNames {
         static let supportedNetwork = "testnet-10"
         static let bundleResource = "kachat-names-testnet-10"
 
-        /// Template hashes of the pinned build - registry v4 (silverc v1.0.0 @ 3ed9733), testnet-10
-        /// params on the day clock: 24-hour periods, 6-hour grace, 2-hour renewal window
-        /// (kachat-domains artifacts/testnet10/build-info.json). The gap and the name bake
-        /// only the params - their fixed prices included - so they are pinned before any genesis.
-        /// The offer bakes the registry id, so its hash exists once the registry genesis does: the
-        /// deployment adds it in `deployedTemplateHashes`. Until every template is pinned only a
-        /// bundled manifest is trusted (`verify(source:)`), never one an indexer serves - an
-        /// unpinned offer template could hold buyers' funds in a script the indexer controls
-        /// (IOS-059).
-        static let pinnedTemplateHashes: [String: String] = [
-            "KachatGap": "9f057f406361583eb2b94956825f86a2d8cc47d3c8800f05855a3e75b39d8bf5",
-            "KachatName": "c263a8c2cb4bdfac3234675114fc3ce4ba5a1d26c12e887c3d3b2ca89460b56b"
+        /// Registry versions this app builds for: v4, and v5 (v4 plus `import` from a migration
+        /// snapshot, kachat-domains docs/REGISTRY_V5.md).
+        static let supportedVersions: Set<Int> = [4, 5]
+
+        /// Template hashes of the pinned build by registry version (silverc v1.0.0 @ 3ed9733),
+        /// testnet-10 params on the day clock: 24-hour periods, 6-hour grace, 2-hour renewal window
+        /// (kachat-domains artifacts/testnet10/build-info.json). The v4 gap and the name bake only
+        /// the params - their fixed prices included - so they are pinned before any genesis. The
+        /// v5 gap also bakes its migration (snapshot root, deadline, sponsor) and the offer the
+        /// registry id, so their hashes exist per deployment: `deployedTemplateHashes`. Until every
+        /// template is pinned only a bundled manifest is trusted (`verify(source:)`), never one an
+        /// indexer serves - an unpinned offer template could hold buyers' funds in a script the
+        /// indexer controls (IOS-059).
+        static let pinnedTemplateHashes: [Int: [String: String]] = [
+            4: [
+                "KachatGap": "9f057f406361583eb2b94956825f86a2d8cc47d3c8800f05855a3e75b39d8bf5",
+                "KachatName": "c263a8c2cb4bdfac3234675114fc3ce4ba5a1d26c12e887c3d3b2ca89460b56b"
+            ],
+            5: [
+                "KachatName": "c263a8c2cb4bdfac3234675114fc3ce4ba5a1d26c12e887c3d3b2ca89460b56b"
+            ]
         ]
 
         /// The price tables the pinned gap and name bake (kachat-domains params/testnet10.json): a
@@ -119,10 +146,17 @@ extension KachatNames {
         static let pinnedRegisterPrices: [UInt64] = [4_000_000_000, 2_000_000_000, 1_000_000_000, 250_000_000, 35_000_000]
         static let pinnedRenewPrices: [UInt64] = [1_000_000_000, 500_000_000, 250_000_000, 62_500_000, 8_750_000]
 
-        /// The offer build each deployed registry was launched with, by registry covenant id. A
-        /// manifest for one of these registries must carry exactly this; any other registry (a dry
-        /// run, the test vectors) has no offer pin, so only a bundled manifest of it is trusted.
+        /// The per-deployment builds (the offer; on v5 also the gap) each deployed registry was
+        /// launched with, by registry covenant id. A manifest for one of these registries must
+        /// carry exactly this; any other registry (a dry run, the test vectors) has no such pin, so
+        /// only a bundled manifest of it is trusted.
         static let deployedTemplateHashes: [String: [String: String]] = [
+            // testnet-10 registry v5, the migration drill of 2026-10-09: genesis 408682e6..dfda5,
+            // imports the day-clock v4 registry e6b72448..7f0d (snapshot of 6 names)
+            "fdc403f5ef76ea7c71dcb5305d09daf7ab7fd68dc1d274a314fc8ca9111e571d": [
+                "KachatGap": "afce97e05a6341ea7768252a264c65882b92105f8d7158a3ac63f68fbe1615cb",
+                "KachatOffer": "9d6e666481ea80e27565e68c01e6de51b32660d2f91368d9b80e4ee00b981d6d"
+            ],
             // testnet-10 registry v4 on the day clock, 2026-10-07: genesis 5ffdd006..a777 (the
             // 10-minute deployment bff18554..0e2f before it is retired: its gap and name aren't pinned)
             "e6b7244831004e1db928458bce570347317b50ff124c010d342d73a6c2017f0d": [
@@ -130,6 +164,10 @@ extension KachatNames {
             ]
         ]
         static let stateLengths: [String: Int] = ["KachatGap": 66, "KachatName": 126, "KachatOffer": 108]
+        static func entries(_ contract: String, version: Int) -> [String] {
+            if contract == "KachatGap", version >= 5 { return ["register", "merge", "absorbed", "import"] }
+            return entries[contract] ?? []
+        }
         static let entries: [String: [String]] = [
             "KachatGap": ["register", "merge", "absorbed"],
             "KachatName": ["transfer", "list", "buy", "extend", "renew", "release", "reclaim"],
@@ -141,6 +179,7 @@ extension KachatNames {
 
         let network: String
         let status: String
+        let registryVersion: Int
         let params: Params
         let gap: Template
         let name: Template
@@ -215,10 +254,26 @@ extension KachatNames {
         init(json root: [String: Any]) throws {
             network = try Self.str(root["network"], "network")
             status = (root["status"] as? String) ?? ""
-            // registry v1 - v3 manifests describe contracts this app no longer builds for: it waits
-            // for the v4 genesis
-            guard (root["registryVersion"] as? NSNumber)?.intValue == 4 else { throw Failure.outdatedRegistry }
+            // registry v1 - v3 manifests describe contracts this app no longer builds for; a later
+            // version needs a newer app
+            let version = (root["registryVersion"] as? NSNumber)?.intValue ?? 0
+            guard Self.supportedVersions.contains(version) else {
+                throw version > (Self.supportedVersions.max() ?? 0) ? Failure.newerRegistry : Failure.outdatedRegistry
+            }
+            registryVersion = version
             guard let p = root["params"] as? [String: Any] else { throw Failure("manifest: params missing") }
+            var migration: Migration?
+            if version >= 5 {
+                guard let mj = p["migration"] as? [String: Any] else { throw Failure("manifest: params.migration missing (registry v5)") }
+                let mig = Migration(
+                    predecessorRegistryId: try unhex32(try Self.str(mj["predecessorRegistryId"], "migration.predecessorRegistryId")),
+                    root: try unhex32(try Self.str(mj["root"], "migration.root")),
+                    deadlineMs: Int64(try Self.u64(mj["deadlineMs"], "migration.deadlineMs")),
+                    sponsor: try unhex32(try Self.str(mj["sponsor"], "migration.sponsor"))
+                )
+                // root 0 and deadline 0: a v5 registry with no predecessor (register works as on v4)
+                migration = (mig.root == zero32 && mig.deadlineMs == 0) ? nil : mig
+            }
             params = Params(
                 bond: try Self.u64(p["bond"], "bond"),
                 gapValue: try Self.u64(p["gapValue"], "gapValue"),
@@ -229,7 +284,8 @@ extension KachatNames {
                 renewWindowMs: Int64(try Self.u64(p["renewWindowMs"], "renewWindowMs")),
                 registerPrices: try Self.tiers((p["prices"] as? [String: Any])?["register"], "prices.register"),
                 renewPrices: try Self.tiers((p["prices"] as? [String: Any])?["renew"], "prices.renew"),
-                offerMaxFee: try Self.u64(p["offerMaxFee"], "offerMaxFee")
+                offerMaxFee: try Self.u64(p["offerMaxFee"], "offerMaxFee"),
+                migration: migration
             )
             guard let artifacts = root["artifacts"] as? [String: Any] else { throw Failure("manifest: artifacts missing") }
             gap = try Self.template(artifacts, "KachatGap")
@@ -267,7 +323,8 @@ extension KachatNames {
             guard network == Self.supportedNetwork else {
                 throw Failure("manifest is for \(network); only \(Self.supportedNetwork) is enabled (mainnet waits for an audit)")
             }
-            let pins = Self.pinnedTemplateHashes.merging(Self.deployedTemplateHashes[hex(registryCovenantId)] ?? [:]) { pinned, _ in pinned }
+            let pins = (Self.pinnedTemplateHashes[registryVersion] ?? [:])
+                .merging(Self.deployedTemplateHashes[hex(registryCovenantId)] ?? [:]) { pinned, _ in pinned }
             for t in [gap, name, offer] {
                 guard Codec.templateHash(prefix: t.prefix, suffix: t.suffix) == t.templateHash else {
                     throw Failure("manifest: \(t.contract) template hash does not match its prefix and suffix")
@@ -277,11 +334,18 @@ extension KachatNames {
                 } else if source == .indexer {
                     throw Failure("manifest: \(t.contract) is not pinned in this app; only a bundled manifest is trusted")
                 }
-                for e in Self.entries[t.contract] ?? [] where t.dispatchTags[e] == nil {
+                for e in Self.entries(t.contract, version: registryVersion) where t.dispatchTags[e] == nil {
                     throw Failure("manifest: \(t.contract) dispatch tag for \(e) missing")
                 }
             }
             guard gap.suffix.range(of: name.templateHash) != nil else { throw Failure("manifest: the gap is not built for this name template") }
+            if let mig = params.migration {
+                // the v5 gap bakes its snapshot root and sponsor (the deadline is a number)
+                guard gap.suffix.range(of: mig.root) != nil, mig.sponsor == zero32 || gap.suffix.range(of: mig.sponsor) != nil else {
+                    throw Failure("manifest: the gap is not built for this migration snapshot")
+                }
+                guard mig.predecessorRegistryId != registryCovenantId else { throw Failure("manifest: a registry can't import itself") }
+            }
             guard offer.suffix.range(of: registryCovenantId) != nil, offer.suffix.range(of: name.templateHash) != nil else {
                 throw Failure("manifest: the offer is not built for this registry id and name template")
             }

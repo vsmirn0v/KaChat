@@ -12,6 +12,9 @@ import Foundation
 //   KaChat/Services/KachatNames/KachatNamesRegistryState.swift scripts/test_kachat_names_registry.swift \
 //   -o /tmp/kachat_names_registry_test && /tmp/kachat_names_registry_test
 //
+// `/tmp/kachat_names_registry_test KaChatTests/KachatNamesVectors-v5.json` runs the same over the
+// registry v5 vectors, which open with two imports from a migration snapshot.
+//
 // `/tmp/kachat_names_registry_test --live` also walks the LIVE testnet-10 registry from the bundled
 // manifest, read-only, through api-tn10.kaspa.org (UTXO liveness from GET /addresses/{a}/utxos instead
 // of a node, spends from GET /addresses/{a}/full-transactions), and prints what it found.
@@ -57,8 +60,10 @@ func outpointKey(_ u: J) -> String { "\(s(u["txid"])):\(u64(u["index"]))" }
 /// The vectors' end-to-end plan (README "The end-to-end run", registry v3), after both geneses:
 /// commits, three registrations, a price change, extend, renew, another price change, transfer,
 /// list, buy, four offers (accept, decline, refund, withdraw), release, reclaim. The steps after
-/// it are edge cases on their own synthetic records.
-let e2eCount = 21
+/// it are edge cases on their own synthetic records. Registry v5 vectors open with `lead` imports
+/// from the migration snapshot (set from the vectors in `main`), then the same plan.
+var lead = 0
+var e2eCount: Int { 21 + lead }
 
 /// Every record a step was built from must be in the walked state, exactly.
 func checkRecords(_ st: J, _ state: KN.RegistryState, _ r: Report) {
@@ -143,21 +148,44 @@ func runWalker(_ v: J, _ r: Report) {
         }
         do { try state.checkInvariants() } catch { r.check(false, "\(s(st["label"])): invariants: \(error)") }
     }
-    r.eq(ops, [
+    let imported = e2e.prefix(lead).map { String(s($0["label"]).dropFirst("import ".count)) }
+    r.eq(ops, imported.map { "import \($0)" } + [
         "register alpha-tn", "register bravo-tn", "register lapse-tn", "extend alpha-tn", "renew lapse-tn",
         "transfer alpha-tn", "list alpha-tn", "sale alpha-tn", "offer bravo-tn", "offer_accepted bravo-tn", "offer_accept bravo-tn",
         "offer alpha-tn", "offer_decline alpha-tn", "offer alpha-tn", "offer_refund alpha-tn",
         "offer alpha-tn", "offer_withdraw alpha-tn", "release bravo-tn", "reclaim lapse-tn"
     ], "e2e events")
-    r.eq(state.names.map(\.name), ["alpha-tn"], "names left after the e2e plan")
-    r.eq(state.gaps.count, 2, "gaps left after the e2e plan")
+    r.eq(state.names.map(\.name).sorted(), (imported + ["alpha-tn"]).sorted(), "names left after the e2e plan")
+    r.eq(state.gaps.count, 2 + lead, "gaps left after the e2e plan")
+    if lead > 0, let rules = v["migrationRules"] as? J, let snap = rules["snapshot"] as? J, let entries = snap["entries"] as? [J] {
+        // registry v5: each import is the snapshot entry exactly - owner, paid period - and unlisted
+        r.eq(entries.count, lead, "v5: one import per snapshot entry")
+        for e in entries {
+            let n = state.name(s(e["name"]))
+            r.eq(n?.owner, s(e["owner"]), "v5 import \(s(e["name"])): owner")
+            r.eq(n?.periodStart, i64(e["periodStart"]), "v5 import \(s(e["name"])): periodStart")
+            r.eq(n?.expiresAt, i64(e["expiresAt"]), "v5 import \(s(e["name"])): expiresAt")
+            r.eq(n?.price, 0, "v5 import \(s(e["name"])): unlisted")
+            r.eq(n?.key, s(e["key"]), "v5 import \(s(e["name"])): key")
+        }
+        // the same import on a v4 manifest is refused
+        var v4 = v["manifest"] as! J
+        v4["registryVersion"] = 4
+        var p4 = v4["params"] as! J
+        p4.removeValue(forKey: "migration")
+        v4["params"] = p4
+        if let m4 = try? KN.Manifest.decode(JSONSerialization.data(withJSONObject: v4)) {
+            var st4 = KN.RegistryState.atGenesis(m4)
+            r.check((try? st4.apply(view(e2e[0], at: 1_000), manifest: m4)) == nil, "v5: an import is refused on a v4 manifest")
+        }
+    }
     r.eq(state.offers.count, 0, "offers left after the e2e plan")
     let accepted = state.events.first { $0.op == "offer_accepted" }
     r.check((accepted?.price ?? 0) > 9 * 100_000_000 && (accepted?.price ?? 0) < 10 * 100_000_000, "accepted offer payout is the offer less the fee")
     let alpha = state.name("alpha-tn")
-    r.check(alpha?.registeredTxId == KN.hex(hx((e2e[3]["expected"] as! J)["txid"])), "registration tx carried through every transition")
-    r.eq(alpha?.registeredAt, 1_003, "registration time carried through every transition")
-    let alphaRegister = (e2e[3]["args"] as! J)
+    r.check(alpha?.registeredTxId == KN.hex(hx((e2e[lead + 3]["expected"] as! J)["txid"])), "registration tx carried through every transition")
+    r.eq(alpha?.registeredAt, Int64(1_003 + lead), "registration time carried through every transition")
+    let alphaRegister = (e2e[lead + 3]["args"] as! J)
     r.eq(alpha?.periodStart, i64(alphaRegister["now"]), "alpha-tn: periodStart = register's now, kept by extend, transfer, list and buy")
     r.eq(alpha?.expiresAt, i64(alphaRegister["now"]) + 2 * m.params.periodMs, "alpha-tn: registered for 1 period, extended by 1")
     r.eq(m.params.periodMs, 86_400_000, "testnet vectors run the 24-hour clock")
@@ -199,8 +227,9 @@ func runWalker(_ v: J, _ r: Report) {
         }
     }
 
-    // refusals leave the state alone
-    let reg = steps[3]
+    // refusals leave the state alone (on the first spend of the genesis gap: the first
+    // registration, or on v5 the first import)
+    let reg = steps[lead > 0 ? 0 : 3]
     var tampered = view(reg, at: 1)
     tampered.outputs[2].script[5] ^= 0x01
     var st0 = KN.RegistryState.atGenesis(m)
@@ -220,7 +249,7 @@ func runWalker(_ v: J, _ r: Report) {
     r.check((try? st0.apply(badRedeem, manifest: m)) == nil, "a spend revealing another redeem script was accepted")
     r.eq(st0, KN.RegistryState.atGenesis(m), "refusals left the state alone")
     // an unrelated transaction is ignored
-    r.eq((try? st0.apply(view(steps[0], at: 1), manifest: m))?.count, 0, "a commit is not a registry transaction")
+    r.eq((try? st0.apply(view(steps[lead], at: 1), manifest: m))?.count, 0, "a commit is not a registry transaction")
 }
 
 /// The walk loop over a simulated chain holding every e2e transaction: liveness from the
@@ -241,7 +270,7 @@ func runWalk(_ v: J, _ r: Report) async {
     var expected = KN.RegistryState.atGenesis(m)
     for t in txs { _ = try? expected.apply(t, manifest: m) }
 
-    for upTo in [3, 6, 7, 8, 10, 11, 17, e2eCount] {
+    for upTo in (lead > 0 ? [lead] : []) + [3, 6, 7, 8, 10, 11, 17].map({ $0 + lead }) + [e2eCount] {
         let visible = Array(txs.prefix(upTo))
         let visibleIds = Set(visible.map(\.idHex))
         var walked = KN.RegistryState.atGenesis(m)
@@ -355,7 +384,7 @@ func runWalkOrders(_ v: J, _ r: Report) async {
             // and incrementally, a few transactions visible at a time
             var inc = KN.RegistryState.atGenesis(m)
             do {
-                for upTo in [4, 7, 9, 13, 18, e2eCount] { _ = try await walk(&inc, upTo: upTo, order: order, times: times) }
+                for upTo in [4, 7, 9, 13, 18].map({ $0 + lead }) + [e2eCount] { _ = try await walk(&inc, upTo: upTo, order: order, times: times) }
                 same(inc, "\(label), incremental")
             } catch {
                 r.check(false, "\(label), incremental threw \(error)")
@@ -653,9 +682,13 @@ func runLive() async -> Bool {
 @main
 struct KachatNamesRegistryTest {
     static func main() async {
+        setvbuf(stdout, nil, _IONBF, 0)   // progress survives a trap
         let args = CommandLine.arguments
         let r = Report()
-        let v = try! JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: "KaChatTests/KachatNamesVectors.json"))) as! J
+        // the vectors file: the v4 set by default, or another (KaChatTests/KachatNamesVectors-v5.json)
+        let path = args.dropFirst().first { $0.hasSuffix(".json") } ?? "KaChatTests/KachatNamesVectors.json"
+        let v = try! JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as! J
+        lead = (v["steps"] as! [J]).prefix { s($0["op"]) == "import" }.count
         runRules(r)
         print("rules: \(r.pass) pass, \(r.fail) fail")
         runREST(r)

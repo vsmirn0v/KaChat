@@ -11,6 +11,8 @@ extension KachatNames {
         case gapRegister = "gap.register"
         case gapMerge = "gap.merge"
         case gapAbsorbed = "gap.absorbed"
+        /// registry v5 only: the CLI's sponsor imports; listed so the table matches the vectors
+        case gapImport = "gap.import"
         case nameTransfer = "name.transfer"
         case nameList = "name.list"
         case nameBuy = "name.buy"
@@ -34,10 +36,27 @@ extension KachatNames {
 
         static let recommended = Budgets(table: [
             .p2pk: 10, .commit: 10,
-            .gapRegister: 8, .gapMerge: 4, .gapAbsorbed: 0,
+            .gapRegister: 8, .gapMerge: 4, .gapAbsorbed: 0, .gapImport: 0,
             .nameTransfer: 12, .nameList: 12, .nameBuy: 2, .nameExtend: 2, .nameRenew: 2, .nameRelease: 10, .nameReclaim: 0,
             .offerAccept: 17, .offerDecline: 10, .offerWithdraw: 10, .offerRefund: 0
         ])
+
+        /// Registry v5: the gap is the v5 gap (7.7 kB: the 20-level import proof loop and a second
+        /// name check), and every gap spend reveals and runs it. kachat-domains 6eddc7a measured
+        /// the worst cases: register 122,889 script units (12), merge 69,090 (6), absorbed 15,782
+        /// (1), import ~234,700 (23); the vectors' `recommendedBudgets`. Name and offer as v4.
+        static let recommendedV5: Budgets = {
+            var b = Budgets.recommended
+            b[.gapRegister] = 13
+            b[.gapMerge] = 7
+            b[.gapAbsorbed] = 1
+            b[.gapImport] = 24
+            return b
+        }()
+
+        static func recommended(forRegistryVersion version: Int) -> Budgets {
+            version >= 5 ? .recommendedV5 : .recommended
+        }
 
         subscript(role: BudgetRole) -> UInt16 {
             get { table[role] ?? Budgets.recommended.table[role] ?? 0 }
@@ -481,6 +500,10 @@ extension KachatNames {
             let redeem = Codec.commitRedeem(commitment: Codec.commitment(name: name, owner: env.me, salt: commit.salt), owner: env.me)
             guard commitUtxo.entry.script == Codec.p2shScript(redeem) else { throw Failure("commit UTXO script does not match the salt") }
             guard now > 0, UInt64(now) >= lockTimeThreshold else { throw Failure("now must be a unix-ms timestamp") }
+            // registry v5: closed until the migration deadline (the contract refuses it)
+            guard params.registerOpen(atMs: now) else {
+                throw Failure.registrationNotOpen(params.migration?.deadlineMs ?? 0)
+            }
 
             let nameLength = name.utf8.count
             let price = params.registerCost(forLength: nameLength, years: years)

@@ -15,11 +15,17 @@ enum KachatNames {
         init(_ message: String) { self.message = message }
         var errorDescription: String? { message }
 
-        /// The manifest describes an earlier registry (v1 - v3): this app builds for registry v4
-        /// (fixed register and renew tables, no price record) and waits for its genesis manifest.
-        /// Not an error to show as one: the screens say the registry is being set up.
-        static let outdatedRegistry = Failure("manifest: an earlier registry; this app needs the registry v4 manifest (new genesis pending)")
-        var isOutdatedRegistry: Bool { self == Failure.outdatedRegistry }
+        /// The manifest describes a registry this app doesn't build for: an earlier one (v1 - v3)
+        /// or a later one than v5 (`newerRegistry`). Not an error to show as one: the screens say
+        /// the registry is being set up.
+        static let outdatedRegistry = Failure("manifest: an earlier registry; this app needs a registry v4 or v5 manifest")
+        static let newerRegistry = Failure("manifest: a later registry version than this app builds for; update KaChat")
+        /// Registry v5: `register` is refused until the migration deadline (unix ms).
+        static func registrationNotOpen(_ deadlineMs: Int64) -> Failure {
+            Failure("registration opens after the migration deadline (\(deadlineMs))")
+        }
+
+        var isOutdatedRegistry: Bool { self == Failure.outdatedRegistry || self == Failure.newerRegistry }
 
         /// A registry transaction that spends a gap or name not tracked yet: it applies once the
         /// walk has reached the transaction that created that UTXO (`RegistryState.apply`).

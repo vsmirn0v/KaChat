@@ -9,6 +9,9 @@ import Foundation
 //   KaChat/Services/KachatNames/KachatNamesManifest.swift KaChat/Services/KachatNames/KachatNamesBuilder.swift \
 //   scripts/test_kachat_names_core.swift -o /tmp/kachat_names_core_test && /tmp/kachat_names_core_test
 //
+// `/tmp/kachat_names_core_test KaChatTests/KachatNamesVectors-v5.json` runs the registry v5 vectors
+// (kachat-domains 6eddc7a: the v5 gap's budgets, the register deadline; imports are skipped, the
+// walker test decodes them).
 // `/tmp/kachat_names_core_test KaChatTests/KachatNamesVectors.json /tmp/fixed.json` also writes every
 // transaction rebuilt with the app's fixed compute budgets, for `kachat-names-vectors check /tmp/fixed.json`
 // in kachat-domains (the consensus validator signs the placeholders and validates them).
@@ -262,6 +265,8 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
     let b = try! KN.Builder(manifest: m)
     var results: [StepResult] = []
     let recommended = v["recommendedBudgets"] as! [String: Any]
+    // the fixed table for this registry version (v5's gap is bigger)
+    let table = KN.Budgets.recommended(forRegistryVersion: m.registryVersion)
     for st in v["steps"] as! [J] {
         let failBefore = r.fail
         let failuresBefore = r.failures.count
@@ -269,12 +274,18 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
         let env0 = st["env"] as! J
         let exp = st["expected"] as! J
         let expInputs = exp["inputs"] as! [J]
-        var budgets = KN.Budgets.recommended
+        if s(st["op"]) == "import" {
+            // the sponsor's (or an owner's) import is built by the kachat-domains CLI, not the app;
+            // the walker decodes it (scripts/test_kachat_names_registry.swift)
+            print("SKIP   \(label)   (import: built by the CLI, decoded by the walker)")
+            continue
+        }
+        var budgets = table
         for i in expInputs {
             let role = KN.BudgetRole(rawValue: s(i["role"]))!
             let measured = UInt16(u64(i["computeBudget"]))
-            r.check(measured <= KN.Budgets.recommended[role], "\(label): measured budget \(measured) > recommended for \(role)")
-            r.eq(UInt64(KN.Budgets.recommended[role]), u64(recommended[role.rawValue]), "recommended table \(role.rawValue)")
+            r.check(measured <= table[role], "\(label): measured budget \(measured) > recommended for \(role)")
+            r.eq(UInt64(table[role]), u64(recommended[role.rawValue]), "recommended table \(role.rawValue)")
             budgets[role] = measured
         }
         let env = KN.Env(me: hx(env0["me"]), blockDaa: u64(env0["blockDaa"]), blockTimeMs: u64(env0["blockTimeMs"]), wallMs: i64(env0["wallMs"]), feerate: (env0["feerate"] as! NSNumber).doubleValue, budgets: budgets)
@@ -472,11 +483,48 @@ func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
     } else {
         r.check(false, "no extend step in the vectors")
     }
-    // the fixed budgets are the vectors' table, entry for entry
+    // the fixed budgets are the vectors' table, entry for entry (a v4 table has no gap.import)
     let recommended = v["recommendedBudgets"] as! [String: Any]
-    r.eq(Set(recommended.keys), Set(KN.BudgetRole.allCases.map(\.rawValue)), "budget roles = recommendedBudgets keys")
-    for role in KN.BudgetRole.allCases {
-        r.eq(UInt64(KN.Budgets.recommended[role]), u64(recommended[role.rawValue]), "recommended budget \(role.rawValue)")
+    let table = KN.Budgets.recommended(forRegistryVersion: m.registryVersion)
+    let roles = KN.BudgetRole.allCases.filter { m.registryVersion >= 5 || $0 != .gapImport }
+    r.eq(Set(recommended.keys), Set(roles.map(\.rawValue)), "budget roles = recommendedBudgets keys")
+    for role in roles {
+        r.eq(UInt64(table[role]), u64(recommended[role.rawValue]), "recommended budget \(role.rawValue)")
+    }
+    if m.registryVersion >= 5, let rules = v["migrationRules"] as? J {
+        // registry v5: register is refused before the migration deadline, built at and after it
+        let opens = i64(rules["registerOpensAt"])
+        r.eq(m.params.migration?.deadlineMs ?? 0, opens, "v5: registerOpensAt = migration.deadlineMs")
+        r.check(!m.params.registerOpen(atMs: opens - 1) && m.params.registerOpen(atMs: opens), "v5: registerOpen flips at the deadline")
+        if let st = (v["steps"] as! [J]).first(where: { s($0["op"]) == "register" }) {
+            let env0 = st["env"] as! J
+            let env = KN.Env(me: hx(env0["me"]), blockDaa: u64(env0["blockDaa"]), blockTimeMs: u64(env0["blockTimeMs"]), wallMs: i64(env0["wallMs"]), budgets: table)
+            let rec = st["records"] as! J
+            let wallet = (st["wallet"] as! [Any]).map(utxo)
+            let years = i64((st["args"] as! J)["years"])
+            do {
+                _ = try b.register(env: env, wallet: wallet, gap: gapRec(rec["gap"]), commit: commitRec(rec["commit"]), years: years, now: opens - 1)
+                r.check(false, "v5: register a millisecond before the deadline was built")
+            } catch {
+                r.check("\(error)".contains("migration deadline"), "v5: register before the deadline refused for the deadline: \(error)")
+            }
+        } else {
+            r.check(false, "v5: no register step to try before the deadline")
+        }
+        // a v5 manifest without its migration block, and a later version, are refused
+        var noMig = v["manifest"] as! J
+        var params = noMig["params"] as! J
+        params.removeValue(forKey: "migration")
+        noMig["params"] = params
+        r.check((try? KN.Manifest.decode(JSONSerialization.data(withJSONObject: noMig))) == nil, "v5: a manifest without params.migration decoded")
+    }
+    var later = v["manifest"] as! J
+    later["registryVersion"] = 6
+    do {
+        _ = try KN.Manifest.decode(JSONSerialization.data(withJSONObject: later))
+        r.check(false, "a registryVersion 6 manifest decoded")
+    } catch {
+        r.check((error as? KN.Failure) == KN.Failure.newerRegistry, "registryVersion 6 is a newer registry: \(error)")
     }
     // an earlier registry's manifest (no registryVersion 4) is recognised as outdated, never trusted
     var old = v["manifest"] as! J
@@ -492,10 +540,14 @@ func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
         do {
             let bm = try KN.Manifest.decode(bundled)
             try bm.verify()
-            print("bundled manifest: registry v4, verified")
+            print("bundled manifest: registry v\(bm.registryVersion), verified")
+            // a deployed registry has every template pinned, so an indexer may serve it too
+            if KN.Manifest.deployedTemplateHashes[KN.hex(bm.registryCovenantId)] != nil {
+                r.check((try? bm.verify(source: .indexer)) != nil, "the deployed bundled manifest verifies as indexer-served")
+            }
         } catch {
             r.check((error as? KN.Failure)?.isOutdatedRegistry == true, "the bundled manifest neither verifies nor is an outdated one: \(error)")
-            print("bundled manifest: an earlier registry (outdated) - the app shows .kachat as setting up until the v3 genesis manifest is bundled")
+            print("bundled manifest: a registry version this app doesn't build for - the app shows .kachat as setting up")
         }
     }
 }
@@ -532,7 +584,9 @@ func writeFixedBudget(_ path: String, _ out: String) {
     }
     for st in v["steps"] as! [J] {
         let env0 = st["env"] as! J
-        let env = KN.Env(me: hx(env0["me"]), blockDaa: u64(env0["blockDaa"]), blockTimeMs: u64(env0["blockTimeMs"]), wallMs: i64(env0["wallMs"]))
+        if s(st["op"]) == "import" { continue }
+        let env = KN.Env(me: hx(env0["me"]), blockDaa: u64(env0["blockDaa"]), blockTimeMs: u64(env0["blockTimeMs"]), wallMs: i64(env0["wallMs"]),
+                         budgets: KN.Budgets.recommended(forRegistryVersion: m.registryVersion))
         let wallet = (st["wallet"] as! [Any]).map(utxo)
         let args = st["args"] as! J
         let rec = st["records"] as! J
