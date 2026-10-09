@@ -26,7 +26,7 @@
 > - **Tests:** `scripts/test_kachat_names_core.swift` and `scripts/test_kachat_names_registry.swift`
 >   take `KaChatTests/KachatNamesVectors-v5.json` as an argument (kachat-domains 6eddc7a).
 
-> **Registry v4 (2026-10-07) is what the app builds now.** Live on testnet-10 on the day clock
+> **Registry v4 (2026-10-07): the contracts mainnet v1 runs; on testnet-10 superseded by v5.** Live on testnet-10 on the day clock
 > since 2026-10-07: genesis `5ffdd006…a777`, registry `e6b72448…7f0d` (the first, 10-minute v4
 > deployment, registry `bff18554…0e2f`, is retired; its names didn't carry over). The spec is
 > `docs/REGISTRY_V4.md` in kachat-domains. What

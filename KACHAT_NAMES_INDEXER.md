@@ -1,6 +1,30 @@
 # Indexer handoff: testnet-10 + `.kachat` names and profiles
 
-> **Registry v4 (2026-10-07) is what the app builds and testnet-10 runs.** Genesis
+> **Now (2026-10-09): mainnet runs "mainnet v1", testnet-10 runs registry v5.** The app builds
+> both, with a bundled manifest per network (`Resources/kachat-names-<network>.json`):
+>
+> - **Mainnet v1** - registry `348bd2c81170f267a2a7039cbf3a6f275e80b189d6c956183ea73ff3ffde75a4`,
+>   genesis `a0281841bf77807a7780f13cc84c0a3e4cd8df3d076b7f052ffc9c898cca90ff`: the audited v4
+>   contracts (`registryVersion: 4`, everything in the v4 block below) under the mainnet params:
+>   yearly periods, 90-day grace, 30-day renewal window, register 4000 / 2000 / 1000 / 250 / 35 KAS,
+>   renew 1000 / 500 / 250 / 62.5 / 8.75 KAS, offer fee cap 0.1 KAS (kachat-domains docs/MAINNET.md).
+> - **Testnet-10, registry v5** - registry `1283f749506c454488a6b7264197658ed1c12051f1887905c4396243a89fbfa2`,
+>   genesis `b6223f0f7fa589a27bf8c0cf5698bfb6ce9421de31a9e635049afa8b2107e24f` (the audited code),
+>   imported from the drill registry `fdc403f5…571d`, itself imported from the v4 day-clock registry
+>   `e6b72448…7f0d`. Both predecessors are **retired**: don't follow them. v5 is v4 plus migration
+>   (kachat-domains docs/REGISTRY_V5.md):
+>   - **Manifest:** `registryVersion: 5` with `params.migration {predecessorRegistryId, root,
+>     deadlineMs, sponsor, snapshot}`; accept `registryVersion` 4 or 5.
+>   - **Only the gap changes** (`contracts/v5/KachatGap.sil`). It bakes the snapshot root, deadline
+>     and sponsor, so its template hash is per deployment (like the offer's).
+>   - **New gap entry `import`**, dispatch tag `aa4cc365`: args `name, owner, periodStart,
+>     expiresAt, index, proof (640 B), bySponsor, authSig, namePrefix, nameSuffix`. Outputs are
+>     exactly a register's (`[gap(lo,key), gap(key,hi), name]`), the name with the snapshot owner
+>     and dates, price 0. Payload `kchat:1:name:import:<name>`. The follower must decode it.
+>   - **`register` is refused until `migration.deadlineMs`** (the sponsor imports every snapshot
+>     name first); `/names/status` reports it as `registerOpensAt`.
+>
+> **Registry v4 (2026-10-07), the contracts mainnet v1 runs; on testnet-10 retired since v5.** Genesis
 > `5ffdd006230bcba0ee52c3ce7b69fba2b9a4d489b57fee93e2b103eb1622a777`, registry
 > `e6b7244831004e1db928458bce570347317b50ff124c010d342d73a6c2017f0d`, scan from block
 > `f08cac7e…2161`, on the day clock (24-hour periods, 6-hour grace, 2-hour renewal window). The
