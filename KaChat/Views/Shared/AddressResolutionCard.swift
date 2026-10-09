@@ -59,19 +59,21 @@ struct AddressResolutionCard: View {
     }
 
     /// Cached by KNSService, so an address already looked at costs nothing.
+    /// A new address starts clean - never the previous one's avatar or name while it loads - and
+    /// the spinner always stops, a cancelled lookup included (IOS-074).
     private func loadProfile(for address: String) async {
-        guard KaspaAddress.isValid(address) else {
-            profile = nil
-            return
-        }
+        profile = nil
+        isLoadingProfile = false
+        guard KaspaAddress.isValid(address) else { return }
         if let cached = KNSService.shared.profileCache[address] {
             profile = cached
             return
         }
         isLoadingProfile = true
+        // a lookup for an address the card no longer shows leaves the newer one's spinner alone
+        defer { if address == self.address { isLoadingProfile = false } }
         let fetched = await KNSService.shared.fetchProfile(for: address)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, address == self.address else { return }
         profile = fetched
-        isLoadingProfile = false
     }
 }
