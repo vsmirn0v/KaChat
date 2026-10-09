@@ -268,11 +268,14 @@ extension KachatNames {
             return harmonicOuts > arithmeticIns ? harmonicOuts - arithmeticIns : 0
         }
 
-        /// The relay fee the CLI pays: ceil(max(compute, normalized transient) * feerate).
+        /// The relay fee the CLI pays: ceil(max(compute, normalized transient) * feerate). Total:
+        /// the rate is made safe first (`safeFeerate`), so the product is always a small finite
+        /// number - `UInt64(Double)` never sees NaN, infinity or 2^64 (IOS-061).
         static func networkFee(_ tx: Tx, feerate: Double) -> UInt64 {
             let feeMass = max(computeMass(tx), normalizedTransient(tx))
-            let rate = max(feerate, minFeerate)
-            return UInt64((Double(feeMass) * rate).rounded(.up))
+            let fee = (Double(feeMass) * safeFeerate(feerate)).rounded(.up)
+            guard fee.isFinite, fee >= 0, fee < 9.0e18 else { return UInt64(9.0e18) }
+            return UInt64(fee)
         }
     }
 }

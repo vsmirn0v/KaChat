@@ -1671,6 +1671,8 @@ struct KachatTxSheet<Inputs: View>: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var actions = KachatNamesActions.shared
     @State private var plan: KachatNames.Plan?
+    /// The fee rate `plan` was built at: the send uses exactly this (IOS-061).
+    @State private var planFeerate: Double?
     @State private var planError: String?
     @State private var building = false
     @State private var sending = false
@@ -1826,11 +1828,12 @@ struct KachatTxSheet<Inputs: View>: View {
         try? await Task.sleep(nanoseconds: 300_000_000)
         guard !Task.isCancelled else { return }
         do {
-            let built = try await KachatNamesActions.shared.plan(operation, fee: feeChoice)
+            let built = try await KachatNamesActions.shared.planWithRate(operation, fee: feeChoice)
             // A newer choice replaced this build while it ran: its plan is for the old choice,
             // and the new build owns the sheet now.
             guard !Task.isCancelled else { return }
-            plan = built
+            plan = built.plan
+            planFeerate = built.feerate
         } catch {
             // Cancelled (the choice changed): not an error to show, and the new build owns the
             // sheet. Showing it left "Swift.CancellationError" and a disabled button.
@@ -1851,19 +1854,26 @@ struct KachatTxSheet<Inputs: View>: View {
         sending = true
         sendError = nil
         do {
-            // never pays more than the price shown, at the fee shown
-            let id = try await KachatNamesActions.shared.perform(operation, maxPrice: plan?.priceFee, fee: feeChoice)
+            // never pays more than the price shown, and sends at the fee rate shown (refused if the
+            // rebuilt fee is higher)
+            let id = try await KachatNamesActions.shared.perform(
+                operation, maxPrice: plan?.priceFee, fee: feeChoice,
+                exactFeerate: planFeerate, maxNetworkFee: plan?.networkFee
+            )
             txId = id
             Haptics.success()
             onDone(id)
             done = KachatTxDone(txId: id, title: doneTitle)
         } catch {
             sendError = error.localizedDescription
-            // the price moved: show the new plan so the person can confirm it
-            if case KachatNamesActions.ActionError.priceChanged? = error as? KachatNamesActions.ActionError {
+            // the price or the fee moved: show the new plan so the person can confirm it
+            switch error as? KachatNamesActions.ActionError {
+            case .priceChanged?, .feeChanged?:
                 sending = false
                 await rebuild()
                 return
+            default:
+                break
             }
         }
         sending = false

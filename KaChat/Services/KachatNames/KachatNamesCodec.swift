@@ -44,6 +44,16 @@ enum KachatNames {
     static let targetChange: UInt64 = 100_000_000
     /// Relay floor after Toccata: 100 sompi per gram of max(compute, normalized transient).
     static let minFeerate: Double = 100.0
+    /// The most any name transaction pays per gram: 1000x the floor (the busiest testnet-10 seen,
+    /// 2026-10-07, asked 894). A fee estimate above it is treated as unknown (IOS-061).
+    static let maxFeerate: Double = minFeerate * 1000
+
+    /// A fee rate that is always safe to multiply: never NaN, infinite or negative, and within
+    /// [minFeerate, maxFeerate] - so a bad value from a node can neither crash nor drain.
+    static func safeFeerate(_ rate: Double) -> Double {
+        guard rate.isFinite, rate > 0 else { return minFeerate }
+        return min(max(rate, minFeerate), maxFeerate)
+    }
     /// register, extend and renew sum at most 8 inputs and 8 outputs (the contracts' bounded loops).
     static let maxInputsFeeEntry = 8
     /// Every other operation: keep transactions small anyway.

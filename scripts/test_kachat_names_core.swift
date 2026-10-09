@@ -410,6 +410,12 @@ func runSteps(_ v: J, _ m: KN.Manifest, _ r: Report) -> [StepResult] {
 /// when renew opens, its lock time, the refusals.
 func runPeriodRules(_ v: J, _ m: KN.Manifest, _ r: Report) {
     let p = m.params
+    // IOS-061: a fee rate from a node can be anything; the maths never traps and never exceeds the cap
+    r.eq(KN.safeFeerate(.nan), KN.minFeerate, "NaN fee rate -> the floor")
+    r.eq(KN.safeFeerate(.infinity), KN.minFeerate, "infinite fee rate -> the floor")
+    r.eq(KN.safeFeerate(-5), KN.minFeerate, "negative fee rate -> the floor")
+    r.eq(KN.safeFeerate(1e300), KN.maxFeerate, "1e300 fee rate -> the ceiling")
+    r.eq(KN.safeFeerate(500), 500, "a normal fee rate is kept")
     let y = p.periodMs
     r.eq(y, 86_400_000, "periodMs from the manifest (24 hours)")
     r.eq(p.renewWindowMs, 7_200_000, "renewWindowMs from the manifest (2 hours)")

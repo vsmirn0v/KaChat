@@ -106,6 +106,8 @@ final class KachatNamesActions: ObservableObject {
         case periodUnknown
         /// the transaction would pay more than the price the person confirmed
         case priceChanged(UInt64)
+        /// the rebuilt transaction's network fee is above the one the person saw
+        case feeChanged(UInt64)
 
         var errorDescription: String? {
             switch self {
@@ -124,6 +126,9 @@ final class KachatNamesActions: ObservableObject {
             case .priceChanged(let price):
                 return String(format: AppLocalization.string("The price changed to %@ since you confirmed. Nothing was sent. Check the new price and confirm again."),
                               KaspaUnit.amount(price))
+            case .feeChanged(let fee):
+                return String(format: AppLocalization.string("The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again."),
+                              KaspaUnit.amount(fee))
             }
         }
     }
@@ -270,9 +275,9 @@ final class KachatNamesActions: ObservableObject {
     /// Reads the fee estimate (node first) and publishes it; nil when nothing answers.
     @discardableResult
     func refreshFeeEstimate() async -> FeeEstimate? {
-        if let e = try? await NodePoolService.shared.feeEstimate() {
-            let estimate = FeeEstimate(normal: e.normal.feerate, normalSeconds: e.normal.seconds,
-                                       priority: e.priority.feerate, prioritySeconds: e.priority.seconds)
+        if let e = try? await NodePoolService.shared.feeEstimate(),
+           let estimate = Self.sane(FeeEstimate(normal: e.normal.feerate, normalSeconds: e.normal.seconds,
+                                                priority: e.priority.feerate, prioritySeconds: e.priority.seconds)) {
             feeEstimate = estimate
             return estimate
         }
@@ -284,18 +289,35 @@ final class KachatNamesActions: ObservableObject {
               let priority = j["priorityBucket"] as? [String: Any] else { return feeEstimate }
         let normal = (j["normalBuckets"] as? [[String: Any]])?.first ?? priority
         func num(_ d: [String: Any], _ k: String) -> Double { (d[k] as? NSNumber)?.doubleValue ?? 0 }
-        let estimate = FeeEstimate(normal: num(normal, "feerate"), normalSeconds: num(normal, "estimatedSeconds"),
-                                   priority: num(priority, "feerate"), prioritySeconds: num(priority, "estimatedSeconds"))
+        guard let estimate = Self.sane(FeeEstimate(normal: num(normal, "feerate"), normalSeconds: num(normal, "estimatedSeconds"),
+                                                   priority: num(priority, "feerate"), prioritySeconds: num(priority, "estimatedSeconds")))
+        else { return feeEstimate }
         feeEstimate = estimate
         return estimate
     }
+
+    /// An estimate only if every rate is a real, non-negative number at most `maxFeerate`: one
+    /// node (any pool node, or the REST API) answering NaN, infinity or 1e300 is ignored rather
+    /// than paid (IOS-061).
+    private static func sane(_ e: FeeEstimate) -> FeeEstimate? {
+        for rate in [e.normal, e.priority] {
+            guard rate.isFinite, rate >= 0, rate <= KachatNames.maxFeerate else { return nil }
+        }
+        return FeeEstimate(normal: e.normal, normalSeconds: e.normalSeconds.isFinite ? max(0, e.normalSeconds) : 0,
+                           priority: e.priority, prioritySeconds: e.prioritySeconds.isFinite ? max(0, e.prioritySeconds) : 0)
+    }
+
+    /// The most a transaction sent without a sheet pays per gram (the claim driver, returning
+    /// expired offers, declining, withdrawing, freeing an expired name): 20x the floor, above the
+    /// busiest rate seen, and a few hundredths of a KAS on these transactions (IOS-061).
+    static let backgroundMaxFeerate = KachatNames.minFeerate * 20
 
     /// The rate a speed pays: the network's Normal rate (never under the relay floor) times the
     /// speed's multiplier, the same 1x / 2x / 5x the Send screens use.
     func feerate(for tier: WithdrawFeeTier) async -> Double {
         let estimate = await refreshFeeEstimate()
         let base = estimate.map { max(KachatNames.minFeerate, $0.normal) } ?? Self.unknownFeerate
-        return base * Double(tier.multiplier)
+        return KachatNames.safeFeerate(base * Double(tier.multiplier))
     }
 
     /// The rate for a choice; nil keeps the old default (the priority rate). A typed total is
@@ -309,14 +331,16 @@ final class KachatNamesActions: ObservableObject {
         case .customTotal(let total):
             let probe = try await build(op, s, feerate: KachatNames.minFeerate).plan
             let mass = max(1, Double(probe.costs.minFee) / KachatNames.minFeerate)
-            return max(KachatNames.minFeerate, Double(total) / mass)
+            return KachatNames.safeFeerate(Double(total) / mass)
         }
     }
 
     /// `max(100, the priority fee rate)` in sompi per gram.
+    /// The rate for a transaction sent without a sheet (nobody saw its fee): the priority rate,
+    /// capped at `backgroundMaxFeerate`.
     func feerate() async -> Double {
         guard let e = await refreshFeeEstimate(), e.priority > 0 else { return Self.unknownFeerate }
-        return max(KachatNames.minFeerate, e.priority)
+        return min(KachatNames.safeFeerate(e.priority), Self.backgroundMaxFeerate)
     }
 
     /// When the fee estimate can't be read: well above the floor, since the floor is exactly what
@@ -398,8 +422,15 @@ final class KachatNamesActions: ObservableObject {
     /// Builds `op` against live UTXOs without submitting anything: the fee and outputs a sheet
     /// shows before the person confirms.
     func plan(_ op: Operation, fee: FeeChoice? = nil) async throws -> KachatNames.Plan {
+        try await planWithRate(op, fee: fee).plan
+    }
+
+    /// The plan and the fee rate it was built at - the rate `perform(exactFeerate:)` then sends at,
+    /// so the fee sent is the fee shown (IOS-061).
+    func planWithRate(_ op: Operation, fee: FeeChoice? = nil) async throws -> (plan: KachatNames.Plan, feerate: Double) {
         let s = try signer(for: op)
-        return try await build(op, s, feerate: try await feerate(for: fee, op: op, s: s)).plan
+        let rate = try await feerate(for: fee, op: op, s: s)
+        return (try await build(op, s, feerate: rate).plan, rate)
     }
 
     private func build(_ op: Operation, _ s: Signer, feerate rate: Double? = nil) async throws -> (plan: KachatNames.Plan, env: KachatNames.Env) {
@@ -488,9 +519,15 @@ final class KachatNamesActions: ObservableObject {
     /// `maxPrice` is the price the person saw and confirmed (a plan's `priceFee`): a register,
     /// extend or renew never pays more. Prices can change at any time in the price record.
     @discardableResult
-    func perform(_ op: Operation, maxPrice: UInt64? = nil, fee: FeeChoice? = nil) async throws -> String {
+    /// `exactFeerate` (from `planWithRate`) sends at the rate the person saw instead of reading it
+    /// again; `maxNetworkFee` refuses a rebuild whose network fee is above the one shown (the
+    /// inputs can change between the two builds), like `maxPrice` does for the price.
+    func perform(_ op: Operation, maxPrice: UInt64? = nil, fee: FeeChoice? = nil,
+                 exactFeerate: Double? = nil, maxNetworkFee: UInt64? = nil) async throws -> String {
         let s = try signer(for: op)
-        let (txId, plan) = try await submit(op, s, maxPrice: maxPrice, feerate: try await feerate(for: fee, op: op, s: s))
+        let rate: Double
+        if let exactFeerate { rate = KachatNames.safeFeerate(exactFeerate) } else { rate = try await feerate(for: fee, op: op, s: s) }
+        let (txId, plan) = try await submit(op, s, maxPrice: maxPrice, maxNetworkFee: maxNetworkFee, feerate: rate)
         // An offer you withdrew or refunded yourself isn't news in the Profile bell; the ones
         // this app returns on its own (expired, made to an earlier owner) are.
         switch op {
@@ -516,9 +553,14 @@ final class KachatNamesActions: ObservableObject {
 
     /// Signs and submits `op`, rebuilt against live UTXOs. It never pays more than `maxPrice`,
     /// the price the person confirmed.
-    private func submit(_ op: Operation, _ s: Signer, maxPrice: UInt64?, feerate rate: Double?) async throws -> (String, KachatNames.Plan) {
+    private func submit(_ op: Operation, _ s: Signer, maxPrice: UInt64?, maxNetworkFee: UInt64? = nil,
+                        feerate rate: Double?) async throws -> (String, KachatNames.Plan) {
         let (plan, env) = try await build(op, s, feerate: rate)
         if let maxPrice, plan.priceFee > maxPrice { throw ActionError.priceChanged(plan.priceFee) }
+        // A few percent of slack: the same rate on a rebuild with other inputs can weigh a little more.
+        if let maxNetworkFee, plan.networkFee > maxNetworkFee + maxNetworkFee / 20 + 1_000 {
+            throw ActionError.feeChanged(plan.networkFee)
+        }
         let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
         if case .offer = op, let o = plan.newOffer {
             registry.trackOffer(KachatNames.OfferInfo(
@@ -929,7 +971,11 @@ final class KachatNamesActions: ObservableObject {
 
     /// The rate the registration's chosen speed pays now (its claim-time choice), else Priority.
     private func registrationFeerate(_ p: KachatNames.PendingRegistration) async -> Double {
-        if let raw = p.feeTier, let tier = WithdrawFeeTier(rawValue: raw) { return await feerate(for: tier) }
+        // The register goes out by itself a minute after the claim: the chosen speed, but never
+        // above the background cap - its fee is not shown again.
+        if let raw = p.feeTier, let tier = WithdrawFeeTier(rawValue: raw) {
+            return min(await feerate(for: tier), Self.backgroundMaxFeerate)
+        }
         return await feerate()
     }
 
