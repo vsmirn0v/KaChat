@@ -1578,3 +1578,7 @@
 "Live on Mainnet: names, prices and payments here are real KAS." = "已在主网上线:这里的名称、价格和付款都是真实的 KAS。";
 "Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "已在测试网上线:这里的名称、价格和付款使用 testnet-10 上的 TKAS。主网名称已在主网上线。";
 "Live on Mainnet" = "已在主网上线";
+
+/* .kachat offers: refundable before the name expires (MAINNET.md C1) */
+"An offer must be refundable before the name expires." = "报价必须在名称到期前可以退回。";
+"This name expires sooner, so your offer is refundable from %@." = "此名称会更早到期,因此你的报价从 %@ 起可退回。";

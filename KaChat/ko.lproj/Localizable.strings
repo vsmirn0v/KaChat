@@ -1578,3 +1578,7 @@
 "Live on Mainnet: names, prices and payments here are real KAS." = "Mainnet 가동 중: 여기의 이름, 가격, 결제는 실제 KAS입니다.";
 "Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "Testnet 가동 중: 여기의 이름, 가격, 결제는 testnet-10의 TKAS를 사용합니다. Mainnet 이름은 Mainnet에서 가동 중입니다.";
 "Live on Mainnet" = "Mainnet 가동 중";
+
+/* .kachat offers: refundable before the name expires (MAINNET.md C1) */
+"An offer must be refundable before the name expires." = "제안은 이름이 만료되기 전에 환불할 수 있어야 합니다.";
+"This name expires sooner, so your offer is refundable from %@." = "이 이름이 더 일찍 만료되므로 제안은 %@부터 환불할 수 있습니다.";

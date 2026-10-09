@@ -493,6 +493,12 @@ final class KachatNamesActions: ObservableObject {
             guard refundAfter > env.blockDaa, refundAfter <= cap else {
                 throw KachatNames.Failure(AppLocalization.string("An offer can run for up to 7 days."))
             }
+            // MAINNET.md C1: refundable before the name expires - past that the seller could
+            // accept it and then reclaim the name, leaving the buyer only the bond
+            let refundAtMs = env.wallMs + Int64(refundAfter - env.blockDaa) * 1000 / Int64(Self.daaPerSecond)
+            guard refundAtMs <= target.expiresAt else {
+                throw KachatNames.Failure(AppLocalization.string("An offer must be refundable before the name expires."))
+            }
             plan = try b.offer(env: env, wallet: wallet, target: try await liveName(target, m), amount: amount, refundAfter: refundAfter)
         case .withdraw(let o):
             plan = try b.withdrawOffer(env: env, offer: try await liveOffer(o, m))
@@ -715,12 +721,15 @@ final class KachatNamesActions: ObservableObject {
             guard let name = o.name else { continue }
             if ownerByName[name] == nil {
                 switch try? await registry.lookup(name) {
+                // MAINNET.md C1: once the name has expired the seller could accept the offer
+                // and then reclaim the name, so it counts as declined - it comes back
+                case .registered(let n)? where n.status(graceMs: registry.graceMs) != .active: ownerByName[name] = .some(Data?.none)
                 case .registered(let n)?: ownerByName[name] = .some(n.owner)
                 case .free?: ownerByName[name] = .some(Data?.none)
                 case nil: continue
                 }
             }
-            // still made to the name's current owner: it stands
+            // still made to the name's current owner, who still holds it: it stands
             if case .some(.some(let current)) = ownerByName[name], !o.isDeclined(currentOwner: current) { continue }
             withdrawingOffers.insert(o.id)
             Task { @MainActor [weak self] in

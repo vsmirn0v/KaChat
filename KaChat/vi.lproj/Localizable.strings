@@ -1578,3 +1578,7 @@
 "Live on Mainnet: names, prices and payments here are real KAS." = "Đang chạy trên Mainnet: tên, giá và thanh toán ở đây là KAS thật.";
 "Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "Đang chạy trên Testnet: tên, giá và thanh toán ở đây dùng TKAS trên testnet-10. Tên Mainnet đang chạy trên Mainnet.";
 "Live on Mainnet" = "Đang chạy trên Mainnet";
+
+/* .kachat offers: refundable before the name expires (MAINNET.md C1) */
+"An offer must be refundable before the name expires." = "Đề nghị phải hoàn lại được trước khi tên hết hạn.";
+"This name expires sooner, so your offer is refundable from %@." = "Tên này hết hạn sớm hơn, nên đề nghị của bạn hoàn lại được từ %@.";

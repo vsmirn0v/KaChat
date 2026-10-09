@@ -1579,3 +1579,7 @@
 "Live on Mainnet: names, prices and payments here are real KAS." = "En ligne sur Mainnet : ici, les noms, prix et paiements sont en vrais KAS.";
 "Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "En ligne sur Testnet : ici, les noms, prix et paiements utilisent des TKAS sur testnet-10. Les noms Mainnet sont en ligne sur Mainnet.";
 "Live on Mainnet" = "En ligne sur Mainnet";
+
+/* .kachat offers: refundable before the name expires (MAINNET.md C1) */
+"An offer must be refundable before the name expires." = "Une offre doit être remboursable avant l’expiration du nom.";
+"This name expires sooner, so your offer is refundable from %@." = "Ce nom expire plus tôt : votre offre est remboursable à partir du %@.";

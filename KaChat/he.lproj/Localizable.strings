@@ -1578,3 +1578,7 @@
 "Live on Mainnet: names, prices and payments here are real KAS." = "פעיל ב-Mainnet: השמות, המחירים והתשלומים כאן ב-KAS אמיתי.";
 "Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "פעיל ב-Testnet: השמות, המחירים והתשלומים כאן ב-TKAS ב-testnet-10. שמות Mainnet פעילים ב-Mainnet.";
 "Live on Mainnet" = "פעיל ב-Mainnet";
+
+/* .kachat offers: refundable before the name expires (MAINNET.md C1) */
+"An offer must be refundable before the name expires." = "הצעה חייבת להיות ניתנת להחזר לפני שהשם פג.";
+"This name expires sooner, so your offer is refundable from %@." = "השם הזה פג מוקדם יותר, ולכן ההצעה שלך ניתנת להחזר מ-%@.";

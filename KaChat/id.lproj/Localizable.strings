@@ -1578,3 +1578,7 @@
 "Live on Mainnet: names, prices and payments here are real KAS." = "Aktif di Mainnet: nama, harga, dan pembayaran di sini memakai KAS sungguhan.";
 "Live on Testnet: names, prices and payments here use TKAS on testnet-10. Mainnet names are live on Mainnet." = "Aktif di Testnet: nama, harga, dan pembayaran di sini memakai TKAS di testnet-10. Nama Mainnet aktif di Mainnet.";
 "Live on Mainnet" = "Aktif di Mainnet";
+
+/* .kachat offers: refundable before the name expires (MAINNET.md C1) */
+"An offer must be refundable before the name expires." = "Tawaran harus bisa dikembalikan sebelum nama kedaluwarsa.";
+"This name expires sooner, so your offer is refundable from %@." = "Nama ini kedaluwarsa lebih cepat, jadi tawaran Anda bisa dikembalikan mulai %@.";

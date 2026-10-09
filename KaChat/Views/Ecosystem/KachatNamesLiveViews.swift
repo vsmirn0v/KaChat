@@ -2120,6 +2120,19 @@ struct KachatClaimSheet: View {
 /// can do with it - buy, offer or message the owner; or, for their own names, renew, list,
 /// transfer, release and make it their primary name. Offers and history below.
 struct KachatLiveNameDetail: View {
+    /// MAINNET.md C6: an offer is bound to a seller key, so one made to this owner before the name
+    /// last left them - and came back - could be accepted again. Only offers made since the
+    /// current owner got the name are shown for them; others to other sellers (declined, on
+    /// their way back to the buyer) stay.
+    static func currentOffers(_ offers: [KachatNames.OfferInfo], owner: Data, history: [KachatNames.Event]) -> [KachatNames.OfferInfo] {
+        let ownershipOps: Set<String> = ["register", "import", "transfer", "sale", "offer_accepted", "offer_accept"]
+        guard let since = history.filter({ ownershipOps.contains($0.op) }).compactMap(\.at).max() else { return offers }
+        return offers.filter { o in
+            guard o.seller == owner, let created = o.createdAt else { return true }
+            return created >= since
+        }
+    }
+
     @State var info: KachatNames.NameInfo
     @ObservedObject private var registry = KachatNamesRegistry.shared
     @ObservedObject private var actions = KachatNamesActions.shared
@@ -2644,8 +2657,8 @@ struct KachatLiveNameDetail: View {
         if !ownedByWallet, let ownerAddress, let id = try? await registry.identity(address: ownerAddress) {
             ownerLabel = id.label
         }
-        offers = (try? await registry.offers(for: info.name)) ?? []
         history = (try? await registry.history(name: info.name)) ?? []
+        offers = Self.currentOffers((try? await registry.offers(for: info.name)) ?? [], owner: info.owner, history: history)
         if !offers.isEmpty {
             await actions.refreshVirtualDaa()
             // Expired offers don't stay on your name: the owner's app (and the buyer's) send
@@ -2706,7 +2719,20 @@ struct KachatLiveOfferSheet: View {
     @State private var virtualDaa: UInt64?
 
     private var amount: UInt64? { KaspaUnit.sompi(fromUserText: amountText).flatMap { $0 > 0 ? $0 : nil } }
-    private var refundAfter: UInt64? { virtualDaa.map { $0 + UInt64(days) * 86_400 * KachatLive.daaPerSecond } }
+    /// `days` from now, but never past the name's expiry (MAINNET.md C1): with yearly names that
+    /// rarely matters, near the end of a period it does.
+    private var refundAfter: UInt64? {
+        guard let virtualDaa else { return nil }
+        let wanted = virtualDaa + UInt64(days) * 86_400 * KachatLive.daaPerSecond
+        let msLeft = info.expiresAt - KachatNames.nowMs() - 600_000   // 10 minutes of margin
+        guard msLeft > 0 else { return nil }
+        let atExpiry = virtualDaa + UInt64(msLeft) * KachatLive.daaPerSecond / 1000
+        return min(wanted, atExpiry)
+    }
+    private var cappedByExpiry: Bool {
+        guard let virtualDaa, let refundAfter else { return false }
+        return refundAfter < virtualDaa + UInt64(days) * 86_400 * KachatLive.daaPerSecond
+    }
 
     private var operation: KachatNamesActions.Operation? {
         guard let amount, let refundAfter else { return nil }
@@ -2736,7 +2762,12 @@ struct KachatLiveOfferSheet: View {
                     Text(verbatim: KaspaUnit.symbol).foregroundColor(.secondary)
                 }
             }
-            KachatInputCard(title: "Refundable after") {
+            KachatInputCard(
+                title: "Refundable after",
+                footer: cappedByExpiry
+                    ? Text(String(format: AppLocalization.string("This name expires sooner, so your offer is refundable from %@."), KachatLive.day(info.expiresAt - 600_000)))
+                    : nil
+            ) {
                 Picker("Expires", selection: $days) {
                     Text("1 Day").tag(1)
                     Text("3 Days").tag(3)
