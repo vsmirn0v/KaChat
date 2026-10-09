@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "İsimler yeni kayıt defterine taşınıyor. Yeni isimler %@ tarihinden itibaren alınabilir.";
 "Every name from the old registry comes over with the same owner and expiry first." = "Önce eski kayıt defterindeki her isim aynı sahip ve aynı bitiş tarihiyle taşınır.";
 "Moved to the new registry" = "Yeni kayıt defterine taşındı";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... veya alan adı";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Bir Kaspa adresi (kaspa:...) veya alan adı girin (ör. alice.kachat). Önce .kachat adları aranır.";
+"Finds addresses holding a balance or a domain." = "Bakiyesi veya alan adı olan adresleri bulur.";
+"Their profile, .kachat name and address." = "Profili, .kachat adı ve adresi.";
+"Resolved first, everywhere you can type an address." = "Adres girebildiğiniz her yerde önce çözümlenir.";
+"Other Domains" = "Diğer Alan Adları";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = ".kachat'tan sonra aranır; yazılan ad orada da varsa Diğer alan adları altında listelenir.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Bu seed kimliğinizi zaten başka bir adreste tutuyorsa (bir alan adı .kachat, .kas, .k veya .kaspa ya da bakiyeli bir sohbet adresi), burada seçin. Yalnızca bakiyesi veya alan adı olan adresler gösterilir.";
+".kachat Names (%lld)" = ".kachat Adları (%lld)";
+".kas Names (%lld)" = ".kas Adları (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Bir Kaspa adresi (kaspa:...) veya alan adı girin. Önce .kachat adları aranır.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Bir Kaspa adresi veya name.kachat gibi bir alan adı girin (önce .kachat adları aranır). Bu adrese gelen her işlem alış, gönderilen her işlem satış sayılır ve o günün geçmiş KAS fiyatıyla değerlenir. Aynı adresi daha sonra yeniden eklerseniz yalnızca son içe aktarmadan beri bulunan işlemler içe aktarılır.";
+"Search contacts, or an address or domain" = "Kişi, adres veya alan adı arayın";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "Henüz kişiniz yok. Birini davet etmek için yukarıya bir adres veya alan adı yapıştırın.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "Aramanızla eşleşen kişi yok. Yeni birini davet etmek için bir adres veya alan adı yapıştırın.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "Bir adres veya alan adı; önce .kachat adları aranır ve gösterilen adrese çözümlenir.";
+"kaspatest:... or domain" = "kaspatest:... veya alan adı";
+"Enter an address or a domain." = "Bir adres veya alan adı girin.";
+"That name's address can't own a .kachat name." = "Bu adın adresi bir .kachat adına sahip olamaz.";
+"No domain found by that name." = "Bu adla bir alan adı bulunamadı.";
+"One of your .kachat domains expired" = ".kachat alan adlarınızdan birinin süresi doldu";
+"%lld of your .kachat domains expired" = ".kachat alan adlarınızdan %lld tanesinin süresi doldu";
+"Renew %@ before its grace period ends on %@ to keep it." = "%@ adını korumak için ek süresi %@ tarihinde bitmeden yenileyin.";
+"Renew them before their grace periods end to keep them." = "Korumak için ek süreleri bitmeden yenileyin.";

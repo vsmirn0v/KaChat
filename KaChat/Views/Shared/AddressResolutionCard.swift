@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// Who is behind the address a screen has resolved - the card the create-chat screen shows,
-/// for every other place an address or a `.kas` domain goes in (withdrawals, sends from an
-/// address, the portfolio, a group invite). The SCREEN does the resolving, exactly as
-/// create-chat does (its own validity check and KNS lookup); this card takes the outcome and
-/// fetches the profile for the face and the domain. Nil address, no card - a half-typed
+/// for every other place an address or a domain goes in (withdrawals, sends from an address,
+/// the portfolio, a group invite). The SCREEN does the resolving (.kachat first, see
+/// `NameServicesClient.resolveEverywhere`); this card takes the outcome and shows the face and
+/// the name: the domain that was typed, else the address's own .kachat name. Nil address, no card - a half-typed
 /// address gets nothing rather than a card flickering through wrong faces.
 struct AddressResolutionCard: View {
     /// The address the input stands for: a valid typed address, or a domain's resolved owner.
@@ -15,18 +15,27 @@ struct AddressResolutionCard: View {
 
     @State private var profile: KNSAddressProfileInfo?
     @State private var isLoadingProfile = false
+    /// re-renders when the address's .kachat identity lands (`cachedIdentity` fills in the background)
+    @ObservedObject private var kachatRegistry = KachatNamesRegistry.shared
+
+    /// The name to show: the domain typed, else the address's .kachat name.
+    private func displayName(for address: String) -> String? {
+        if let domain { return domain }
+        if let label = kachatRegistry.cachedIdentity(for: address)?.label { return "\(label).kachat" }
+        return profile?.domainName
+    }
 
     var body: some View {
         if let address, !address.isEmpty {
             HStack(spacing: 12) {
                 KNSAvatarView(
                     avatarURLString: profile?.avatarURL,
-                    fallbackText: profile?.domainName ?? domain ?? address,
+                    fallbackText: displayName(for: address) ?? address,
                     size: 44,
                     contactAddress: address
                 )
                 VStack(alignment: .leading, spacing: 2) {
-                    let name = profile?.domainName ?? domain
+                    let name = displayName(for: address)
                     Text(name ?? (isLoadingProfile ? "Looking up..." : "No domain"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(name == nil ? .secondary : .primary)

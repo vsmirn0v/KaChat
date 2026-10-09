@@ -2208,40 +2208,8 @@ struct ConnectionSettingsView: View {
 
     @ViewBuilder
     private var domainsSections: some View {
+        // .kachat first: it is what every address field resolves before anything else.
         Section {
-            // Shown, not editable. This field had no empty-string fallback, so saving it
-            // blank wrote "" and every KNS call then failed with an unsupported-URL error
-            // until it was typed back in. It now follows the selected network.
-            VStack(alignment: .leading, spacing: 4) {
-                Text("KNS API URL")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(settingsViewModel.knsBaseURL)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
-            }
-        } header: {
-            Text("Kaspa Name Service")
-        } footer: {
-            Text("KNS domain resolution service")
-        }
-
-
-        // The other name services this app reads (see `NameServicesClient`). Shown, not
-        // editable yet - they have one public deployment each.
-        Section {
-            ForEach([NameServiceTLD.k, .kaspa], id: \.self) { tld in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(tld.serviceName) (\(tld.suffix))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(tld.apiBaseURL(for: settingsViewModel.settings.networkType) ?? String(localized: "Not available on this network"))
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
             VStack(alignment: .leading, spacing: 4) {
                 Text("KaChat Names (.kachat)")
                     .font(.caption)
@@ -2257,9 +2225,39 @@ struct ConnectionSettingsView: View {
                 }
             }
         } header: {
-            Text("Other Name Services")
+            Text(".kachat Names")
         } footer: {
-            Text("Used to show the .k and .kaspa names an address owns. KaChat's own .kachat names will be set here once they launch.")
+            Text("Resolved first, everywhere you can type an address.")
+        }
+        // The other name services this app reads (see `NameServicesClient`). Shown, not
+        // editable. The .kas URL had no empty-string fallback, so saving it blank wrote "" and
+        // every lookup then failed with an unsupported-URL error until it was typed back in. It
+        // now follows the selected network.
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: ".kas")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(settingsViewModel.knsBaseURL)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+            ForEach([NameServiceTLD.k, .kaspa], id: \.self) { tld in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: tld.suffix)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(tld.apiBaseURL(for: settingsViewModel.settings.networkType) ?? String(localized: "Not available on this network"))
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        } header: {
+            Text("Other Domains")
+        } footer: {
+            Text("Looked up after .kachat, and listed under Other domains when a typed name also exists there.")
         }
     }
 

@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "تنتقل الأسماء إلى السجل الجديد. يمكن المطالبة بأسماء جديدة بدءًا من %@.";
 "Every name from the old registry comes over with the same owner and expiry first." = "ينتقل كل اسم من السجل القديم أولًا بالمالك نفسه وتاريخ الانتهاء نفسه.";
 "Moved to the new registry" = "نُقل إلى السجل الجديد";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... أو نطاق";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "أدخل عنوان Kaspa (kaspa:...) أو نطاقًا (مثل alice.kachat). يُبحث عن أسماء .kachat أولًا.";
+"Finds addresses holding a balance or a domain." = "يعثر على العناوين التي تحمل رصيدًا أو نطاقًا.";
+"Their profile, .kachat name and address." = "ملفه الشخصي واسم .kachat والعنوان.";
+"Resolved first, everywhere you can type an address." = "تُحلّ أولًا في كل مكان يمكنك فيه كتابة عنوان.";
+"Other Domains" = "نطاقات أخرى";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "يُبحث عنها بعد .kachat، وتظهر تحت «نطاقات أخرى» عندما يوجد الاسم المكتوب هناك أيضًا.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "إذا كانت هذه العبارة تحمل هويتك على عنوان آخر - نطاق (.kachat أو .kas أو .k أو .kaspa) أو رصيد دردشة ممول - فاختره هنا. تظهر فقط العناوين التي لها رصيد أو نطاقات.";
+".kachat Names (%lld)" = "أسماء .kachat (%lld)";
+".kas Names (%lld)" = "أسماء .kas (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "أدخل عنوان Kaspa (kaspa:...) أو نطاقًا. يُبحث عن أسماء .kachat أولًا.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "أدخل عنوان Kaspa أو نطاقًا مثل name.kachat (يُبحث عن أسماء .kachat أولًا). كل معاملة مستلمة على هذا العنوان تُسجل شراءً وكل معاملة مرسلة بيعًا، بسعر KAS التاريخي لذلك اليوم. عند إضافة العنوان نفسه لاحقًا تُستورد فقط المعاملات الجديدة منذ آخر استيراد.";
+"Search contacts, or an address or domain" = "ابحث في جهات الاتصال أو عن عنوان أو نطاق";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "ليست لديك جهات اتصال بعد. الصق عنوانًا أو نطاقًا في الأعلى لدعوة شخص ما.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "لا توجد جهات اتصال مطابقة. الصق عنوانًا أو نطاقًا لدعوة شخص جديد.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "عنوان أو نطاق - يُبحث عن أسماء .kachat أولًا، ويُحوّل إلى العنوان المعروض.";
+"kaspatest:... or domain" = "kaspatest:... أو نطاق";
+"Enter an address or a domain." = "أدخل عنوانًا أو نطاقًا.";
+"That name's address can't own a .kachat name." = "عنوان هذا الاسم لا يمكنه امتلاك اسم .kachat.";
+"No domain found by that name." = "لم يُعثر على نطاق بهذا الاسم.";
+"One of your .kachat domains expired" = "انتهت صلاحية أحد نطاقات .kachat الخاصة بك";
+"%lld of your .kachat domains expired" = "انتهت صلاحية %lld من نطاقات .kachat الخاصة بك";
+"Renew %@ before its grace period ends on %@ to keep it." = "جدّد %@ قبل انتهاء فترة السماح في %@ للاحتفاظ به.";
+"Renew them before their grace periods end to keep them." = "جدّدها قبل انتهاء فترات السماح للاحتفاظ بها.";

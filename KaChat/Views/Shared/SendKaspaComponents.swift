@@ -30,6 +30,11 @@ struct SendRecipientCard: View {
     let lookupError: String?
     let isValidAddress: Bool
     let onScan: () -> Void
+    /// Every service's answer for a typed name (`NameServicesClient.resolveEverywhere`, .kachat
+    /// first) and the one in use: the rest are offered under "Other domains".
+    var nameResolutions: [NameResolution] = []
+    var selectedTLD: NameServiceTLD? = nil
+    var onSelectResolution: (NameResolution) -> Void = { _ in }
 
     @ObservedObject private var addressBook = AddressBookManager.shared
     @State private var showAddressBook = false
@@ -97,6 +102,9 @@ struct SendRecipientCard: View {
                 }
                 if !trimmed.isEmpty {
                     statusLine
+                    if !isResolving {
+                        OtherDomainsDropdown(resolutions: nameResolutions, selected: selectedTLD, onSelect: onSelectResolution)
+                    }
                 }
             }
         }
@@ -138,6 +146,75 @@ struct SendRecipientCard: View {
                 .font(.caption)
                 .foregroundColor(isValidAddress ? .green : .red)
         }
+    }
+}
+
+// MARK: - Other domains
+
+/// "Other domains": what the same typed name points to on the other services, under the name it
+/// resolved to, each selectable. Every field that takes an address shows it; the order is always
+/// .kachat first (`NameServiceTLD.resolutionOrder`). Opens by itself when nothing was picked but
+/// another service has the name.
+struct OtherDomainsDropdown: View {
+    let resolutions: [NameResolution]
+    let selected: NameServiceTLD?
+    let onSelect: (NameResolution) -> Void
+
+    @State private var expanded = false
+
+    private var others: [NameResolution] { resolutions.filter { $0.tld != selected } }
+
+    var body: some View {
+        if !others.isEmpty {
+            DisclosureGroup(isExpanded: $expanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(others) { resolution in
+                        Button {
+                            onSelect(resolution)
+                            expanded = false
+                        } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(verbatim: resolution.display)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundColor(resolution.address == nil ? .secondary : .primary)
+                                    Text(resolution.address ?? Self.missingText(resolution))
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                Spacer(minLength: 0)
+                                if resolution.address != nil {
+                                    Image(systemName: "arrow.right.circle")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(resolution.address == nil)
+                    }
+                }
+                .padding(.top, 4)
+            } label: {
+                Text("Other domains")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.accentColor)
+            }
+            .tint(.accentColor)
+            .onAppear { openIfNothingPicked() }
+            .onChange(of: resolutions) { _ in openIfNothingPicked() }
+        }
+    }
+
+    private func openIfNothingPicked() {
+        if selected == nil, resolutions.contains(where: { $0.address != nil }) { expanded = true }
+    }
+
+    static func missingText(_ r: NameResolution) -> String {
+        if r.notLive { return String(localized: "Coming soon") }
+        return r.failed ? String(localized: "Couldn't check") : String(localized: "Not registered")
     }
 }
 

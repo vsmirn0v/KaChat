@@ -1425,7 +1425,7 @@ struct PublicChatChannelView: View {
 
             ActionSheetRow(
                 title: "View Profile",
-                subtitle: "Their KNS profile, domains and address.",
+                subtitle: "Their profile, .kachat name and address.",
                 systemImage: "person.crop.circle"
             ) {
                 dismissThen { viewProfile(address) }

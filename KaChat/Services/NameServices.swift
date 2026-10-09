@@ -143,6 +143,9 @@ struct NameResolution: Identifiable, Equatable {
     let address: String?
     /// The service could not be asked (network or server failure), so "not registered" is unknown.
     let failed: Bool
+    /// The service isn't live on this network yet (.kachat on mainnet before its launch): listed,
+    /// first as always, but nothing can resolve there.
+    var notLive: Bool = false
 
     var id: String { tld.rawValue }
 }
@@ -252,6 +255,21 @@ final class NameServicesClient: ObservableObject {
         return (k ?? []) + (kaspa ?? [])
     }
 
+    /// The .kachat names each of `addresses` holds (active or in grace), where the registry is
+    /// live; empty elsewhere. Kept apart from `ownedNames(of:)` because .kachat comes first
+    /// wherever names are listed.
+    func kachatNames(of addresses: [String]) async -> [String: [OwnedServiceName]] {
+        guard NameServiceTLD.kachat.isLive, !addresses.isEmpty else { return [:] }
+        await KachatNamesRegistry.shared.refreshIfStale()
+        var result: [String: [OwnedServiceName]] = [:]
+        for address in addresses {
+            guard let key = KachatNamesRegistry.keyOf(address),
+                  let held = try? await KachatNamesRegistry.shared.heldNames(owner: key), !held.isEmpty else { continue }
+            result[address] = held.map { OwnedServiceName(name: $0.name, display: "\($0.name).kachat", tld: .kachat, isProvisional: false) }
+        }
+        return result
+    }
+
     /// `ownedNames(of:)` for many addresses, a few lookups at a time rather than one burst of
     /// two requests per address against services that rate-limit.
     func ownedNames(of addresses: [String], concurrency: Int = 6) async -> [String: [OwnedServiceName]] {
@@ -357,8 +375,9 @@ final class NameServicesClient: ObservableObject {
     }
 
     /// What `input` points to on every live service, in `NameServiceTLD.resolutionOrder`.
-    /// A service whose own rules reject the label is left out. `.kachat` is skipped where it is
-    /// not live (mainnet). Each service normalizes with its own rule (`NameNormalization`).
+    /// A service whose own rules reject the label is left out. `.kachat` is always listed first;
+    /// where its registry isn't live yet (mainnet until launch) it is marked `notLive`. Each
+    /// service normalizes with its own rule (`NameNormalization`).
     func resolveEverywhere(_ input: String) async -> [NameResolution] {
         let label = NameServiceTLD.splitTypedName(input).label
         guard !label.isEmpty else { return [] }
@@ -386,10 +405,12 @@ final class NameServicesClient: ObservableObject {
     /// stays reachable until the name is back on the market; only a lapsed name doesn't resolve
     /// (KACHAT_NAMES.md section 4). Same rules as the gap: a-z, 0-9, hyphen.
     private func resolveKachat(_ label: String) async -> NameResolution? {
-        guard NameServiceTLD.kachat.isLive else { return nil }
         let canonical = KachatNames.Codec.normalize(label)
         guard KachatNames.Codec.isValid(canonical) else { return nil }
         let display = "\(canonical).kachat"
+        guard NameServiceTLD.kachat.isLive else {
+            return NameResolution(tld: .kachat, display: display, address: nil, failed: false, notLive: true)
+        }
         let registry = KachatNamesRegistry.shared
         await registry.refreshIfStale()
         do {

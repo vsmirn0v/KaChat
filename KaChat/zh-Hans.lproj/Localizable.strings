@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "名称正在迁移到新的注册表。新名称可从 %@ 起认领。";
 "Every name from the old registry comes over with the same owner and expiry first." = "旧注册表中的每个名称会先以相同的所有者和到期时间迁移过来。";
 "Moved to the new registry" = "已迁移到新注册表";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... 或域名";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "输入 Kaspa 地址(kaspa:...)或域名(例如 alice.kachat)。会先查找 .kachat 名称。";
+"Finds addresses holding a balance or a domain." = "查找有余额或域名的地址。";
+"Their profile, .kachat name and address." = "其个人资料、.kachat 名称和地址。";
+"Resolved first, everywhere you can type an address." = "在所有可以输入地址的地方优先解析。";
+"Other Domains" = "其他域名";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "在 .kachat 之后查找;如果输入的名称在那里也存在,会列在“其他域名”下。";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "如果此助记词已在其他地址上保存了你的身份(.kachat、.kas、.k 或 .kaspa 域名,或有余额的聊天地址),请在此选择。只显示有余额或域名的地址。";
+".kachat Names (%lld)" = ".kachat 名称(%lld)";
+".kas Names (%lld)" = ".kas 名称(%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "输入 Kaspa 地址(kaspa:...)或域名。会先查找 .kachat 名称。";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "输入 Kaspa 地址或域名,例如 name.kachat(会先查找 .kachat 名称)。该地址收到的每笔交易记为买入,发出的每笔记为卖出,按当天的历史 KAS 价格计价。以后再次添加同一地址,只会导入上次导入之后的交易。";
+"Search contacts, or an address or domain" = "搜索联系人、地址或域名";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "你还没有联系人。在上方粘贴地址或域名来邀请他人。";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "没有匹配的联系人。粘贴地址或域名来邀请新的人。";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "地址或域名——会先查找 .kachat 名称,并解析为显示的地址。";
+"kaspatest:... or domain" = "kaspatest:... 或域名";
+"Enter an address or a domain." = "请输入地址或域名。";
+"That name's address can't own a .kachat name." = "该名称的地址无法拥有 .kachat 名称。";
+"No domain found by that name." = "未找到该名称的域名。";
+"One of your .kachat domains expired" = "你的一个 .kachat 域名已过期";
+"%lld of your .kachat domains expired" = "你有 %lld 个 .kachat 域名已过期";
+"Renew %@ before its grace period ends on %@ to keep it." = "请在 %2$@ 宽限期结束前续订 %1$@ 以保留它。";
+"Renew them before their grace periods end to keep them." = "请在宽限期结束前续订以保留它们。";

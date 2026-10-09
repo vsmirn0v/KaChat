@@ -664,6 +664,9 @@ private struct AddPortfolioAddressSheet: View {
     @State private var isResolvingKNS = false
     @State private var resolvedAddress: String?
     @State private var resolvedDomain: String?
+    /// Every service's answer for a typed name and the one in use (`OtherDomainsDropdown`).
+    @State private var nameResolutions: [NameResolution] = []
+    @State private var selectedTLD: NameServiceTLD?
     @State private var knsNotFound = false
 
     private var trimmedInput: String {
@@ -708,9 +711,18 @@ private struct AddPortfolioAddressSheet: View {
                             .textInputAutocapitalization(.never)
                             .onChange(of: addressText) { handleInputChange($0) }
 
-                            AddressResolutionCard(address: resolvedAddress ?? (KaspaAddress.isValid(trimmedInput) ? trimmedInput : nil))
+                            AddressResolutionCard(address: resolvedAddress ?? (KaspaAddress.isValid(trimmedInput) ? trimmedInput : nil), domain: resolvedDomain)
 
                         validationStatus
+                        if !isResolvingKNS {
+                            OtherDomainsDropdown(resolutions: nameResolutions, selected: selectedTLD) { resolution in
+                                guard let address = resolution.address else { return }
+                                resolvedAddress = address
+                                resolvedDomain = resolution.display
+                                selectedTLD = resolution.tld
+                                knsNotFound = false
+                            }
+                        }
 
                         HStack {
                             Button {
@@ -729,7 +741,7 @@ private struct AddPortfolioAddressSheet: View {
                         }
                         .buttonStyle(.borderless)
                     } footer: {
-                        Text("Enter a Kaspa address or a KNS domain like name.kas. Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.")
+                        Text("Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.")
                     }
                 }
             }
@@ -772,15 +784,26 @@ private struct AddPortfolioAddressSheet: View {
     /// valid/invalid affordance (same shape as ManageAddressesView's withdraw flow).
     @ViewBuilder
     private var validationStatus: some View {
-        if trimmedInput.isEmpty || isResolvingKNS {
+        if trimmedInput.isEmpty {
             EmptyView()
+        } else if isResolvingKNS {
+            HStack(spacing: 6) {
+                ProgressView().scaleEffect(0.8)
+                Text("Looking up domain...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         } else if let resolvedAddress {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(.green)
-                Text("Resolves to \(Self.shortened(resolvedAddress))")
+                Text("Resolved: \(resolvedDomain ?? "")")
                     .font(.caption)
                     .foregroundColor(.green)
+                    .lineLimit(1)
+                Text(verbatim: Self.shortened(resolvedAddress))
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(.secondary)
                     .lineLimit(1)
             }
         } else if knsNotFound {
@@ -810,6 +833,8 @@ private struct AddPortfolioAddressSheet: View {
         resolvedDomain = nil
         knsNotFound = false
         isResolvingKNS = false
+        nameResolutions = []
+        selectedTLD = nil
 
         guard !trimmed.isEmpty else { return }
         if trimmed.hasPrefix("kaspa:") || trimmed.hasPrefix("kaspatest:") { return }
@@ -833,9 +858,11 @@ private struct AddPortfolioAddressSheet: View {
                 // Input may have moved on while the lookup was in flight — a stale answer
                 // must not overwrite the state for what's in the field now.
                 guard addressText.trimmingCharacters(in: .whitespacesAndNewlines) == domain else { return }
+                nameResolutions = results
                 if let resolution, let address = resolution.address {
                     resolvedAddress = address
                     resolvedDomain = resolution.display
+                    selectedTLD = resolution.tld
                     knsNotFound = false
                 } else {
                     resolvedAddress = nil

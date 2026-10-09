@@ -1476,7 +1476,7 @@ struct GroupChatDetailView: View {
 
             ActionSheetRow(
                 title: "View Profile",
-                subtitle: "Their KNS profile, domains and address.",
+                subtitle: "Their profile, .kachat name and address.",
                 systemImage: "person.crop.circle"
             ) {
                 dismissThen { viewProfile(address) }
@@ -3390,9 +3390,13 @@ private struct AddGroupMembersView: View {
     @State private var isAdding = false
     @State private var resultMessage: String?
     @State private var showAddConfirm = false
-    /// Address a typed KNS domain resolved to, so `.kas` names work here like they do everywhere
-    /// else an address is accepted.
+    /// Address a typed domain resolved to (.kachat first, like everywhere else an address is
+    /// accepted), the name it resolved as, and every service's answer for "Other domains".
     @State private var resolvedDomainAddress: String?
+    @State private var resolvedDomainName: String?
+    @State private var nameResolutions: [NameResolution] = []
+    @State private var selectedTLD: NameServiceTLD?
+    @State private var domainNotFound: String?
     @State private var isResolvingDomain = false
 
     /// A group invite is encrypted to the invitee's public key, which is decoded from their
@@ -3402,8 +3406,8 @@ private struct AddGroupMembersView: View {
     private var typedAddress: String? {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return nil }
-        let candidate = ContactsManager.shared.isValidKaspaAddress(query) ? query : resolvedDomainAddress
-        guard let candidate, ContactsManager.shared.isValidKaspaAddress(candidate) else { return nil }
+        let candidate = KaspaAddress.isValidOnActiveNetwork(query) ? query : resolvedDomainAddress
+        guard let candidate, KaspaAddress.isValidOnActiveNetwork(candidate) else { return nil }
         guard candidate != WalletManager.shared.currentWallet?.publicAddress else { return nil }
         guard !group.members.contains(where: { $0.address == candidate }) else { return nil }
         // Already listed below as a contact, so offering it twice would just be confusing.
@@ -3411,28 +3415,52 @@ private struct AddGroupMembersView: View {
         return candidate
     }
 
-    /// Resolves `name` / `name.kas` in the background. Anything that is already an address, or
-    /// too short to be a domain, is left alone.
+    /// Resolves a typed name in the background on every service, .kachat first (the ending
+    /// typed, else .kachat, .kas, .k, .kaspa). Anything that is already an address, or too short
+    /// to be a name, is left alone.
     private func resolveTypedDomain() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         resolvedDomainAddress = nil
+        resolvedDomainName = nil
+        nameResolutions = []
+        selectedTLD = nil
+        domainNotFound = nil
         guard !query.isEmpty,
               !ContactsManager.shared.isValidKaspaAddress(query),
-              !query.contains(":"),
+              NameServicesClient.looksLikeName(query),
               query.count >= 2 else {
             isResolvingDomain = false
             return
         }
         isResolvingDomain = true
         Task {
-            let resolved = await KNSService.shared.resolveDomain(query)
+            // debounce typing: the search box changes on every keystroke
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == query else { return }
+            let results = await NameServicesClient.shared.resolveEverywhere(query)
             await MainActor.run {
                 // The field may have moved on while the lookup was in flight.
                 guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == query else { return }
-                resolvedDomainAddress = resolved?.ownerAddress
+                nameResolutions = results
                 isResolvingDomain = false
+                if let primary = NameServicesClient.primary(of: results, typed: query) {
+                    selectResolution(primary)
+                } else if !candidates.isEmpty {
+                    // it matched contacts by name: not a failed lookup
+                } else {
+                    let explicit = NameServiceTLD.splitTypedName(query).tld
+                    domainNotFound = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
+                }
             }
         }
+    }
+
+    private func selectResolution(_ resolution: NameResolution) {
+        guard let address = resolution.address else { return }
+        resolvedDomainAddress = address
+        resolvedDomainName = resolution.display
+        selectedTLD = resolution.tld
+        domainNotFound = nil
     }
 
     /// Estimated total fee for adding the selected members (each add rotates the group key).
@@ -3484,7 +3512,7 @@ private struct AddGroupMembersView: View {
     var body: some View {
         Form {
             Section {
-                TextField("Search contacts, or paste an address", text: $searchText)
+                TextField("Search contacts, or an address or domain", text: $searchText)
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
                     .onChange(of: searchText) { _ in resolveTypedDomain() }
@@ -3493,6 +3521,24 @@ private struct AddGroupMembersView: View {
                         ProgressView().controlSize(.small)
                         Text("Looking up domain...").font(.caption).foregroundColor(.secondary)
                     }
+                } else if let resolvedDomainAddress, let resolvedDomainName {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("Resolved: \(resolvedDomainName)", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                        Text(verbatim: resolvedDomainAddress)
+                            .font(.caption2.monospaced())
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                } else if let domainNotFound {
+                    Label(domainNotFound, systemImage: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                if !isResolvingDomain {
+                    OtherDomainsDropdown(resolutions: nameResolutions, selected: selectedTLD, onSelect: selectResolution)
                 }
                 if let typedAddress {
                     Button {
@@ -3501,7 +3547,7 @@ private struct AddGroupMembersView: View {
                     } label: {
                         HStack(spacing: 12) {
                             // Who this is - avatar and KNS domain - the same card as create-chat.
-                            AddressResolutionCard(address: typedAddress)
+                            AddressResolutionCard(address: typedAddress, domain: resolvedDomainAddress == typedAddress ? resolvedDomainName : nil)
                             Image(systemName: selectedAddresses.contains(typedAddress) ? "checkmark.circle.fill" : "circle")
                                 .foregroundColor(selectedAddresses.contains(typedAddress) ? .accentColor : .secondary)
                         }
@@ -3511,11 +3557,11 @@ private struct AddGroupMembersView: View {
             }
             Section {
                 if contactsManager.activeContacts.isEmpty {
-                    Text("You have no contacts yet. Paste an address or a .kas domain above to invite someone.")
+                    Text("You have no contacts yet. Paste an address or a domain above to invite someone.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else if candidates.isEmpty {
-                    Text(searchText.isEmpty ? "Everyone in your contacts is already in this group." : "No contacts match your search. Paste an address or a .kas domain to invite someone new.")
+                    Text(searchText.isEmpty ? "Everyone in your contacts is already in this group." : "No contacts match your search. Paste an address or a domain to invite someone new.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {

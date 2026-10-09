@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "I nomi si stanno spostando nel nuovo registro. Potrai rivendicare nuovi nomi dal %@.";
 "Every name from the old registry comes over with the same owner and expiry first." = "Prima ogni nome del vecchio registro viene trasferito con lo stesso proprietario e la stessa scadenza.";
 "Moved to the new registry" = "Spostato nel nuovo registro";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... o dominio";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Inserisci un indirizzo Kaspa (kaspa:...) o un dominio (es. alice.kachat). I nomi .kachat vengono cercati per primi.";
+"Finds addresses holding a balance or a domain." = "Trova gli indirizzi con un saldo o un dominio.";
+"Their profile, .kachat name and address." = "Il suo profilo, nome .kachat e indirizzo.";
+"Resolved first, everywhere you can type an address." = "Risolti per primi, ovunque tu possa inserire un indirizzo.";
+"Other Domains" = "Altri domini";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "Cercati dopo .kachat ed elencati in Altri domini quando un nome digitato esiste anche lì.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Se questo seed contiene già la tua identità a un altro indirizzo (un dominio .kachat, .kas, .k o .kaspa, o un saldo chat con fondi), sceglilo qui. Vengono mostrati solo indirizzi con saldo o domini.";
+".kachat Names (%lld)" = "Nomi .kachat (%lld)";
+".kas Names (%lld)" = "Nomi .kas (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Inserisci un indirizzo Kaspa (kaspa:...) o un dominio. I nomi .kachat vengono cercati per primi.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Inserisci un indirizzo Kaspa o un dominio come name.kachat (i nomi .kachat vengono cercati per primi). Ogni transazione ricevuta su questo indirizzo diventa un acquisto e ogni transazione inviata una vendita, al prezzo storico di KAS di quel giorno. Se aggiungi di nuovo lo stesso indirizzo, vengono importate solo le transazioni trovate dall’ultima importazione.";
+"Search contacts, or an address or domain" = "Cerca contatti, o un indirizzo o dominio";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "Non hai ancora contatti. Incolla sopra un indirizzo o un dominio per invitare qualcuno.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "Nessun contatto corrisponde alla ricerca. Incolla un indirizzo o un dominio per invitare qualcuno di nuovo.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "Un indirizzo o un dominio: i nomi .kachat vengono cercati per primi e risolti nell’indirizzo mostrato.";
+"kaspatest:... or domain" = "kaspatest:... o dominio";
+"Enter an address or a domain." = "Inserisci un indirizzo o un dominio.";
+"That name's address can't own a .kachat name." = "L’indirizzo di quel nome non può possedere un nome .kachat.";
+"No domain found by that name." = "Nessun dominio trovato con quel nome.";
+"One of your .kachat domains expired" = "Uno dei tuoi domini .kachat è scaduto";
+"%lld of your .kachat domains expired" = "%lld dei tuoi domini .kachat sono scaduti";
+"Renew %@ before its grace period ends on %@ to keep it." = "Rinnova %@ prima che il periodo di tolleranza finisca il %@ per mantenerlo.";
+"Renew them before their grace periods end to keep them." = "Rinnovali prima che finiscano i periodi di tolleranza per mantenerli.";

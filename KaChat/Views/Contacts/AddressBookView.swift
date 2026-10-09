@@ -467,16 +467,27 @@ struct AddressBookEntryEditor: View {
     /// nil: keep what is saved; .some(image): use this photo; .some(nil): remove the photo.
     @State private var pendingPhoto: UIImage?? = nil
     @State private var pendingPhotoData: Data?
+    /// A typed domain: what it resolved to (.kachat first) and every service's answer.
+    @State private var resolvedAddress: String?
+    @State private var resolvedName: String?
+    @State private var nameResolutions: [NameResolution] = []
+    @State private var selectedTLD: NameServiceTLD?
+    @State private var isResolving = false
+    @State private var lookupError: String?
+
+    /// The address being saved: the one this editor was opened for, else what the typed domain
+    /// resolved to, else what was typed.
+    private var enteredAddress: String { address ?? resolvedAddress ?? addressInput }
 
     private var showsAssignedPhoto: Bool {
         switch pendingPhoto {
         case .some(.some): return true
         case .some(.none): return false
-        case .none: return book.hasPhoto(for: address ?? addressInput)
+        case .none: return book.hasPhoto(for: enteredAddress)
         }
     }
-    private var existing: AddressBookEntry? { book.entry(for: address ?? addressInput) }
-    private var effectiveAddress: String { AddressBookManager.normalize(address ?? addressInput) }
+    private var existing: AddressBookEntry? { book.entry(for: enteredAddress) }
+    private var effectiveAddress: String { AddressBookManager.normalize(enteredAddress) }
 
     var body: some View {
         NavigationStack {
@@ -519,10 +530,37 @@ struct AddressBookEntryEditor: View {
                             .font(.footnote.monospaced())
                             .foregroundColor(.secondary)
                     } else {
-                        TextField("kaspa:qr...", text: $addressInput, axis: .vertical)
+                        TextField("kaspa:qr... or domain", text: $addressInput, axis: .vertical)
                             .font(.footnote.monospaced())
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
+                            .onChange(of: addressInput) { resolveIfName($0) }
+                        if isResolving {
+                            HStack(spacing: 6) {
+                                ProgressView().scaleEffect(0.8)
+                                Text("Looking up domain...")
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        } else if let resolvedAddress {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Label("Resolved: \(resolvedName ?? "")", systemImage: "checkmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                                Text(verbatim: resolvedAddress)
+                                    .font(.caption2.monospaced())
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        } else if let lookupError {
+                            Label(lookupError, systemImage: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                        if !isResolving {
+                            OtherDomainsDropdown(resolutions: nameResolutions, selected: selectedTLD, onSelect: selectResolution)
+                        }
                         HStack {
                             Button {
                                 if let pasted = UIPasteboard.general.string {
@@ -613,6 +651,43 @@ struct AddressBookEntryEditor: View {
                 }
             }
         }
+    }
+
+    /// A typed name resolves on every service, .kachat first; the entry saves the address.
+    private func resolveIfName(_ input: String) {
+        let typed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        resolvedAddress = nil
+        resolvedName = nil
+        nameResolutions = []
+        selectedTLD = nil
+        lookupError = nil
+        isResolving = false
+        guard !typed.isEmpty, NameServicesClient.looksLikeName(typed) else { return }
+        isResolving = true
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard addressInput.trimmingCharacters(in: .whitespacesAndNewlines) == typed else { return }
+            let results = await NameServicesClient.shared.resolveEverywhere(typed)
+            guard addressInput.trimmingCharacters(in: .whitespacesAndNewlines) == typed else { return }
+            nameResolutions = results
+            isResolving = false
+            if let primary = NameServicesClient.primary(of: results, typed: typed) {
+                selectResolution(primary)
+            } else {
+                let explicit = NameServiceTLD.splitTypedName(typed).tld
+                lookupError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
+            }
+        }
+    }
+
+    private func selectResolution(_ resolution: NameResolution) {
+        guard let address = resolution.address else { return }
+        resolvedAddress = address
+        resolvedName = resolution.display
+        selectedTLD = resolution.tld
+        lookupError = nil
+        // the name they're known by, unless one was typed already
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { name = resolution.display }
     }
 
     private func save() {

@@ -2949,6 +2949,10 @@ struct KachatTransferSheet: View {
     @State private var resolved: (address: String, key: Data)?
     @State private var resolveError: LocalizedStringKey?
     @State private var resolving = false
+    /// A typed name: what it resolved as (.kachat first) and every service's answer.
+    @State private var resolvedName: String?
+    @State private var nameResolutions: [NameResolution] = []
+    @State private var selectedTLD: NameServiceTLD?
     @State private var showScanner = false
     @State private var showAddressBook = false
     @ObservedObject private var addressBook = AddressBookManager.shared
@@ -2963,11 +2967,11 @@ struct KachatTransferSheet: View {
         ) {
             KachatInputCard(
                 title: "New owner",
-                footer: Text("A testnet address, or a .kachat name - it's resolved to the address shown.")
+                footer: Text("An address or a domain - .kachat names are looked up first, and it's resolved to the address shown.")
             ) {
                 // The Send screens' recipient field: Paste, Scan QR and the Address Book beside it.
                 HStack(spacing: 14) {
-                    TextField("kaspatest:... or name.kachat", text: $input)
+                    TextField("kaspatest:... or domain", text: $input)
                         .font(.system(.subheadline, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -3006,12 +3010,22 @@ struct KachatTransferSheet: View {
                 if resolving {
                     ProgressView()
                 } else if let resolved {
+                    if let resolvedName {
+                        Label("Resolved: \(resolvedName)", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
                     Text(verbatim: resolved.address)
                         .font(.caption.monospaced())
                         .foregroundColor(.secondary)
                         .textSelection(.enabled)
                 } else if let resolveError {
                     Text(resolveError).font(.caption).foregroundColor(.red)
+                }
+                if !resolving {
+                    OtherDomainsDropdown(resolutions: nameResolutions, selected: selectedTLD) { resolution in
+                        _ = use(resolution)
+                    }
                 }
             }
         }
@@ -3036,6 +3050,9 @@ struct KachatTransferSheet: View {
     private func resolve() async {
         resolved = nil
         resolveError = nil
+        resolvedName = nil
+        nameResolutions = []
+        selectedTLD = nil
         let t = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !t.isEmpty else { return }
         if t.hasPrefix("kaspatest:") || t.hasPrefix("kaspa:") {
@@ -3050,24 +3067,35 @@ struct KachatTransferSheet: View {
             resolved = (t, key)
             return
         }
-        let name = KachatNames.Codec.normalize(t)
-        guard KachatLive.invalidReason(name) == nil else {
-            resolveError = "Enter an address or a .kachat name."
+        // a name on any service, .kachat first (the ending typed, else .kachat, .kas, .k, .kaspa)
+        guard NameServicesClient.looksLikeName(t) else {
+            resolveError = "Enter an address or a domain."
             return
         }
         resolving = true
-        defer { resolving = false }
-        do {
-            switch try await KachatNamesRegistry.shared.lookup(name) {
-            // a name in grace still points to its owner, like everywhere else it resolves
-            case .registered(let n) where n.status(graceMs: KachatNamesRegistry.shared.graceMs) != .lapsed:
-                if let a = KachatNamesRegistry.address(of: n.owner) { resolved = (a, n.owner) }
-            default:
-                resolveError = "No .kachat name by that name."
-            }
-        } catch {
-            resolveError = "Couldn't look that name up."
+        let results = await NameServicesClient.shared.resolveEverywhere(t)
+        resolving = false
+        guard input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == t else { return }
+        nameResolutions = results
+        if let primary = NameServicesClient.primary(of: results, typed: t) {
+            if !use(primary) { resolveError = "That name's address can't own a .kachat name." }
+        } else {
+            resolveError = "No domain found by that name."
         }
+    }
+
+    /// Takes one service's answer as the new owner: its address must be a Schnorr key, the
+    /// only kind a name can be locked to. False when it isn't.
+    @discardableResult
+    private func use(_ resolution: NameResolution) -> Bool {
+        guard let address = resolution.address?.lowercased(),
+              let key = KachatNamesRegistry.keyOf(address),
+              (try? KachatNamesActions.validateKey(key, "")) != nil else { return false }
+        resolved = (address, key)
+        resolvedName = resolution.display
+        selectedTLD = resolution.tld
+        resolveError = nil
+        return true
     }
 }
 
@@ -3701,6 +3729,95 @@ struct KachatYearsText: View {
 @MainActor
 enum KachatDeepLink {
     static var pendingName: String?
+}
+
+/// This wallet's .kachat names that have expired and sit in their grace period, for Profile's
+/// banner (`KachatExpiredNamesBanner`): renew before grace ends, or anyone can claim them. A
+/// dismissal (the X) is per name and expiry, so a name that expires again brings it back.
+@MainActor
+final class KachatExpiredNamesModel: ObservableObject {
+    @Published private(set) var expired: [KachatNames.NameInfo] = []
+    @Published private var dismissed: Set<String> = []
+
+    var visible: [KachatNames.NameInfo] { expired.filter { !dismissed.contains(Self.key($0)) } }
+
+    private static func key(_ n: KachatNames.NameInfo) -> String { "\(n.name)@\(n.expiresAt)" }
+    private var storeKey: String? { KachatNamesActions.shared.myAddress.map { "kachatExpiredBannerDismissed.\($0)" } }
+
+    func load() async {
+        guard KachatNamesService.isLaunched, let me = KachatNamesActions.shared.myKey, let storeKey else {
+            expired = []
+            return
+        }
+        dismissed = Set(UserDefaults.standard.stringArray(forKey: storeKey) ?? [])
+        let registry = KachatNamesRegistry.shared
+        await registry.refreshIfStale()
+        let grace = registry.graceMs
+        let now = KachatNames.nowMs()
+        let owned = (try? await registry.names(owner: me, includeInactive: true)) ?? []
+        expired = owned.filter { $0.status(graceMs: grace, nowMs: now) == .grace }.sorted { $0.expiresAt < $1.expiresAt }
+    }
+
+    func dismissAll() {
+        guard let storeKey else { return }
+        dismissed.formUnion(visible.map(Self.key))
+        // only names still in grace are worth remembering
+        UserDefaults.standard.set(Array(dismissed.intersection(Set(expired.map(Self.key)))), forKey: storeKey)
+    }
+}
+
+/// Profile's banner while one of this wallet's .kachat names is in its grace period. Tapping it
+/// opens the name (renew is there); the X hides it.
+struct KachatExpiredNamesBanner: View {
+    @ObservedObject var model: KachatExpiredNamesModel
+    @ObservedObject private var registry = KachatNamesRegistry.shared
+
+    var body: some View {
+        let visible = model.visible
+        if let n = visible.first {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(visible.count == 1
+                         ? AppLocalization.string("One of your .kachat domains expired")
+                         : String(format: AppLocalization.string("%lld of your .kachat domains expired"), visible.count))
+                        .font(.subheadline.weight(.semibold))
+                    Text(visible.count == 1
+                         ? String(format: AppLocalization.string("Renew %@ before its grace period ends on %@ to keep it."),
+                                  "\(n.name).kachat", KachatNamesActions.dayString(n.expiresAt + registry.graceMs))
+                         : AppLocalization.string("Renew them before their grace periods end to keep them."))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { open(n) }
+                Button {
+                    withAnimation { model.dismissAll() }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Dismiss"))
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange.opacity(0.14)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.orange.opacity(0.35), lineWidth: 1))
+        }
+    }
+
+    private func open(_ n: KachatNames.NameInfo) {
+        KachatDeepLink.pendingName = n.name
+        PendingTabRoute.pending = .kachatNames
+        NotificationCenter.default.post(name: .openKachatName, object: nil)
+    }
 }
 
 /// A name to open, by name: the destination looks it up itself.

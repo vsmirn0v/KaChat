@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "השמות עוברים למרשם החדש. אפשר יהיה לתבוע שמות חדשים החל מ-%@.";
 "Every name from the old registry comes over with the same owner and expiry first." = "קודם כל, כל שם מהמרשם הישן עובר עם אותו בעלים ואותו מועד תפוגה.";
 "Moved to the new registry" = "הועבר למרשם החדש";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... או דומיין";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "הזן כתובת Kaspa (kaspa:...) או דומיין (למשל alice.kachat). שמות .kachat נבדקים קודם.";
+"Finds addresses holding a balance or a domain." = "מוצא כתובות שיש בהן יתרה או דומיין.";
+"Their profile, .kachat name and address." = "הפרופיל, שם ה-.kachat והכתובת.";
+"Resolved first, everywhere you can type an address." = "נפתרים ראשונים, בכל מקום שבו אפשר להזין כתובת.";
+"Other Domains" = "דומיינים אחרים";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "נבדקים אחרי .kachat, ומופיעים תחת דומיינים אחרים כשהשם שהוזן קיים גם שם.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "אם הסיד הזה כבר מחזיק את הזהות שלך בכתובת אחרת - דומיין (.kachat, .kas, .k או .kaspa) או יתרת צ׳אט ממומנת - בחר אותה כאן. מוצגות רק כתובות עם יתרה או דומיינים.";
+".kachat Names (%lld)" = "שמות .kachat (%lld)";
+".kas Names (%lld)" = "שמות .kas (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "הזן כתובת Kaspa (kaspa:...) או דומיין. שמות .kachat נבדקים קודם.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "הזן כתובת Kaspa או דומיין כמו name.kachat (שמות .kachat נבדקים קודם). כל עסקה שהתקבלה בכתובת הזו נרשמת כקנייה, וכל עסקה שנשלחה כמכירה, לפי מחיר ה-KAS ההיסטורי של אותו יום. הוספה חוזרת של אותה כתובת מייבאת רק עסקאות מאז הייבוא האחרון.";
+"Search contacts, or an address or domain" = "חפש אנשי קשר, כתובת או דומיין";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "עדיין אין לך אנשי קשר. הדבק למעלה כתובת או דומיין כדי להזמין מישהו.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "אין אנשי קשר שתואמים לחיפוש. הדבק כתובת או דומיין כדי להזמין מישהו חדש.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "כתובת או דומיין - שמות .kachat נבדקים קודם, והשם מומר לכתובת המוצגת.";
+"kaspatest:... or domain" = "kaspatest:... או דומיין";
+"Enter an address or a domain." = "הזן כתובת או דומיין.";
+"That name's address can't own a .kachat name." = "הכתובת של השם הזה לא יכולה להחזיק שם .kachat.";
+"No domain found by that name." = "לא נמצא דומיין בשם הזה.";
+"One of your .kachat domains expired" = "פג תוקפו של אחד מדומייני ה-.kachat שלך";
+"%lld of your .kachat domains expired" = "פג תוקפם של %lld מדומייני ה-.kachat שלך";
+"Renew %@ before its grace period ends on %@ to keep it." = "חדש את %@ לפני שתקופת החסד מסתיימת ב-%@ כדי לשמור עליו.";
+"Renew them before their grace periods end to keep them." = "חדש אותם לפני שתקופות החסד מסתיימות כדי לשמור עליהם.";

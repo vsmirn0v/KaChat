@@ -1536,3 +1536,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "Les noms passent au nouveau registre. Vous pourrez réserver de nouveaux noms à partir du %@.";
 "Every name from the old registry comes over with the same owner and expiry first." = "D’abord, chaque nom de l’ancien registre est repris avec le même propriétaire et la même échéance.";
 "Moved to the new registry" = "Transféré vers le nouveau registre";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... ou domaine";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Saisissez une adresse Kaspa (kaspa:...) ou un domaine (p. ex. alice.kachat). Les noms .kachat sont recherchés en premier.";
+"Finds addresses holding a balance or a domain." = "Trouve les adresses qui détiennent un solde ou un domaine.";
+"Their profile, .kachat name and address." = "Son profil, son nom .kachat et son adresse.";
+"Resolved first, everywhere you can type an address." = "Résolus en premier, partout où vous pouvez saisir une adresse.";
+"Other Domains" = "Autres domaines";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "Recherchés après .kachat, et listés sous Autres domaines quand un nom saisi y existe aussi.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Si cette phrase de récupération détient déjà votre identité à une autre adresse (un domaine .kachat, .kas, .k ou .kaspa, ou un solde de discussion approvisionné), choisissez-la ici. Seules les adresses avec un solde ou des domaines sont affichées.";
+".kachat Names (%lld)" = "Noms .kachat (%lld)";
+".kas Names (%lld)" = "Noms .kas (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Saisissez une adresse Kaspa (kaspa:...) ou un domaine. Les noms .kachat sont recherchés en premier.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Saisissez une adresse Kaspa ou un domaine comme name.kachat (les noms .kachat sont recherchés en premier). Chaque transaction reçue sur cette adresse devient un achat, chaque transaction envoyée une vente, au prix historique du KAS ce jour-là. Si vous ajoutez à nouveau la même adresse plus tard, seules les transactions trouvées depuis le dernier import sont importées.";
+"Search contacts, or an address or domain" = "Rechercher des contacts, une adresse ou un domaine";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "Vous n’avez pas encore de contacts. Collez une adresse ou un domaine ci-dessus pour inviter quelqu’un.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "Aucun contact ne correspond à votre recherche. Collez une adresse ou un domaine pour inviter quelqu’un de nouveau.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "Une adresse ou un domaine : les noms .kachat sont recherchés en premier, puis résolus vers l’adresse affichée.";
+"kaspatest:... or domain" = "kaspatest:... ou domaine";
+"Enter an address or a domain." = "Saisissez une adresse ou un domaine.";
+"That name's address can't own a .kachat name." = "L’adresse de ce nom ne peut pas détenir de nom .kachat.";
+"No domain found by that name." = "Aucun domaine trouvé à ce nom.";
+"One of your .kachat domains expired" = "L’un de vos domaines .kachat a expiré";
+"%lld of your .kachat domains expired" = "%lld de vos domaines .kachat ont expiré";
+"Renew %@ before its grace period ends on %@ to keep it." = "Renouvelez %@ avant la fin de sa période de grâce le %@ pour le conserver.";
+"Renew them before their grace periods end to keep them." = "Renouvelez-les avant la fin de leurs périodes de grâce pour les conserver.";

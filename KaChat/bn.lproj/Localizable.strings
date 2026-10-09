@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "নামগুলো নতুন রেজিস্ট্রিতে সরানো হচ্ছে। %@ থেকে নতুন নাম দাবি করা যাবে।";
 "Every name from the old registry comes over with the same owner and expiry first." = "পুরোনো রেজিস্ট্রির প্রতিটি নাম আগে একই মালিক ও মেয়াদসহ চলে আসে।";
 "Moved to the new registry" = "নতুন রেজিস্ট্রিতে সরানো হয়েছে";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... বা ডোমেইন";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "একটি Kaspa ঠিকানা (kaspa:...) বা ডোমেইন লিখুন (যেমন alice.kachat)। আগে .kachat নাম খোঁজা হয়।";
+"Finds addresses holding a balance or a domain." = "ব্যালেন্স বা ডোমেইন থাকা ঠিকানা খুঁজে বের করে।";
+"Their profile, .kachat name and address." = "তাদের প্রোফাইল, .kachat নাম ও ঠিকানা।";
+"Resolved first, everywhere you can type an address." = "যেখানেই ঠিকানা লেখা যায়, সেখানে আগে খোঁজা হয়।";
+"Other Domains" = "অন্যান্য ডোমেইন";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = ".kachat-এর পরে খোঁজা হয়, আর লেখা নামটি সেখানেও থাকলে অন্যান্য ডোমেইনের নিচে দেখানো হয়।";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "এই সিড যদি আগে থেকেই অন্য ঠিকানায় আপনার পরিচয় রাখে - একটি ডোমেইন (.kachat, .kas, .k বা .kaspa) বা অর্থ জমা থাকা চ্যাট ব্যালেন্স - এখানে সেটি বেছে নিন। শুধু ব্যালেন্স বা ডোমেইন থাকা ঠিকানা দেখানো হয়।";
+".kachat Names (%lld)" = ".kachat নাম (%lld)";
+".kas Names (%lld)" = ".kas নাম (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "একটি Kaspa ঠিকানা (kaspa:...) বা ডোমেইন লিখুন। আগে .kachat নাম খোঁজা হয়।";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "একটি Kaspa ঠিকানা বা name.kachat-এর মতো ডোমেইন লিখুন (আগে .kachat নাম খোঁজা হয়)। এই ঠিকানায় পাওয়া প্রতিটি লেনদেন কেনা এবং পাঠানো প্রতিটি লেনদেন বিক্রি হিসেবে সেই দিনের ঐতিহাসিক KAS দামে ধরা হয়। পরে একই ঠিকানা আবার যোগ করলে শুধু শেষ ইমপোর্টের পরের লেনদেন আনা হয়।";
+"Search contacts, or an address or domain" = "পরিচিতি, ঠিকানা বা ডোমেইন খুঁজুন";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "এখনো কোনো পরিচিতি নেই। কাউকে আমন্ত্রণ জানাতে ওপরে একটি ঠিকানা বা ডোমেইন পেস্ট করুন।";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "খোঁজার সাথে কোনো পরিচিতি মেলেনি। নতুন কাউকে আমন্ত্রণ জানাতে একটি ঠিকানা বা ডোমেইন পেস্ট করুন।";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "একটি ঠিকানা বা ডোমেইন - আগে .kachat নাম খোঁজা হয়, এবং দেখানো ঠিকানায় রূপান্তরিত হয়।";
+"kaspatest:... or domain" = "kaspatest:... বা ডোমেইন";
+"Enter an address or a domain." = "একটি ঠিকানা বা ডোমেইন লিখুন।";
+"That name's address can't own a .kachat name." = "এই নামের ঠিকানা কোনো .kachat নামের মালিক হতে পারে না।";
+"No domain found by that name." = "এই নামে কোনো ডোমেইন পাওয়া যায়নি।";
+"One of your .kachat domains expired" = "আপনার একটি .kachat ডোমেইনের মেয়াদ শেষ হয়েছে";
+"%lld of your .kachat domains expired" = "আপনার %lldটি .kachat ডোমেইনের মেয়াদ শেষ হয়েছে";
+"Renew %@ before its grace period ends on %@ to keep it." = "%@ রাখতে চাইলে %@ তারিখে গ্রেস পিরিয়ড শেষ হওয়ার আগে নবায়ন করুন।";
+"Renew them before their grace periods end to keep them." = "রাখতে চাইলে গ্রেস পিরিয়ড শেষ হওয়ার আগে সেগুলো নবায়ন করুন।";

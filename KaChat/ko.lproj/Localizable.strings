@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "이름을 새 레지스트리로 옮기는 중입니다. 새 이름은 %@부터 받을 수 있습니다.";
 "Every name from the old registry comes over with the same owner and expiry first." = "먼저 이전 레지스트리의 모든 이름이 같은 소유자와 같은 만료일로 옮겨집니다.";
 "Moved to the new registry" = "새 레지스트리로 이동됨";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... 또는 도메인";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Kaspa 주소(kaspa:...) 또는 도메인(예: alice.kachat)을 입력하세요. .kachat 이름을 먼저 찾습니다.";
+"Finds addresses holding a balance or a domain." = "잔액이나 도메인이 있는 주소를 찾습니다.";
+"Their profile, .kachat name and address." = "프로필, .kachat 이름, 주소.";
+"Resolved first, everywhere you can type an address." = "주소를 입력할 수 있는 모든 곳에서 가장 먼저 확인됩니다.";
+"Other Domains" = "다른 도메인";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = ".kachat 다음에 찾으며, 입력한 이름이 그곳에도 있으면 다른 도메인 아래에 표시됩니다.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "이 시드가 이미 다른 주소에 신원을 갖고 있다면(.kachat, .kas, .k, .kaspa 도메인 또는 입금된 채팅 잔액) 여기에서 선택하세요. 잔액이나 도메인이 있는 주소만 표시됩니다.";
+".kachat Names (%lld)" = ".kachat 이름 (%lld)";
+".kas Names (%lld)" = ".kas 이름 (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Kaspa 주소(kaspa:...) 또는 도메인을 입력하세요. .kachat 이름을 먼저 찾습니다.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Kaspa 주소 또는 name.kachat 같은 도메인을 입력하세요(.kachat 이름을 먼저 찾습니다). 이 주소로 받은 거래는 매수, 보낸 거래는 매도로 그날의 과거 KAS 가격으로 기록됩니다. 같은 주소를 다시 추가하면 마지막 가져오기 이후의 거래만 가져옵니다.";
+"Search contacts, or an address or domain" = "연락처, 주소 또는 도메인 검색";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "아직 연락처가 없습니다. 위에 주소나 도메인을 붙여넣어 초대하세요.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "검색과 일치하는 연락처가 없습니다. 주소나 도메인을 붙여넣어 새로운 사람을 초대하세요.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "주소 또는 도메인 - .kachat 이름을 먼저 찾고, 표시된 주소로 변환됩니다.";
+"kaspatest:... or domain" = "kaspatest:... 또는 도메인";
+"Enter an address or a domain." = "주소 또는 도메인을 입력하세요.";
+"That name's address can't own a .kachat name." = "그 이름의 주소는 .kachat 이름을 소유할 수 없습니다.";
+"No domain found by that name." = "그 이름의 도메인을 찾을 수 없습니다.";
+"One of your .kachat domains expired" = ".kachat 도메인 하나가 만료되었습니다";
+"%lld of your .kachat domains expired" = ".kachat 도메인 %lld개가 만료되었습니다";
+"Renew %@ before its grace period ends on %@ to keep it." = "%@을(를) 유지하려면 유예 기간이 끝나는 %@ 전에 갱신하세요.";
+"Renew them before their grace periods end to keep them." = "유지하려면 유예 기간이 끝나기 전에 갱신하세요.";

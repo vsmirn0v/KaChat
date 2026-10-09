@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "Các tên đang được chuyển sang sổ đăng ký mới. Bạn có thể nhận tên mới từ %@.";
 "Every name from the old registry comes over with the same owner and expiry first." = "Trước tiên, mọi tên từ sổ đăng ký cũ được chuyển sang với cùng chủ sở hữu và hạn dùng.";
 "Moved to the new registry" = "Đã chuyển sang sổ đăng ký mới";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... hoặc tên miền";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Nhập địa chỉ Kaspa (kaspa:...) hoặc tên miền (vd. alice.kachat). Tên .kachat được tra trước.";
+"Finds addresses holding a balance or a domain." = "Tìm các địa chỉ có số dư hoặc tên miền.";
+"Their profile, .kachat name and address." = "Hồ sơ, tên .kachat và địa chỉ của họ.";
+"Resolved first, everywhere you can type an address." = "Được phân giải trước, ở mọi nơi bạn có thể nhập địa chỉ.";
+"Other Domains" = "Tên miền khác";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "Được tra sau .kachat, và hiển thị trong Tên miền khác khi tên đã nhập cũng có ở đó.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Nếu cụm seed này đã giữ danh tính của bạn ở một địa chỉ khác - một tên miền (.kachat, .kas, .k hoặc .kaspa) hoặc số dư chat đã nạp - hãy chọn ở đây. Chỉ hiển thị địa chỉ có số dư hoặc tên miền.";
+".kachat Names (%lld)" = "Tên .kachat (%lld)";
+".kas Names (%lld)" = "Tên .kas (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Nhập địa chỉ Kaspa (kaspa:...) hoặc tên miền. Tên .kachat được tra trước.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Nhập địa chỉ Kaspa hoặc tên miền như name.kachat (tên .kachat được tra trước). Mỗi giao dịch nhận vào địa chỉ này là một lần mua, mỗi giao dịch gửi đi là một lần bán, theo giá KAS lịch sử của ngày đó. Thêm lại cùng địa chỉ sau này chỉ nhập các giao dịch kể từ lần nhập trước.";
+"Search contacts, or an address or domain" = "Tìm liên hệ, địa chỉ hoặc tên miền";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "Bạn chưa có liên hệ nào. Dán địa chỉ hoặc tên miền ở trên để mời ai đó.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "Không có liên hệ phù hợp. Dán địa chỉ hoặc tên miền để mời người mới.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "Địa chỉ hoặc tên miền - tên .kachat được tra trước và được chuyển thành địa chỉ hiển thị.";
+"kaspatest:... or domain" = "kaspatest:... hoặc tên miền";
+"Enter an address or a domain." = "Nhập địa chỉ hoặc tên miền.";
+"That name's address can't own a .kachat name." = "Địa chỉ của tên đó không thể sở hữu tên .kachat.";
+"No domain found by that name." = "Không tìm thấy tên miền nào có tên đó.";
+"One of your .kachat domains expired" = "Một tên miền .kachat của bạn đã hết hạn";
+"%lld of your .kachat domains expired" = "%lld tên miền .kachat của bạn đã hết hạn";
+"Renew %@ before its grace period ends on %@ to keep it." = "Gia hạn %@ trước khi thời gian ân hạn kết thúc vào %@ để giữ nó.";
+"Renew them before their grace periods end to keep them." = "Gia hạn chúng trước khi thời gian ân hạn kết thúc để giữ chúng.";

@@ -90,17 +90,19 @@ struct ChattingAddressCandidate: Identifiable, Equatable {
     let balanceSompi: UInt64
     let domains: [KNSDomain]
     let primaryDomain: String?
-    /// Names on the other services (.k, .kaspa; .kachat once live).
+    /// Names on the other services (.k, .kaspa).
     var otherNames: [OwnedServiceName] = []
+    /// .kachat names (active or in grace) where the registry is live - listed first.
+    var kachatNames: [OwnedServiceName] = []
 
     var id: Int { index }
 
-    var nameCount: Int { domains.count + otherNames.count }
+    var nameCount: Int { kachatNames.count + domains.count + otherNames.count }
 
     /// The one name to show on the row when there is exactly one.
     var onlyName: String? {
         guard nameCount == 1 else { return nil }
-        return domains.first?.fullName ?? otherNames.first?.display
+        return kachatNames.first?.display ?? domains.first?.fullName ?? otherNames.first?.display
     }
 
     var shortAddress: String {
@@ -1582,6 +1584,7 @@ final class WalletManager: ObservableObject {
         // .k and .kaspa too: an identity can live at an address whose only trace is a name on
         // one of them.
         let otherNamesByAddress = await NameServicesClient.shared.ownedNames(of: addresses)
+        let kachatNamesByAddress = await NameServicesClient.shared.kachatNames(of: addresses)
 
         return derived.map { entry in
             let info = KNSService.shared.domainCache[entry.address]
@@ -1591,7 +1594,8 @@ final class WalletManager: ObservableObject {
                 balanceSompi: balanceByAddress[entry.address] ?? 0,
                 domains: info?.allDomains ?? [],
                 primaryDomain: info?.primaryDomain,
-                otherNames: otherNamesByAddress[entry.address] ?? []
+                otherNames: otherNamesByAddress[entry.address] ?? [],
+                kachatNames: kachatNamesByAddress[entry.address] ?? []
             )
         }
     }

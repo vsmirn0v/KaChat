@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "Nama sedang dipindahkan ke registri baru. Nama baru bisa diklaim mulai %@.";
 "Every name from the old registry comes over with the same owner and expiry first." = "Setiap nama dari registri lama dipindahkan lebih dulu dengan pemilik dan masa berlaku yang sama.";
 "Moved to the new registry" = "Dipindahkan ke registri baru";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... atau domain";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Masukkan alamat Kaspa (kaspa:...) atau domain (mis. alice.kachat). Nama .kachat dicari lebih dulu.";
+"Finds addresses holding a balance or a domain." = "Menemukan alamat yang punya saldo atau domain.";
+"Their profile, .kachat name and address." = "Profil, nama .kachat, dan alamatnya.";
+"Resolved first, everywhere you can type an address." = "Diresolusikan lebih dulu, di mana pun Anda bisa mengetik alamat.";
+"Other Domains" = "Domain Lain";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "Dicari setelah .kachat, dan ditampilkan di Domain lain jika nama yang diketik juga ada di sana.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Jika seed ini sudah menyimpan identitas Anda di alamat lain - domain (.kachat, .kas, .k, atau .kaspa) atau saldo chat yang terisi - pilih di sini. Hanya alamat dengan saldo atau domain yang ditampilkan.";
+".kachat Names (%lld)" = "Nama .kachat (%lld)";
+".kas Names (%lld)" = "Nama .kas (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Masukkan alamat Kaspa (kaspa:...) atau domain. Nama .kachat dicari lebih dulu.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Masukkan alamat Kaspa atau domain seperti name.kachat (nama .kachat dicari lebih dulu). Setiap transaksi masuk ke alamat ini menjadi pembelian dan setiap transaksi keluar menjadi penjualan, dengan harga historis KAS hari itu. Menambahkan alamat yang sama lagi nanti hanya mengimpor transaksi sejak impor terakhir.";
+"Search contacts, or an address or domain" = "Cari kontak, alamat, atau domain";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "Anda belum punya kontak. Tempel alamat atau domain di atas untuk mengundang seseorang.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "Tidak ada kontak yang cocok. Tempel alamat atau domain untuk mengundang orang baru.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "Alamat atau domain - nama .kachat dicari lebih dulu, lalu diubah menjadi alamat yang ditampilkan.";
+"kaspatest:... or domain" = "kaspatest:... atau domain";
+"Enter an address or a domain." = "Masukkan alamat atau domain.";
+"That name's address can't own a .kachat name." = "Alamat nama itu tidak bisa memiliki nama .kachat.";
+"No domain found by that name." = "Tidak ada domain dengan nama itu.";
+"One of your .kachat domains expired" = "Salah satu domain .kachat Anda kedaluwarsa";
+"%lld of your .kachat domains expired" = "%lld domain .kachat Anda kedaluwarsa";
+"Renew %@ before its grace period ends on %@ to keep it." = "Perpanjang %@ sebelum masa tenggangnya berakhir pada %@ agar tetap milik Anda.";
+"Renew them before their grace periods end to keep them." = "Perpanjang sebelum masa tenggangnya berakhir agar tetap milik Anda.";

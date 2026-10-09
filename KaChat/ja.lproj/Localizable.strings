@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "名前を新しいレジストリに移行しています。新しい名前は%@から取得できます。";
 "Every name from the old registry comes over with the same owner and expiry first." = "まず、古いレジストリのすべての名前が同じ所有者と有効期限のまま移ります。";
 "Moved to the new registry" = "新しいレジストリに移行済み";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... またはドメイン";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Kaspaアドレス(kaspa:...)またはドメイン(例: alice.kachat)を入力してください。.kachatの名前が最初に検索されます。";
+"Finds addresses holding a balance or a domain." = "残高またはドメインを持つアドレスを探します。";
+"Their profile, .kachat name and address." = "プロフィール、.kachatの名前、アドレス。";
+"Resolved first, everywhere you can type an address." = "アドレスを入力できるすべての場所で最初に解決されます。";
+"Other Domains" = "その他のドメイン";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = ".kachatの次に検索され、入力した名前がそこにもある場合は「その他のドメイン」に表示されます。";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "このシードがすでに別のアドレスであなたのIDを持っている場合(.kachat、.kas、.k、.kaspaのドメイン、または入金済みのチャット残高)、ここで選択してください。残高かドメインがあるアドレスのみ表示されます。";
+".kachat Names (%lld)" = ".kachatの名前 (%lld)";
+".kas Names (%lld)" = ".kasの名前 (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Kaspaアドレス(kaspa:...)またはドメインを入力してください。.kachatの名前が最初に検索されます。";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Kaspaアドレス、またはname.kachatのようなドメインを入力してください(.kachatの名前が最初に検索されます)。このアドレスへの受信は購入、送信は売却として、その日の過去のKAS価格で記録されます。同じアドレスを後で再追加すると、前回のインポート以降の取引のみ取り込まれます。";
+"Search contacts, or an address or domain" = "連絡先、アドレス、ドメインを検索";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "まだ連絡先がありません。上にアドレスかドメインを貼り付けて招待しましょう。";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "一致する連絡先がありません。アドレスかドメインを貼り付けて新しい人を招待しましょう。";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "アドレスまたはドメイン。.kachatの名前が最初に検索され、表示されたアドレスに解決されます。";
+"kaspatest:... or domain" = "kaspatest:... またはドメイン";
+"Enter an address or a domain." = "アドレスまたはドメインを入力してください。";
+"That name's address can't own a .kachat name." = "その名前のアドレスは.kachatの名前を所有できません。";
+"No domain found by that name." = "その名前のドメインは見つかりません。";
+"One of your .kachat domains expired" = ".kachatドメインの1つが期限切れになりました";
+"%lld of your .kachat domains expired" = ".kachatドメインのうち%lld件が期限切れになりました";
+"Renew %@ before its grace period ends on %@ to keep it." = "%@を保持するには、猶予期間が終わる%@までに更新してください。";
+"Renew them before their grace periods end to keep them." = "保持するには、猶予期間が終わる前に更新してください。";

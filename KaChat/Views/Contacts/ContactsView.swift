@@ -76,6 +76,8 @@ struct ProfileView: View {
     @State private var showLogoutConfirmation = false
     @State private var showWelcomeGuideReplay = false
     @State private var isEditingAccountName = false
+    /// .kachat names of this wallet in their grace period: the banner at the top
+    @StateObject private var expiredKachatNames = KachatExpiredNamesModel()
 
     static func preloadQRCode(for address: String) {
         ProfileQRCodeCache.preload(address: address, completion: nil)
@@ -86,6 +88,10 @@ struct ProfileView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if let wallet = walletManager.currentWallet {
+                        // one of your .kachat names expired and is in grace: renew it in time
+                        if !expiredKachatNames.visible.isEmpty {
+                            KachatExpiredNamesBanner(model: expiredKachatNames)
+                        }
                         accountNameRow(wallet)
                         profileHeroSection(wallet)
                             .task(id: "\(wallet.publicAddress)-\(kachatRegistry.revision)") {
@@ -104,6 +110,9 @@ struct ProfileView: View {
                     }
                 }
                 .padding()
+            }
+            .task(id: "\(walletManager.currentWallet?.publicAddress ?? "")-\(kachatRegistry.revision)") {
+                await expiredKachatNames.load()
             }
             .refreshable {
                 _ = try? await walletManager.refreshBalance(force: true)
@@ -3477,6 +3486,9 @@ struct KNSDomainSendView: View {
     @State private var isResolvingKNS = false
     @State private var resolvedAddress: String?
     @State private var resolvedDomain: String?
+    /// Every service's answer for a typed name and the one in use: the rest go under "Other domains".
+    @State private var nameResolutions: [NameResolution] = []
+    @State private var selectedTLD: NameServiceTLD?
     @State private var knsError: String?
     private let knsService = KNSService.shared
 
@@ -3568,6 +3580,9 @@ struct KNSDomainSendView: View {
                                     .foregroundColor(isValidAddress ? .green : .red)
                             }
                         }
+                        if !isResolvingKNS {
+                            OtherDomainsDropdown(resolutions: nameResolutions, selected: selectedTLD, onSelect: selectResolution)
+                        }
                     }
 
                     HStack {
@@ -3590,7 +3605,7 @@ struct KNSDomainSendView: View {
                 } header: {
                     Text("Recipient Address")
                 } footer: {
-                    Text("Enter a Kaspa address (kaspa:...) or a .kas domain.")
+                    Text("Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first.")
                 }
 
                 Section {
@@ -3703,6 +3718,8 @@ struct KNSDomainSendView: View {
         resolvedDomain = nil
         knsError = nil
         isResolvingKNS = false
+        nameResolutions = []
+        selectedTLD = nil
 
         guard !trimmed.isEmpty else {
             isValidAddress = false
@@ -3722,6 +3739,15 @@ struct KNSDomainSendView: View {
         }
     }
 
+    /// Use one service's answer (the priority one, or a pick from "Other domains").
+    private func selectResolution(_ resolution: NameResolution) {
+        guard let address = resolution.address else { return }
+        resolvedAddress = address
+        resolvedDomain = resolution.display
+        selectedTLD = resolution.tld
+        knsError = nil
+    }
+
     private func resolveKNSDomain(_ domain: String) {
         isResolvingKNS = true
 
@@ -3734,22 +3760,21 @@ struct KNSDomainSendView: View {
             }
 
             // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa
-            // (see NameServicesClient). The resolved line names which one answered.
+            // (see NameServicesClient). The resolved line names which one answered; the others
+            // are offered under "Other domains".
             let results = await NameServicesClient.shared.resolveEverywhere(domain)
-            if let resolution = NameServicesClient.primary(of: results, typed: domain),
-               let address = resolution.address {
-                await MainActor.run {
-                    resolvedAddress = address
-                    resolvedDomain = resolution.display
-                    knsError = nil
-                    isResolvingKNS = false
-                }
-            } else {
-                await MainActor.run {
+            await MainActor.run {
+                guard addressInput.trimmingCharacters(in: .whitespacesAndNewlines) == domain else { return }
+                nameResolutions = results
+                isResolvingKNS = false
+                if let resolution = NameServicesClient.primary(of: results, typed: domain), resolution.address != nil {
+                    selectResolution(resolution)
+                } else {
                     resolvedAddress = nil
                     resolvedDomain = nil
-                    knsError = String(localized: "No domain found")
-                    isResolvingKNS = false
+                    selectedTLD = nil
+                    let explicit = NameServiceTLD.splitTypedName(domain).tld
+                    knsError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
                 }
             }
         }
@@ -4735,6 +4760,9 @@ struct WithdrawKaspaView: View {
     @State private var isResolvingKNS = false
     @State private var resolvedAddress: String?
     @State private var resolvedDomain: String?
+    /// Every service's answer for a typed name and the one in use: the rest go under "Other domains".
+    @State private var nameResolutions: [NameResolution] = []
+    @State private var selectedTLD: NameServiceTLD?
     @State private var knsError: String?
 
     @State private var feeTier: WithdrawFeeTier = .normal
@@ -4805,7 +4833,10 @@ struct WithdrawKaspaView: View {
                         resolvedName: resolvedDomain,
                         lookupError: knsError,
                         isValidAddress: isValidAddress,
-                        onScan: { showQRScanner = true }
+                        onScan: { showQRScanner = true },
+                        nameResolutions: nameResolutions,
+                        selectedTLD: selectedTLD,
+                        onSelectResolution: selectResolution
                     )
 
                     KaspaAmountEntry(
@@ -4924,6 +4955,8 @@ struct WithdrawKaspaView: View {
         resolvedDomain = nil
         knsError = nil
         isResolvingKNS = false
+        nameResolutions = []
+        selectedTLD = nil
 
         guard !trimmed.isEmpty else {
             isValidAddress = false
@@ -4944,6 +4977,15 @@ struct WithdrawKaspaView: View {
         }
     }
 
+    /// Use one service's answer (the priority one, or a pick from "Other domains").
+    private func selectResolution(_ resolution: NameResolution) {
+        guard let address = resolution.address else { return }
+        resolvedAddress = address
+        resolvedDomain = resolution.display
+        selectedTLD = resolution.tld
+        knsError = nil
+    }
+
     private func resolveKNSDomain(_ domain: String) {
         isResolvingKNS = true
 
@@ -4956,22 +4998,21 @@ struct WithdrawKaspaView: View {
             }
 
             // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa
-            // (see NameServicesClient). The resolved line names which one answered.
+            // (see NameServicesClient). The resolved line names which one answered; the others
+            // are offered under "Other domains".
             let results = await NameServicesClient.shared.resolveEverywhere(domain)
-            if let resolution = NameServicesClient.primary(of: results, typed: domain),
-               let address = resolution.address {
-                await MainActor.run {
-                    resolvedAddress = address
-                    resolvedDomain = resolution.display
-                    knsError = nil
-                    isResolvingKNS = false
-                }
-            } else {
-                await MainActor.run {
+            await MainActor.run {
+                guard addressInput.trimmingCharacters(in: .whitespacesAndNewlines) == domain else { return }
+                nameResolutions = results
+                isResolvingKNS = false
+                if let resolution = NameServicesClient.primary(of: results, typed: domain), resolution.address != nil {
+                    selectResolution(resolution)
+                } else {
                     resolvedAddress = nil
                     resolvedDomain = nil
-                    knsError = String(localized: "No domain found")
-                    isResolvingKNS = false
+                    selectedTLD = nil
+                    let explicit = NameServiceTLD.splitTypedName(domain).tld
+                    knsError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
                 }
             }
         }

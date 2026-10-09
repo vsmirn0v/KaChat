@@ -94,8 +94,10 @@ migration (`ContactsManager.clearKasDomainAliasesOnce`) un-names contacts whose 
 their `.kas` domain. What KNS still does:
 
 **Features:**
-- Resolve a typed name (e.g., `alice.kas`) to an address when adding a contact or sending
-  (`NameServicesClient.resolveEverywhere` - `.kachat` first, the others under "Other domains")
+- Resolve a typed name (e.g., `alice.kas`) to an address in any address field
+  (`NameServicesClient.resolveEverywhere` - `.kachat` first, the others under "Other domains",
+  `OtherDomainsDropdown`); KaPosts @mentions too (`KaPostsView.mentionAddress`: "@bob" and
+  "@bob.kachat" are .kachat first, "@bob.kas" stays the .kas name)
 - Your Domains: list, transfer, set primary and customize the profile of your OWN `.kas` names
   (reads `fetchInfo`/`domainCache` directly, never through the identity gate)
 - Your own addresses (Manage Addresses, Cold Storage, saved accounts, the chatting-address
@@ -326,7 +328,8 @@ spending address's Send (`SpendingAddressWithdrawView`) and KasSigner's send (`C
 
 | Piece | What it is |
 |---|---|
-| `SendRecipientCard` | Address or name, with Paste, Scan QR and the lookup status. The screen runs the lookup |
+| `SendRecipientCard` | Address or name, with Paste, Scan QR and the lookup status. The screen runs the lookup (`NameServicesClient.resolveEverywhere`, .kachat first) and passes every answer in for the dropdown |
+| `OtherDomainsDropdown` | "Other domains" under the resolved name: the same typed name on the other services, each selectable. Every address field in the app shows it (Create chat, New Group rows, Group Add Members, the Send screens, Send Domain, Portfolio, the Address Book editor, .kachat Transfer); on mainnet .kachat is listed first as "Coming soon" until its registry launches |
 | `KaspaAmountEntry` | The big amount, the KAS / currency switch and Max |
 | `SendFeeControls` | Network fee (tap for a custom one), the speed, and Coin Control |
 | `SendInfoPill` | A small one-line pill (available balance, fee) |

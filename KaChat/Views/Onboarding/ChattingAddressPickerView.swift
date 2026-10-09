@@ -58,7 +58,7 @@ struct ChattingAddressPickerView: View {
                     Text("Choose Your Chatting Address")
                         .font(.title3.weight(.bold))
                         .multilineTextAlignment(.center)
-                    Text("If this seed already holds your identity at a different address - a domain (.kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown.")
+                    Text("If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -264,6 +264,17 @@ struct ChattingAddressDetailView: View {
                     .background(Color(.systemGray6))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
 
+                    if !candidate.kachatNames.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(".kachat Names (\(candidate.kachatNames.count))")
+                                .font(.subheadline.weight(.semibold))
+                            ForEach(candidate.kachatNames) { name in
+                                DomainNameCardView(title: name.display, badge: nil)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
                     if !candidate.otherNames.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(".k and .kaspa Names (\(candidate.otherNames.count))")
@@ -280,7 +291,7 @@ struct ChattingAddressDetailView: View {
 
                     if !candidate.domains.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("KNS Domains (\(candidate.domains.count))")
+                            Text(".kas Names (\(candidate.domains.count))")
                                 .font(.subheadline.weight(.semibold))
                             ForEach(candidate.domains) { domain in
                                 KNSDomainCard(

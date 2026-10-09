@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "Los nombres se están trasladando al nuevo registro. Podrás reclamar nombres nuevos a partir del %@.";
 "Every name from the old registry comes over with the same owner and expiry first." = "Primero, cada nombre del registro antiguo pasa con el mismo propietario y la misma fecha de vencimiento.";
 "Moved to the new registry" = "Trasladado al nuevo registro";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... o dominio";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Introduce una dirección de Kaspa (kaspa:...) o un dominio (p. ej., alice.kachat). Los nombres .kachat se buscan primero.";
+"Finds addresses holding a balance or a domain." = "Encuentra direcciones con saldo o con un dominio.";
+"Their profile, .kachat name and address." = "Su perfil, nombre .kachat y dirección.";
+"Resolved first, everywhere you can type an address." = "Se resuelven primero, en cualquier lugar donde puedas escribir una dirección.";
+"Other Domains" = "Otros dominios";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "Se buscan después de .kachat y aparecen en Otros dominios cuando un nombre escrito también existe ahí.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Si esta semilla ya guarda tu identidad en otra dirección (un dominio .kachat, .kas, .k o .kaspa, o un saldo de chat con fondos), elígela aquí. Solo se muestran direcciones con saldo o dominios.";
+".kachat Names (%lld)" = "Nombres .kachat (%lld)";
+".kas Names (%lld)" = "Nombres .kas (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Introduce una dirección de Kaspa (kaspa:...) o un dominio. Los nombres .kachat se buscan primero.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Introduce una dirección de Kaspa o un dominio como name.kachat (los nombres .kachat se buscan primero). Cada transacción recibida en esta dirección cuenta como compra y cada enviada como venta, al precio histórico de KAS de ese día. Si vuelves a añadir la misma dirección, solo se importan las transacciones nuevas desde la última importación.";
+"Search contacts, or an address or domain" = "Busca contactos, o una dirección o dominio";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "Aún no tienes contactos. Pega una dirección o un dominio arriba para invitar a alguien.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "Ningún contacto coincide con tu búsqueda. Pega una dirección o un dominio para invitar a alguien nuevo.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "Una dirección o un dominio: los nombres .kachat se buscan primero y se resuelven a la dirección mostrada.";
+"kaspatest:... or domain" = "kaspatest:... o dominio";
+"Enter an address or a domain." = "Introduce una dirección o un dominio.";
+"That name's address can't own a .kachat name." = "La dirección de ese nombre no puede tener un nombre .kachat.";
+"No domain found by that name." = "No se encontró ningún dominio con ese nombre.";
+"One of your .kachat domains expired" = "Uno de tus dominios .kachat ha caducado";
+"%lld of your .kachat domains expired" = "%lld de tus dominios .kachat han caducado";
+"Renew %@ before its grace period ends on %@ to keep it." = "Renueva %@ antes de que termine su periodo de gracia el %@ para conservarlo.";
+"Renew them before their grace periods end to keep them." = "Renuévalos antes de que terminen sus periodos de gracia para conservarlos.";

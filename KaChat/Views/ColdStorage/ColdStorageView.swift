@@ -770,7 +770,7 @@ struct ColdStorageDetailView: View {
                     }
                     ActionSheetRow(
                         title: "Discover Addresses",
-                        subtitle: "Finds addresses holding a balance or a KNS domain.",
+                        subtitle: "Finds addresses holding a balance or a domain.",
                         systemImage: "magnifyingglass",
                         isDisabled: isDiscovering
                     ) {
@@ -1178,6 +1178,9 @@ private struct ColdSendFlowView: View {
     @State private var isResolvingKNS = false
     @State private var resolvedAddress: String?
     @State private var resolvedDomain: String?
+    /// Every service's answer for a typed name and the one in use: the rest go under "Other domains".
+    @State private var nameResolutions: [NameResolution] = []
+    @State private var selectedTLD: NameServiceTLD?
     @State private var knsError: String?
     private let knsService = KNSService.shared
 
@@ -1374,7 +1377,10 @@ private struct ColdSendFlowView: View {
                     resolvedName: resolvedDomain,
                     lookupError: knsError,
                     isValidAddress: isValidAddress,
-                    onScan: { showRecipientScanner = true }
+                    onScan: { showRecipientScanner = true },
+                    nameResolutions: nameResolutions,
+                    selectedTLD: selectedTLD,
+                    onSelectResolution: selectResolution
                 )
                 if isCompoundMode {
                     Group {
@@ -1635,6 +1641,8 @@ private struct ColdSendFlowView: View {
         resolvedDomain = nil
         knsError = nil
         isResolvingKNS = false
+        nameResolutions = []
+        selectedTLD = nil
 
         guard !trimmed.isEmpty else {
             isValidAddress = false
@@ -1654,6 +1662,15 @@ private struct ColdSendFlowView: View {
         }
     }
 
+    /// Use one service's answer (the priority one, or a pick from "Other domains").
+    private func selectResolution(_ resolution: NameResolution) {
+        guard let address = resolution.address else { return }
+        resolvedAddress = address
+        resolvedDomain = resolution.display
+        selectedTLD = resolution.tld
+        knsError = nil
+    }
+
     private func resolveKNSDomain(_ domain: String) {
         isResolvingKNS = true
 
@@ -1666,22 +1683,21 @@ private struct ColdSendFlowView: View {
             }
 
             // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa
-            // (see NameServicesClient). The resolved line names which one answered.
+            // (see NameServicesClient). The resolved line names which one answered; the others
+            // are offered under "Other domains".
             let results = await NameServicesClient.shared.resolveEverywhere(domain)
-            if let resolution = NameServicesClient.primary(of: results, typed: domain),
-               let address = resolution.address {
-                await MainActor.run {
-                    resolvedAddress = address
-                    resolvedDomain = resolution.display
-                    knsError = nil
-                    isResolvingKNS = false
-                }
-            } else {
-                await MainActor.run {
+            await MainActor.run {
+                guard toAddress.trimmingCharacters(in: .whitespacesAndNewlines) == domain else { return }
+                nameResolutions = results
+                isResolvingKNS = false
+                if let resolution = NameServicesClient.primary(of: results, typed: domain), resolution.address != nil {
+                    selectResolution(resolution)
+                } else {
                     resolvedAddress = nil
                     resolvedDomain = nil
-                    knsError = String(localized: "No domain found")
-                    isResolvingKNS = false
+                    selectedTLD = nil
+                    let explicit = NameServiceTLD.splitTypedName(domain).tld
+                    knsError = explicit.map { String(localized: "No \($0.suffix) domain found") } ?? String(localized: "No domain found")
                 }
             }
         }

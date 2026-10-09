@@ -1536,3 +1536,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "Names are moving to the new registry. New names can be claimed from %@.";
 "Every name from the old registry comes over with the same owner and expiry first." = "Every name from the old registry comes over with the same owner and expiry first.";
 "Moved to the new registry" = "Moved to the new registry";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... or domain";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first.";
+"Finds addresses holding a balance or a domain." = "Finds addresses holding a balance or a domain.";
+"Their profile, .kachat name and address." = "Their profile, .kachat name and address.";
+"Resolved first, everywhere you can type an address." = "Resolved first, everywhere you can type an address.";
+"Other Domains" = "Other Domains";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "Looked up after .kachat, and listed under Other domains when a typed name also exists there.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown.";
+".kachat Names (%lld)" = ".kachat Names (%lld)";
+".kas Names (%lld)" = ".kas Names (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.";
+"Search contacts, or an address or domain" = "Search contacts, or an address or domain";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "You have no contacts yet. Paste an address or a domain above to invite someone.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "No contacts match your search. Paste an address or a domain to invite someone new.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "An address or a domain - .kachat names are looked up first, and it's resolved to the address shown.";
+"kaspatest:... or domain" = "kaspatest:... or domain";
+"Enter an address or a domain." = "Enter an address or a domain.";
+"That name's address can't own a .kachat name." = "That name's address can't own a .kachat name.";
+"No domain found by that name." = "No domain found by that name.";
+"One of your .kachat domains expired" = "One of your .kachat domains expired";
+"%lld of your .kachat domains expired" = "%lld of your .kachat domains expired";
+"Renew %@ before its grace period ends on %@ to keep it." = "Renew %@ before its grace period ends on %@ to keep it.";
+"Renew them before their grace periods end to keep them." = "Renew them before their grace periods end to keep them.";

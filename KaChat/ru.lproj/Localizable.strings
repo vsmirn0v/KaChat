@@ -1535,3 +1535,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "Имена переносятся в новый реестр. Новые имена можно будет занять с %@.";
 "Every name from the old registry comes over with the same owner and expiry first." = "Сначала каждое имя из старого реестра переносится с тем же владельцем и сроком действия.";
 "Moved to the new registry" = "Перенесено в новый реестр";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... или домен";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Введите адрес Kaspa (kaspa:...) или домен (например, alice.kachat). Сначала ищутся имена .kachat.";
+"Finds addresses holding a balance or a domain." = "Находит адреса с балансом или доменом.";
+"Their profile, .kachat name and address." = "Профиль, имя .kachat и адрес.";
+"Resolved first, everywhere you can type an address." = "Ищутся первыми — везде, где можно ввести адрес.";
+"Other Domains" = "Другие домены";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "Ищутся после .kachat и показываются в разделе «Другие домены», если введённое имя есть и там.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Если эта сид-фраза уже хранит вашу личность на другом адресе — домен (.kachat, .kas, .k или .kaspa) или пополненный баланс для чата, — выберите его здесь. Показаны только адреса с балансом или доменами.";
+".kachat Names (%lld)" = "Имена .kachat (%lld)";
+".kas Names (%lld)" = "Имена .kas (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Введите адрес Kaspa (kaspa:...) или домен. Сначала ищутся имена .kachat.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Введите адрес Kaspa или домен, например name.kachat (сначала ищутся имена .kachat). Каждая полученная на этот адрес транзакция станет покупкой, каждая отправленная — продажей по исторической цене KAS в тот день. При повторном добавлении того же адреса импортируются только транзакции, найденные после прошлого импорта.";
+"Search contacts, or an address or domain" = "Поиск контактов, адреса или домена";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "У вас пока нет контактов. Вставьте адрес или домен выше, чтобы пригласить кого-то.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "Контакты не найдены. Вставьте адрес или домен, чтобы пригласить нового человека.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "Адрес или домен — сначала ищутся имена .kachat; имя заменяется показанным адресом.";
+"kaspatest:... or domain" = "kaspatest:... или домен";
+"Enter an address or a domain." = "Введите адрес или домен.";
+"That name's address can't own a .kachat name." = "Адрес этого имени не может владеть именем .kachat.";
+"No domain found by that name." = "Домен с таким именем не найден.";
+"One of your .kachat domains expired" = "Срок действия одного из ваших доменов .kachat истёк";
+"%lld of your .kachat domains expired" = "Истёк срок действия доменов .kachat: %lld";
+"Renew %@ before its grace period ends on %@ to keep it." = "Продлите %@ до окончания льготного периода %@, чтобы сохранить его.";
+"Renew them before their grace periods end to keep them." = "Продлите их до окончания льготных периодов, чтобы сохранить.";

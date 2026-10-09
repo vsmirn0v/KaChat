@@ -1482,3 +1482,29 @@
 "Names are moving to the new registry. New names can be claimed from %@." = "Die Namen ziehen in die neue Registry um. Neue Namen kannst du ab %@ beanspruchen.";
 "Every name from the old registry comes over with the same owner and expiry first." = "Zuerst kommt jeder Name aus der alten Registry mit demselben Inhaber und Ablaufdatum herüber.";
 "Moved to the new registry" = "In die neue Registry umgezogen";
+
+/* .kachat first: domains in every address field, Other domains, expired-name banner */
+"kaspa:qr... or domain" = "kaspa:qr... oder Domain";
+"Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first." = "Gib eine Kaspa-Adresse (kaspa:...) oder eine Domain ein (z. B. alice.kachat). .kachat-Namen werden zuerst gesucht.";
+"Finds addresses holding a balance or a domain." = "Findet Adressen mit Guthaben oder einer Domain.";
+"Their profile, .kachat name and address." = "Profil, .kachat-Name und Adresse.";
+"Resolved first, everywhere you can type an address." = "Wird zuerst aufgelöst, überall, wo du eine Adresse eingeben kannst.";
+"Other Domains" = "Andere Domains";
+"Looked up after .kachat, and listed under Other domains when a typed name also exists there." = "Werden nach .kachat gesucht und unter „Andere Domains“ aufgeführt, wenn ein eingegebener Name auch dort existiert.";
+"If this seed already holds your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown." = "Wenn dieser Seed deine Identität bereits unter einer anderen Adresse hat – eine Domain (.kachat, .kas, .k oder .kaspa) oder ein Chat-Guthaben –, wähle sie hier. Es werden nur Adressen mit Guthaben oder Domains angezeigt.";
+".kachat Names (%lld)" = ".kachat-Namen (%lld)";
+".kas Names (%lld)" = ".kas-Namen (%lld)";
+"Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first." = "Gib eine Kaspa-Adresse (kaspa:...) oder eine Domain ein. .kachat-Namen werden zuerst gesucht.";
+"Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import." = "Gib eine Kaspa-Adresse oder eine Domain wie name.kachat ein (.kachat-Namen werden zuerst gesucht). Jede empfangene Transaktion an diese Adresse wird ein Kauf, jede gesendete ein Verkauf, zum historischen KAS-Preis des Tages. Fügst du dieselbe Adresse später erneut hinzu, werden nur seit dem letzten Import gefundene Transaktionen importiert.";
+"Search contacts, or an address or domain" = "Kontakte suchen oder Adresse bzw. Domain";
+"You have no contacts yet. Paste an address or a domain above to invite someone." = "Du hast noch keine Kontakte. Füge oben eine Adresse oder Domain ein, um jemanden einzuladen.";
+"No contacts match your search. Paste an address or a domain to invite someone new." = "Keine Kontakte passen zu deiner Suche. Füge eine Adresse oder Domain ein, um jemand Neues einzuladen.";
+"An address or a domain - .kachat names are looked up first, and it's resolved to the address shown." = "Eine Adresse oder eine Domain – .kachat-Namen werden zuerst gesucht und zur angezeigten Adresse aufgelöst.";
+"kaspatest:... or domain" = "kaspatest:... oder Domain";
+"Enter an address or a domain." = "Gib eine Adresse oder eine Domain ein.";
+"That name's address can't own a .kachat name." = "Die Adresse dieses Namens kann keinen .kachat-Namen besitzen.";
+"No domain found by that name." = "Keine Domain mit diesem Namen gefunden.";
+"One of your .kachat domains expired" = "Eine deiner .kachat-Domains ist abgelaufen";
+"%lld of your .kachat domains expired" = "%lld deiner .kachat-Domains sind abgelaufen";
+"Renew %@ before its grace period ends on %@ to keep it." = "Verlängere %@, bevor die Kulanzfrist am %@ endet, um sie zu behalten.";
+"Renew them before their grace periods end to keep them." = "Verlängere sie, bevor ihre Kulanzfristen enden, um sie zu behalten.";
