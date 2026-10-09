@@ -1530,3 +1530,8 @@
 "Every address in that file is a Testnet address. KaChat is on Mainnet." = "كل العناوين في هذا الملف عناوين Testnet. ‏KaChat على Mainnet.";
 "Skipped %lld from the other network." = "تم تخطي %lld من الشبكة الأخرى.";
 "The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "ارتفعت رسوم الشبكة إلى %@ منذ تأكيدك. لم يُرسل شيء. راجع الرسوم الجديدة وأكّد مرة أخرى.";
+
+/* .kachat registry v5 migration */
+"Names are moving to the new registry. New names can be claimed from %@." = "تنتقل الأسماء إلى السجل الجديد. يمكن المطالبة بأسماء جديدة بدءًا من %@.";
+"Every name from the old registry comes over with the same owner and expiry first." = "ينتقل كل اسم من السجل القديم أولًا بالمالك نفسه وتاريخ الانتهاء نفسه.";
+"Moved to the new registry" = "نُقل إلى السجل الجديد";

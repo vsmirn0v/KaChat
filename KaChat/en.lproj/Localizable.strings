@@ -1531,3 +1531,8 @@
 "Every address in that file is a Testnet address. KaChat is on Mainnet." = "Every address in that file is a Testnet address. KaChat is on Mainnet.";
 "Skipped %lld from the other network." = "Skipped %lld from the other network.";
 "The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again.";
+
+/* .kachat registry v5 migration */
+"Names are moving to the new registry. New names can be claimed from %@." = "Names are moving to the new registry. New names can be claimed from %@.";
+"Every name from the old registry comes over with the same owner and expiry first." = "Every name from the old registry comes over with the same owner and expiry first.";
+"Moved to the new registry" = "Moved to the new registry";

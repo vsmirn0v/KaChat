@@ -1530,3 +1530,8 @@
 "Every address in that file is a Testnet address. KaChat is on Mainnet." = "Mọi địa chỉ trong tệp đó đều là địa chỉ Testnet. KaChat đang ở Mainnet.";
 "Skipped %lld from the other network." = "Đã bỏ qua %lld địa chỉ của mạng khác.";
 "The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "Phí mạng đã tăng lên %@ kể từ khi bạn xác nhận. Chưa có gì được gửi. Hãy xem phí mới và xác nhận lại.";
+
+/* .kachat registry v5 migration */
+"Names are moving to the new registry. New names can be claimed from %@." = "Các tên đang được chuyển sang sổ đăng ký mới. Bạn có thể nhận tên mới từ %@.";
+"Every name from the old registry comes over with the same owner and expiry first." = "Trước tiên, mọi tên từ sổ đăng ký cũ được chuyển sang với cùng chủ sở hữu và hạn dùng.";
+"Moved to the new registry" = "Đã chuyển sang sổ đăng ký mới";

@@ -159,6 +159,7 @@ enum KachatLive {
         case "renew": return "arrow.clockwise"
         case "release": return "arrow.uturn.backward"
         case "reclaim": return "arrow.3.trianglepath"
+        case "import": return "arrow.down.doc"
         default: return "hand.raised"
         }
     }
@@ -175,6 +176,7 @@ enum KachatLive {
         case "renew": return "Renewed"
         case "release": return "Released"
         case "reclaim": return "Reclaimed"
+        case "import": return "Moved to the new registry"
         case "offer": return "Offer made"
         case "offer_withdraw": return "Offer withdrawn"
         case "offer_refund": return "Offer refunded"
@@ -1913,6 +1915,8 @@ struct KachatClaimSheet: View {
     @State private var years: Int64 = 1
     @State private var quote: KachatNamesActions.Quote?
     @State private var quoteError: String?
+    /// Registry v5 before its migration deadline: why claiming waits, and until when.
+    @State private var notOpen: String?
     @State private var starting = false
     @State private var startError: String?
     @State private var feeTier: WithdrawFeeTier = .normal
@@ -1949,6 +1953,21 @@ struct KachatClaimSheet: View {
                         .pickerStyle(.segmented)
                     }
 
+                    if let notOpen {
+                        KachatCard {
+                            Label {
+                                Text(verbatim: notOpen)
+                            } icon: {
+                                Image(systemName: "clock").foregroundColor(.orange)
+                            }
+                            .font(.subheadline)
+                            Text("Every name from the old registry comes over with the same owner and expiry first.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
                     KachatCard {
                         if let q = quote {
                             // the first period at the registration price, any further one at the renewal price
@@ -1961,6 +1980,8 @@ struct KachatClaimSheet: View {
                             LabeledRow(title: "Total", value: KaspaUnit.amount(q.total), bold: true)
                         } else if let quoteError {
                             Text(verbatim: quoteError).foregroundColor(.red)
+                        } else if notOpen != nil {
+                            HStack { Text("Total"); Spacer(); Text(verbatim: "-").foregroundColor(.secondary) }
                         } else {
                             HStack { Text("Total"); Spacer(); ProgressView() }
                         }
@@ -2044,8 +2065,11 @@ struct KachatClaimSheet: View {
             .task(id: "\(years)|\(feeTier.rawValue)") {
                 quote = nil
                 quoteError = nil
+                notOpen = nil
                 do {
                     quote = try await KachatNamesActions.shared.quote(name: target.name, years: years, gap: target.gap, feeTier: feeTier)
+                } catch let error as KachatNamesActions.ActionError {
+                    if case .registrationNotOpen = error { notOpen = error.localizedDescription } else { quoteError = error.localizedDescription }
                 } catch {
                     quoteError = error.localizedDescription
                 }

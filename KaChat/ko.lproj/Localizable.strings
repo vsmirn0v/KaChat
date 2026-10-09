@@ -1530,3 +1530,8 @@
 "Every address in that file is a Testnet address. KaChat is on Mainnet." = "이 파일의 모든 주소는 Testnet 주소입니다. KaChat은 Mainnet에 있습니다.";
 "Skipped %lld from the other network." = "다른 네트워크의 %lld개를 건너뛰었습니다.";
 "The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "확인한 뒤 네트워크 수수료가 %@(으)로 올랐습니다. 아무것도 보내지 않았습니다. 새 수수료를 확인하고 다시 확인하세요.";
+
+/* .kachat registry v5 migration */
+"Names are moving to the new registry. New names can be claimed from %@." = "이름을 새 레지스트리로 옮기는 중입니다. 새 이름은 %@부터 받을 수 있습니다.";
+"Every name from the old registry comes over with the same owner and expiry first." = "먼저 이전 레지스트리의 모든 이름이 같은 소유자와 같은 만료일로 옮겨집니다.";
+"Moved to the new registry" = "새 레지스트리로 이동됨";

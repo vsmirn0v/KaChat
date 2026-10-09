@@ -1477,3 +1477,8 @@
 "Every address in that file is a Testnet address. KaChat is on Mainnet." = "Alle Adressen in dieser Datei sind Testnet-Adressen. KaChat ist im Mainnet.";
 "Skipped %lld from the other network." = "%lld aus dem anderen Netzwerk übersprungen.";
 "The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "Die Netzwerkgebühr ist seit deiner Bestätigung auf %@ gestiegen. Es wurde nichts gesendet. Prüfe die neue Gebühr und bestätige erneut.";
+
+/* .kachat registry v5 migration */
+"Names are moving to the new registry. New names can be claimed from %@." = "Die Namen ziehen in die neue Registry um. Neue Namen kannst du ab %@ beanspruchen.";
+"Every name from the old registry comes over with the same owner and expiry first." = "Zuerst kommt jeder Name aus der alten Registry mit demselben Inhaber und Ablaufdatum herüber.";
+"Moved to the new registry" = "In die neue Registry umgezogen";

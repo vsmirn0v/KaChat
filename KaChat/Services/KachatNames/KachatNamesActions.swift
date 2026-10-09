@@ -108,6 +108,9 @@ final class KachatNamesActions: ObservableObject {
         case priceChanged(UInt64)
         /// the rebuilt transaction's network fee is above the one the person saw
         case feeChanged(UInt64)
+        /// registry v5: registering opens at the migration deadline, once the old registry's names
+        /// are imported
+        case registrationNotOpen(opensMs: Int64)
 
         var errorDescription: String? {
             switch self {
@@ -129,12 +132,23 @@ final class KachatNamesActions: ObservableObject {
             case .feeChanged(let fee):
                 return String(format: AppLocalization.string("The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again."),
                               KaspaUnit.amount(fee))
+            case .registrationNotOpen(let opens):
+                return String(format: AppLocalization.string("Names are moving to the new registry. New names can be claimed from %@."),
+                              KachatNamesActions.dayString(opens))
             }
         }
     }
 
     /// A unix-ms day ("Oct 12, 2027") in the in-app language, with the time when it is within two
     /// days (testnet's 24-hour periods, or a renewal that opens tomorrow).
+    /// Registry v5 refuses `register` until the migration deadline; checked against the wall clock
+    /// with the 3-minute margin `registerNow` takes off it.
+    nonisolated static func requireRegistrationOpen(_ m: KachatNames.Manifest) throws {
+        guard let deadline = m.params.migration?.deadlineMs,
+              KachatNames.nowMs() - 180_000 < deadline else { return }
+        throw ActionError.registrationNotOpen(opensMs: deadline + 180_000)
+    }
+
     nonisolated static func dayString(_ ms: Int64) -> String {
         let f = DateFormatter()
         f.locale = AppLocalization.locale
@@ -779,6 +793,7 @@ final class KachatNamesActions: ObservableObject {
     func quote(name: String, years: Int64, gap: KachatNames.GapInfo, feeTier: WithdrawFeeTier = .normal) async throws -> Quote {
         let s = try signer()
         let m = try await registry.prepare()
+        try Self.requireRegistrationOpen(m)
         let (b, env, wallet) = try await context(s, feerate: await feerate(for: feeTier))
         let salt = try KachatNamesService.newSalt()
         let spendable = wallet.reduce(UInt64(0)) { $0 + $1.entry.amount }
@@ -815,6 +830,8 @@ final class KachatNamesActions: ObservableObject {
         let s = try signer()
         let name = KachatNames.Codec.normalize(raw)
         try KachatNames.Codec.validate(name)
+        // never a commit that couldn't be registered: v5 opens register at its migration deadline
+        try Self.requireRegistrationOpen(try await registry.prepare())
         loadPending(for: s.address)
         await registry.refresh()
         var lapsed: KachatNames.NameInfo?
@@ -1114,6 +1131,12 @@ final class KachatNamesActions: ObservableObject {
             guard let salt = try KeychainService.shared.loadKachatCommitSalt(id: p.id, walletAddress: s.address) else { throw ActionError.noSalt }
             await registry.refresh()
             let m = try await registry.prepare()
+            // A commit isn't bound to a registry: one sent before a migration registers on the
+            // new registry once its deadline passes. Until then it waits, saying why.
+            do { try Self.requireRegistrationOpen(m) } catch {
+                set(p) { $0.lastError = error.localizedDescription }
+                return
+            }
             let gap: KachatNames.GapInfo
             switch try await registry.lookup(p.name) {
             case .registered(let n) where n.status(graceMs: registry.graceMs) == .lapsed:

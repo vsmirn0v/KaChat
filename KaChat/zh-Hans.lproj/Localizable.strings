@@ -1530,3 +1530,8 @@
 "Every address in that file is a Testnet address. KaChat is on Mainnet." = "该文件中的所有地址都是 Testnet 地址。KaChat 当前在 Mainnet。";
 "Skipped %lld from the other network." = "已跳过另一网络的 %lld 个地址。";
 "The network fee went up to %@ since you confirmed. Nothing was sent. Check the new fee and confirm again." = "确认后网络费用已涨到 %@。没有发送任何内容。请查看新费用并再次确认。";
+
+/* .kachat registry v5 migration */
+"Names are moving to the new registry. New names can be claimed from %@." = "名称正在迁移到新的注册表。新名称可从 %@ 起认领。";
+"Every name from the old registry comes over with the same owner and expiry first." = "旧注册表中的每个名称会先以相同的所有者和到期时间迁移过来。";
+"Moved to the new registry" = "已迁移到新注册表";
