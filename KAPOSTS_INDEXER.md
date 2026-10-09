@@ -15,8 +15,8 @@ app expects is defined there.
 KaPosts is a Twitter/X-style social feed inside KaChat. **Everything is on-chain**: each
 action (post, reply, vote, follow, quote/repost) is a Kaspa **self-send transaction**
 (outputs pay back to the author's own address) whose `payload` field carries a `kchat:1:...`
-protocol string (the legacy `k:1:` root exists on chain from before the migration - read it,
-never write it; see §2). The indexer's job is to scan the DAG for these payloads, verify signatures,
+protocol string (the legacy `k:1:` root exists on chain from before the migration - not
+indexed, never written; see §2). The indexer's job is to scan the DAG for these payloads, verify signatures,
 and serve a REST read API. **The transaction id IS the content id.**
 
 Today the app runs against the public K social indexer (`https://mainnet.kaspatalk.net`,
@@ -351,7 +351,7 @@ is natural.
   tx `f28587d7ac7ba1f8545e3b4f18dfc24f03160fa596feccbfb3da964272ca054b` quoting
   `cb60eea63d13ac668704670a0e843b0733be2a2123f4b2a864cc8605fe7ebdb9`) to validate a
   from-genesis backfill against.
-- **Order of work:** (1) scan+verify+store `kchat:1:` (and legacy `k:1:`) payloads with marker filtering, (2) serve
+- **Order of work:** (1) scan+verify+store `kchat:1:` payloads (only that root; legacy `k:1:` is not indexed) with marker filtering, (2) serve
   the §4 compatibility endpoints, (3) add removals + actor lists (§5.1–§5.4), (4) add
   `get-post` (§5.5) — smallest change, biggest client win, (5) add `search` (§5.6), (6) flip
   the app to the new URL as default.

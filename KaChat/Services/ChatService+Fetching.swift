@@ -806,7 +806,8 @@ extension ChatService {
     }
 
     /// Check if a payload hex string contains handshake data
-    /// Handshake payloads start with hex("ciph_msg:1:handshake:") after the OP_RETURN prefix
+    /// Handshake payloads start with hex("kchat:1:handshake:") (or the legacy, read-only
+    /// "ciph_msg:1:handshake:") after the OP_RETURN prefix
     /// Does this payload start with any of `prefixes`?
     ///
     /// Compares HEX against hex, and never decodes the payload as text. The version this replaced

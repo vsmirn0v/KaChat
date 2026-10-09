@@ -547,7 +547,8 @@ enum KaPostsPaginator {
 /// field string - the app's WalletManager.signArbitraryMessage(.kaspaPersonalMessage) scheme.
 enum KaPostsProtocol {
     // `kchat:` migration: KaPosts now writes the `kchat:1:<action>:` root (was `k:1:`). Reads come
-    // pre-parsed from the K indexer (dual-reads server-side), so only the write shape changes.
+    // pre-parsed from the K indexer, which indexes `kchat:1:` only (pre-migration `k:1:` posts
+    // aren't served; the owner accepted that loss, XP-006).
     static let prefix = "kchat:1:"
 
     static func b64(_ text: String) -> String {

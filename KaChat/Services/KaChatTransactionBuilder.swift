@@ -1012,7 +1012,8 @@ struct KasiaTransactionBuilder {
         let encrypted = try KasiaCipher.encrypt(payloadString, recipientPublicKey: senderPubKey)
         let encryptedHex = encrypted.toBytes().hexString
 
-        // Payload format: hex("ciph_msg:1:self_stash:") + hex("saved_handshake:") + <hex encrypted bytes>
+        // Payload format: hex("kchat:1:self_stash:") + hex("saved_handshake:") + <hex encrypted bytes>
+        // (`ciph_msg:1:` is the legacy root: read, never written)
         let prefixHex = hexString(from: "kchat:1:self_stash:")
         let scopeHex = hexString(from: "\(selfStashScope):")
         let payloadHex = prefixHex + scopeHex + encryptedHex
