@@ -2349,12 +2349,20 @@ struct KachatLiveNameDetail: View {
                 }
                 Spacer(minLength: 8)
                 if !ownedByWallet, let ownerAddress {
+                    // A fixed round button: as a bordered "Message" label it was squeezed by the
+                    // address beside it (which never shrinks) into a tall, empty capsule.
                     Button {
                         KachatLive.message(ownerAddress)
                     } label: {
-                        Label("Message", systemImage: "bubble.left.and.bubble.right").font(.subheadline.weight(.semibold))
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 44, height: 44)
+                            .background(Circle().fill(Color.accentColor.opacity(0.18)))
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                    .fixedSize()
+                    .accessibilityLabel(Text("Message"))
                 }
             }
             .padding(14)
