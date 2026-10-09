@@ -1,5 +1,22 @@
 # .kachat names - design (v1)
 
+> **Registry v5 (2026-10-09) is what testnet-10 runs and the app bundles.** v5 is v4 plus
+> migration: a new registry imports a Merkle snapshot of the old one, so every name keeps its
+> owner and paid period (unlisted). Only the gap changes (`contracts/v5/KachatGap.sil`, 7.7 kB,
+> new `import` entry, tag `aa4cc365`); the name and offer are v4's. `register` is refused until
+> `params.migration.deadlineMs`. The spec is `docs/REGISTRY_V5.md` in kachat-domains. The live
+> registry is the migration drill: genesis `408682e6…dfda5`, registry `fdc403f5…571d`, imported
+> from the day-clock v4 registry `e6b72448…7f0d` (6 names). In the app:
+>
+> - **Manifest:** `registryVersion` 4 or 5. A v5 manifest needs `params.migration`. The v5 gap is
+>   pinned per deployment (it bakes the snapshot root, deadline and sponsor).
+> - **Walker:** decodes `import`; the history shows "Moved to the new registry".
+> - **Claiming:** says when registration opens until the deadline passes. A commit sent before
+>   the migration registers on the new registry after it.
+> - **Budgets:** the v5 gap's (`Budgets.recommendedV5`: register 13, merge 7, absorbed 1).
+> - **Tests:** `scripts/test_kachat_names_core.swift` and `scripts/test_kachat_names_registry.swift`
+>   take `KaChatTests/KachatNamesVectors-v5.json` as an argument (kachat-domains 6eddc7a).
+
 > **Registry v4 (2026-10-07) is what the app builds now.** Live on testnet-10 on the day clock
 > since 2026-10-07: genesis `5ffdd006…a777`, registry `e6b72448…7f0d` (the first, 10-minute v4
 > deployment, registry `bff18554…0e2f`, is retired; its names didn't carry over). The spec is
@@ -443,7 +460,7 @@ screens run on the live registry. Mainnet is unchanged: mockups, "Coming soon", 
 
 | File | What |
 |---|---|
-| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled: registry v4 (`registryVersion: 4`) on the day clock since 2026-10-07 (genesis `5ffdd006…a777`, registry `e6b72448…7f0d`; 24-hour periods, 6-hour grace, 2-hour renewal window) |
+| `KaChat/Resources/kachat-names-testnet-10.json` | the TN10 manifest, bundled: registry v5 (`registryVersion: 5`) since 2026-10-09 (genesis `408682e6…dfda5`, registry `fdc403f5…571d`, imported from v4 `e6b72448…7f0d`; 24-hour periods, 6-hour grace, 2-hour renewal window) |
 | `KaChat/Services/KachatNames/KachatNamesRegistryState.swift` | pure: status (B5), label rule, profile record, REST tx parser, indexer shapes, the walker state and its decoder (`apply`, a port of the CLI's `Registry::apply`), the walk loop |
 | `KaChat/Services/KachatNames/KachatNamesRegistry.swift` | `@MainActor` reads: lookup, by owner, listings, lapsed, offers, history, activity, exit gaps, identity; source = names indexer or chain walker; cache in Application Support |
 | `KaChat/Services/KachatNames/KachatNamesActions.swift` | `@MainActor` actions (extend, renew, transfer, list, buy, offer, withdraw, refund, accept, release, reclaim, profile), quotes, the resumable registration driver, cancel commit |
