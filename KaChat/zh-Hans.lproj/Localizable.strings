@@ -1582,3 +1582,8 @@
 /* .kachat offers: refundable before the name expires (MAINNET.md C1) */
 "An offer must be refundable before the name expires." = "报价必须在名称到期前可以退回。";
 "This name expires sooner, so your offer is refundable from %@." = "此名称会更早到期,因此你的报价从 %@ 起可退回。";
+
+/* .kachat: combining many small coins before a name transaction */
+"Your KAS is in many small coins. Combining them into one first..." = "你的 KAS 分散在许多小额币中。正在先合并为一枚...";
+"Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee." = "你的 KAS 分散在许多小额币中。KaChat 会在注册前将它们合并为一枚,只需极少的额外网络费用。";
+"Not enough KAS on your chatting address for this." = "你的聊天地址上没有足够的 KAS 来完成此操作。";

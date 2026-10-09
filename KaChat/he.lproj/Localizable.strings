@@ -1582,3 +1582,8 @@
 /* .kachat offers: refundable before the name expires (MAINNET.md C1) */
 "An offer must be refundable before the name expires." = "הצעה חייבת להיות ניתנת להחזר לפני שהשם פג.";
 "This name expires sooner, so your offer is refundable from %@." = "השם הזה פג מוקדם יותר, ולכן ההצעה שלך ניתנת להחזר מ-%@.";
+
+/* .kachat: combining many small coins before a name transaction */
+"Your KAS is in many small coins. Combining them into one first..." = "ה-KAS שלך מפוזר על הרבה מטבעות קטנים. הם מאוחדים קודם למטבע אחד...";
+"Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee." = "ה-KAS שלך מפוזר על הרבה מטבעות קטנים. KaChat מאחדת אותם למטבע אחד לפני הרישום, תמורת עמלת רשת נוספת זעירה.";
+"Not enough KAS on your chatting address for this." = "אין מספיק KAS בכתובת הצ׳אט שלך לשם כך.";

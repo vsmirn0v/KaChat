@@ -444,7 +444,55 @@ final class KachatNamesActions: ObservableObject {
     func planWithRate(_ op: Operation, fee: FeeChoice? = nil) async throws -> (plan: KachatNames.Plan, feerate: Double) {
         let s = try signer(for: op)
         let rate = try await feerate(for: fee, op: op, s: s)
-        return (try await build(op, s, feerate: rate).plan, rate)
+        do {
+            return (try await build(op, s, feerate: rate).plan, rate)
+        } catch let error where Self.isTooManyCoins(error) {
+            // the KAS is there, in too many small coins: combined into one first
+            try await combineCoins(s)
+            return (try await build(op, s, feerate: rate).plan, rate)
+        }
+    }
+
+    // MARK: - Many small coins (mainnet, 2026-10-09)
+
+    /// A name transaction takes at most a few funding inputs (`KachatNames.maxInputsFeeEntry`
+    /// all in), so a wallet holding enough KAS in many small coins couldn't pay: "insufficient
+    /// funds ... at most N funding inputs fit".
+    nonisolated static func isTooManyCoins(_ error: Error) -> Bool {
+        (error as? KachatNames.Failure)?.message.contains("funding inputs fit") == true
+    }
+
+    /// Combines the wallet's coins into one: a plain send of up to `maxInputsPerTransaction`
+    /// largest coins to the same address (a tiny network fee), then waits until a node has the
+    /// combined coin, so the name transaction can be built from it. Never a coin a scheduled
+    /// KaPost holds or one carrying a covenant.
+    @discardableResult
+    func combineCoins(_ s: Signer) async throws -> String {
+        let utxos = try await NodePoolService.shared.getUtxosByAddresses([s.address])
+        let plain = KaPostsScheduledStore.filterReserved(utxos)
+            .filter { $0.covenantId == nil }
+            .sorted { $0.amount > $1.amount }
+            .prefix(KasiaTransactionBuilder.maxInputsPerTransaction)
+        let total = plain.reduce(UInt64(0)) { $0 + $1.amount }
+        let feeRoom: UInt64 = 5_000_000 // 0.05 KAS: the fee, with what's left coming back as change
+        guard plain.count > 1, total > feeRoom * 2 else {
+            throw KachatNames.Failure(AppLocalization.string("Not enough KAS on your chatting address for this."))
+        }
+        let daa = await NodePoolService.shared.currentVirtualDaaScore()
+        let tx = try KasiaTransactionBuilder.buildPlainTransferTx(
+            from: s.address, to: s.address, amount: total - feeRoom,
+            senderPrivateKey: s.privateKey, utxos: Array(plain), virtualDaaScore: daa
+        )
+        let (txId, _) = try await NodePoolService.shared.submitTransaction(tx)
+        // a move between your own coins, not a payment to show in the chats
+        ChatService.shared.registerSuppressedPaymentTxIds([txId], reason: "kachat-names")
+        AppLog.log("[KachatNames] combined %d coins into one: %@", plain.count, txId)
+        for _ in 0..<30 {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            let now = (try? await NodePoolService.shared.getUtxosByAddresses([s.address])) ?? []
+            if now.contains(where: { $0.outpoint.transactionId.lowercased() == txId.lowercased() }) { break }
+        }
+        return txId
     }
 
     private func build(_ op: Operation, _ s: Signer, feerate rate: Double? = nil) async throws -> (plan: KachatNames.Plan, env: KachatNames.Env) {
@@ -575,7 +623,14 @@ final class KachatNamesActions: ObservableObject {
     /// the price the person confirmed.
     private func submit(_ op: Operation, _ s: Signer, maxPrice: UInt64?, maxNetworkFee: UInt64? = nil,
                         feerate rate: Double?) async throws -> (String, KachatNames.Plan) {
-        let (plan, env) = try await build(op, s, feerate: rate)
+        let built: (plan: KachatNames.Plan, env: KachatNames.Env)
+        do {
+            built = try await build(op, s, feerate: rate)
+        } catch let error where Self.isTooManyCoins(error) {
+            try await combineCoins(s)
+            built = try await build(op, s, feerate: rate)
+        }
+        let (plan, env) = built
         if let maxPrice, plan.priceFee > maxPrice { throw ActionError.priceChanged(plan.priceFee) }
         // A few percent of slack: the same rate on a rebuild with other inputs can weigh a little more.
         if let maxNetworkFee, plan.networkFee > maxNetworkFee + maxNetworkFee / 20 + 1_000 {
@@ -793,6 +848,9 @@ final class KachatNamesActions: ObservableObject {
         /// what leaves the wallet in the end: price + bond + gap deposit + network fees
         var total: UInt64
         var spendable: UInt64
+        /// The KAS is there but in too many small coins for one transaction: KaChat combines them
+        /// into one before registering (`combineCoins`).
+        var combinesCoins = false
 
         var affordable: Bool { spendable >= total + KachatNames.minChange }
     }
@@ -809,6 +867,7 @@ final class KachatNamesActions: ObservableObject {
         let price = m.params.registerCost(forLength: name.utf8.count, years: years)
         var commitFee: UInt64 = 0
         var registerFee: UInt64 = 0
+        var combinesCoins = false
         if let commitPlan = try? b.commit(env: env, wallet: wallet, name: name, salt: salt) {
             commitFee = commitPlan.networkFee
             // the registration, with the commit as if it were already mature and the gap as known
@@ -818,9 +877,12 @@ final class KachatNamesActions: ObservableObject {
                     amount: m.params.gapValue, script: m.gap.script(KachatNames.Codec.gapState(lo: gap.lo, hi: gap.hi)),
                     blockDaaScore: env.blockDaa, covenantId: m.registryCovenantId))
                 let rest = wallet.filter { u in !commitPlan.inputs.contains { $0.utxo.outpoint == u.outpoint } }
-                if let reg = try? b.register(env: env, wallet: rest, gap: KachatNames.GapRecord(lo: gap.lo, hi: gap.hi, value: m.params.gapValue, utxo: gapUtxo),
-                                             commit: commit, years: years, now: KachatNames.Builder.registerNow(env: env)) {
+                do {
+                    let reg = try b.register(env: env, wallet: rest, gap: KachatNames.GapRecord(lo: gap.lo, hi: gap.hi, value: m.params.gapValue, utxo: gapUtxo),
+                                             commit: commit, years: years, now: KachatNames.Builder.registerNow(env: env))
                     registerFee = reg.networkFee
+                } catch {
+                    combinesCoins = Self.isTooManyCoins(error)
                 }
             }
         }
@@ -829,7 +891,7 @@ final class KachatNamesActions: ObservableObject {
         let fee = commitFee + registerFee
         return Quote(name: name, years: years, price: price, bond: m.params.bond, gapDeposit: m.params.gapValue,
                      commit: KachatNames.commitValue, networkFee: fee, total: price + m.params.bond + m.params.gapValue + fee,
-                     spendable: spendable)
+                     spendable: spendable, combinesCoins: combinesCoins)
     }
 
     /// Starts registering `name`: a fresh salt (Keychain), the salted commit (submitted), then the
@@ -913,6 +975,7 @@ final class KachatNamesActions: ObservableObject {
 
     /// Try a failed registration again.
     func retry(_ p: KachatNames.PendingRegistration) {
+        combinedFor.remove(p.id) // Try Again may combine coins again
         var q = p
         q.stage = .waiting
         q.lastError = nil
@@ -1179,11 +1242,23 @@ final class KachatNamesActions: ObservableObject {
                 gap = g
             }
             let (b, env, wallet) = try await context(s, feerate: await registrationFeerate(p))
-            let plan = try b.register(
-                env: env, wallet: wallet, gap: try await liveGap(gap, m),
-                commit: KachatNames.CommitRecord(name: p.name, owner: s.me, salt: salt, value: commit.entry.amount, utxo: commit),
-                years: p.years, now: KachatNames.Builder.registerNow(env: env)
-            )
+            let liveGapRecord = try await liveGap(gap, m)
+            let plan: KachatNames.Plan
+            do {
+                plan = try b.register(
+                    env: env, wallet: wallet, gap: liveGapRecord,
+                    commit: KachatNames.CommitRecord(name: p.name, owner: s.me, salt: salt, value: commit.entry.amount, utxo: commit),
+                    years: p.years, now: KachatNames.Builder.registerNow(env: env)
+                )
+            } catch let error where Self.isTooManyCoins(error) && !combinedFor.contains(p.id) {
+                // the KAS is there in many small coins: combine them, then register on the next
+                // tick with the same commit (once per registration; a second time it's real)
+                combinedFor.insert(p.id)
+                set(p) { $0.lastError = AppLocalization.string("Your KAS is in many small coins. Combining them into one first...") }
+                try await combineCoins(s)
+                set(p) { $0.lastError = nil }
+                return
+            }
             // Never pay more than the person confirmed (the fixed prices make this a safeguard).
             if let cap = p.maxPrice, plan.priceFee > cap { throw ActionError.priceChanged(plan.priceFee) }
             let txId = try await service.signAndSubmit(plan, privateKey: s.privateKey, env: env)
@@ -1201,6 +1276,9 @@ final class KachatNamesActions: ObservableObject {
             }
         }
     }
+
+    /// Registrations this session already combined coins for (`combineCoins`).
+    private var combinedFor: Set<String> = []
 
     private func finishRegistered(_ p: KachatNames.PendingRegistration) {
         if let address = pendingWallet { try? KeychainService.shared.deleteKachatCommitSalt(id: p.id, walletAddress: address) }

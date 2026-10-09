@@ -1582,3 +1582,8 @@
 /* .kachat offers: refundable before the name expires (MAINNET.md C1) */
 "An offer must be refundable before the name expires." = "Đề nghị phải hoàn lại được trước khi tên hết hạn.";
 "This name expires sooner, so your offer is refundable from %@." = "Tên này hết hạn sớm hơn, nên đề nghị của bạn hoàn lại được từ %@.";
+
+/* .kachat: combining many small coins before a name transaction */
+"Your KAS is in many small coins. Combining them into one first..." = "KAS của bạn nằm rải rác trong nhiều đồng nhỏ. Đang gộp chúng thành một trước...";
+"Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee." = "KAS của bạn nằm rải rác trong nhiều đồng nhỏ. KaChat gộp chúng thành một trước khi đăng ký, với một khoản phí mạng nhỏ thêm.";
+"Not enough KAS on your chatting address for this." = "Địa chỉ chat của bạn không đủ KAS để làm việc này.";

@@ -2014,6 +2014,12 @@ struct KachatClaimSheet: View {
                             SendInfoPill { Text("Available: \(KaspaUnit.amount(q.spendable))") }
                             Spacer(minLength: 0)
                         }
+                        if q.combinesCoins, q.affordable {
+                            Label("Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee.", systemImage: "arrow.triangle.merge")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
 
                     KachatCard {

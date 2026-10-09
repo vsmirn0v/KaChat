@@ -1583,3 +1583,8 @@
 /* .kachat offers: refundable before the name expires (MAINNET.md C1) */
 "An offer must be refundable before the name expires." = "An offer must be refundable before the name expires.";
 "This name expires sooner, so your offer is refundable from %@." = "This name expires sooner, so your offer is refundable from %@.";
+
+/* .kachat: combining many small coins before a name transaction */
+"Your KAS is in many small coins. Combining them into one first..." = "Your KAS is in many small coins. Combining them into one first...";
+"Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee." = "Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee.";
+"Not enough KAS on your chatting address for this." = "Not enough KAS on your chatting address for this.";
