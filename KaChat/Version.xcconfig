@@ -27,19 +27,22 @@
 // was overwritten in the archive too - both tried on 2026-09-15, both came out as the long
 // number. The user accepted the long numbers for Cloud betas.
 //
-// The values below therefore govern LOCAL archives only (Product > Archive in Xcode), which do
-// read 5.0 (1), 5.0 (2), ... App Store Connect scopes build numbers per marketing version and
-// wants each upload above the last in that version, so never mix a local upload into a train
-// that already has Cloud uploads - the local number would be rejected as too low.
+// The values below govern LOCAL archives only (Product > Archive in Xcode). They continue
+// Xcode Cloud's numbering (2026-10-10): App Store Connect wants each upload's CFBundleVersion
+// above the last one in the same marketing version, and 5.2's uploads carry Cloud's long numbers
+// (Cloud build 202607032578 was the last), so a local archive starts at the next one. Bump
+// CURRENT_PROJECT_VERSION by 1 before each local archive you upload. Cloud keeps its own counter
+// and does not read this, so if a local build is uploaded, raise Cloud's next build number above
+// it (App Store Connect > Xcode Cloud > Settings > Build Number) or Cloud's next upload collides.
+// When Cloud's archive exists and only its export failed, upload that archive instead (it already
+// carries Cloud's number) - nothing to bump.
 //
-// What the app SHOWS is ours regardless of what Cloud uploads: the About row reads
-// KaChatBuildNumber / KaChatIsRelease from Info.plist (both bound to the settings below, which
-// Cloud does not touch) and renders "5.0 (1)" during the beta cycle - bump KACHAT_BUILD_NUMBER
-// for each beta - and plain "5.0" once KACHAT_IS_RELEASE is flipped to YES for the App Store
-// release. Cloud's own number stays in diagnostics archives, where matching the upload matters.
+// What the app SHOWS in About is the real CFBundleVersion's last 4 digits: "5.2 (2579)" for
+// 202607032579, counting up with every build, plain "5.2" once KACHAT_IS_RELEASE is YES for the
+// App Store release. KACHAT_BUILD_NUMBER is no longer shown (kept for the Info.plist key).
 KACHAT_BUILD_NUMBER = 1
 KACHAT_IS_RELEASE = NO
-CURRENT_PROJECT_VERSION = 1
+CURRENT_PROJECT_VERSION = 202607032579
 MARKETING_VERSION = 5.2
 
 // Required for `agvtool` (used by ci_scripts/ci_pre_xcodebuild.sh) to be able to write

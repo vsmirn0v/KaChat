@@ -1534,19 +1534,20 @@ struct ProfileView: View {
         }
     }
 
-    /// "5.0 (1)" through the beta cycle, plain "5.0" once the train is released. The build
-    /// number here is OURS - `KaChatBuildNumber` from Version.xcconfig, bumped per beta - not
-    /// CFBundleVersion, which Xcode Cloud overwrites in the archive with its own ever-rising
-    /// counter (that number still travels in diagnostics archives, where matching the upload
-    /// matters). `KaChatIsRelease` = YES drops the parenthetical for the App Store build.
+    /// "5.2 (2579)" through the beta cycle, plain "5.2" once the train is released. The build is
+    /// the real one in the shipped bundle (CFBundleVersion: Xcode Cloud's counter, e.g.
+    /// 202607032579, or Version.xcconfig's for a local archive), shown by its last 4 digits for
+    /// easier reading - it still counts up with every build. `KaChatIsRelease` = YES drops the
+    /// parenthetical for the App Store build.
     private var appVersionDisplay: String {
         let info = Bundle.main.infoDictionary
         let version = (info?["CFBundleShortVersionString"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !version.isEmpty else { return "Unknown" }
         let isRelease = ((info?["KaChatIsRelease"] as? String) ?? "").uppercased() == "YES"
-        let build = (info?["KaChatBuildNumber"] as? String)?
+        let fullBuild = (info?["CFBundleVersion"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let build = String(fullBuild.suffix(4))
         if isRelease || build.isEmpty {
             return version
         }
