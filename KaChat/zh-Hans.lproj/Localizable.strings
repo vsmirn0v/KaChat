@@ -1587,3 +1587,12 @@
 "Your KAS is in many small coins. Combining them into one first..." = "你的 KAS 分散在许多小额币中。正在先合并为一枚...";
 "Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee." = "你的 KAS 分散在许多小额币中。KaChat 会在注册前将它们合并为一枚,只需极少的额外网络费用。";
 "Not enough KAS on your chatting address for this." = "你的聊天地址上没有足够的 KAS 来完成此操作。";
+
+/* .kachat mainnet launch countdown */
+"Names open in" = "名称开放倒计时";
+"Days" = "天";
+"Hours" = "小时";
+"Minutes" = "分钟";
+"Seconds" = "秒";
+"Then anyone can search and claim a .kachat name here." = "届时任何人都可以在这里搜索并认领 .kachat 名称。";
+".kachat names open to everyone on %@." = ".kachat 名称将于 %@ 向所有人开放。";

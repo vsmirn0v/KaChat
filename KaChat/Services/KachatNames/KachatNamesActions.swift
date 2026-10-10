@@ -111,6 +111,16 @@ final class KachatNamesActions: ObservableObject {
         /// registry v5: registering opens at the migration deadline, once the old registry's names
         /// are imported
         case registrationNotOpen(opensMs: Int64)
+        /// mainnet before its public opening (`KachatNamesService.publicLaunchMs`)
+        case notPublicYet(opensMs: Int64)
+
+        /// Either reason registering can't start yet - shown as a notice, not an error.
+        var isNotOpenYet: Bool {
+            switch self {
+            case .registrationNotOpen, .notPublicYet: return true
+            default: return false
+            }
+        }
 
         var errorDescription: String? {
             switch self {
@@ -135,6 +145,9 @@ final class KachatNamesActions: ObservableObject {
             case .registrationNotOpen(let opens):
                 return String(format: AppLocalization.string("Names are moving to the new registry. New names can be claimed from %@."),
                               KachatNamesActions.dayString(opens))
+            case .notPublicYet(let opens):
+                return String(format: AppLocalization.string(".kachat names open to everyone on %@."),
+                              KachatNamesActions.launchString(opens))
             }
         }
     }
@@ -144,9 +157,21 @@ final class KachatNamesActions: ObservableObject {
     /// Registry v5 refuses `register` until the migration deadline; checked against the wall clock
     /// with the 3-minute margin `registerNow` takes off it.
     nonisolated static func requireRegistrationOpen(_ m: KachatNames.Manifest) throws {
+        // mainnet's countdown: nobody claims a name in the app before the public opening
+        if let opens = KachatNamesService.publicLaunchMs, KachatNames.nowMs() < opens {
+            throw ActionError.notPublicYet(opensMs: opens)
+        }
         guard let deadline = m.params.migration?.deadlineMs,
               KachatNames.nowMs() - 180_000 < deadline else { return }
         throw ActionError.registrationNotOpen(opensMs: deadline + 180_000)
+    }
+
+    /// "Friday, October 16 at 8:00 AM" in the person's own time zone and language.
+    nonisolated static func launchString(_ ms: Int64) -> String {
+        let f = DateFormatter()
+        f.locale = AppLocalization.locale
+        f.setLocalizedDateFormatFromTemplate("EEEEMMMMdjmm")
+        return f.string(from: Date(timeIntervalSince1970: TimeInterval(ms) / 1000))
     }
 
     nonisolated static func dayString(_ ms: Int64) -> String {

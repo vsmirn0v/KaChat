@@ -1587,3 +1587,12 @@
 "Your KAS is in many small coins. Combining them into one first..." = "Ваши KAS разбиты на много мелких монет. Сначала они объединяются в одну...";
 "Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee." = "Ваши KAS разбиты на много мелких монет. Перед регистрацией KaChat объединяет их в одну за крошечную дополнительную комиссию сети.";
 "Not enough KAS on your chatting address for this." = "На вашем адресе для чатов недостаточно KAS для этого.";
+
+/* .kachat mainnet launch countdown */
+"Names open in" = "Имена откроются через";
+"Days" = "Дни";
+"Hours" = "Часы";
+"Minutes" = "Минуты";
+"Seconds" = "Секунды";
+"Then anyone can search and claim a .kachat name here." = "После этого любой сможет найти и занять здесь имя .kachat.";
+".kachat names open to everyone on %@." = "Имена .kachat откроются для всех %@.";

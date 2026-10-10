@@ -1587,3 +1587,12 @@
 "Your KAS is in many small coins. Combining them into one first..." = "KAS của bạn nằm rải rác trong nhiều đồng nhỏ. Đang gộp chúng thành một trước...";
 "Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee." = "KAS của bạn nằm rải rác trong nhiều đồng nhỏ. KaChat gộp chúng thành một trước khi đăng ký, với một khoản phí mạng nhỏ thêm.";
 "Not enough KAS on your chatting address for this." = "Địa chỉ chat của bạn không đủ KAS để làm việc này.";
+
+/* .kachat mainnet launch countdown */
+"Names open in" = "Tên sẽ mở sau";
+"Days" = "Ngày";
+"Hours" = "Giờ";
+"Minutes" = "Phút";
+"Seconds" = "Giây";
+"Then anyone can search and claim a .kachat name here." = "Sau đó ai cũng có thể tìm và nhận tên .kachat tại đây.";
+".kachat names open to everyone on %@." = "Tên .kachat mở cho mọi người vào %@.";

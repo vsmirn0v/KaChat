@@ -1587,3 +1587,12 @@
 "Your KAS is in many small coins. Combining them into one first..." = "KAS Anda tersebar di banyak koin kecil. Koin-koin itu digabung jadi satu dulu...";
 "Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee." = "KAS Anda tersebar di banyak koin kecil. KaChat menggabungkannya jadi satu sebelum mendaftar, dengan biaya jaringan tambahan yang sangat kecil.";
 "Not enough KAS on your chatting address for this." = "KAS di alamat chat Anda tidak cukup untuk ini.";
+
+/* .kachat mainnet launch countdown */
+"Names open in" = "Nama dibuka dalam";
+"Days" = "Hari";
+"Hours" = "Jam";
+"Minutes" = "Menit";
+"Seconds" = "Detik";
+"Then anyone can search and claim a .kachat name here." = "Setelah itu siapa pun bisa mencari dan mengklaim nama .kachat di sini.";
+".kachat names open to everyone on %@." = "Nama .kachat dibuka untuk semua orang pada %@.";

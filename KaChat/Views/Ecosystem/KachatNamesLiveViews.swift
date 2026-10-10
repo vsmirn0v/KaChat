@@ -1918,8 +1918,10 @@ struct KachatClaimSheet: View {
     @State private var years: Int64 = 1
     @State private var quote: KachatNamesActions.Quote?
     @State private var quoteError: String?
-    /// Registry v5 before its migration deadline: why claiming waits, and until when.
+    /// Registry v5 before its migration deadline, or mainnet before its public opening: why
+    /// claiming waits, and until when.
     @State private var notOpen: String?
+    @State private var notOpenIsMigration = false
     @State private var starting = false
     @State private var startError: String?
     @State private var feeTier: WithdrawFeeTier = .normal
@@ -1964,10 +1966,12 @@ struct KachatClaimSheet: View {
                                 Image(systemName: "clock").foregroundColor(.orange)
                             }
                             .font(.subheadline)
-                            Text("Every name from the old registry comes over with the same owner and expiry first.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                            if notOpenIsMigration {
+                                Text("Every name from the old registry comes over with the same owner and expiry first.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
 
@@ -2078,7 +2082,12 @@ struct KachatClaimSheet: View {
                 do {
                     quote = try await KachatNamesActions.shared.quote(name: target.name, years: years, gap: target.gap, feeTier: feeTier)
                 } catch let error as KachatNamesActions.ActionError {
-                    if case .registrationNotOpen = error { notOpen = error.localizedDescription } else { quoteError = error.localizedDescription }
+                    if error.isNotOpenYet {
+                        notOpen = error.localizedDescription
+                        if case .registrationNotOpen = error { notOpenIsMigration = true } else { notOpenIsMigration = false }
+                    } else {
+                        quoteError = error.localizedDescription
+                    }
                 } catch {
                     quoteError = error.localizedDescription
                 }

@@ -79,6 +79,22 @@ final class KachatNamesService: ObservableObject {
     /// listings, registrations, resolving typed names): testnet-10, and mainnet since 2026-10-09.
     nonisolated static var isLaunched: Bool { KachatNames.Manifest.supportedNetworks.contains(networkName) }
 
+    /// Mainnet's public opening, the owner's launch plan (kachat-domains docs/MAINNET.md): until
+    /// then the marketplace shows a countdown and nobody searches or claims names in the app
+    /// (the registry itself is open from its genesis; this gates the app only). Friday
+    /// 2026-10-16, 8:00 AM Eastern (12:00 UTC). Names already held stay manageable meanwhile.
+    nonisolated static let mainnetPublicLaunchMs: Int64 = 1_792_152_000_000
+
+    /// When this network's names open to everyone in the app; nil once there is no countdown
+    /// (testnet never has one).
+    nonisolated static var publicLaunchMs: Int64? {
+        networkName == "mainnet" ? mainnetPublicLaunchMs : nil
+    }
+
+    nonisolated static func isPubliclyOpen(nowMs: Int64 = KachatNames.nowMs()) -> Bool {
+        publicLaunchMs.map { nowMs >= $0 } ?? true
+    }
+
     /// The manifest network name of the network the app runs on.
     nonisolated static var networkName: String { AppSettings.load().networkType == .mainnet ? "mainnet" : "testnet-10" }
 

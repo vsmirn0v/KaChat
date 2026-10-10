@@ -1588,3 +1588,12 @@
 "Your KAS is in many small coins. Combining them into one first..." = "Your KAS is in many small coins. Combining them into one first...";
 "Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee." = "Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee.";
 "Not enough KAS on your chatting address for this." = "Not enough KAS on your chatting address for this.";
+
+/* .kachat mainnet launch countdown */
+"Names open in" = "Names open in";
+"Days" = "Days";
+"Hours" = "Hours";
+"Minutes" = "Minutes";
+"Seconds" = "Seconds";
+"Then anyone can search and claim a .kachat name here." = "Then anyone can search and claim a .kachat name here.";
+".kachat names open to everyone on %@." = ".kachat names open to everyone on %@.";

@@ -67,12 +67,18 @@ struct KachatMarketView: View {
     @State private var claimTarget: KachatClaimTarget?
     /// A name opened from a notification (`KachatDeepLink`).
     @State private var nameRoute: KachatNameRoute?
+    /// Mainnet before its public opening shows the countdown instead of search and the pages;
+    /// flips by itself when the moment comes (`KachatNamesService.publicLaunchMs`).
+    @State private var publiclyOpen = KachatNamesService.isPubliclyOpen()
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
                     hero
+                    if !publiclyOpen, let opens = KachatNamesService.publicLaunchMs {
+                        KachatLaunchCountdown(opensMs: opens)
+                    } else {
                     searchCard
                     // Registrations in flight: the claims button in the toolbar (KachatClaimsButton).
                     UnderlineTabBar(
@@ -96,12 +102,23 @@ struct KachatMarketView: View {
                         case .activity: activityPage
                         }
                     }
+                    }
                 }
                 .padding(.bottom, 28)
             }
             // Pull to refresh on testnet only; mainnet has nothing to refresh.
             .modifier(KachatRefreshable(enabled: live.isLive) { await live.refresh() })
             .task { await live.start() }
+            // the countdown ends while the screen is open: the marketplace opens without a relaunch
+            .task(id: KachatNamesService.networkName) {
+                publiclyOpen = KachatNamesService.isPubliclyOpen()
+                while !publiclyOpen, let opens = KachatNamesService.publicLaunchMs {
+                    let left = max(0, opens - KachatNames.nowMs())
+                    try? await Task.sleep(nanoseconds: UInt64(min(left, 60_000) + 50) * 1_000_000)
+                    if Task.isCancelled { return }
+                    publiclyOpen = KachatNamesService.isPubliclyOpen()
+                }
+            }
             .onReceive(KachatNamesRegistry.shared.$revision.dropFirst()) { _ in
                 guard live.isLive else { return }
                 Task { await live.reload() }
@@ -932,5 +949,56 @@ struct KachatAddressLiveNamesList: View {
         // an expired name past grace isn't theirs any more: it's available to anyone
         names = (try? await registry.heldNames(owner: key)) ?? []
         loaded = true
+    }
+}
+
+/// Mainnet's countdown to the public opening (`KachatNamesService.publicLaunchMs`): days, hours,
+/// minutes and seconds ticking down, and the moment in the person's own time zone.
+private struct KachatLaunchCountdown: View {
+    let opensMs: Int64
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let left = max(0, Int(Double(opensMs) / 1000 - context.date.timeIntervalSince1970))
+            VStack(spacing: 14) {
+                Text("Names open in")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                HStack(spacing: 8) {
+                    unit(left / 86_400, "Days")
+                    unit(left % 86_400 / 3_600, "Hours")
+                    unit(left % 3_600 / 60, "Minutes")
+                    unit(left % 60, "Seconds")
+                }
+                Text(verbatim: KachatNamesActions.launchString(opensMs))
+                    .font(.subheadline.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                Text("Then anyone can search and claim a .kachat name here.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+            .padding(.horizontal, 16)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private func unit(_ value: Int, _ label: LocalizedStringKey) -> some View {
+        VStack(spacing: 4) {
+            Text(verbatim: String(format: "%02d", value))
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .monospacedDigit()
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.accentColor.opacity(0.12)))
     }
 }
