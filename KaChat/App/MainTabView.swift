@@ -110,10 +110,9 @@ struct MainTabView: View {
             }
         }
         .tint(.accentColor)
-        // the bell has something unread: Profile's dock dot, from whichever tab is showing
-        .onReceive(notifCenter.objectWillChange) { _ in syncProfileDot() }
-        .onChange(of: selectedTab) { _ in syncProfileDot() }
-        .onChange(of: AppTab.visible(from: settingsViewModel.settings)) { _ in syncProfileDot() }
+        // the bell has something unread: Profile's dock dot, from whichever tab is showing. Its
+        // own modifier: inline, these pushed the body past what the type checker can solve.
+        .modifier(ProfileDockDotSync(selectedTab: selectedTab, dockTabs: AppTab.visible(from: settingsViewModel.settings)))
         // a .kachat registration in flight: its progress half sheet, back up after a relaunch
         .modifier(KachatRegistrationPresenter())
         .toast(message: nextcloudService.syncStatusToast)
@@ -125,7 +124,6 @@ struct MainTabView: View {
             }
             chatService.startPolling()
             preloadProfileResources()
-            syncProfileDot()
             // A notification tapped from a cold start routed before this view existed - replay
             // its tab switch now that there's something to switch.
             consumePendingNotificationRoute()
@@ -289,12 +287,6 @@ struct MainTabView: View {
         AppTabBadge.dockLabel(for: tab).map { Text(verbatim: $0) }
     }
 
-    /// Profile's dot, set on the tab bar item itself (`AppTabBadge.syncProfileDot`), after the
-    /// render that triggered it so it lands on the bar SwiftUI just updated.
-    private func syncProfileDot() {
-        let tabs = AppTab.visible(from: settingsViewModel.settings)
-        DispatchQueue.main.async { AppTabBadge.syncProfileDot(dockTabs: tabs) }
-    }
 
     @ViewBuilder
     private func tabContent(for tab: AppTab) -> some View {
@@ -654,5 +646,27 @@ private struct OwnAddressSheetPresenter: ViewModifier {
                     .environmentObject(WalletManager.shared)
                     .environmentObject(ContactsManager.shared)
             }
+    }
+}
+
+/// Keeps Profile's dock dot in step with the bell (`AppTabBadge.syncProfileDot`): when the feed
+/// changes, the tab changes, the dock is rearranged, and on appear - set after the render that
+/// triggered it, so it lands on the bar SwiftUI just updated.
+private struct ProfileDockDotSync: ViewModifier {
+    @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
+    let selectedTab: Int
+    let dockTabs: [AppTab]
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(notifCenter.objectWillChange) { _ in sync() }
+            .onChange(of: selectedTab) { _ in sync() }
+            .onChange(of: dockTabs) { _ in sync() }
+            .onAppear { sync() }
+    }
+
+    private func sync() {
+        let tabs = dockTabs
+        DispatchQueue.main.async { AppTabBadge.syncProfileDot(dockTabs: tabs) }
     }
 }
